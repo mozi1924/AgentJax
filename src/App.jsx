@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
-import { getAIResponse, mockResponses } from './utils/mockResponses';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -17,7 +17,8 @@ function App() {
     {
       id: 'chat-1',
       title: '新对话',
-      messages: []
+      messages: [],
+      lastResponseId: null
     }
   ]);
 
@@ -51,7 +52,7 @@ function App() {
     };
   }, []);
 
-  const handleSend = (textToSend) => {
+  const handleSend = async (textToSend) => {
     const text = textToSend || input;
     if (!text.trim() || isGenerating) return;
 
@@ -86,55 +87,58 @@ function App() {
     setChats(updatedChats);
     setIsGenerating(true);
 
-    // Add empty assistant response slot
-    setTimeout(() => {
-      const assistantMsgId = `m-a-${Date.now()}`;
+    const assistantMsgId = `m-a-${Date.now()}`;
+    setChats((prevChats) =>
+      prevChats.map((c) => {
+        if (c.id === activeChat.id) {
+          return {
+            ...c,
+            messages: [
+              ...c.messages,
+              { id: assistantMsgId, role: 'assistant', text: '' }
+            ]
+          };
+        }
+        return c;
+      })
+    );
+
+    try {
+      const response = await invoke('chat_with_responses', {
+        req: {
+          input: text,
+          previousResponseId: activeChat.lastResponseId,
+          model: selectedModel === 'Pro' ? 'gpt-5' : 'gpt-5-mini'
+        }
+      });
+
       setChats((prevChats) =>
         prevChats.map((c) => {
           if (c.id === activeChat.id) {
-            return {
-              ...c,
-              messages: [
-                ...c.messages,
-                { id: assistantMsgId, role: 'assistant', text: '' }
-              ]
-            };
+            const msgs = c.messages.map((m) =>
+              m.id === assistantMsgId ? { ...m, text: response.outputText || '' } : m
+            );
+            return { ...c, messages: msgs, lastResponseId: response.responseId || null };
           }
           return c;
         })
       );
-
-      // Simulate streaming response
-      const rawResponseText = getAIResponse(text);
-      let streamedText = '';
-      let index = 0;
-
-      const streamTimer = setInterval(() => {
-        if (index < rawResponseText.length) {
-          // Progressively append chunks of characters
-          const nextChunkSize = Math.floor(Math.random() * 10) + 4;
-          streamedText += rawResponseText.substring(index, index + nextChunkSize);
-          index += nextChunkSize;
-
-          setChats((prevChats) =>
-            prevChats.map((c) => {
-              if (c.id === activeChat.id) {
-                const msgs = [...c.messages];
-                const lastMsg = msgs[msgs.length - 1];
-                if (lastMsg && lastMsg.role === 'assistant') {
-                  lastMsg.text = streamedText;
-                }
-                return { ...c, messages: msgs };
-              }
-              return c;
-            })
-          );
-        } else {
-          clearInterval(streamTimer);
-          setIsGenerating(false);
-        }
-      }, 20);
-    }, 600);
+    } catch (err) {
+      const errorText = typeof err === 'string' ? err : '请求失败，请检查 OPENAI_API_KEY 和网络连接。';
+      setChats((prevChats) =>
+        prevChats.map((c) => {
+          if (c.id === activeChat.id) {
+            const msgs = c.messages.map((m) =>
+              m.id === assistantMsgId ? { ...m, text: `调用失败：${errorText}` } : m
+            );
+            return { ...c, messages: msgs };
+          }
+          return c;
+        })
+      );
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleNewChat = () => {
@@ -142,7 +146,8 @@ function App() {
     const newChatObj = {
       id: newId,
       title: '新对话',
-      messages: []
+      messages: [],
+      lastResponseId: null
     };
     setChats([newChatObj, ...chats]);
     setActiveChatId(newId);
