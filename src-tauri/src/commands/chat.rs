@@ -71,7 +71,7 @@ pub async fn chat_with_responses_stream(
         request_id: request_id.clone(),
         event_index: next_event_index(&mut event_index),
         kind: "done".to_string(),
-        delta: None,
+        delta: Some(response.output_text.clone()),
         response_id: Some(response.id.clone()),
         error: None,
       },

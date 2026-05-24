@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 
@@ -90,7 +89,8 @@ function App() {
     let disposed = false;
 
     const setup = async () => {
-      const unlisten = await listen('chat_stream_event', (event) => {
+      const currentWindow = getCurrentWindow();
+      const unlisten = await currentWindow.listen('chat_stream_event', (event) => {
         const payload = event?.payload || {};
         const requestId = payload.requestId;
         const mapping = requestId ? streamRequestMapRef.current[requestId] : null;
@@ -116,11 +116,21 @@ function App() {
           );
         }
 
-        if (payload.kind === 'done' && payload.responseId) {
+        if (payload.kind === 'done') {
           setChats((prevChats) =>
-            prevChats.map((chat) =>
-              chat.id === mapping.chatId ? { ...chat, lastResponseId: payload.responseId } : chat
-            )
+            prevChats.map((chat) => {
+              if (chat.id !== mapping.chatId) return chat;
+              const nextMessages = chat.messages.map((m) =>
+                m.id === mapping.assistantMsgId && typeof payload.delta === 'string' && payload.delta.length > 0
+                  ? { ...m, text: payload.delta }
+                  : m
+              );
+              return {
+                ...chat,
+                messages: nextMessages,
+                lastResponseId: payload.responseId || chat.lastResponseId
+              };
+            })
           );
         }
       });
