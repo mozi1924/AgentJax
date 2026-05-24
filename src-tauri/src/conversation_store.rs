@@ -758,3 +758,25 @@ fn now_unix_ms() -> i64 {
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delete_conversation_removes_jsonl_file() {
+        let conversation_id = format!("test-delete-{}", Uuid::new_v4());
+        let utility_model = "gpt-5-mini";
+
+        let path = conversation_file_path(&conversation_id).expect("path");
+        ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
+        assert!(path.exists(), "conversation file should exist before delete");
+
+        let deleted = delete_conversation(&conversation_id).expect("delete conversation");
+        assert!(deleted, "delete should report true when file existed");
+        assert!(
+            !path.exists(),
+            "conversation file should be removed after delete"
+        );
+    }
+}

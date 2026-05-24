@@ -232,7 +232,29 @@ pub fn rename_conversation(
 
 #[tauri::command]
 pub fn delete_conversation(req: DeleteConversationRequest) -> Result<bool, String> {
-    conversation_store::delete_conversation(&req.conversation_id)
+    log::info!(
+        "delete_conversation invoked for conversation_id={}",
+        req.conversation_id
+    );
+    eprintln!(
+        "delete_conversation invoked for conversation_id={}",
+        req.conversation_id
+    );
+
+    let deleted = conversation_store::delete_conversation(&req.conversation_id)?;
+
+    log::info!(
+        "delete_conversation finished for conversation_id={}, deleted={}",
+        req.conversation_id,
+        deleted
+    );
+    eprintln!(
+        "delete_conversation finished for conversation_id={}, deleted={}",
+        req.conversation_id,
+        deleted
+    );
+
+    Ok(deleted)
 }
 
 #[derive(Debug, Serialize, Clone)]

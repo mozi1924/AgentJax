@@ -5,6 +5,7 @@ import AppHeader from './components/AppHeader';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import ChatComposer from './components/ChatComposer';
+import ConfirmModal from './components/ConfirmModal';
 import {
   applyConversationTitle,
   buildDraftConversationTitle,
@@ -29,6 +30,7 @@ function App() {
   const [composerHeight, setComposerHeight] = useState(0);
   const [emptyComposerOffset, setEmptyComposerOffset] = useState(0);
   const [conversations, setConversations] = useState(() => [createLocalConversation()]);
+  const [conversationToDelete, setConversationToDelete] = useState(null);
   const [activeConversationId, setActiveConversationId] = useState(
     () => conversations[0].conversationId
   );
@@ -593,47 +595,123 @@ function App() {
     }
   };
 
-  const handleDeleteConversation = async (conversationId) => {
+  const handleDeleteConversation = (conversationId) => {
     const targetConversation = conversations.find(
       (conversation) => conversation.conversationId === conversationId
     );
     if (!targetConversation) return;
+    setConversationToDelete(targetConversation);
+  };
 
-    const confirmed = globalThis.confirm
-      ? globalThis.confirm(`删除对话“${getConversationDisplayTitle(targetConversation)}”？此操作无法撤销。`)
-      : true;
-    if (!confirmed) return;
+  const executeDeleteConversation = async () => {
+    if (!conversationToDelete) return;
+    const conversationId = conversationToDelete.conversationId;
+    const targetConversation = conversationToDelete;
+    setConversationToDelete(null);
 
-    const remainingConversations = conversations.filter(
-      (conversation) => conversation.conversationId !== conversationId
-    );
-    const fallbackConversation = createLocalConversation();
+    let rollbackConversation = targetConversation;
+    let optimisticNextActiveId = null;
 
-    setConversations(
-      remainingConversations.length > 0 ? remainingConversations : [fallbackConversation]
-    );
-
-    if (activeConversationId === conversationId) {
-      setActiveConversationId(
-        remainingConversations[0]?.conversationId || fallbackConversation.conversationId
+    setConversations((prevConversations) => {
+      const currentTarget = prevConversations.find(
+        (conversation) => conversation.conversationId === conversationId
       );
-    }
+      if (!currentTarget) {
+        return prevConversations;
+      }
+
+      rollbackConversation = currentTarget;
+      const remainingConversations = prevConversations.filter(
+        (conversation) => conversation.conversationId !== conversationId
+      );
+
+      if (remainingConversations.length > 0) {
+        optimisticNextActiveId = remainingConversations[0].conversationId;
+        return remainingConversations;
+      }
+
+      const fallbackConversation = createLocalConversation();
+      optimisticNextActiveId = fallbackConversation.conversationId;
+      return [fallbackConversation];
+    });
+
+    setActiveConversationId((prevActiveConversationId) =>
+      prevActiveConversationId === conversationId
+        ? optimisticNextActiveId || prevActiveConversationId
+        : prevActiveConversationId
+    );
 
     try {
-      await invoke('delete_conversation', {
+      const deleted = await invoke('delete_conversation', {
         req: { conversationId }
       });
+
+      if (deleted === false) {
+        console.warn('[delete_conversation] conversation file not found for id:', conversationId);
+      }
+
+      const storedConversations = await invoke('list_conversations');
+      if (Array.isArray(storedConversations)) {
+        let nextConversationIds = new Set();
+        let fallbackActiveId = null;
+
+        setConversations((prevConversations) => {
+          const localDrafts = prevConversations.filter((conversation) =>
+            isConversationEmpty(conversation)
+          );
+
+          const restoredConversations = storedConversations.map((conversation) => ({
+            conversationId: conversation.conversationId,
+            title: conversation.title || '',
+            titleSource: conversation.titleSource || 'stored',
+            messages: [],
+            lastResponseId: null,
+            lastMessagePreview: conversation.lastMessagePreview || '',
+            messageCount: conversation.messageCount || 0,
+            isLoaded: false
+          }));
+
+          const existingIds = new Set(restoredConversations.map((conversation) => conversation.conversationId));
+          const remainingLocalDrafts = localDrafts.filter(
+            (conversation) => !existingIds.has(conversation.conversationId)
+          );
+
+          const nextConversations = [...remainingLocalDrafts, ...restoredConversations];
+          if (nextConversations.length === 0) {
+            const fallbackConversation = createLocalConversation();
+            nextConversationIds = new Set([fallbackConversation.conversationId]);
+            fallbackActiveId = fallbackConversation.conversationId;
+            return [fallbackConversation];
+          }
+
+          nextConversationIds = new Set(
+            nextConversations.map((conversation) => conversation.conversationId)
+          );
+          fallbackActiveId = nextConversations[0].conversationId;
+          return nextConversations;
+        });
+
+        setActiveConversationId((prevActiveConversationId) => {
+          if (nextConversationIds.has(prevActiveConversationId)) {
+            return prevActiveConversationId;
+          }
+          return fallbackActiveId || prevActiveConversationId;
+        });
+      }
     } catch {
       setConversations((prevConversations) => {
         const exists = prevConversations.some(
           (conversation) => conversation.conversationId === conversationId
         );
         if (exists) return prevConversations;
-        return [targetConversation, ...prevConversations];
+        return [rollbackConversation, ...prevConversations];
       });
-      if (activeConversationId === conversationId) {
-        setActiveConversationId(conversationId);
-      }
+      setActiveConversationId((prevActiveConversationId) =>
+        prevActiveConversationId === optimisticNextActiveId
+          ? conversationId
+          : prevActiveConversationId
+      );
+      console.error('[delete_conversation] invoke failed for id:', conversationId);
     }
   };
 
@@ -773,6 +851,15 @@ function App() {
           </div>
         </div>
       </main>
+
+      {conversationToDelete && (
+        <ConfirmModal
+          title="删除对话"
+          message={`确定要删除对话“${getConversationDisplayTitle(conversationToDelete)}”吗？此操作无法撤销。`}
+          onConfirm={executeDeleteConversation}
+          onCancel={() => setConversationToDelete(null)}
+        />
+      )}
     </div>
   );
 }

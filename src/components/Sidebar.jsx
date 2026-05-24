@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Settings, Menu } from 'lucide-react';
+import { Plus, Search, Settings } from 'lucide-react';
 import SidebarActionMenu from './sidebar/SidebarActionMenu';
 import SidebarConversationRow from './sidebar/SidebarConversationRow';
 import { getConversationDisplayTitle } from '../features/conversations/conversationUtils';
@@ -12,8 +12,7 @@ export default function Sidebar({
   onNewChat,
   onRenameConversation,
   onDeleteConversation,
-  isGenerating,
-  onToggleSidebar
+  isGenerating
 }) {
   const [editingConversationId, setEditingConversationId] = useState(null);
   const [draftTitle, setDraftTitle] = useState('');
@@ -43,7 +42,7 @@ export default function Sidebar({
   }, [editingConversationId]);
 
   useEffect(() => {
-    const handlePointerDown = (event) => {
+    const handleDocumentMouseDown = (event) => {
       const target = event.target;
 
       if (menuState && menuRef.current && !menuRef.current.contains(target)) {
@@ -70,11 +69,11 @@ export default function Sidebar({
       }
     };
 
-    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('mousedown', handleDocumentMouseDown);
     document.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('mousedown', handleDocumentMouseDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [editingConversationId, menuState]);
@@ -170,14 +169,14 @@ export default function Sidebar({
     beginRename(conversation);
   };
 
-  const handleMenuDelete = () => {
+  const handleMenuDelete = async () => {
     if (!menuState?.conversationId) {
       return;
     }
 
     const conversationId = menuState.conversationId;
     setMenuState(null);
-    onDeleteConversation(conversationId);
+    await onDeleteConversation(conversationId);
   };
 
   return (
