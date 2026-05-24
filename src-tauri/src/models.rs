@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::{self, AppConfig};
 use crate::providers;
+use crate::providers::types::ProviderModelDescriptor;
 
 const MODEL_CACHE_FILE_NAME: &str = "models-cache.yaml";
 pub const MODEL_CACHE_SYNC_INTERVAL_SECONDS: u64 = 30 * 60;
@@ -20,17 +21,29 @@ pub struct ModelCache {
 #[serde(default)]
 pub struct ProviderModelCache {
     pub last_synced_unix: i64,
-    pub models: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_cached_models")]
+    pub models: Vec<ProviderModelDescriptor>,
     pub source_api_endpoint: String,
 }
 
 impl Default for ModelCache {
     fn default() -> Self {
         Self {
-            version: 2,
+            version: 3,
             providers: BTreeMap::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCatalogEntry {
+    pub profile_key: String,
+    pub provider_key: String,
+    pub model_id: String,
+    pub supports_reasoning: bool,
+    pub supported_reasoning_levels: Vec<String>,
+    pub configured_reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -43,6 +56,7 @@ pub struct ModelCatalog {
     pub configured_models: Vec<String>,
     pub cached_models: Vec<String>,
     pub effective_models: Vec<String>,
+    pub model_options: Vec<ModelCatalogEntry>,
     pub cache_stale: bool,
     pub last_synced_unix: Option<i64>,
 }
@@ -61,7 +75,7 @@ pub async fn get_model_catalog(sync_if_stale: bool) -> Result<ModelCatalog, Stri
     let cached_models = cache
         .as_ref()
         .and_then(|c| c.providers.get(&cfg.active_provider))
-        .map(|entry| dedup_models(entry.models.clone()))
+        .map(|entry| dedup_models(entry.models.iter().map(|model| model.id.clone()).collect()))
         .unwrap_or_default();
 
     let mut effective_models = if configured_models.is_empty() {
@@ -86,6 +100,7 @@ pub async fn get_model_catalog(sync_if_stale: bool) -> Result<ModelCatalog, Stri
         configured_models,
         cached_models,
         effective_models,
+        model_options: build_model_catalog_entries(&cfg, cache.as_ref())?,
         cache_stale: active_cache_entry
             .map(provider_cache_is_stale)
             .unwrap_or(true),
@@ -121,7 +136,7 @@ pub async fn sync_remote_model_cache_if_stale(
 
 pub async fn sync_remote_model_cache_with_config(cfg: &AppConfig) -> Result<ModelCache, String> {
     let mut cache = load_model_cache()?.unwrap_or_default();
-    cache.version = 2;
+    cache.version = 3;
 
     let mut successful_providers = 0usize;
     let mut sync_errors = Vec::new();
@@ -134,7 +149,7 @@ pub async fn sync_remote_model_cache_with_config(cfg: &AppConfig) -> Result<Mode
                     provider_key.clone(),
                     ProviderModelCache {
                         last_synced_unix: now_unix(),
-                        models: dedup_models(ids),
+                        models: dedup_model_descriptors(ids),
                         source_api_endpoint: cfg
                             .resolved_provider(&provider_key)
                             .map(|p| p.api_endpoint)
@@ -203,6 +218,129 @@ fn dedup_models(models: Vec<String>) -> Vec<String> {
         }
     }
     set.into_iter().collect()
+}
+
+fn dedup_model_descriptors(models: Vec<ProviderModelDescriptor>) -> Vec<ProviderModelDescriptor> {
+    let mut deduped = BTreeMap::new();
+
+    for model in models {
+        let id = model.id.trim().to_string();
+        if id.is_empty() {
+            continue;
+        }
+
+        let mut supported_reasoning_levels = Vec::new();
+        for level in model.supported_reasoning_levels {
+            let level = level.trim().to_lowercase();
+            if level.is_empty()
+                || supported_reasoning_levels
+                    .iter()
+                    .any(|existing| existing == &level)
+            {
+                continue;
+            }
+            supported_reasoning_levels.push(level);
+        }
+
+        deduped.insert(
+            id.clone(),
+            ProviderModelDescriptor {
+                id,
+                supported_reasoning_levels,
+            },
+        );
+    }
+
+    deduped.into_values().collect()
+}
+
+fn build_model_catalog_entries(
+    cfg: &AppConfig,
+    cache: Option<&ModelCache>,
+) -> Result<Vec<ModelCatalogEntry>, String> {
+    let mut entries = Vec::new();
+
+    for (profile_key, profile) in &cfg.model_profiles {
+        if !profile.enabled {
+            continue;
+        }
+
+        let cached_levels = cache
+            .and_then(|cache| cache.providers.get(&profile.provider))
+            .and_then(|provider_cache| {
+                provider_cache
+                    .models
+                    .iter()
+                    .find(|model| model.id == profile.model)
+                    .map(|model| model.supported_reasoning_levels.as_slice())
+            });
+
+        let reasoning = providers::get_reasoning_capability(
+            &cfg.resolved_provider(&profile.provider)?.kind,
+            &profile.model,
+            cached_levels,
+        )?;
+
+        let configured_reasoning_effort = profile
+            .request
+            .reasoning_effort
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .filter(|value| {
+                reasoning
+                    .supported_reasoning_levels
+                    .iter()
+                    .any(|level| level == value)
+            })
+            .map(ToOwned::to_owned);
+
+        entries.push(ModelCatalogEntry {
+            profile_key: profile_key.clone(),
+            provider_key: profile.provider.clone(),
+            model_id: profile.model.clone(),
+            supports_reasoning: reasoning.supports_reasoning,
+            supported_reasoning_levels: reasoning.supported_reasoning_levels,
+            configured_reasoning_effort,
+        });
+    }
+
+    Ok(entries)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum CachedModelRecord {
+    Id(String),
+    Descriptor(ProviderModelDescriptor),
+}
+
+fn deserialize_cached_models<'de, D>(
+    deserializer: D,
+) -> Result<Vec<ProviderModelDescriptor>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let records = Vec::<CachedModelRecord>::deserialize(deserializer)?;
+    let models = records
+        .into_iter()
+        .filter_map(|record| match record {
+            CachedModelRecord::Id(id) => {
+                let id = id.trim().to_string();
+                if id.is_empty() {
+                    None
+                } else {
+                    Some(ProviderModelDescriptor {
+                        id,
+                        supported_reasoning_levels: Vec::new(),
+                    })
+                }
+            }
+            CachedModelRecord::Descriptor(model) => Some(model),
+        })
+        .collect::<Vec<_>>();
+
+    Ok(dedup_model_descriptors(models))
 }
 
 fn now_unix() -> i64 {

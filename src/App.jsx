@@ -17,15 +17,50 @@ import {
   shouldShowConversationInSidebar
 } from './features/conversations/conversationUtils';
 
+const DEFAULT_MODEL_PROFILE = 'gpt-5-mini';
+const DEFAULT_REASONING_MODE = '__default__';
+
+const buildFallbackModelOption = (profileKey) => ({
+  profileKey,
+  providerKey: '',
+  modelId: profileKey,
+  supportsReasoning: false,
+  supportedReasoningLevels: [],
+  configuredReasoningEffort: null
+});
+
+const normalizeModelOption = (option) => {
+  const profileKey = (option?.profileKey || option?.modelId || '').trim();
+  if (!profileKey) {
+    return null;
+  }
+
+  const configuredReasoningEffort = (option?.configuredReasoningEffort || '').trim().toLowerCase();
+  return {
+    profileKey,
+    providerKey: (option?.providerKey || '').trim(),
+    modelId: (option?.modelId || profileKey).trim(),
+    supportsReasoning: !!option?.supportsReasoning,
+    supportedReasoningLevels: Array.isArray(option?.supportedReasoningLevels)
+      ? option.supportedReasoningLevels
+        .map((level) => `${level || ''}`.trim().toLowerCase())
+        .filter(Boolean)
+      : [],
+    configuredReasoningEffort: configuredReasoningEffort || null
+  };
+};
+
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gpt-5-mini');
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL_PROFILE);
   const [modelOptions, setModelOptions] = useState([]);
+  const [selectedReasoningModes, setSelectedReasoningModes] = useState({});
   const [configPath, setConfigPath] = useState('');
   const [cachePath, setCachePath] = useState('');
   const [input, setInput] = useState('');
   const [generatingConversationIds, setGeneratingConversationIds] = useState(() => new Set());
   const [stoppingConversationIds, setStoppingConversationIds] = useState(() => new Set());
+  const [thinkingConversationIds, setThinkingConversationIds] = useState(() => new Set());
   const [attachment, setAttachment] = useState(null);
   const [composerHeight, setComposerHeight] = useState(0);
   const [emptyComposerOffset, setEmptyComposerOffset] = useState(0);
@@ -60,12 +95,25 @@ function App() {
     () => getConversationDisplayTitle(activeConversation),
     [activeConversation]
   );
+  const selectedModelOption = useMemo(
+    () =>
+      modelOptions.find((option) => option.profileKey === selectedModel) ||
+      modelOptions[0] ||
+      null,
+    [modelOptions, selectedModel]
+  );
+  const selectedReasoningMode = selectedModelOption
+    ? selectedReasoningModes[selectedModelOption.profileKey] ?? DEFAULT_REASONING_MODE
+    : DEFAULT_REASONING_MODE;
   const activeConversationIsGenerating =
     !!activeConversation?.conversationId &&
     generatingConversationIds.has(activeConversation.conversationId);
   const activeConversationIsStopping =
     !!activeConversation?.conversationId &&
     stoppingConversationIds.has(activeConversation.conversationId);
+  const activeConversationIsThinking =
+    !!activeConversation?.conversationId &&
+    thinkingConversationIds.has(activeConversation.conversationId);
   const hasAnyGenerating = generatingConversationIds.size > 0;
   const isEmptyConversation = (activeConversation?.messages?.length ?? 0) === 0;
   const conversationViewKey = `${activeConversationId}-${isEmptyConversation ? 'empty' : 'messages'}`;
@@ -96,6 +144,19 @@ function App() {
     });
   };
 
+  const markConversationThinking = (conversationId, isThinking) => {
+    if (!conversationId) return;
+    setThinkingConversationIds((prev) => {
+      const next = new Set(prev);
+      if (isThinking) {
+        next.add(conversationId);
+      } else {
+        next.delete(conversationId);
+      }
+      return next;
+    });
+  };
+
   const clearConversationRequestState = (conversationId) => {
     if (!conversationId) return;
 
@@ -115,6 +176,7 @@ function App() {
 
     markConversationGenerating(conversationId, false);
     markConversationStopping(conversationId, false);
+    markConversationThinking(conversationId, false);
   };
 
   useEffect(() => {
@@ -202,16 +264,30 @@ function App() {
     invoke('get_model_catalog')
       .then((catalog) => {
         if (!mounted || !catalog) return;
-        const available = Array.isArray(catalog.effectiveModels) && catalog.effectiveModels.length > 0
-          ? catalog.effectiveModels
-          : ['gpt-5-mini'];
+        const available = Array.isArray(catalog.modelOptions) && catalog.modelOptions.length > 0
+          ? catalog.modelOptions.map(normalizeModelOption).filter(Boolean)
+          : (
+            Array.isArray(catalog.effectiveModels) && catalog.effectiveModels.length > 0
+              ? catalog.effectiveModels
+              : [DEFAULT_MODEL_PROFILE]
+          ).map(buildFallbackModelOption);
+        const availableProfileKeys = available.map((option) => option.profileKey);
         const configuredDefault = (catalog.defaultModel || '').trim();
-        const nextModel = configuredDefault && available.includes(configuredDefault)
+        const nextModel = configuredDefault && availableProfileKeys.includes(configuredDefault)
           ? configuredDefault
-          : available[0];
+          : available[0]?.profileKey || DEFAULT_MODEL_PROFILE;
 
         setModelOptions(available);
         setSelectedModel(nextModel);
+        setSelectedReasoningModes((prev) => {
+          const next = {};
+          available.forEach((option) => {
+            next[option.profileKey] = Object.prototype.hasOwnProperty.call(prev, option.profileKey)
+              ? prev[option.profileKey]
+              : option.configuredReasoningEffort || DEFAULT_REASONING_MODE;
+          });
+          return next;
+        });
         if (catalog.configPath) {
           setConfigPath(catalog.configPath);
         }
@@ -343,7 +419,18 @@ function App() {
           mapping.lastEventIndex = eventIndex;
         }
 
+        if (payload.kind === 'thinking') {
+          markConversationThinking(mapping.conversationId, true);
+          return;
+        }
+
+        if (payload.kind === 'output_started') {
+          markConversationThinking(mapping.conversationId, false);
+          return;
+        }
+
         if (payload.kind === 'delta' && payload.delta) {
+          markConversationThinking(mapping.conversationId, false);
           setConversations((prevConversations) =>
             prevConversations.map((conversation) => {
               if (conversation.conversationId !== mapping.conversationId) return conversation;
@@ -360,6 +447,7 @@ function App() {
         if (payload.kind === 'done') {
           markConversationGenerating(mapping.conversationId, false);
           markConversationStopping(mapping.conversationId, false);
+          markConversationThinking(mapping.conversationId, false);
 
           setConversations((prevConversations) =>
             prevConversations.map((conversation) => {
@@ -446,6 +534,7 @@ function App() {
 
     markConversationGenerating(currentConversationId, true);
     markConversationStopping(currentConversationId, false);
+    markConversationThinking(currentConversationId, false);
 
     const assistantMessageId = targetAssistantMessageId || `m-a-${Date.now()}`;
     setConversations((prevConversations) =>
@@ -509,12 +598,19 @@ function App() {
     };
     activeConversationRequestRef.current[currentConversationId] = requestId;
 
+    const selectedReasoningEffort =
+      selectedModelOption?.profileKey === selectedModel &&
+      selectedReasoningMode !== DEFAULT_REASONING_MODE
+        ? selectedReasoningMode
+        : null;
+
     try {
       const response = await invoke('chat_stream', {
         req: {
           input: text,
           conversationId: currentConversationId,
           model: selectedModel,
+          reasoningEffort: selectedReasoningEffort,
           requestId
         }
       });
@@ -550,6 +646,7 @@ function App() {
         })
       );
     } catch (err) {
+      markConversationThinking(currentConversationId, false);
       const errorText = typeof err === 'string'
         ? err
         : '请求失败，请检查配置文件中的 credential / api_endpoint 和网络连接。';
@@ -585,7 +682,16 @@ function App() {
       }
       markConversationGenerating(currentConversationId, false);
       markConversationStopping(currentConversationId, false);
+      markConversationThinking(currentConversationId, false);
     }
+  };
+
+  const handleSelectReasoningMode = (profileKey, reasoningMode) => {
+    if (!profileKey) return;
+    setSelectedReasoningModes((prev) => ({
+      ...prev,
+      [profileKey]: reasoningMode || DEFAULT_REASONING_MODE
+    }));
   };
 
   const handleRetryMessage = (assistantMessageId) => {
@@ -850,8 +956,11 @@ function App() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
         selectedModel={selectedModel}
+        selectedModelOption={selectedModelOption}
         modelOptions={modelOptions}
         onSelectModel={setSelectedModel}
+        selectedReasoningMode={selectedReasoningMode}
+        onSelectReasoningMode={handleSelectReasoningMode}
         configPath={configPath}
         cachePath={cachePath}
       />
@@ -876,6 +985,7 @@ function App() {
               <ChatArea
                 messages={activeConversation?.messages || []}
                 isGenerating={activeConversationIsGenerating}
+                isThinking={activeConversationIsThinking}
                 onRetryMessage={handleRetryMessage}
                 onSuggestionClick={handleSuggestionClick}
                 activeChatTitle={activeChatTitle}

@@ -6,7 +6,10 @@ use tokio::sync::watch;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
-use super::types::{ResponseStreamRequest, ResponseStreamResult};
+use super::types::{
+    ModelReasoningCapability, ProviderModelDescriptor, ProviderStreamEvent, ResponseStreamRequest,
+    ResponseStreamResult,
+};
 use crate::config::{ModelRequestConfig, ResolvedModelConfig};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -17,9 +20,17 @@ struct RemoteModelsResponse {
 #[derive(Debug, Clone, Deserialize)]
 struct RemoteModel {
     id: String,
+    #[serde(
+        default,
+        alias = "supportedReasoningLevels",
+        alias = "supported_reasoning_levels"
+    )]
+    supported_reasoning_levels: Vec<String>,
 }
 
-pub async fn fetch_remote_models(resolved: &ResolvedModelConfig) -> Result<Vec<String>, String> {
+pub async fn fetch_remote_models(
+    resolved: &ResolvedModelConfig,
+) -> Result<Vec<ProviderModelDescriptor>, String> {
     let credential = resolved.provider.resolved_credential().ok_or_else(|| {
         format!(
             "Provider '{}' credential is missing. Set credential in config.yaml or {} env.",
@@ -58,8 +69,19 @@ pub async fn fetch_remote_models(resolved: &ResolvedModelConfig) -> Result<Vec<S
     let models = parsed
         .data
         .into_iter()
-        .map(|m| m.id.trim().to_string())
-        .filter(|id| !id.is_empty())
+        .filter_map(|m| {
+            let id = m.id.trim().to_string();
+            if id.is_empty() {
+                return None;
+            }
+
+            Some(ProviderModelDescriptor {
+                id,
+                supported_reasoning_levels: normalize_reasoning_levels(
+                    &m.supported_reasoning_levels,
+                ),
+            })
+        })
         .collect::<Vec<_>>();
 
     Ok(models)
@@ -72,7 +94,7 @@ pub async fn stream_response<F>(
     mut on_delta: F,
 ) -> Result<ResponseStreamResult, String>
 where
-    F: FnMut(&str) -> Result<(), String>,
+    F: FnMut(ProviderStreamEvent) -> Result<(), String>,
 {
     let persistence = if resolved.provider.stream_transport == "websocket" {
         false
@@ -223,7 +245,11 @@ fn build_streaming_request_payload(
       "stream": true
     });
 
-    apply_model_request_config(&mut payload, &resolved.request);
+    apply_model_request_config(
+        &mut payload,
+        &resolved.request,
+        req.reasoning_effort.as_deref(),
+    );
 
     if let Some(previous_id) = previous_response_id {
         payload["previous_response_id"] = Value::String(previous_id);
@@ -232,7 +258,11 @@ fn build_streaming_request_payload(
     payload
 }
 
-fn apply_model_request_config(payload: &mut Value, request: &ModelRequestConfig) {
+fn apply_model_request_config(
+    payload: &mut Value,
+    request: &ModelRequestConfig,
+    reasoning_effort_override: Option<&str>,
+) {
     if let Some(temperature) = request.temperature {
         payload["temperature"] = json!(temperature);
     }
@@ -251,11 +281,16 @@ fn apply_model_request_config(payload: &mut Value, request: &ModelRequestConfig)
     if let Some(presence_penalty) = request.presence_penalty {
         payload["presence_penalty"] = json!(presence_penalty);
     }
-    if let Some(effort) = request
-        .reasoning_effort
-        .as_deref()
+    if let Some(effort) = reasoning_effort_override
         .map(str::trim)
         .filter(|s| !s.is_empty())
+        .or_else(|| {
+            request
+                .reasoning_effort
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        })
     {
         payload["reasoning"] = json!({ "effort": effort });
     }
@@ -275,7 +310,7 @@ async fn create_response_streaming_sse<F>(
     on_delta: &mut F,
 ) -> Result<ResponseStreamResult, String>
 where
-    F: FnMut(&str) -> Result<(), String>,
+    F: FnMut(ProviderStreamEvent) -> Result<(), String>,
 {
     let credential = resolved.provider.resolved_credential().ok_or_else(|| {
         format!(
@@ -322,6 +357,8 @@ where
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
     let mut cancelled = false;
+    let mut emitted_reasoning_started = false;
+    let mut emitted_output_started = false;
 
     loop {
         tokio::select! {
@@ -346,6 +383,8 @@ where
                 &mut response_id,
                 &mut output_text,
                 &mut last_response_obj,
+                &mut emitted_reasoning_started,
+                &mut emitted_output_started,
                 on_delta,
               )?;
             }
@@ -359,6 +398,8 @@ where
             &mut response_id,
             &mut output_text,
             &mut last_response_obj,
+            &mut emitted_reasoning_started,
+            &mut emitted_output_started,
             on_delta,
         )?;
     }
@@ -396,7 +437,7 @@ async fn create_response_streaming_websocket<F>(
     on_delta: &mut F,
 ) -> Result<ResponseStreamResult, String>
 where
-    F: FnMut(&str) -> Result<(), String>,
+    F: FnMut(ProviderStreamEvent) -> Result<(), String>,
 {
     let credential = resolved.provider.resolved_credential().ok_or_else(|| {
         format!(
@@ -439,6 +480,8 @@ where
     let mut response_id = String::new();
     let mut output_text = String::new();
     let mut last_response_obj: Option<Value> = None;
+    let mut emitted_reasoning_started = false;
+    let mut emitted_output_started = false;
 
     loop {
         tokio::select! {
@@ -460,6 +503,8 @@ where
                   &mut response_id,
                   &mut output_text,
                   &mut last_response_obj,
+                  &mut emitted_reasoning_started,
+                  &mut emitted_output_started,
                   on_delta,
                 )?;
 
@@ -481,6 +526,8 @@ where
                     &mut response_id,
                     &mut output_text,
                     &mut last_response_obj,
+                    &mut emitted_reasoning_started,
+                    &mut emitted_output_started,
                     on_delta,
                   )?;
                 }
@@ -540,10 +587,12 @@ fn process_sse_event_block<F>(
     response_id: &mut String,
     output_text: &mut String,
     last_response_obj: &mut Option<Value>,
+    emitted_reasoning_started: &mut bool,
+    emitted_output_started: &mut bool,
     on_delta: &mut F,
 ) -> Result<(), String>
 where
-    F: FnMut(&str) -> Result<(), String>,
+    F: FnMut(ProviderStreamEvent) -> Result<(), String>,
 {
     let mut data_lines = Vec::new();
 
@@ -568,6 +617,8 @@ where
         response_id,
         output_text,
         last_response_obj,
+        emitted_reasoning_started,
+        emitted_output_started,
         on_delta,
     )
 }
@@ -577,10 +628,12 @@ fn handle_stream_event_json<F>(
     response_id: &mut String,
     output_text: &mut String,
     last_response_obj: &mut Option<Value>,
+    emitted_reasoning_started: &mut bool,
+    emitted_output_started: &mut bool,
     on_delta: &mut F,
 ) -> Result<(), String>
 where
-    F: FnMut(&str) -> Result<(), String>,
+    F: FnMut(ProviderStreamEvent) -> Result<(), String>,
 {
     let value: Value = serde_json::from_str(payload).map_err(|e| {
         format!(
@@ -616,15 +669,38 @@ where
         }
     }
 
+    if !*emitted_reasoning_started
+        && matches!(
+            event_type,
+            "response.reasoning_text.delta"
+                | "response.reasoning_text.done"
+                | "response.reasoning_summary_text.delta"
+                | "response.reasoning_summary_text.done"
+                | "response.reasoning_summary_part.added"
+                | "response.reasoning_summary_part.done"
+        )
+    {
+        *emitted_reasoning_started = true;
+        on_delta(ProviderStreamEvent::ReasoningStarted)?;
+    }
+
     if event_type == "response.output_text.delta" {
         if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+            if !*emitted_output_started {
+                *emitted_output_started = true;
+                on_delta(ProviderStreamEvent::OutputTextStarted)?;
+            }
             output_text.push_str(delta);
-            on_delta(delta)?;
+            on_delta(ProviderStreamEvent::OutputTextDelta(delta.to_string()))?;
         }
     }
 
     if let Some(done_text) = value.get("text").and_then(Value::as_str) {
         if event_type == "response.output_text.done" && output_text.is_empty() {
+            if !*emitted_output_started {
+                *emitted_output_started = true;
+                on_delta(ProviderStreamEvent::OutputTextStarted)?;
+            }
             output_text.push_str(done_text);
         }
     }
@@ -724,4 +800,77 @@ fn preview(raw: &str) -> String {
     } else {
         format!("{}...[truncated]", &raw[..MAX])
     }
+}
+
+pub fn get_reasoning_capability(
+    model_id: &str,
+    cached_levels: Option<&[String]>,
+) -> ModelReasoningCapability {
+    let supported_reasoning_levels = cached_levels
+        .map(normalize_reasoning_levels)
+        .filter(|levels| !levels.is_empty())
+        .unwrap_or_else(|| fallback_reasoning_levels(model_id));
+
+    ModelReasoningCapability {
+        supports_reasoning: !supported_reasoning_levels.is_empty(),
+        supported_reasoning_levels,
+    }
+}
+
+fn normalize_reasoning_levels(levels: &[String]) -> Vec<String> {
+    let mut normalized = Vec::new();
+
+    for level in levels {
+        let level = level.trim().to_lowercase();
+        if !matches!(
+            level.as_str(),
+            "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+        ) {
+            continue;
+        }
+
+        if !normalized.iter().any(|existing| existing == &level) {
+            normalized.push(level);
+        }
+    }
+
+    normalized
+}
+
+fn fallback_reasoning_levels(model_id: &str) -> Vec<String> {
+    let model_id = model_id.trim().to_lowercase();
+
+    if model_id == "gpt-5" || model_id.starts_with("gpt-5-") {
+        return vec![
+            "minimal".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+        ];
+    }
+
+    if model_id.starts_with("gpt-5.1") {
+        return vec![
+            "none".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+        ];
+    }
+
+    if model_id.starts_with("gpt-5.2")
+        || model_id.starts_with("gpt-5.5")
+        || model_id.starts_with("gpt-5.3")
+        || model_id.starts_with("gpt-5.4")
+    {
+        return vec![
+            "none".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+        ];
+    }
+
+    Vec::new()
 }

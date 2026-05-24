@@ -770,7 +770,10 @@ mod tests {
 
         let path = conversation_file_path(&conversation_id).expect("path");
         ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
-        assert!(path.exists(), "conversation file should exist before delete");
+        assert!(
+            path.exists(),
+            "conversation file should exist before delete"
+        );
 
         let deleted = delete_conversation(&conversation_id).expect("delete conversation");
         assert!(deleted, "delete should report true when file existed");

@@ -5,6 +5,7 @@ import CodeBlock from './CodeBlock';
 export default function ChatArea({
   messages,
   isGenerating,
+  isThinking,
   onRetryMessage,
   activeChatTitle
 }) {
@@ -13,7 +14,7 @@ export default function ChatArea({
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isGenerating]);
+  }, [messages, isGenerating, isThinking]);
 
   // Helper parser for inline rich styles (bold, code, alerts)
   const parseInlineElements = (text) => {
@@ -325,6 +326,13 @@ export default function ChatArea({
                           重试这条消息
                         </button>
                       </div>
+                    </div>
+                  </div>
+                ) : m.status === 'streaming' && !m.text ? (
+                  <div className="flex min-h-8 items-center">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-[#2d2f31] bg-[#1b1c1d] px-3 py-1.5 text-xs text-slate-400">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-300" />
+                      {isThinking && <span>Thinking（思考中）</span>}
                     </div>
                   </div>
                 ) : (

@@ -7,7 +7,7 @@ use tokio::sync::watch;
 use crate::config;
 use crate::conversation_store;
 use crate::providers;
-use crate::providers::types::{ResponseStreamRequest, ResponseStreamResult};
+use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
 
 const TITLE_GENERATION_INSTRUCTIONS: &str = "You generate concise conversation titles. Return only the title text with no quotes, no markdown, and no explanation. Match the user's language when it is obvious. Keep it under 12 Chinese characters or under 8 English words.";
 
@@ -77,7 +77,9 @@ impl ChatRequestRegistry {
                 .requests
                 .lock()
                 .map_err(|_| "Failed to lock chat request registry".to_string())?;
-            requests.get(request_id).map(|request| request.cancel_tx.clone())
+            requests
+                .get(request_id)
+                .map(|request| request.cancel_tx.clone())
         };
 
         if let Some(cancel_tx) = cancel_tx {
@@ -222,6 +224,7 @@ pub struct ChatRequest {
     pub input: String,
     pub conversation_id: Option<String>,
     pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub request_id: Option<String>,
 }
 
@@ -309,26 +312,48 @@ pub async fn chat_stream(
         input_text: input_text.clone(),
         previous_response_id: context.previous_response_id,
         model: req.model.clone(),
+        reasoning_effort: req.reasoning_effort.clone(),
         context_items: context.input_items,
         instructions_override: None,
     };
 
-    let result = providers::stream_response(&config, &stream_request, &mut cancel_rx, |delta| {
+    let result = providers::stream_response(&config, &stream_request, &mut cancel_rx, |event| {
+        let event = match event {
+            ProviderStreamEvent::ReasoningStarted => ChatStreamEvent {
+                request_id: request_id.clone(),
+                event_index: next_event_index(&mut event_index),
+                kind: "thinking".to_string(),
+                delta: None,
+                response_id: None,
+                conversation_id: Some(conversation_id.clone()),
+                conversation_title: None,
+                error: None,
+            },
+            ProviderStreamEvent::OutputTextStarted => ChatStreamEvent {
+                request_id: request_id.clone(),
+                event_index: next_event_index(&mut event_index),
+                kind: "output_started".to_string(),
+                delta: None,
+                response_id: None,
+                conversation_id: Some(conversation_id.clone()),
+                conversation_title: None,
+                error: None,
+            },
+            ProviderStreamEvent::OutputTextDelta(delta) => ChatStreamEvent {
+                request_id: request_id.clone(),
+                event_index: next_event_index(&mut event_index),
+                kind: "delta".to_string(),
+                delta: Some(delta),
+                response_id: None,
+                conversation_id: Some(conversation_id.clone()),
+                conversation_title: None,
+                error: None,
+            },
+        };
+
         window
-            .emit(
-                "chat_stream_event",
-                ChatStreamEvent {
-                    request_id: request_id.clone(),
-                    event_index: next_event_index(&mut event_index),
-                    kind: "delta".to_string(),
-                    delta: Some(delta.to_string()),
-                    response_id: None,
-                    conversation_id: Some(conversation_id.clone()),
-                    conversation_title: None,
-                    error: None,
-                },
-            )
-            .map_err(|e| format!("Failed to emit stream delta: {e}"))
+            .emit("chat_stream_event", event)
+            .map_err(|e| format!("Failed to emit stream event: {e}"))
     })
     .await;
 
@@ -451,14 +476,8 @@ fn schedule_title_generation(
     request_id: String,
 ) {
     tauri::async_runtime::spawn(async move {
-        if let Err(err) = generate_title_and_emit(
-            window,
-            app_handle,
-            config,
-            &conversation_id,
-            &request_id,
-        )
-        .await
+        if let Err(err) =
+            generate_title_and_emit(window, app_handle, config, &conversation_id, &request_id).await
         {
             log::warn!(
                 "Failed to generate conversation title for {}: {}",
@@ -498,14 +517,13 @@ async fn generate_title_and_emit(
         input_text: build_title_generation_prompt(&candidate),
         previous_response_id: None,
         model: Some(config.utility_small_model_key().to_string()),
+        reasoning_effort: None,
         context_items: Vec::new(),
         instructions_override: Some(TITLE_GENERATION_INSTRUCTIONS.to_string()),
     };
 
-    let response = providers::stream_response(&config, &title_request, &mut title_cancel_rx, |_| {
-        Ok(())
-    })
-    .await;
+    let response =
+        providers::stream_response(&config, &title_request, &mut title_cancel_rx, |_| Ok(())).await;
 
     let cancelled = *title_cancel_rx.borrow();
     registry.finish_title_request(conversation_id, &job_id)?;
@@ -523,11 +541,16 @@ async fn generate_title_and_emit(
     let updated_title = {
         let conversation_id = conversation_id.to_string();
         let title = title.clone();
-        run_blocking(move || conversation_store::update_auto_title(&conversation_id, &title)).await?
+        run_blocking(move || conversation_store::update_auto_title(&conversation_id, &title))
+            .await?
     }
     .and_then(|summary| {
         let title = summary.title.trim().to_string();
-        if title.is_empty() { None } else { Some(title) }
+        if title.is_empty() {
+            None
+        } else {
+            Some(title)
+        }
     });
 
     if let Some(conversation_title) = updated_title {
