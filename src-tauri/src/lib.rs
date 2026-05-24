@@ -3,6 +3,10 @@ mod config;
 mod conversation_store;
 mod models;
 mod providers;
+pub mod tools;
+
+#[cfg(test)]
+mod tools_tests;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

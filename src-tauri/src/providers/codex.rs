@@ -1,16 +1,20 @@
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::watch;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
+use super::capabilities::ProviderCapabilities;
 use super::types::{
     ModelReasoningCapability, ProviderModelDescriptor, ProviderStreamEvent, ResponseStreamRequest,
     ResponseStreamResult,
 };
 use crate::config::{ModelRequestConfig, ResolvedModelConfig};
+use crate::tools::ToolRegistry;
 
 #[derive(Debug, Clone, Deserialize)]
 struct RemoteModelsResponse {
@@ -33,8 +37,8 @@ pub async fn fetch_remote_models(
 ) -> Result<Vec<ProviderModelDescriptor>, String> {
     let credential = resolved.provider.resolved_credential().ok_or_else(|| {
         format!(
-            "Provider '{}' credential is missing. Set credential in config.yaml or {} env.",
-            resolved.provider_key, resolved.provider.credential_env
+            "Provider '{}' credential is missing.",
+            resolved.provider_key
         )
     })?;
 
@@ -90,36 +94,25 @@ pub async fn fetch_remote_models(
 pub async fn stream_response<F>(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
+    tools_registry: Option<&ToolRegistry>,
     cancel_rx: &mut watch::Receiver<bool>,
     mut on_delta: F,
 ) -> Result<ResponseStreamResult, String>
 where
     F: FnMut(ProviderStreamEvent) -> Result<(), String>,
 {
-    let persistence = if resolved.provider.stream_transport == "websocket" {
-        false
-    } else {
-        resolved.provider.store_responses
-    };
+    // Codex-style responses require store = false
+    let persistence = false;
     let first_attempt = match resolved.provider.stream_transport.as_str() {
         "sse" => {
             create_response_streaming_sse(resolved, req, persistence, cancel_rx, &mut on_delta)
                 .await
         }
-        "websocket" => {
-            create_response_streaming_websocket(
-                resolved,
-                req,
-                persistence,
-                cancel_rx,
-                &mut on_delta,
-            )
-            .await
-        }
         _ => {
             create_response_streaming_websocket(
                 resolved,
                 req,
+                tools_registry,
                 persistence,
                 cancel_rx,
                 &mut on_delta,
@@ -127,18 +120,6 @@ where
             .await
         }
     };
-
-    if should_retry_with_store_false(&first_attempt, persistence) {
-        return match resolved.provider.stream_transport.as_str() {
-            "sse" => {
-                create_response_streaming_sse(resolved, req, false, cancel_rx, &mut on_delta).await
-            }
-            _ => {
-                create_response_streaming_websocket(resolved, req, false, cancel_rx, &mut on_delta)
-                    .await
-            }
-        };
-    }
 
     if should_retry_without_previous_response(&first_attempt, req.previous_response_id.as_deref()) {
         let mut retry_req = req.clone();
@@ -158,6 +139,7 @@ where
                 create_response_streaming_websocket(
                     resolved,
                     &retry_req,
+                    tools_registry,
                     persistence,
                     cancel_rx,
                     &mut on_delta,
@@ -168,23 +150,6 @@ where
     }
 
     first_attempt
-}
-
-fn should_retry_with_store_false(
-    result: &Result<ResponseStreamResult, String>,
-    store_value: bool,
-) -> bool {
-    if !store_value {
-        return false;
-    }
-
-    let Err(err) = result else {
-        return false;
-    };
-
-    err.contains("Store must be set to false")
-        || err.contains("store must be set to false")
-        || err.contains("\"Store must be set to false\"")
 }
 
 fn should_retry_without_previous_response(
@@ -255,6 +220,15 @@ fn build_streaming_request_payload(
         payload["previous_response_id"] = Value::String(previous_id);
     }
 
+    if let Some(tools) = &req.tools {
+        if !tools.is_empty() {
+            payload["tools"] = json!(tools);
+        }
+    }
+    if let Some(tool_choice) = &req.tool_choice {
+        payload["tool_choice"] = tool_choice.clone();
+    }
+
     payload
 }
 
@@ -302,6 +276,23 @@ fn apply_model_request_config(
     }
 }
 
+#[derive(Debug, Clone)]
+struct PendingToolCall {
+    item_id: String,
+    call_id: String,
+    name: String,
+    arguments: String,
+}
+
+// Struct to keep state during parser streaming
+struct ParserState {
+    emitted_reasoning_started: bool,
+    emitted_output_started: bool,
+    active_tools_map: HashMap<String, String>, // item_id -> tool_name
+    completed_tool_calls: Vec<String>,        // list of call_ids already completed
+    pending_tool_calls: Vec<PendingToolCall>,
+}
+
 async fn create_response_streaming_sse<F>(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
@@ -314,8 +305,8 @@ where
 {
     let credential = resolved.provider.resolved_credential().ok_or_else(|| {
         format!(
-            "Provider '{}' credential is missing. Set credential in config.yaml or {} env.",
-            resolved.provider_key, resolved.provider.credential_env
+            "Provider '{}' credential is missing.",
+            resolved.provider_key
         )
     })?;
 
@@ -339,7 +330,7 @@ where
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Failed to reach OpenAI API: {e}"))?;
+        .map_err(|e| format!("Failed to reach Codex API: {e}"))?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -347,7 +338,7 @@ where
             .text()
             .await
             .unwrap_or_else(|_| "<unable to read error body>".to_string());
-        return Err(format!("OpenAI API error ({status}): {text}"));
+        return Err(format!("Codex API error ({status}): {text}"));
     }
 
     let mut response_id = String::new();
@@ -357,8 +348,14 @@ where
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
     let mut cancelled = false;
-    let mut emitted_reasoning_started = false;
-    let mut emitted_output_started = false;
+
+    let state = Mutex::new(ParserState {
+        emitted_reasoning_started: false,
+        emitted_output_started: false,
+        active_tools_map: HashMap::new(),
+        completed_tool_calls: Vec::new(),
+        pending_tool_calls: Vec::new(),
+    });
 
     loop {
         tokio::select! {
@@ -383,8 +380,7 @@ where
                 &mut response_id,
                 &mut output_text,
                 &mut last_response_obj,
-                &mut emitted_reasoning_started,
-                &mut emitted_output_started,
+                &state,
                 on_delta,
               )?;
             }
@@ -398,8 +394,7 @@ where
             &mut response_id,
             &mut output_text,
             &mut last_response_obj,
-            &mut emitted_reasoning_started,
-            &mut emitted_output_started,
+            &state,
             on_delta,
         )?;
     }
@@ -426,12 +421,14 @@ where
         provider_key: resolved.provider_key.clone(),
         model_profile: resolved.profile_key.clone(),
         model_id: resolved.model_id.clone(),
+        capabilities: ProviderCapabilities::codex(),
     })
 }
 
 async fn create_response_streaming_websocket<F>(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
+    tools_registry: Option<&ToolRegistry>,
     store: bool,
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut F,
@@ -441,8 +438,8 @@ where
 {
     let credential = resolved.provider.resolved_credential().ok_or_else(|| {
         format!(
-            "Provider '{}' credential is missing. Set credential in config.yaml or {} env.",
-            resolved.provider_key, resolved.provider.credential_env
+            "Provider '{}' credential is missing.",
+            resolved.provider_key
         )
     })?;
 
@@ -480,8 +477,15 @@ where
     let mut response_id = String::new();
     let mut output_text = String::new();
     let mut last_response_obj: Option<Value> = None;
-    let mut emitted_reasoning_started = false;
-    let mut emitted_output_started = false;
+    let mut accumulated_output_items: Vec<Value> = Vec::new();
+
+    let state = Mutex::new(ParserState {
+        emitted_reasoning_started: false,
+        emitted_output_started: false,
+        active_tools_map: HashMap::new(),
+        completed_tool_calls: Vec::new(),
+        pending_tool_calls: Vec::new(),
+    });
 
     loop {
         tokio::select! {
@@ -503,19 +507,99 @@ where
                   &mut response_id,
                   &mut output_text,
                   &mut last_response_obj,
-                  &mut emitted_reasoning_started,
-                  &mut emitted_output_started,
+                  &state,
                   on_delta,
                 )?;
 
-                let maybe_done = serde_json::from_str::<Value>(&text)
-                  .ok()
-                  .and_then(|v| v.get("type").and_then(Value::as_str).map(ToOwned::to_owned));
+                let parsed_val: Value = serde_json::from_str(&text).unwrap_or_default();
+                let maybe_type = parsed_val.get("type").and_then(Value::as_str).unwrap_or("");
+
+                // Accumulate all finished output items
+                if maybe_type == "response.output_item.done" {
+                    if let Some(item) = parsed_val.get("item") {
+                        accumulated_output_items.push(item.clone());
+                    }
+                }
 
                 if matches!(
-                  maybe_done.as_deref(),
-                  Some("response.completed") | Some("response.done")
+                  maybe_type,
+                  "response.completed" | "response.done"
                 ) {
+                  let pending_calls = {
+                      let mut p_state = state.lock().map_err(|_| "Failed to lock ParserState".to_string())?;
+                      std::mem::take(&mut p_state.pending_tool_calls)
+                  };
+                  
+                  // Check if we have tools to run and model requested any
+                  if let Some(registry) = tools_registry {
+                      if !pending_calls.is_empty() {
+                          let mut tool_input_items = Vec::new();
+                          
+                          for tool_call in pending_calls {
+                              let call_id = tool_call.call_id.clone();
+                              let name = tool_call.name.clone();
+                              let arguments_str = tool_call.arguments.clone();
+                              
+                              // Parse arguments to JSON
+                              let parsed_args: Value = serde_json::from_str(&arguments_str).unwrap_or(json!({}));
+                              
+                              // Execute tool
+                              let exec_result = registry.execute(&name, &parsed_args);
+                              let (output_str, is_success) = match exec_result {
+                                  Ok(res) => (serde_json::to_string(&res).unwrap_or_default(), true),
+                                  Err(err) => (err, false),
+                              };
+
+                              // Emit ToolCallExecuted event
+                              on_delta(ProviderStreamEvent::ToolCallExecuted {
+                                  call_id: call_id.clone(),
+                                  output: output_str.clone(),
+                              })?;
+
+                              // Synthesize the tool result input item for standard turn continuation
+                              let tool_input_item = json!({
+                                  "role": "tool",
+                                  "tool_call_id": call_id.clone(),
+                                  "content": [
+                                      {
+                                          "type": "tool_output",
+                                          "text": output_str.clone()
+                                      }
+                                  ]
+                              });
+                              tool_input_items.push(tool_input_item);
+
+                              // Save a serialized record of the tool result in the output items as well
+                              accumulated_output_items.push(json!({
+                                  "id": format!("item-tool-output-{}", call_id),
+                                  "type": "function_call_output",
+                                  "call_id": call_id,
+                                  "output": output_str,
+                                  "status": if is_success { "completed" } else { "failed" }
+                              }));
+                          }
+
+                          // Send same-socket continuation payload to the WebSocket!
+                          let continuation_payload = json!({
+                              "type": "response.create",
+                              "model": resolved.model_id,
+                              "instructions": req.instructions_override.as_deref().unwrap_or(&resolved.provider.system_prompt),
+                              "input": tool_input_items,
+                              "previous_response_id": response_id.clone(),
+                              "store": false,
+                              "stream": true
+                          });
+
+                          ws.send(Message::Text(continuation_payload.to_string().into()))
+                              .await
+                              .map_err(|e| format!("Failed to send tool output continuation: {e}"))?;
+                          
+                          // Do NOT break, loop back to stream next response
+                          continue;
+                      }
+                  }
+                  
+                  // If we get here, no pending tool calls, turn is done!
                   break;
                 }
               }
@@ -526,8 +610,7 @@ where
                     &mut response_id,
                     &mut output_text,
                     &mut last_response_obj,
-                    &mut emitted_reasoning_started,
-                    &mut emitted_output_started,
+                    &state,
                     on_delta,
                   )?;
                 }
@@ -553,18 +636,17 @@ where
         }
     }
 
-    let output_items = last_response_obj
-        .as_ref()
-        .map(extract_output_items)
-        .unwrap_or_default();
+    // Emit final completed event
+    let _ = on_delta(ProviderStreamEvent::ResponseCompleted);
 
     Ok(ResponseStreamResult {
         response_id,
         output_text,
-        output_items,
+        output_items: accumulated_output_items,
         provider_key: resolved.provider_key.clone(),
         model_profile: resolved.profile_key.clone(),
         model_id: resolved.model_id.clone(),
+        capabilities: ProviderCapabilities::codex(),
     })
 }
 
@@ -587,8 +669,7 @@ fn process_sse_event_block<F>(
     response_id: &mut String,
     output_text: &mut String,
     last_response_obj: &mut Option<Value>,
-    emitted_reasoning_started: &mut bool,
-    emitted_output_started: &mut bool,
+    state: &Mutex<ParserState>,
     on_delta: &mut F,
 ) -> Result<(), String>
 where
@@ -617,8 +698,7 @@ where
         response_id,
         output_text,
         last_response_obj,
-        emitted_reasoning_started,
-        emitted_output_started,
+        state,
         on_delta,
     )
 }
@@ -628,8 +708,7 @@ fn handle_stream_event_json<F>(
     response_id: &mut String,
     output_text: &mut String,
     last_response_obj: &mut Option<Value>,
-    emitted_reasoning_started: &mut bool,
-    emitted_output_started: &mut bool,
+    state_mutex: &Mutex<ParserState>,
     on_delta: &mut F,
 ) -> Result<(), String>
 where
@@ -669,7 +748,9 @@ where
         }
     }
 
-    if !*emitted_reasoning_started
+    let mut state = state_mutex.lock().map_err(|_| "Failed to lock ParserState".to_string())?;
+
+    if !state.emitted_reasoning_started
         && matches!(
             event_type,
             "response.reasoning_text.delta"
@@ -680,14 +761,15 @@ where
                 | "response.reasoning_summary_part.done"
         )
     {
-        *emitted_reasoning_started = true;
+        state.emitted_reasoning_started = true;
         on_delta(ProviderStreamEvent::ReasoningStarted)?;
     }
 
+    // Capture standard text streaming
     if event_type == "response.output_text.delta" {
         if let Some(delta) = value.get("delta").and_then(Value::as_str) {
-            if !*emitted_output_started {
-                *emitted_output_started = true;
+            if !state.emitted_output_started {
+                state.emitted_output_started = true;
                 on_delta(ProviderStreamEvent::OutputTextStarted)?;
             }
             output_text.push_str(delta);
@@ -697,11 +779,103 @@ where
 
     if let Some(done_text) = value.get("text").and_then(Value::as_str) {
         if event_type == "response.output_text.done" && output_text.is_empty() {
-            if !*emitted_output_started {
-                *emitted_output_started = true;
+            if !state.emitted_output_started {
+                state.emitted_output_started = true;
                 on_delta(ProviderStreamEvent::OutputTextStarted)?;
             }
             output_text.push_str(done_text);
+        }
+    }
+
+    // Capture function call/tool events
+    if event_type == "response.output_item.added" {
+        if let Some(item) = value.get("item") {
+            let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+            if item_type == "function_call" {
+                let item_id = item.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                let call_id = item.get("call_id").and_then(Value::as_str).unwrap_or("").to_string();
+                let name = item.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+
+                if !item_id.is_empty() && !call_id.is_empty() {
+                    state.active_tools_map.insert(item_id.clone(), name.clone());
+                    on_delta(ProviderStreamEvent::ToolCallStarted {
+                        item_id,
+                        call_id,
+                        name,
+                    })?;
+                }
+            }
+        }
+    }
+
+    if event_type == "response.function_call_arguments.delta" {
+        let item_id = value.get("item_id").and_then(Value::as_str).unwrap_or("").to_string();
+        let call_id = value.get("call_id").and_then(Value::as_str).unwrap_or("").to_string();
+        let delta = value.get("delta").and_then(Value::as_str).unwrap_or("").to_string();
+
+        if !item_id.is_empty() && !call_id.is_empty() && !delta.is_empty() {
+            on_delta(ProviderStreamEvent::ToolCallArgumentsDelta {
+                item_id,
+                call_id,
+                delta,
+            })?;
+        }
+    }
+
+    if event_type == "response.function_call_arguments.done" {
+        let item_id = value.get("item_id").and_then(Value::as_str).unwrap_or("").to_string();
+        let call_id = value.get("call_id").and_then(Value::as_str).unwrap_or("").to_string();
+        let arguments = value.get("arguments").and_then(Value::as_str).unwrap_or("").to_string();
+
+        if !item_id.is_empty() && !call_id.is_empty() && !state.completed_tool_calls.contains(&call_id) {
+            let name = state.active_tools_map.get(&item_id).cloned().unwrap_or_default();
+            state.completed_tool_calls.push(call_id.clone());
+            
+            let pending = PendingToolCall {
+                item_id: item_id.clone(),
+                call_id: call_id.clone(),
+                name: name.clone(),
+                arguments: arguments.clone(),
+            };
+            state.pending_tool_calls.push(pending);
+
+            on_delta(ProviderStreamEvent::ToolCallCompleted {
+                item_id,
+                call_id,
+                name,
+                arguments,
+            })?;
+        }
+    }
+
+    if event_type == "response.output_item.done" {
+        if let Some(item) = value.get("item") {
+            let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+            if item_type == "function_call" {
+                let item_id = item.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                let call_id = item.get("call_id").and_then(Value::as_str).unwrap_or("").to_string();
+                let name = item.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                let arguments = item.get("arguments").and_then(Value::as_str).unwrap_or("").to_string();
+
+                if !item_id.is_empty() && !call_id.is_empty() && !state.completed_tool_calls.contains(&call_id) {
+                    state.completed_tool_calls.push(call_id.clone());
+                    
+                    let pending = PendingToolCall {
+                        item_id: item_id.clone(),
+                        call_id: call_id.clone(),
+                        name: name.clone(),
+                        arguments: arguments.clone(),
+                    };
+                    state.pending_tool_calls.push(pending);
+
+                    on_delta(ProviderStreamEvent::ToolCallCompleted {
+                        item_id,
+                        call_id,
+                        name,
+                        arguments,
+                    })?;
+                }
+            }
         }
     }
 
@@ -710,6 +884,25 @@ where
     }
 
     Ok(())
+}
+
+fn value_to_text(value: &Value) -> Option<String> {
+    if let Some(s) = value.as_str() {
+        return Some(s.to_string());
+    }
+    value
+        .get("text")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn preview(raw: &str) -> String {
+    const MAX: usize = 400;
+    if raw.len() <= MAX {
+        raw.to_string()
+    } else {
+        format!("{}...[truncated]", &raw[..MAX])
+    }
 }
 
 fn extract_output_items(root: &Value) -> Vec<Value> {
@@ -781,25 +974,6 @@ fn extract_output_text(root: &Value) -> String {
     }
 
     String::new()
-}
-
-fn value_to_text(value: &Value) -> Option<String> {
-    if let Some(s) = value.as_str() {
-        return Some(s.to_string());
-    }
-    value
-        .get("text")
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
-}
-
-fn preview(raw: &str) -> String {
-    const MAX: usize = 400;
-    if raw.len() <= MAX {
-        raw.to_string()
-    } else {
-        format!("{}...[truncated]", &raw[..MAX])
-    }
 }
 
 pub fn get_reasoning_capability(

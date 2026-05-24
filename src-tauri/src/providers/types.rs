@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use super::capabilities::ProviderCapabilities;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -16,11 +17,33 @@ pub struct ModelReasoningCapability {
     pub supported_reasoning_levels: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
 pub enum ProviderStreamEvent {
     ReasoningStarted,
     OutputTextStarted,
     OutputTextDelta(String),
+    ToolCallStarted {
+        item_id: String,
+        call_id: String,
+        name: String,
+    },
+    ToolCallArgumentsDelta {
+        item_id: String,
+        call_id: String,
+        delta: String,
+    },
+    ToolCallCompleted {
+        item_id: String,
+        call_id: String,
+        name: String,
+        arguments: String,
+    },
+    ToolCallExecuted {
+        call_id: String,
+        output: String,
+    },
+    ResponseCompleted,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -31,6 +54,8 @@ pub struct ResponseStreamRequest {
     pub reasoning_effort: Option<String>,
     pub context_items: Vec<Value>,
     pub instructions_override: Option<String>,
+    pub tools: Option<Vec<Value>>,
+    pub tool_choice: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,4 +66,5 @@ pub struct ResponseStreamResult {
     pub provider_key: String,
     pub model_profile: String,
     pub model_id: String,
+    pub capabilities: ProviderCapabilities,
 }

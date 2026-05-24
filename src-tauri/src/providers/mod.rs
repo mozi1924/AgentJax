@@ -1,4 +1,6 @@
-mod openai;
+pub mod capabilities;
+mod codex;
+mod openai_standard;
 pub mod types;
 
 use tokio::sync::watch;
@@ -11,13 +13,15 @@ use types::{
 
 #[derive(Debug, Clone, Copy)]
 enum ProviderKind {
-    OpenAI,
+    Codex,
+    OpenAIStandard,
 }
 
 impl ProviderKind {
     fn from_provider_kind(kind: &str) -> Result<Self, String> {
         match kind.trim().to_lowercase().as_str() {
-            "openai" => Ok(Self::OpenAI),
+            "openai" | "codex" => Ok(Self::Codex),
+            "openai-standard" | "openai_standard" => Ok(Self::OpenAIStandard),
             other => Err(format!(
                 "Unsupported provider kind '{}'. Add an adapter under src-tauri/src/providers to enable it.",
                 other
@@ -29,6 +33,7 @@ impl ProviderKind {
 pub async fn stream_response<F>(
     config: &AppConfig,
     req: &ResponseStreamRequest,
+    tools_registry: Option<&crate::tools::ToolRegistry>,
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: F,
 ) -> Result<ResponseStreamResult, String>
@@ -38,7 +43,10 @@ where
     let resolved = config.resolve_model_profile(req.model.as_deref())?;
 
     match ProviderKind::from_provider_kind(&resolved.provider.kind)? {
-        ProviderKind::OpenAI => openai::stream_response(&resolved, req, cancel_rx, on_delta).await,
+        ProviderKind::Codex => codex::stream_response(&resolved, req, tools_registry, cancel_rx, on_delta).await,
+        ProviderKind::OpenAIStandard => {
+            openai_standard::stream_response(&resolved, req, tools_registry, cancel_rx, on_delta).await
+        }
     }
 }
 
@@ -57,7 +65,8 @@ pub async fn fetch_remote_models(
     };
 
     match ProviderKind::from_provider_kind(&resolved.provider.kind)? {
-        ProviderKind::OpenAI => openai::fetch_remote_models(&resolved).await,
+        ProviderKind::Codex => codex::fetch_remote_models(&resolved).await,
+        ProviderKind::OpenAIStandard => openai_standard::fetch_remote_models(&resolved).await,
     }
 }
 
@@ -67,6 +76,9 @@ pub fn get_reasoning_capability(
     cached_levels: Option<&[String]>,
 ) -> Result<ModelReasoningCapability, String> {
     match ProviderKind::from_provider_kind(provider_kind)? {
-        ProviderKind::OpenAI => Ok(openai::get_reasoning_capability(model_id, cached_levels)),
+        ProviderKind::Codex => Ok(codex::get_reasoning_capability(model_id, cached_levels)),
+        ProviderKind::OpenAIStandard => {
+            Ok(openai_standard::get_reasoning_capability(model_id, cached_levels))
+        }
     }
 }

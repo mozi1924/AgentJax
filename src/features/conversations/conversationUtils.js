@@ -103,6 +103,35 @@ export function getConversationDisplayTitle(conversation) {
 }
 
 function createConversationMessage(message) {
+  const toolCallsMap = {};
+
+  if (Array.isArray(message.contextItems)) {
+    for (const item of message.contextItems) {
+      if (item.type === 'function_call') {
+        const callId = item.call_id || item.callId;
+        if (callId) {
+          toolCallsMap[callId] = {
+            id: callId,
+            name: item.name,
+            arguments: item.arguments || '',
+            output: '',
+            status: 'arguments_done'
+          };
+        }
+      }
+    }
+
+    for (const item of message.contextItems) {
+      if (item.type === 'function_call_output') {
+        const callId = item.call_id || item.callId;
+        if (callId && toolCallsMap[callId]) {
+          toolCallsMap[callId].output = item.output || '';
+          toolCallsMap[callId].status = 'executed';
+        }
+      }
+    }
+  }
+
   return {
     id: message.id,
     role: message.role,
@@ -113,7 +142,8 @@ function createConversationMessage(message) {
     retryInput: '',
     retryConversationId: null,
     createdAtUnixMs: message.createdAtUnixMs || 0,
-    responseId: message.responseId || null
+    responseId: message.responseId || null,
+    toolCalls: Object.values(toolCallsMap)
   };
 }
 

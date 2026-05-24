@@ -90,6 +90,8 @@ pub struct ConversationMessage {
     pub text: String,
     pub created_at_unix_ms: i64,
     pub response_id: Option<String>,
+    #[serde(default)]
+    pub context_items: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -444,6 +446,7 @@ pub fn load_conversation(conversation_id: &str) -> Result<Option<ConversationDet
             text: entry.text.unwrap_or_default(),
             created_at_unix_ms: entry.created_at_unix_ms,
             response_id: entry.response_id,
+            context_items: entry.context_items,
         });
     }
 

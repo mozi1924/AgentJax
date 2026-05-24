@@ -444,6 +444,99 @@ function App() {
           );
         }
 
+        if (payload.kind === 'tool_call_started') {
+          markConversationThinking(mapping.conversationId, false);
+          setConversations((prevConversations) =>
+            prevConversations.map((conversation) => {
+              if (conversation.conversationId !== mapping.conversationId) return conversation;
+              const nextMessages = conversation.messages.map((message) => {
+                if (message.id !== mapping.assistantMessageId) return message;
+                const toolCalls = Array.isArray(message.toolCalls) ? [...message.toolCalls] : [];
+                if (!toolCalls.some((t) => t.id === payload.toolCallId)) {
+                  toolCalls.push({
+                    id: payload.toolCallId,
+                    name: payload.toolName,
+                    arguments: '',
+                    output: '',
+                    status: 'started'
+                  });
+                }
+                return { ...message, toolCalls };
+              });
+              return { ...conversation, messages: nextMessages };
+            })
+          );
+          return;
+        }
+
+        if (payload.kind === 'tool_call_delta') {
+          markConversationThinking(mapping.conversationId, false);
+          setConversations((prevConversations) =>
+            prevConversations.map((conversation) => {
+              if (conversation.conversationId !== mapping.conversationId) return conversation;
+              const nextMessages = conversation.messages.map((message) => {
+                if (message.id !== mapping.assistantMessageId) return message;
+                const toolCalls = Array.isArray(message.toolCalls)
+                  ? message.toolCalls.map((t) =>
+                      t.id === payload.toolCallId
+                        ? { ...t, arguments: `${t.arguments || ''}${payload.delta || ''}` }
+                        : t
+                    )
+                  : [];
+                return { ...message, toolCalls };
+              });
+              return { ...conversation, messages: nextMessages };
+            })
+          );
+          return;
+        }
+
+        if (payload.kind === 'tool_call_done') {
+          setConversations((prevConversations) =>
+            prevConversations.map((conversation) => {
+              if (conversation.conversationId !== mapping.conversationId) return conversation;
+              const nextMessages = conversation.messages.map((message) => {
+                if (message.id !== mapping.assistantMessageId) return message;
+                const toolCalls = Array.isArray(message.toolCalls)
+                  ? message.toolCalls.map((t) =>
+                      t.id === payload.toolCallId
+                        ? {
+                            ...t,
+                            status: 'arguments_done',
+                            arguments: payload.toolArguments || t.arguments
+                          }
+                        : t
+                    )
+                  : [];
+                return { ...message, toolCalls };
+              });
+              return { ...conversation, messages: nextMessages };
+            })
+          );
+          return;
+        }
+
+        if (payload.kind === 'tool_call_exec') {
+          setConversations((prevConversations) =>
+            prevConversations.map((conversation) => {
+              if (conversation.conversationId !== mapping.conversationId) return conversation;
+              const nextMessages = conversation.messages.map((message) => {
+                if (message.id !== mapping.assistantMessageId) return message;
+                const toolCalls = Array.isArray(message.toolCalls)
+                  ? message.toolCalls.map((t) =>
+                      t.id === payload.toolCallId
+                        ? { ...t, status: 'executed', output: payload.toolOutput || '' }
+                        : t
+                    )
+                  : [];
+                return { ...message, toolCalls };
+              });
+              return { ...conversation, messages: nextMessages };
+            })
+          );
+          return;
+        }
+
         if (payload.kind === 'done') {
           markConversationGenerating(mapping.conversationId, false);
           markConversationStopping(mapping.conversationId, false);

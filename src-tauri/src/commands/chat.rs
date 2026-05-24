@@ -8,6 +8,7 @@ use crate::config;
 use crate::conversation_store;
 use crate::providers;
 use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
+use crate::tools::ToolRegistry;
 
 const TITLE_GENERATION_INSTRUCTIONS: &str = "You generate concise conversation titles. Return only the title text with no quotes, no markdown, and no explanation. Match the user's language when it is obvious. Keep it under 12 Chinese characters or under 8 English words.";
 
@@ -308,6 +309,9 @@ pub async fn chat_stream(
 
     registry.register_chat_request(request_id.clone(), conversation_id.clone(), cancel_tx)?;
 
+    let tools_registry = ToolRegistry::new_with_defaults();
+    let tools_schemas = tools_registry.list_schemas();
+
     let stream_request = ResponseStreamRequest {
         input_text: input_text.clone(),
         previous_response_id: context.previous_response_id,
@@ -315,44 +319,65 @@ pub async fn chat_stream(
         reasoning_effort: req.reasoning_effort.clone(),
         context_items: context.input_items,
         instructions_override: None,
+        tools: Some(tools_schemas),
+        tool_choice: Some(serde_json::Value::String("auto".to_string())),
     };
 
-    let result = providers::stream_response(&config, &stream_request, &mut cancel_rx, |event| {
-        let event = match event {
-            ProviderStreamEvent::ReasoningStarted => ChatStreamEvent {
-                request_id: request_id.clone(),
-                event_index: next_event_index(&mut event_index),
-                kind: "thinking".to_string(),
-                delta: None,
-                response_id: None,
-                conversation_id: Some(conversation_id.clone()),
-                conversation_title: None,
-                error: None,
-            },
-            ProviderStreamEvent::OutputTextStarted => ChatStreamEvent {
-                request_id: request_id.clone(),
-                event_index: next_event_index(&mut event_index),
-                kind: "output_started".to_string(),
-                delta: None,
-                response_id: None,
-                conversation_id: Some(conversation_id.clone()),
-                conversation_title: None,
-                error: None,
-            },
-            ProviderStreamEvent::OutputTextDelta(delta) => ChatStreamEvent {
-                request_id: request_id.clone(),
-                event_index: next_event_index(&mut event_index),
-                kind: "delta".to_string(),
-                delta: Some(delta),
-                response_id: None,
-                conversation_id: Some(conversation_id.clone()),
-                conversation_title: None,
-                error: None,
-            },
+    let result = providers::stream_response(&config, &stream_request, Some(&tools_registry), &mut cancel_rx, |event| {
+        let mut chat_event = ChatStreamEvent {
+            request_id: request_id.clone(),
+            event_index: next_event_index(&mut event_index),
+            kind: "".to_string(),
+            delta: None,
+            response_id: None,
+            conversation_id: Some(conversation_id.clone()),
+            conversation_title: None,
+            error: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_output: None,
+        };
+
+        match event {
+            ProviderStreamEvent::ReasoningStarted => {
+                chat_event.kind = "thinking".to_string();
+            }
+            ProviderStreamEvent::OutputTextStarted => {
+                chat_event.kind = "output_started".to_string();
+            }
+            ProviderStreamEvent::OutputTextDelta(delta) => {
+                chat_event.kind = "delta".to_string();
+                chat_event.delta = Some(delta);
+            }
+            ProviderStreamEvent::ToolCallStarted { item_id: _, call_id, name } => {
+                chat_event.kind = "tool_call_started".to_string();
+                chat_event.tool_call_id = Some(call_id);
+                chat_event.tool_name = Some(name);
+            }
+            ProviderStreamEvent::ToolCallArgumentsDelta { item_id: _, call_id, delta } => {
+                chat_event.kind = "tool_call_delta".to_string();
+                chat_event.tool_call_id = Some(call_id);
+                chat_event.delta = Some(delta);
+            }
+            ProviderStreamEvent::ToolCallCompleted { item_id: _, call_id, name, arguments } => {
+                chat_event.kind = "tool_call_done".to_string();
+                chat_event.tool_call_id = Some(call_id);
+                chat_event.tool_name = Some(name);
+                chat_event.tool_arguments = Some(arguments);
+            }
+            ProviderStreamEvent::ToolCallExecuted { call_id, output } => {
+                chat_event.kind = "tool_call_exec".to_string();
+                chat_event.tool_call_id = Some(call_id);
+                chat_event.tool_output = Some(output);
+            }
+            ProviderStreamEvent::ResponseCompleted => {
+                return Ok(());
+            }
         };
 
         window
-            .emit("chat_stream_event", event)
+            .emit("chat_stream_event", chat_event)
             .map_err(|e| format!("Failed to emit stream event: {e}"))
     })
     .await;
@@ -392,6 +417,10 @@ pub async fn chat_stream(
                 conversation_id: Some(conversation_id.clone()),
                 conversation_title: conversation_title.clone(),
                 error: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_output: None,
             },
         )
         .map_err(|e| format!("Failed to emit stream done event: {e}"))?;
@@ -453,6 +482,10 @@ struct ChatStreamEvent {
     conversation_id: Option<String>,
     conversation_title: Option<String>,
     error: Option<String>,
+    tool_call_id: Option<String>,
+    tool_name: Option<String>,
+    tool_arguments: Option<String>,
+    tool_output: Option<String>,
 }
 
 fn next_event_index(current: &mut u64) -> u64 {
@@ -520,10 +553,12 @@ async fn generate_title_and_emit(
         reasoning_effort: None,
         context_items: Vec::new(),
         instructions_override: Some(TITLE_GENERATION_INSTRUCTIONS.to_string()),
+        tools: None,
+        tool_choice: None,
     };
 
     let response =
-        providers::stream_response(&config, &title_request, &mut title_cancel_rx, |_| Ok(())).await;
+        providers::stream_response(&config, &title_request, None, &mut title_cancel_rx, |_| Ok(())).await;
 
     let cancelled = *title_cancel_rx.borrow();
     registry.finish_title_request(conversation_id, &job_id)?;
@@ -566,6 +601,10 @@ async fn generate_title_and_emit(
                     conversation_id: Some(conversation_id.to_string()),
                     conversation_title: Some(conversation_title),
                     error: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_output: None,
                 },
             )
             .map_err(|e| format!("Failed to emit title update event: {e}"))?;

@@ -1,6 +1,79 @@
-import { useEffect, useRef } from 'react';
-import { MessageSquare, Sparkles, Loader2, RotateCcw, AlertTriangle } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { MessageSquare, Sparkles, Loader2, RotateCcw, AlertTriangle, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
 import CodeBlock from './CodeBlock';
+
+function ToolCallWidget({ toolCall }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const getStatusColor = () => {
+    switch (toolCall.status) {
+      case 'started':
+        return 'text-amber-400 border-amber-500/20 bg-amber-500/5';
+      case 'arguments_done':
+        return 'text-cyan-400 border-cyan-500/20 bg-cyan-500/5';
+      case 'executed':
+        return 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5';
+      default:
+        return 'text-slate-400 border-slate-500/20 bg-slate-500/5';
+    }
+  };
+
+  const getStatusText = () => {
+    switch (toolCall.status) {
+      case 'started':
+        return '正在构建参数...';
+      case 'arguments_done':
+        return '正在执行中...';
+      case 'executed':
+        return '执行成功';
+      default:
+        return '等待中';
+    }
+  };
+
+  return (
+    <div className={`rounded-xl border px-4 py-2 text-xs leading-relaxed transition-all duration-300 backdrop-blur-md mb-2 ${getStatusColor()}`}>
+      <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <div className="flex items-center gap-2 font-mono">
+          {toolCall.status === 'executed' ? (
+            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+          ) : (
+            <Loader2 className="h-4 w-4 text-cyan-400 animate-spin shrink-0" />
+          )}
+          <span className="font-semibold text-slate-200">
+            {toolCall.name}
+          </span>
+          <span className="opacity-75">
+            ({getStatusText()})
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 opacity-70 hover:opacity-100 transition">
+          <span className="text-[10px]">详情</span>
+          {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        </div>
+      </div>
+      
+      {expanded && (
+        <div className="mt-2.5 space-y-2 border-t border-slate-500/10 pt-2.5 transition-all">
+          <div>
+            <span className="font-semibold opacity-70 block mb-1">输入参数 (Arguments):</span>
+            <pre className="bg-[#1e1f20]/60 p-2 rounded-lg text-[10px] text-cyan-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-40 scrollbar-thin">
+              {toolCall.arguments || '{}'}
+            </pre>
+          </div>
+          {toolCall.output && (
+            <div>
+              <span className="font-semibold opacity-70 block mb-1">输出结果 (Output):</span>
+              <pre className="bg-[#131314]/80 p-2 rounded-lg text-[10px] text-emerald-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-40 scrollbar-thin">
+                {toolCall.output}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ChatArea({
   messages,
@@ -299,6 +372,15 @@ export default function ChatArea({
               </div>
             ) : (
               <div className="flex-1 overflow-hidden space-y-1.5">
+                {/* Render Rich Tool Call Logs */}
+                {Array.isArray(m.toolCalls) && m.toolCalls.length > 0 && (
+                  <div className="space-y-1 mb-2 max-w-xl">
+                    {m.toolCalls.map((tc) => (
+                      <ToolCallWidget key={tc.id} toolCall={tc} />
+                    ))}
+                  </div>
+                )}
+
                 {/* Streaming indicator or response body */}
                 {m.status === 'failed' || m.status === 'interrupted' ? (
                   <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 px-4 py-3">
