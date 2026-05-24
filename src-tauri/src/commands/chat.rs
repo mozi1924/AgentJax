@@ -277,7 +277,8 @@ async fn generate_title_if_needed(
     config: &config::AppConfig,
     conversation_id: &str,
 ) -> Result<Option<String>, String> {
-    let Some(candidate) = conversation_store::load_title_generation_candidate(conversation_id)? else {
+    let Some(candidate) = conversation_store::load_title_generation_candidate(conversation_id)?
+    else {
         return Ok(None);
     };
 
@@ -290,10 +291,9 @@ async fn generate_title_if_needed(
         instructions_override: Some(TITLE_GENERATION_INSTRUCTIONS.to_string()),
     };
 
-    let response = providers::stream_response(config, &title_request, &mut title_cancel_rx, |_| {
-        Ok(())
-    })
-    .await?;
+    let response =
+        providers::stream_response(config, &title_request, &mut title_cancel_rx, |_| Ok(()))
+            .await?;
 
     let title = sanitize_generated_title(&response.output_text);
     if title.is_empty() {
@@ -304,7 +304,9 @@ async fn generate_title_if_needed(
     Ok(updated.map(|summary| summary.title))
 }
 
-fn build_title_generation_prompt(candidate: &conversation_store::TitleGenerationCandidate) -> String {
+fn build_title_generation_prompt(
+    candidate: &conversation_store::TitleGenerationCandidate,
+) -> String {
     format!(
         "User message:\n{}\n\nAssistant reply:\n{}\n\nGenerate one concise conversation title.",
         candidate.user_text.trim(),

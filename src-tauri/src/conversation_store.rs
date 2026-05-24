@@ -373,7 +373,9 @@ pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationCon
             }
             Some("assistant") => {
                 if let Some(text) = entry.text.as_deref() {
-                    context.input_items.extend(build_assistant_output_items(text));
+                    context
+                        .input_items
+                        .extend(build_assistant_output_items(text));
                 }
             }
             _ => {}

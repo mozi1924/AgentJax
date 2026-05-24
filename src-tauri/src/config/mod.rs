@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 const APP_CONFIG_DIR_NAME: &str = "AgentJax";
@@ -454,6 +455,13 @@ pub struct ConfigInfo {
     pub request_timeout_seconds: u64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigUpgradeResult {
+    pub config_path: String,
+    pub upgraded: bool,
+}
+
 pub fn config_dir_path() -> Result<PathBuf, String> {
     let base =
         dirs::config_dir().ok_or_else(|| "Unable to locate OS config directory".to_string())?;
@@ -479,13 +487,26 @@ pub fn init_config_if_missing() -> Result<PathBuf, String> {
 
 pub fn load_config() -> Result<AppConfig, String> {
     let path = init_config_if_missing()?;
-    let raw = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read config file {}: {e}", path.display()))?;
+    let raw = read_config_file(&path)?;
+    let parsed = parse_config_yaml(&path, &raw)?;
+    let normalized = parsed.normalize();
 
-    let parsed: AppConfig = serde_yaml::from_str(&raw)
-        .map_err(|e| format!("Invalid YAML in {}: {e}", path.display()))?;
+    let _ = persist_config_if_changed(&path, &raw, &normalized)?;
 
-    Ok(parsed.normalize())
+    Ok(normalized)
+}
+
+pub fn upgrade_config_file() -> Result<ConfigUpgradeResult, String> {
+    let path = init_config_if_missing()?;
+    let raw = read_config_file(&path)?;
+    let parsed = parse_config_yaml(&path, &raw)?;
+    let normalized = parsed.normalize();
+    let upgraded = persist_config_if_changed(&path, &raw, &normalized)?;
+
+    Ok(ConfigUpgradeResult {
+        config_path: path.display().to_string(),
+        upgraded,
+    })
 }
 
 pub fn get_config_info() -> Result<ConfigInfo, String> {
@@ -566,4 +587,41 @@ fn default_config_yaml() -> String {
 
 fn default_true() -> bool {
     true
+}
+
+fn read_config_file(path: &Path) -> Result<String, String> {
+    fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read config file {}: {e}", path.display()))
+}
+
+fn parse_config_yaml(path: &Path, raw: &str) -> Result<AppConfig, String> {
+    serde_yaml::from_str(raw).map_err(|e| format!("Invalid YAML in {}: {e}", path.display()))
+}
+
+fn persist_config_if_changed(
+    path: &Path,
+    raw: &str,
+    normalized: &AppConfig,
+) -> Result<bool, String> {
+    let source_value: serde_yaml::Value = serde_yaml::from_str(raw)
+        .map_err(|e| format!("Invalid YAML in {}: {e}", path.display()))?;
+
+    let normalized_yaml = serde_yaml::to_string(normalized)
+        .map_err(|e| format!("Failed to serialize normalized config: {e}"))?;
+    let normalized_value: serde_yaml::Value = serde_yaml::from_str(&normalized_yaml)
+        .map_err(|e| format!("Failed to parse normalized config YAML: {e}"))?;
+
+    if source_value == normalized_value {
+        return Ok(false);
+    }
+
+    fs::write(path, normalized_yaml).map_err(|e| {
+        format!(
+            "Failed to write upgraded config file {}: {e}",
+            path.display()
+        )
+    })?;
+    log::info!("Config file upgraded at {}", path.display());
+
+    Ok(true)
 }

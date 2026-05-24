@@ -74,7 +74,9 @@ pub async fn get_model_catalog(sync_if_stale: bool) -> Result<ModelCatalog, Stri
         effective_models.insert(0, cfg.default_model.clone());
     }
 
-    let active_cache_entry = cache.as_ref().and_then(|c| c.providers.get(&cfg.active_provider));
+    let active_cache_entry = cache
+        .as_ref()
+        .and_then(|c| c.providers.get(&cfg.active_provider));
 
     Ok(ModelCatalog {
         config_path: config_path.display().to_string(),

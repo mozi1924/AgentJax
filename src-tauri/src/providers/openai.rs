@@ -118,10 +118,7 @@ where
         };
     }
 
-    if should_retry_without_previous_response(
-        &first_attempt,
-        req.previous_response_id.as_deref(),
-    ) {
+    if should_retry_without_previous_response(&first_attempt, req.previous_response_id.as_deref()) {
         let mut retry_req = req.clone();
         retry_req.previous_response_id = None;
         return match resolved.provider.stream_transport.as_str() {
@@ -292,12 +289,8 @@ where
         resolved.provider.api_endpoint.trim_end_matches('/')
     );
 
-    let body = build_streaming_request_payload(
-        resolved,
-        req,
-        req.previous_response_id.as_deref(),
-        store,
-    );
+    let body =
+        build_streaming_request_payload(resolved, req, req.previous_response_id.as_deref(), store);
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(resolved.timeout_seconds))
@@ -435,12 +428,8 @@ where
         .await
         .map_err(|e| format!("Failed to connect websocket transport: {e}"))?;
 
-    let mut create_event = build_streaming_request_payload(
-        resolved,
-        req,
-        req.previous_response_id.as_deref(),
-        store,
-    );
+    let mut create_event =
+        build_streaming_request_payload(resolved, req, req.previous_response_id.as_deref(), store);
     create_event["type"] = Value::String("response.create".to_string());
 
     ws.send(Message::Text(create_event.to_string().into()))
