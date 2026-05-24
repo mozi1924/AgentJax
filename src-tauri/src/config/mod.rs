@@ -9,6 +9,7 @@ const CONFIG_FILE_NAME: &str = "config.yaml";
 const DEFAULT_SYSTEM_PROMPT: &str =
     "You are Codex, a helpful AI assistant. Follow the user's instructions.";
 const DEFAULT_TIMEOUT_SECONDS: u64 = 120;
+const DEFAULT_UTILITY_SMALL_MODEL: &str = "gpt-5-mini";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -16,6 +17,7 @@ pub struct AppConfig {
     pub active_provider: String,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub default_model: String,
+    pub utility_small_model: String,
     pub model_profiles: BTreeMap<String, ModelProfile>,
     pub request_timeout_seconds: u64,
 }
@@ -96,6 +98,7 @@ impl Default for AppConfig {
             active_provider: "openai".to_string(),
             providers,
             default_model: "gpt-5-mini".to_string(),
+            utility_small_model: DEFAULT_UTILITY_SMALL_MODEL.to_string(),
             model_profiles,
             request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
         }
@@ -338,6 +341,28 @@ impl AppConfig {
             }
         }
 
+        self.utility_small_model = self.utility_small_model.trim().to_string();
+        let utility_is_usable = self
+            .model_profiles
+            .get(&self.utility_small_model)
+            .map(|p| p.enabled)
+            .unwrap_or(false);
+
+        if !utility_is_usable {
+            self.utility_small_model = self.default_model.clone();
+        }
+
+        if self
+            .model_profiles
+            .get(&self.utility_small_model)
+            .map(|p| !p.enabled)
+            .unwrap_or(false)
+        {
+            if let Some(profile) = self.model_profiles.get_mut(&self.utility_small_model) {
+                profile.enabled = true;
+            }
+        }
+
         self
     }
 
@@ -396,6 +421,10 @@ impl AppConfig {
         })
     }
 
+    pub fn utility_small_model_key(&self) -> &str {
+        &self.utility_small_model
+    }
+
     pub fn provider_keys(&self) -> Vec<String> {
         let mut keys = self.providers.keys().cloned().collect::<Vec<_>>();
         keys.sort();
@@ -418,6 +447,7 @@ pub struct ConfigInfo {
     pub active_provider: String,
     pub provider_keys: Vec<String>,
     pub default_model: String,
+    pub utility_small_model: String,
     pub models: Vec<String>,
     pub has_credential: bool,
     pub credential_env: String,
@@ -469,6 +499,7 @@ pub fn get_config_info() -> Result<ConfigInfo, String> {
         active_provider,
         provider_keys: config.provider_keys(),
         default_model: config.default_model.clone(),
+        utility_small_model: config.utility_small_model.clone(),
         models: config.configured_models(),
         has_credential: active_provider_config.resolved_credential().is_some(),
         credential_env: active_provider_config.credential_env,
@@ -527,6 +558,7 @@ fn default_config_yaml() -> String {
         "      extra_body: {}",
         "",
         "default_model: \"gpt-5-mini\"",
+        "utility_small_model: \"gpt-5-mini\"",
         "",
     ]
     .join("\n")

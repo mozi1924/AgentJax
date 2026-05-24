@@ -39,6 +39,7 @@ pub struct ModelCatalog {
     pub config_path: String,
     pub cache_path: String,
     pub default_model: String,
+    pub utility_small_model: String,
     pub configured_models: Vec<String>,
     pub cached_models: Vec<String>,
     pub effective_models: Vec<String>,
@@ -73,14 +74,13 @@ pub async fn get_model_catalog(sync_if_stale: bool) -> Result<ModelCatalog, Stri
         effective_models.insert(0, cfg.default_model.clone());
     }
 
-    let active_cache_entry = cache
-        .as_ref()
-        .and_then(|c| c.providers.get(&cfg.active_provider));
+    let active_cache_entry = cache.as_ref().and_then(|c| c.providers.get(&cfg.active_provider));
 
     Ok(ModelCatalog {
         config_path: config_path.display().to_string(),
         cache_path: cache_path.display().to_string(),
         default_model: cfg.default_model.clone(),
+        utility_small_model: cfg.utility_small_model.clone(),
         configured_models,
         cached_models,
         effective_models,

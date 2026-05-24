@@ -22,8 +22,36 @@ function createLocalConversation(conversationId = createConversationId()) {
   };
 }
 
+function isConversationEmpty(conversation) {
+  return Array.isArray(conversation?.messages) && conversation.messages.length === 0;
+}
+
+function canUseNativeContextMenu(target) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (target.closest('input, textarea, [contenteditable="true"]')) {
+    return true;
+  }
+
+  return Boolean(target.closest('[data-native-context-menu="true"]'));
+}
+
+function applyConversationTitle(conversation, nextTitle) {
+  const title = (nextTitle || '').trim();
+  if (!title) {
+    return conversation;
+  }
+
+  return {
+    ...conversation,
+    title
+  };
+}
+
 function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState('gpt-5-mini');
   const [modelOptions, setModelOptions] = useState([]);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
@@ -74,6 +102,25 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const handleContextMenu = (event) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      if (canUseNativeContextMenu(event.target)) {
+        return;
+      }
+
+      event.preventDefault();
+    };
+
+    document.addEventListener('contextmenu', handleContextMenu);
+    return () => {
+      document.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
     invoke('get_model_catalog')
       .then((catalog) => {
@@ -119,8 +166,12 @@ function App() {
           isLoaded: false
         }));
 
-        setConversations(restoredConversations);
-        setActiveConversationId(restoredConversations[0].conversationId);
+        setConversations((prevConversations) => {
+          const localDrafts = prevConversations.filter((conversation) =>
+            isConversationEmpty(conversation)
+          );
+          return [...localDrafts, ...restoredConversations];
+        });
       })
       .catch(() => {
         // Keep local fallback conversation list when backend history is unavailable.
@@ -221,12 +272,12 @@ function App() {
                     }
                   : message
               );
-              return {
+              return applyConversationTitle({
                 ...conversation,
                 messages: nextMessages,
                 lastResponseId: payload.responseId || conversation.lastResponseId,
                 isLoaded: true
-              };
+              }, payload.conversationTitle);
             })
           );
         }
@@ -284,7 +335,7 @@ function App() {
     const assistantMessageId = targetAssistantMessageId || `m-a-${Date.now()}`;
     setConversations((prevConversations) =>
       prevConversations.map((conversation) => {
-        if (conversation.conversationId !== activeConversation.conversationId) {
+        if (conversation.conversationId !== currentConversationId) {
           return conversation;
         }
 
@@ -292,7 +343,7 @@ function App() {
         let nextMessages = [...conversation.messages];
 
         if (appendUserMessage && userMessage) {
-          if (nextMessages.length === 0) {
+          if (nextMessages.length === 0 && !conversation.title.trim()) {
             nextTitle = text.length > 20 ? `${text.slice(0, 18)}...` : text;
           }
           nextMessages.push(userMessage);
@@ -367,12 +418,12 @@ function App() {
                 }
               : message
           );
-          return {
+          return applyConversationTitle({
             ...conversation,
             messages,
             lastResponseId: response.responseId || null,
             isLoaded: true
-          };
+          }, response.conversationTitle);
         })
       );
     } catch (err) {
@@ -441,9 +492,103 @@ function App() {
   };
 
   const handleNewChat = () => {
+    if (activeConversation && isConversationEmpty(activeConversation)) {
+      setActiveConversationId(activeConversation.conversationId);
+      return;
+    }
+
     const newConversation = createLocalConversation();
     setConversations((prevConversations) => [newConversation, ...prevConversations]);
     setActiveConversationId(newConversation.conversationId);
+  };
+
+  const handleRenameConversation = async (conversationId, title) => {
+    const nextTitle = (title || '').trim();
+    if (!nextTitle) return;
+
+    const previousConversation = conversations.find(
+      (conversation) => conversation.conversationId === conversationId
+    );
+    if (!previousConversation) return;
+
+    setConversations((prevConversations) =>
+      prevConversations.map((conversation) =>
+        conversation.conversationId === conversationId
+          ? { ...conversation, title: nextTitle }
+          : conversation
+      )
+    );
+
+    try {
+      const updatedSummary = await invoke('rename_conversation', {
+        req: {
+          conversationId,
+          title: nextTitle
+        }
+      });
+
+      if (updatedSummary?.title) {
+        setConversations((prevConversations) =>
+          prevConversations.map((conversation) =>
+            conversation.conversationId === conversationId
+              ? { ...conversation, title: updatedSummary.title }
+              : conversation
+          )
+        );
+      }
+    } catch {
+      setConversations((prevConversations) =>
+        prevConversations.map((conversation) =>
+          conversation.conversationId === conversationId
+            ? { ...conversation, title: previousConversation.title }
+            : conversation
+        )
+      );
+    }
+  };
+
+  const handleDeleteConversation = async (conversationId) => {
+    const targetConversation = conversations.find(
+      (conversation) => conversation.conversationId === conversationId
+    );
+    if (!targetConversation) return;
+
+    const confirmed = globalThis.confirm
+      ? globalThis.confirm(`删除对话“${targetConversation.title}”？此操作无法撤销。`)
+      : true;
+    if (!confirmed) return;
+
+    const remainingConversations = conversations.filter(
+      (conversation) => conversation.conversationId !== conversationId
+    );
+    const fallbackConversation = createLocalConversation();
+
+    setConversations(
+      remainingConversations.length > 0 ? remainingConversations : [fallbackConversation]
+    );
+
+    if (activeConversationId === conversationId) {
+      setActiveConversationId(
+        remainingConversations[0]?.conversationId || fallbackConversation.conversationId
+      );
+    }
+
+    try {
+      await invoke('delete_conversation', {
+        req: { conversationId }
+      });
+    } catch {
+      setConversations((prevConversations) => {
+        const exists = prevConversations.some(
+          (conversation) => conversation.conversationId === conversationId
+        );
+        if (exists) return prevConversations;
+        return [targetConversation, ...prevConversations];
+      });
+      if (activeConversationId === conversationId) {
+        setActiveConversationId(conversationId);
+      }
+    }
   };
 
   const handleSuggestionClick = (text) => {
@@ -458,13 +603,16 @@ function App() {
   };
 
   return (
-    <div className="relative flex h-screen w-screen overflow-hidden bg-[#131314] text-slate-100 antialiased font-sans">
+    <div className="app-shell relative flex h-screen w-screen overflow-hidden bg-[#131314] text-slate-100 antialiased font-sans select-none">
       <Sidebar
         isOpen={sidebarOpen}
         conversations={conversations}
         activeConversationId={activeConversationId}
         onSelectConversation={(conversationId) => setActiveConversationId(conversationId)}
         onNewChat={handleNewChat}
+        onRenameConversation={handleRenameConversation}
+        onDeleteConversation={handleDeleteConversation}
+        isGenerating={isGenerating}
       />
 
       <div
@@ -573,7 +721,8 @@ function App() {
                   }}
                   placeholder="问问 AgentJax"
                   rows={1}
-                  className="max-h-[180px] flex-1 resize-none bg-transparent py-1.5 text-sm text-slate-200 placeholder-slate-500 scrollbar-thin focus:outline-none"
+                  data-native-context-menu="true"
+                  className="max-h-[180px] flex-1 resize-none bg-transparent py-1.5 text-sm text-slate-200 placeholder-slate-500 scrollbar-thin focus:outline-none select-text"
                 />
 
                 <div className="flex items-center gap-2">

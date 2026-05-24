@@ -9,6 +9,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+#root {
+  height: 100vh;
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-family: 'Outfit', sans-serif;
 }
@@ -48,6 +52,22 @@ h1, h2, h3, h4, h5, h6 {
 .animate-gradient {
   background-size: 200% auto;
   animation: gradient-shift 6s ease infinite;
+}
+
+@keyframes sidebar-menu-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.sidebar-context-menu {
+  transform-origin: top left;
+  animation: sidebar-menu-pop 140ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Hide default cursor outline on buttons for a native feel */

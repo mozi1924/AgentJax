@@ -216,7 +216,11 @@ fn build_streaming_request_payload(
 
     let mut payload = json!({
       "model": resolved.model_id,
-      "instructions": resolved.provider.system_prompt,
+      "instructions": req
+        .instructions_override
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(&resolved.provider.system_prompt),
       "input": input_items,
       "store": store,
       "stream": true

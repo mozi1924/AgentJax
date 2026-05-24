@@ -38,7 +38,7 @@ export default function CodeBlock({ code, language }) {
   return (
     <div className="my-4 overflow-hidden rounded-2xl border border-[#2d2f31] bg-[#1e1f20] text-slate-200">
       {/* Header bar */}
-      <div className="flex items-center justify-between bg-[#131314] px-4 py-2 text-xs font-medium text-slate-400">
+      <div className="flex items-center justify-between bg-[#131314] px-4 py-2 text-xs font-medium text-slate-400 select-none">
         <span className="capitalize">{language}</span>
         <div className="flex items-center gap-3">
           <button
@@ -69,7 +69,10 @@ export default function CodeBlock({ code, language }) {
         </div>
       </div>
       {/* Code body */}
-      <div className="overflow-x-auto p-4 font-mono text-sm leading-relaxed scrollbar-thin">
+      <div
+        data-native-context-menu="true"
+        className="overflow-x-auto p-4 font-mono text-sm leading-relaxed scrollbar-thin select-text"
+      >
         <pre><code>{code}</code></pre>
       </div>
     </div>

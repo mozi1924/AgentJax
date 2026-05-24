@@ -38,6 +38,8 @@ pub fn run() {
             commands::chat::cancel_chat_stream,
             commands::chat::list_conversations,
             commands::chat::load_conversation,
+            commands::chat::rename_conversation,
+            commands::chat::delete_conversation,
             commands::config::get_runtime_config,
             commands::config::get_config_file_path,
             commands::models::get_model_catalog,

@@ -267,7 +267,7 @@ export default function ChatArea({
     <div className="flex flex-1 flex-col overflow-y-auto px-4 py-6 md:px-8 lg:px-12 scrollbar-thin">
       {/* If empty chat, show welcome greeting */}
       {messages.length === 0 ? (
-        <div className="mx-auto flex max-w-3xl flex-col items-center justify-center flex-1 text-center py-10 md:py-16">
+        <div className="mx-auto flex max-w-3xl flex-col items-center justify-center flex-1 py-10 text-center md:py-16">
           {/* Main Greeting */}
           <h1 className="text-4xl font-semibold tracking-tight md:text-5xl text-center w-full mb-4">
             <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-rose-400 bg-clip-text text-transparent animate-gradient">
@@ -280,7 +280,7 @@ export default function ChatArea({
       ) : (
         /* Else, render conversation message logs */
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 py-4">
-          <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest border-b border-[#2d2f31]/60 pb-3 mb-2 flex items-center gap-2">
+          <div className="mb-2 flex items-center gap-2 border-b border-[#2d2f31]/60 pb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">
             <MessageSquare className="h-4 w-4 text-cyan-400" />
             <span>{activeChatTitle}</span>
           </div>
@@ -299,7 +299,10 @@ export default function ChatArea({
 
               {/* Message Content */}
               {m.role === 'user' ? (
-                <div className="rounded-3xl bg-[#1e1f20] px-5 py-3.5 text-sm leading-relaxed text-slate-200 max-w-[80%] break-words border border-[#2d2f31]/30 hover:border-slate-500/30 transition">
+                <div
+                  data-native-context-menu="true"
+                  className="max-w-[80%] break-words rounded-3xl border border-[#2d2f31]/30 bg-[#1e1f20] px-5 py-3.5 text-sm leading-relaxed text-slate-200 transition hover:border-slate-500/30 select-text"
+                >
                   {m.text}
                 </div>
               ) : (
@@ -330,7 +333,10 @@ export default function ChatArea({
                       </div>
                     </div>
                   ) : (
-                    <div className="prose prose-invert max-w-none text-slate-300">
+                    <div
+                      data-native-context-menu="true"
+                      className="prose prose-invert max-w-none text-slate-300 select-text"
+                    >
                       {renderMarkdown(m.text)}
                     </div>
                   )}

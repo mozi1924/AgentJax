@@ -6,6 +6,7 @@ pub struct ResponseStreamRequest {
     pub previous_response_id: Option<String>,
     pub model: Option<String>,
     pub context_items: Vec<Value>,
+    pub instructions_override: Option<String>,
 }
 
 #[derive(Debug, Clone)]
