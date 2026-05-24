@@ -23,7 +23,7 @@ function App() {
       id: 'chat-1',
       title: '新对话',
       messages: [],
-      lastResponseId: null
+      lastTurnId: null
     }
   ]);
 
@@ -132,7 +132,7 @@ function App() {
               return {
                 ...chat,
                 messages: nextMessages,
-                lastResponseId: payload.responseId || chat.lastResponseId
+                lastTurnId: payload.turnId || chat.lastTurnId
               };
             })
           );
@@ -221,13 +221,13 @@ function App() {
     activeRequestIdRef.current = requestId;
 
     try {
-      const response = await invoke('chat_with_responses_stream', {
+      const response = await invoke('chat_stream', {
         req: {
           input: text,
           history: (activeChat.messages || [])
             .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
             .map((m) => ({ role: m.role, text: m.text || '' })),
-          previousResponseId: activeChat.lastResponseId,
+          continuationId: activeChat.lastTurnId,
           model: selectedModel,
           requestId
         }
@@ -242,13 +242,13 @@ function App() {
                 ? { ...m, text: response.outputText || m.text || (wasStopped ? '已停止' : '') }
                 : m
             );
-            return { ...c, messages: msgs, lastResponseId: response.responseId || null };
+            return { ...c, messages: msgs, lastTurnId: response.turnId || null };
           }
           return c;
         })
       );
     } catch (err) {
-      const errorText = typeof err === 'string' ? err : '请求失败，请检查配置文件中的 api_key / base_url 和网络连接。';
+      const errorText = typeof err === 'string' ? err : '请求失败，请检查配置文件中的 credential / api_endpoint 和网络连接。';
       setChats((prevChats) =>
         prevChats.map((c) => {
           if (c.id === activeChat.id) {
@@ -293,7 +293,7 @@ function App() {
       id: newId,
       title: '新对话',
       messages: [],
-      lastResponseId: null
+      lastTurnId: null
     };
     setChats([newChatObj, ...chats]);
     setActiveChatId(newId);
