@@ -1,9 +1,26 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { Menu, ChevronDown, Image, X, Paperclip, Mic, Send, Square } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
+
+function createConversationId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `conv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createLocalConversation(conversationId = createConversationId()) {
+  return {
+    conversationId,
+    title: '新对话',
+    messages: [],
+    lastResponseId: null,
+    isLoaded: true
+  };
+}
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -17,26 +34,21 @@ function App() {
   const [isStopping, setIsStopping] = useState(false);
   const [attachment, setAttachment] = useState(null);
 
-  // Start with an empty chat list containing one new chat
-  const [chats, setChats] = useState([
-    {
-      id: 'chat-1',
-      title: '新对话',
-      messages: [],
-      lastTurnId: null
-    }
-  ]);
+  const [conversations, setConversations] = useState([createLocalConversation()]);
+  const [activeConversationId, setActiveConversationId] = useState(
+    conversations[0].conversationId
+  );
+  const activeConversation =
+    conversations.find((conversation) => conversation.conversationId === activeConversationId) ||
+    conversations[0];
 
-  const [activeChatId, setActiveChatId] = useState('chat-1');
-  const activeChat = chats.find((c) => c.id === activeChatId) || chats[0];
   const titlebarRef = useRef(null);
   const streamRequestMapRef = useRef({});
   const streamListenerRef = useRef(null);
   const activeRequestIdRef = useRef(null);
   const stoppedRequestIdsRef = useRef(new Set());
-
-  // Auto-size input box height
   const textareaRef = useRef(null);
+
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -70,7 +82,9 @@ function App() {
           ? catalog.effectiveModels
           : ['gpt-5-mini'];
         const configuredDefault = (catalog.defaultModel || '').trim();
-        const nextModel = configuredDefault && available.includes(configuredDefault) ? configuredDefault : available[0];
+        const nextModel = configuredDefault && available.includes(configuredDefault)
+          ? configuredDefault
+          : available[0];
         setModelOptions(available);
         setSelectedModel(nextModel);
         if (catalog.configPath) {
@@ -90,6 +104,75 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let mounted = true;
+
+    invoke('list_conversations')
+      .then((storedConversations) => {
+        if (!mounted || !Array.isArray(storedConversations)) return;
+        if (storedConversations.length === 0) return;
+
+        const restoredConversations = storedConversations.map((conversation) => ({
+          conversationId: conversation.conversationId,
+          title: conversation.title || '历史会话',
+          messages: [],
+          lastResponseId: null,
+          isLoaded: false
+        }));
+
+        setConversations(restoredConversations);
+        setActiveConversationId(restoredConversations[0].conversationId);
+      })
+      .catch(() => {
+        // Keep local fallback conversation list when backend history is unavailable.
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const selectedConversation = conversations.find(
+      (conversation) => conversation.conversationId === activeConversationId
+    );
+    if (!selectedConversation || selectedConversation.isLoaded) return;
+
+    let disposed = false;
+    invoke('load_conversation', {
+      req: { conversationId: selectedConversation.conversationId }
+    })
+      .then((detail) => {
+        if (disposed || !detail) return;
+        setConversations((prevConversations) =>
+          prevConversations.map((conversation) => {
+            if (conversation.conversationId !== selectedConversation.conversationId) {
+              return conversation;
+            }
+            return {
+              ...conversation,
+              title: detail.title || conversation.title,
+              lastResponseId: detail.lastResponseId || null,
+              isLoaded: true,
+              messages: (detail.messages || []).map((message) => ({
+                id: message.id,
+                role: message.role,
+                text: message.text || '',
+                status: 'done',
+                errorText: '',
+                retryable: false
+              }))
+            };
+          })
+        );
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+    };
+  }, [activeConversationId, conversations]);
+
+  useEffect(() => {
     let disposed = false;
 
     const setup = async () => {
@@ -99,6 +182,7 @@ function App() {
         const requestId = payload.requestId;
         const mapping = requestId ? streamRequestMapRef.current[requestId] : null;
         if (!mapping) return;
+
         const eventIndex = Number(payload.eventIndex || 0);
         if (eventIndex > 0) {
           const lastEventIndex = Number(mapping.lastEventIndex || 0);
@@ -109,30 +193,39 @@ function App() {
         }
 
         if (payload.kind === 'delta' && payload.delta) {
-          setChats((prevChats) =>
-            prevChats.map((chat) => {
-              if (chat.id !== mapping.chatId) return chat;
-              const nextMessages = chat.messages.map((m) =>
-                m.id === mapping.assistantMsgId ? { ...m, text: `${m.text || ''}${payload.delta}` } : m
+          setConversations((prevConversations) =>
+            prevConversations.map((conversation) => {
+              if (conversation.conversationId !== mapping.conversationId) return conversation;
+              const nextMessages = conversation.messages.map((message) =>
+                message.id === mapping.assistantMessageId
+                  ? { ...message, text: `${message.text || ''}${payload.delta}` }
+                  : message
               );
-              return { ...chat, messages: nextMessages };
+              return { ...conversation, messages: nextMessages };
             })
           );
         }
 
         if (payload.kind === 'done') {
-          setChats((prevChats) =>
-            prevChats.map((chat) => {
-              if (chat.id !== mapping.chatId) return chat;
-              const nextMessages = chat.messages.map((m) =>
-                m.id === mapping.assistantMsgId && typeof payload.delta === 'string' && payload.delta.length > 0
-                  ? { ...m, text: payload.delta }
-                  : m
+          setConversations((prevConversations) =>
+            prevConversations.map((conversation) => {
+              if (conversation.conversationId !== mapping.conversationId) return conversation;
+              const nextMessages = conversation.messages.map((message) =>
+                message.id === mapping.assistantMessageId && typeof payload.delta === 'string'
+                  ? {
+                      ...message,
+                      text: payload.delta,
+                      status: 'done',
+                      errorText: '',
+                      retryable: false
+                    }
+                  : message
               );
               return {
-                ...chat,
+                ...conversation,
                 messages: nextMessages,
-                lastTurnId: payload.turnId || chat.lastTurnId
+                lastResponseId: payload.responseId || conversation.lastResponseId,
+                isLoaded: true
               };
             })
           );
@@ -161,61 +254,88 @@ function App() {
     };
   }, []);
 
-  const handleSend = async (textToSend) => {
-    const text = textToSend || input;
-    if (!text.trim() || isGenerating) return;
+  const handleSend = async (textToSend, options = {}) => {
+    const {
+      appendUserMessage = true,
+      targetAssistantMessageId = null,
+      conversationIdOverride = null
+    } = options;
 
-    // Clear input & attachments
-    setInput('');
-    setAttachment(null);
+    const text = (textToSend ?? input).trim();
+    if (!text || isGenerating || !activeConversation) return;
 
-    // Create user message
-    const userMsg = {
-      id: `m-u-${Date.now()}`,
-      role: 'user',
-      text: text
-    };
+    if (appendUserMessage) {
+      setInput('');
+      setAttachment(null);
+    }
 
-    // Update active chat messages
-    const updatedChats = chats.map((c) => {
-      if (c.id === activeChat.id) {
-        let updatedTitle = c.title;
-        if (c.messages.length === 0) {
-          // If first message, rename title
-          updatedTitle = text.length > 20 ? `${text.slice(0, 18)}...` : text;
+    const userMessage = appendUserMessage
+      ? {
+          id: `m-u-${Date.now()}`,
+          role: 'user',
+          text
         }
-        return {
-          ...c,
-          title: updatedTitle,
-          messages: [...c.messages, userMsg]
-        };
-      }
-      return c;
-    });
+      : null;
 
-    setChats(updatedChats);
+    const currentConversationId = conversationIdOverride ?? activeConversation.conversationId;
+
     setIsGenerating(true);
 
-    const assistantMsgId = `m-a-${Date.now()}`;
-    setChats((prevChats) =>
-      prevChats.map((c) => {
-        if (c.id === activeChat.id) {
-          return {
-            ...c,
-            messages: [
-              ...c.messages,
-              { id: assistantMsgId, role: 'assistant', text: '' }
-            ]
-          };
+    const assistantMessageId = targetAssistantMessageId || `m-a-${Date.now()}`;
+    setConversations((prevConversations) =>
+      prevConversations.map((conversation) => {
+        if (conversation.conversationId !== activeConversation.conversationId) {
+          return conversation;
         }
-        return c;
+
+        let nextTitle = conversation.title;
+        let nextMessages = [...conversation.messages];
+
+        if (appendUserMessage && userMessage) {
+          if (nextMessages.length === 0) {
+            nextTitle = text.length > 20 ? `${text.slice(0, 18)}...` : text;
+          }
+          nextMessages.push(userMessage);
+        }
+
+        const nextAssistantMessage = {
+          id: assistantMessageId,
+          role: 'assistant',
+          text: '',
+          status: 'streaming',
+          errorText: '',
+          retryable: false,
+          retryInput: text,
+          retryConversationId: currentConversationId
+        };
+
+        const hasTarget =
+          targetAssistantMessageId &&
+          nextMessages.some((message) => message.id === targetAssistantMessageId);
+
+        if (hasTarget) {
+          nextMessages = nextMessages.map((message) =>
+            message.id === targetAssistantMessageId
+              ? { ...message, ...nextAssistantMessage }
+              : message
+          );
+        } else {
+          nextMessages.push(nextAssistantMessage);
+        }
+
+        return {
+          ...conversation,
+          title: nextTitle,
+          messages: nextMessages,
+          isLoaded: true
+        };
       })
     );
 
     const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     streamRequestMapRef.current[requestId] = {
-      chatId: activeChat.id,
-      assistantMsgId,
+      conversationId: currentConversationId,
+      assistantMessageId,
       lastEventIndex: 0
     };
     activeRequestIdRef.current = requestId;
@@ -224,40 +344,58 @@ function App() {
       const response = await invoke('chat_stream', {
         req: {
           input: text,
-          history: (activeChat.messages || [])
-            .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
-            .map((m) => ({ role: m.role, text: m.text || '' })),
-          continuationId: activeChat.lastTurnId,
+          conversationId: currentConversationId,
           model: selectedModel,
           requestId
         }
       });
       const wasStopped = stoppedRequestIdsRef.current.has(requestId);
 
-      setChats((prevChats) =>
-        prevChats.map((c) => {
-          if (c.id === activeChat.id) {
-            const msgs = c.messages.map((m) =>
-              m.id === assistantMsgId
-                ? { ...m, text: response.outputText || m.text || (wasStopped ? '已停止' : '') }
-                : m
-            );
-            return { ...c, messages: msgs, lastTurnId: response.turnId || null };
+      setConversations((prevConversations) =>
+        prevConversations.map((conversation) => {
+          if (conversation.conversationId !== currentConversationId) {
+            return conversation;
           }
-          return c;
+          const messages = conversation.messages.map((message) =>
+            message.id === assistantMessageId
+              ? {
+                  ...message,
+                  text: response.outputText || message.text || (wasStopped ? '已停止' : ''),
+                  status: 'done',
+                  errorText: '',
+                  retryable: false
+                }
+              : message
+          );
+          return {
+            ...conversation,
+            messages,
+            lastResponseId: response.responseId || null,
+            isLoaded: true
+          };
         })
       );
     } catch (err) {
-      const errorText = typeof err === 'string' ? err : '请求失败，请检查配置文件中的 credential / api_endpoint 和网络连接。';
-      setChats((prevChats) =>
-        prevChats.map((c) => {
-          if (c.id === activeChat.id) {
-            const msgs = c.messages.map((m) =>
-              m.id === assistantMsgId ? { ...m, text: `调用失败：${errorText}` } : m
-            );
-            return { ...c, messages: msgs };
+      const errorText = typeof err === 'string'
+        ? err
+        : '请求失败，请检查配置文件中的 credential / api_endpoint 和网络连接。';
+      setConversations((prevConversations) =>
+        prevConversations.map((conversation) => {
+          if (conversation.conversationId !== currentConversationId) {
+            return conversation;
           }
-          return c;
+          const messages = conversation.messages.map((message) =>
+            message.id === assistantMessageId
+              ? {
+                  ...message,
+                  text: '',
+                  status: 'failed',
+                  errorText,
+                  retryable: true
+                }
+              : message
+          );
+          return { ...conversation, messages };
         })
       );
     } finally {
@@ -269,6 +407,21 @@ function App() {
       setIsGenerating(false);
       setIsStopping(false);
     }
+  };
+
+  const handleRetryMessage = (assistantMessageId) => {
+    if (isGenerating || !activeConversation) return;
+    const failedMessage = (activeConversation.messages || []).find(
+      (message) => message.id === assistantMessageId
+    );
+    if (!failedMessage?.retryable || !failedMessage?.retryInput) return;
+
+    handleSend(failedMessage.retryInput, {
+      appendUserMessage: false,
+      targetAssistantMessageId: assistantMessageId,
+      conversationIdOverride:
+        failedMessage.retryConversationId ?? activeConversation.conversationId
+    });
   };
 
   const handleStop = async () => {
@@ -288,15 +441,9 @@ function App() {
   };
 
   const handleNewChat = () => {
-    const newId = `chat-new-${Date.now()}`;
-    const newChatObj = {
-      id: newId,
-      title: '新对话',
-      messages: [],
-      lastTurnId: null
-    };
-    setChats([newChatObj, ...chats]);
-    setActiveChatId(newId);
+    const newConversation = createLocalConversation();
+    setConversations((prevConversations) => [newConversation, ...prevConversations]);
+    setActiveConversationId(newConversation.conversationId);
   };
 
   const handleSuggestionClick = (text) => {
@@ -314,9 +461,9 @@ function App() {
     <div className="relative flex h-screen w-screen overflow-hidden bg-[#131314] text-slate-100 antialiased font-sans">
       <Sidebar
         isOpen={sidebarOpen}
-        chats={chats}
-        activeChatId={activeChatId}
-        onSelectChat={(id) => setActiveChatId(id)}
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        onSelectConversation={(conversationId) => setActiveConversationId(conversationId)}
         onNewChat={handleNewChat}
       />
 
@@ -376,10 +523,11 @@ function App() {
         }`}
       >
         <ChatArea
-          messages={activeChat.messages}
+          messages={activeConversation?.messages || []}
           isGenerating={isGenerating}
+          onRetryMessage={handleRetryMessage}
           onSuggestionClick={handleSuggestionClick}
-          activeChatTitle={activeChat.title}
+          activeChatTitle={activeConversation?.title || '新对话'}
         />
 
         <div className="bg-[#131314] px-4 md:px-6 pb-6 pt-2">

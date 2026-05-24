@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { MessageSquare, Sparkles, Loader2 } from 'lucide-react';
+import { MessageSquare, Sparkles, Loader2, RotateCcw, AlertTriangle } from 'lucide-react';
 import CodeBlock from './CodeBlock';
 
 export default function ChatArea({
   messages,
   isGenerating,
+  onRetryMessage,
   activeChatTitle
 }) {
   const messagesEndRef = useRef(null);
@@ -78,8 +79,7 @@ export default function ChatArea({
         i = j - 1; // skip forward
 
         const headerLine = tableLines[0];
-        const dividerLine = tableLines[1];
-        const rowLines = tableLines.slice(2);
+                const rowLines = tableLines.slice(2);
 
         const parseTableRow = (rowText) => {
           return rowText
@@ -153,7 +153,7 @@ export default function ChatArea({
       // Handle Alerts (e.g. > [!NOTE], > [!WARNING], > [!TIP])
       else if (line.startsWith('> [!')) {
         commitList(i);
-        const match = line.match(/^> \[\!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/);
+        const match = line.match(/^> \[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/);
         const type = match ? match[1] : 'NOTE';
         
         // Collect following quote lines
@@ -305,9 +305,35 @@ export default function ChatArea({
               ) : (
                 <div className="flex-1 overflow-hidden space-y-1.5">
                   {/* Streaming indicator or response body */}
-                  <div className="prose prose-invert max-w-none text-slate-300">
-                    {renderMarkdown(m.text)}
-                  </div>
+                  {m.status === 'failed' ? (
+                    <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 px-4 py-3">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 mt-0.5 text-rose-300" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-rose-200">请求失败，未写入会话上下文。</p>
+                          <p className="mt-1 text-xs text-rose-300/90 break-words">
+                            {m.errorText || '请检查网络或配置后重试。'}
+                          </p>
+                          <button
+                            onClick={() => onRetryMessage?.(m.id)}
+                            disabled={isGenerating}
+                            className={`mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                              isGenerating
+                                ? 'cursor-not-allowed border border-[#2d2f31] text-slate-500'
+                                : 'border border-rose-400/40 text-rose-200 hover:bg-rose-900/40'
+                            }`}
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            重试这条消息
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="prose prose-invert max-w-none text-slate-300">
+                      {renderMarkdown(m.text)}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

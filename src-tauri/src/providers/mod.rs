@@ -45,6 +45,7 @@ pub async fn fetch_remote_models(
 ) -> Result<Vec<String>, String> {
     let provider = config.resolved_provider(provider_key)?;
     let resolved = ResolvedModelConfig {
+        profile_key: "<catalog-sync>".to_string(),
         provider_key: provider_key.to_string(),
         timeout_seconds: provider.resolved_timeout_seconds(config.request_timeout_seconds),
         provider,

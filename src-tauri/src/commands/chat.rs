@@ -6,8 +6,9 @@ use tauri::State;
 use tokio::sync::watch;
 
 use crate::config;
+use crate::conversation_store;
 use crate::providers;
-use crate::providers::types::{ProviderMessage, ResponseStreamRequest};
+use crate::providers::types::ResponseStreamRequest;
 
 #[derive(Default)]
 pub struct ChatRequestRegistry {
@@ -18,17 +19,9 @@ pub struct ChatRequestRegistry {
 #[serde(rename_all = "camelCase")]
 pub struct ChatRequest {
     pub input: String,
-    pub continuation_id: Option<String>,
+    pub conversation_id: Option<String>,
     pub model: Option<String>,
     pub request_id: Option<String>,
-    pub history: Option<Vec<ChatHistoryMessage>>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatHistoryMessage {
-    pub role: String,
-    pub text: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,11 +30,18 @@ pub struct CancelChatRequest {
     pub request_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadConversationRequest {
+    pub conversation_id: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatResponse {
-    pub turn_id: String,
+    pub response_id: String,
     pub output_text: String,
+    pub conversation_id: String,
 }
 
 #[tauri::command]
@@ -58,6 +58,21 @@ pub async fn chat_stream(
     let mut event_index: u64 = 0;
     let (cancel_tx, mut cancel_rx) = watch::channel(false);
 
+    let input_text = req.input.trim().to_string();
+    if input_text.is_empty() {
+        return Err("Input text cannot be empty".to_string());
+    }
+
+    let conversation_id = req
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(conversation_store::new_conversation_id);
+
+    let context = conversation_store::load_context_for_request(&conversation_id)?;
+
     registry
         .requests
         .lock()
@@ -65,19 +80,10 @@ pub async fn chat_stream(
         .insert(request_id.clone(), cancel_tx);
 
     let stream_request = ResponseStreamRequest {
-        input: req.input.clone(),
-        continuation_id: req.continuation_id.clone(),
+        input_text: input_text.clone(),
+        previous_response_id: context.previous_response_id,
         model: req.model.clone(),
-        history: req
-            .history
-            .clone()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|m| ProviderMessage {
-                role: m.role,
-                text: m.text,
-            })
-            .collect(),
+        context_items: context.input_items,
     };
 
     let result = providers::stream_response(&config, &stream_request, &mut cancel_rx, |delta| {
@@ -89,7 +95,8 @@ pub async fn chat_stream(
                     event_index: next_event_index(&mut event_index),
                     kind: "delta".to_string(),
                     delta: Some(delta.to_string()),
-                    turn_id: None,
+                    response_id: None,
+                    conversation_id: None,
                     error: None,
                 },
             )
@@ -105,6 +112,39 @@ pub async fn chat_stream(
 
     let response = result?;
 
+    let now = now_unix_ms();
+    conversation_store::append_message(conversation_store::AppendMessageInput {
+        conversation_id: conversation_id.clone(),
+        message_id: format!("msg-user-{request_id}"),
+        role: "user".to_string(),
+        text: input_text.clone(),
+        created_at_unix_ms: now,
+        response_id: None,
+        provider: Some(response.provider_key.clone()),
+        model_profile: Some(response.model_profile.clone()),
+        model_id: Some(response.model_id.clone()),
+        request_id: Some(request_id.clone()),
+        input_items: conversation_store::build_user_input_items(&input_text),
+        output_items: Vec::new(),
+        metadata: Default::default(),
+    })?;
+
+    conversation_store::append_message(conversation_store::AppendMessageInput {
+        conversation_id: conversation_id.clone(),
+        message_id: format!("msg-assistant-{request_id}"),
+        role: "assistant".to_string(),
+        text: response.output_text.clone(),
+        created_at_unix_ms: now_unix_ms(),
+        response_id: Some(response.response_id.clone()),
+        provider: Some(response.provider_key.clone()),
+        model_profile: Some(response.model_profile.clone()),
+        model_id: Some(response.model_id.clone()),
+        request_id: Some(request_id.clone()),
+        input_items: Vec::new(),
+        output_items: response.output_items.clone(),
+        metadata: Default::default(),
+    })?;
+
     window
         .emit(
             "chat_stream_event",
@@ -113,16 +153,30 @@ pub async fn chat_stream(
                 event_index: next_event_index(&mut event_index),
                 kind: "done".to_string(),
                 delta: Some(response.output_text.clone()),
-                turn_id: Some(response.turn_id.clone()),
+                response_id: Some(response.response_id.clone()),
+                conversation_id: Some(conversation_id.clone()),
                 error: None,
             },
         )
         .map_err(|e| format!("Failed to emit stream done event: {e}"))?;
 
     Ok(ChatResponse {
-        turn_id: response.turn_id,
+        response_id: response.response_id,
         output_text: response.output_text,
+        conversation_id,
     })
+}
+
+#[tauri::command]
+pub fn list_conversations() -> Result<Vec<conversation_store::ConversationSummary>, String> {
+    conversation_store::list_conversations()
+}
+
+#[tauri::command]
+pub fn load_conversation(
+    req: LoadConversationRequest,
+) -> Result<Option<conversation_store::ConversationDetail>, String> {
+    conversation_store::load_conversation(&req.conversation_id)
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -132,7 +186,8 @@ struct ChatStreamEvent {
     event_index: u64,
     kind: String,
     delta: Option<String>,
-    turn_id: Option<String>,
+    response_id: Option<String>,
+    conversation_id: Option<String>,
     error: Option<String>,
 }
 
@@ -168,4 +223,12 @@ fn chrono_like_now_id() -> String {
         .map(|d| d.as_millis())
         .unwrap_or(0);
     ts.to_string()
+}
+
+fn now_unix_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }

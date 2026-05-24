@@ -29,3 +29,4 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 tokio = { version = "1", features = ["macros", "rt", "sync"] }
 tauri = { version = "2.11.2", features = [] }
 tauri-plugin-log = "2"
+uuid = { version = "1", features = ["v4"] }

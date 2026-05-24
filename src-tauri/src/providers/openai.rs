@@ -77,7 +77,7 @@ where
     let persistence = if resolved.provider.stream_transport == "websocket" {
         false
     } else {
-        resolved.provider.session_persistence
+        resolved.provider.store_responses
     };
     let first_attempt = match resolved.provider.stream_transport.as_str() {
         "sse" => {
@@ -118,6 +118,36 @@ where
         };
     }
 
+    if should_retry_without_previous_response(
+        &first_attempt,
+        req.previous_response_id.as_deref(),
+    ) {
+        let mut retry_req = req.clone();
+        retry_req.previous_response_id = None;
+        return match resolved.provider.stream_transport.as_str() {
+            "sse" => {
+                create_response_streaming_sse(
+                    resolved,
+                    &retry_req,
+                    persistence,
+                    cancel_rx,
+                    &mut on_delta,
+                )
+                .await
+            }
+            _ => {
+                create_response_streaming_websocket(
+                    resolved,
+                    &retry_req,
+                    persistence,
+                    cancel_rx,
+                    &mut on_delta,
+                )
+                .await
+            }
+        };
+    }
+
     first_attempt
 }
 
@@ -138,6 +168,27 @@ fn should_retry_with_store_false(
         || err.contains("\"Store must be set to false\"")
 }
 
+fn should_retry_without_previous_response(
+    result: &Result<ResponseStreamResult, String>,
+    previous_response_id: Option<&str>,
+) -> bool {
+    if previous_response_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        return false;
+    }
+
+    let Err(err) = result else {
+        return false;
+    };
+
+    err.contains("previous_response_not_found")
+        || err.contains("Previous response with id")
+        || err.contains("\"param\":\"previous_response_id\"")
+}
+
 fn build_streaming_request_payload(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
@@ -145,31 +196,21 @@ fn build_streaming_request_payload(
     store: bool,
 ) -> Value {
     let mut input_items = Vec::new();
-    for message in &req.history {
-        let role = message.role.trim().to_lowercase();
-        if !matches!(role.as_str(), "user" | "assistant" | "system") {
-            continue;
-        }
 
-        let text = message.text.trim();
-        if text.is_empty() {
-            continue;
-        }
+    let previous_response_id = previous_response_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned);
 
-        input_items.push(json!({
-          "role": role,
-          "content": [{
-            "type": "input_text",
-            "text": text
-          }]
-        }));
+    if previous_response_id.is_none() {
+        input_items.extend(req.context_items.iter().cloned());
     }
 
     input_items.push(json!({
       "role": "user",
       "content": [{
         "type": "input_text",
-        "text": req.input
+        "text": req.input_text
       }]
     }));
 
@@ -183,11 +224,8 @@ fn build_streaming_request_payload(
 
     apply_model_request_config(&mut payload, &resolved.request);
 
-    if let Some(previous_id) = previous_response_id
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        payload["previous_response_id"] = Value::String(previous_id.to_string());
+    if let Some(previous_id) = previous_response_id {
+        payload["previous_response_id"] = Value::String(previous_id);
     }
 
     payload
@@ -250,8 +288,12 @@ where
         resolved.provider.api_endpoint.trim_end_matches('/')
     );
 
-    let body =
-        build_streaming_request_payload(resolved, req, req.continuation_id.as_deref(), store);
+    let body = build_streaming_request_payload(
+        resolved,
+        req,
+        req.previous_response_id.as_deref(),
+        store,
+    );
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(resolved.timeout_seconds))
@@ -334,9 +376,18 @@ where
         response_id = String::new();
     }
 
+    let output_items = last_response_obj
+        .as_ref()
+        .map(extract_output_items)
+        .unwrap_or_default();
+
     Ok(ResponseStreamResult {
-        turn_id: response_id,
+        response_id,
         output_text,
+        output_items,
+        provider_key: resolved.provider_key.clone(),
+        model_profile: resolved.profile_key.clone(),
+        model_id: resolved.model_id.clone(),
     })
 }
 
@@ -380,24 +431,26 @@ where
         .await
         .map_err(|e| format!("Failed to connect websocket transport: {e}"))?;
 
-    let mut create_event =
-        build_streaming_request_payload(resolved, req, req.continuation_id.as_deref(), store);
+    let mut create_event = build_streaming_request_payload(
+        resolved,
+        req,
+        req.previous_response_id.as_deref(),
+        store,
+    );
     create_event["type"] = Value::String("response.create".to_string());
 
-    ws.send(Message::Text(create_event.to_string()))
+    ws.send(Message::Text(create_event.to_string().into()))
         .await
         .map_err(|e| format!("Failed to send websocket request: {e}"))?;
 
     let mut response_id = String::new();
     let mut output_text = String::new();
     let mut last_response_obj: Option<Value> = None;
-    let mut cancelled = false;
 
     loop {
         tokio::select! {
           changed = cancel_rx.changed() => {
             if changed.is_ok() && *cancel_rx.borrow() {
-              cancelled = true;
               break;
             }
           }
@@ -452,11 +505,7 @@ where
         }
     }
 
-    if cancelled {
-        let _ = ws.close(None).await;
-    } else {
-        let _ = ws.close(None).await;
-    }
+    let _ = ws.close(None).await;
 
     if output_text.is_empty() {
         if let Some(obj) = &last_response_obj {
@@ -464,9 +513,18 @@ where
         }
     }
 
+    let output_items = last_response_obj
+        .as_ref()
+        .map(extract_output_items)
+        .unwrap_or_default();
+
     Ok(ResponseStreamResult {
-        turn_id: response_id,
+        response_id,
         output_text,
+        output_items,
+        provider_key: resolved.provider_key.clone(),
+        model_profile: resolved.profile_key.clone(),
+        model_id: resolved.model_id.clone(),
     })
 }
 
@@ -584,6 +642,14 @@ where
 
     Ok(())
 }
+
+fn extract_output_items(root: &Value) -> Vec<Value> {
+    root.get("output")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
 fn extract_output_text(root: &Value) -> String {
     if let Some(s) = root.get("output_text").and_then(Value::as_str) {
         return s.to_string();

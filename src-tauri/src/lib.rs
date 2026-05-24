@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod conversation_store;
 mod models;
 mod providers;
 
@@ -17,7 +18,7 @@ pub fn run() {
             }
 
             let config_path = config::init_config_if_missing()
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                .map_err(|e| std::io::Error::other(e))?;
             log::info!("Config file ready at {}", config_path.display());
 
             std::thread::spawn(|| loop {
@@ -35,6 +36,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::chat::chat_stream,
             commands::chat::cancel_chat_stream,
+            commands::chat::list_conversations,
+            commands::chat::load_conversation,
             commands::config::get_runtime_config,
             commands::config::get_config_file_path,
             commands::models::get_model_catalog,

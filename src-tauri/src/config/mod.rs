@@ -29,7 +29,7 @@ pub struct ProviderConfig {
     pub stream_transport: String,
     pub credential: Option<String>,
     pub credential_env: String,
-    pub session_persistence: bool,
+    pub store_responses: bool,
     pub system_prompt: String,
     pub request_timeout_seconds: Option<u64>,
 }
@@ -59,6 +59,7 @@ pub struct ModelRequestConfig {
 
 #[derive(Debug, Clone)]
 pub struct ResolvedModelConfig {
+    pub profile_key: String,
     pub provider_key: String,
     pub provider: ProviderConfig,
     pub model_id: String,
@@ -110,7 +111,7 @@ impl Default for ProviderConfig {
             stream_transport: "websocket".to_string(),
             credential: None,
             credential_env: "OPENAI_API_KEY".to_string(),
-            session_persistence: false,
+            store_responses: false,
             system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
             request_timeout_seconds: None,
         }
@@ -386,6 +387,7 @@ impl AppConfig {
             .clone();
 
         Ok(ResolvedModelConfig {
+            profile_key,
             provider_key,
             model_id: profile.model.clone(),
             request: profile.request.clone(),
@@ -492,7 +494,7 @@ fn default_config_yaml() -> String {
         "    stream_transport: \"websocket\"",
         "    credential: \"\"",
         "    credential_env: \"OPENAI_API_KEY\"",
-        "    session_persistence: false",
+        "    store_responses: false",
         "    system_prompt: \"You are Codex, a helpful AI assistant. Follow the user's instructions.\"",
         "    request_timeout_seconds: 120",
         "",

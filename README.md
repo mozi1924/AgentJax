@@ -37,7 +37,7 @@ providers:
     stream_transport: "websocket"
     credential: ""
     credential_env: "OPENAI_API_KEY"
-    session_persistence: false
+    store_responses: false
     system_prompt: "You are Codex, a helpful AI assistant. Follow the user's instructions."
     request_timeout_seconds: 120
 

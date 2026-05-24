@@ -1,19 +1,19 @@
-#[derive(Debug, Clone)]
-pub struct ProviderMessage {
-    pub role: String,
-    pub text: String,
-}
+use serde_json::Value;
 
 #[derive(Debug, Clone, Default)]
 pub struct ResponseStreamRequest {
-    pub input: String,
-    pub continuation_id: Option<String>,
+    pub input_text: String,
+    pub previous_response_id: Option<String>,
     pub model: Option<String>,
-    pub history: Vec<ProviderMessage>,
+    pub context_items: Vec<Value>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ResponseStreamResult {
-    pub turn_id: String,
+    pub response_id: String,
     pub output_text: String,
+    pub output_items: Vec<Value>,
+    pub provider_key: String,
+    pub model_profile: String,
+    pub model_id: String,
 }

@@ -1,11 +1,10 @@
-import React from 'react';
 import { Plus, Search, MessageSquare, Settings } from 'lucide-react';
 
 export default function Sidebar({
   isOpen,
-  chats,
-  activeChatId,
-  onSelectChat,
+  conversations,
+  activeConversationId,
+  onSelectConversation,
   onNewChat
 }) {
   return (
@@ -34,25 +33,25 @@ export default function Sidebar({
           </button>
         </div>
 
-        {isOpen && chats.length > 0 && (
+        {isOpen && conversations.length > 0 && (
           <div className="space-y-2">
             <h3 className="px-2 text-xs font-semibold uppercase tracking-wider text-slate-500 whitespace-nowrap">
               最近
             </h3>
             <div className="space-y-1">
-              {chats.map((chat) => (
+              {conversations.map((conversation) => (
                 <button
-                  key={chat.id}
-                  onClick={() => onSelectChat(chat.id)}
+                  key={conversation.conversationId}
+                  onClick={() => onSelectConversation(conversation.conversationId)}
                   className={`group flex w-full items-center gap-3 rounded-full pl-[18px] pr-4 py-2.5 text-left text-sm transition whitespace-nowrap ${
-                    chat.id === activeChatId
+                    conversation.conversationId === activeConversationId
                       ? 'bg-[#2d2f31] font-medium text-slate-100'
                       : 'text-slate-400 hover:bg-[#2d2f31]/60 hover:text-slate-200'
                   }`}
-                  title={chat.title}
+                  title={conversation.title}
                 >
                   <MessageSquare className="h-5 w-5 flex-shrink-0" />
-                  <span className="flex-1 truncate pr-1">{chat.title}</span>
+                  <span className="flex-1 truncate pr-1">{conversation.title}</span>
                 </button>
               ))}
             </div>
