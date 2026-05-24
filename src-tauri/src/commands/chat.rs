@@ -1,8 +1,17 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Mutex;
 use tauri::Emitter;
+use tauri::State;
+use tokio::sync::watch;
 
 use crate::config;
 use crate::openai;
+
+#[derive(Default)]
+pub struct ChatRequestRegistry {
+  requests: Mutex<HashMap<String, watch::Sender<bool>>>,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +30,12 @@ pub struct ChatHistoryMessage {
   pub text: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelChatRequest {
+  pub request_id: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatResponse {
@@ -31,6 +46,7 @@ pub struct ChatResponse {
 #[tauri::command]
 pub async fn chat_with_responses_stream(
   window: tauri::Window,
+  registry: State<'_, ChatRequestRegistry>,
   req: ChatRequest,
 ) -> Result<ChatResponse, String> {
   let config = config::load_config()?;
@@ -39,13 +55,21 @@ pub async fn chat_with_responses_stream(
     .clone()
     .unwrap_or_else(|| format!("req-{}", chrono_like_now_id()));
   let mut event_index: u64 = 0;
+  let (cancel_tx, mut cancel_rx) = watch::channel(false);
 
-  let response = openai::create_response_streaming(
+  registry
+    .requests
+    .lock()
+    .map_err(|_| "Failed to lock chat request registry".to_string())?
+    .insert(request_id.clone(), cancel_tx);
+
+  let result = openai::create_response_streaming(
     &config,
     &req.input,
     req.history.as_deref(),
     req.model.as_deref(),
     req.previous_response_id.as_deref(),
+    &mut cancel_rx,
     |delta| {
       window
         .emit(
@@ -62,7 +86,15 @@ pub async fn chat_with_responses_stream(
         .map_err(|e| format!("Failed to emit stream delta: {e}"))
     },
   )
-  .await?;
+  .await;
+
+  registry
+    .requests
+    .lock()
+    .map_err(|_| "Failed to lock chat request registry".to_string())?
+    .remove(&request_id);
+
+  let response = result?;
 
   window
     .emit(
@@ -98,6 +130,26 @@ struct ChatStreamEvent {
 fn next_event_index(current: &mut u64) -> u64 {
   *current += 1;
   *current
+}
+
+#[tauri::command]
+pub fn cancel_chat_stream(
+  registry: State<'_, ChatRequestRegistry>,
+  req: CancelChatRequest,
+) -> Result<bool, String> {
+  let requests = registry
+    .requests
+    .lock()
+    .map_err(|_| "Failed to lock chat request registry".to_string())?;
+
+  if let Some(cancel_tx) = requests.get(&req.request_id) {
+    cancel_tx
+      .send(true)
+      .map_err(|_| "Failed to signal chat stream cancellation".to_string())?;
+    return Ok(true);
+  }
+
+  Ok(false)
 }
 
 fn chrono_like_now_id() -> String {

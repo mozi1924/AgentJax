@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
+import { Menu, ChevronDown, Image, X, Paperclip, Mic, Send, Square } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 
@@ -13,6 +14,7 @@ function App() {
   const [cachePath, setCachePath] = useState('');
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [attachment, setAttachment] = useState(null);
 
   // Start with an empty chat list containing one new chat
@@ -30,6 +32,8 @@ function App() {
   const titlebarRef = useRef(null);
   const streamRequestMapRef = useRef({});
   const streamListenerRef = useRef(null);
+  const activeRequestIdRef = useRef(null);
+  const stoppedRequestIdsRef = useRef(new Set());
 
   // Auto-size input box height
   const textareaRef = useRef(null);
@@ -214,6 +218,7 @@ function App() {
       assistantMsgId,
       lastEventIndex: 0
     };
+    activeRequestIdRef.current = requestId;
 
     try {
       const response = await invoke('chat_with_responses_stream', {
@@ -227,12 +232,15 @@ function App() {
           requestId
         }
       });
+      const wasStopped = stoppedRequestIdsRef.current.has(requestId);
 
       setChats((prevChats) =>
         prevChats.map((c) => {
           if (c.id === activeChat.id) {
             const msgs = c.messages.map((m) =>
-              m.id === assistantMsgId ? { ...m, text: response.outputText || '' } : m
+              m.id === assistantMsgId
+                ? { ...m, text: response.outputText || m.text || (wasStopped ? '已停止' : '') }
+                : m
             );
             return { ...c, messages: msgs, lastResponseId: response.responseId || null };
           }
@@ -254,7 +262,28 @@ function App() {
       );
     } finally {
       delete streamRequestMapRef.current[requestId];
+      stoppedRequestIdsRef.current.delete(requestId);
+      if (activeRequestIdRef.current === requestId) {
+        activeRequestIdRef.current = null;
+      }
       setIsGenerating(false);
+      setIsStopping(false);
+    }
+  };
+
+  const handleStop = async () => {
+    const requestId = activeRequestIdRef.current;
+    if (!requestId || isStopping) return;
+
+    stoppedRequestIdsRef.current.add(requestId);
+    setIsStopping(true);
+
+    try {
+      await invoke('cancel_chat_stream', {
+        req: { requestId }
+      });
+    } catch {
+      setIsStopping(false);
     }
   };
 
@@ -301,9 +330,7 @@ function App() {
           className="flex h-7 w-7 items-center justify-center rounded-full text-slate-300 transition hover:bg-[#2d2f31] flex-shrink-0"
           title={sidebarOpen ? '收起菜单' : '展开菜单'}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4.5 w-4.5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-          </svg>
+          <Menu className="h-4.5 w-4.5" />
         </button>
 
         <div className="flex min-w-0 flex-1 items-center gap-1 pr-6 ml-2">
@@ -318,9 +345,7 @@ function App() {
               }
             >
               <span className="truncate">AgentJax {selectedModel}</span>
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="h-3 w-3 text-slate-400">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-              </svg>
+              <ChevronDown className="h-3 w-3 text-slate-400" />
             </button>
 
             {modelDropdownOpen && (
@@ -363,18 +388,14 @@ function App() {
               {attachment && (
                 <div className="mb-2 flex items-center gap-2 self-start rounded-xl border border-[#2d2f31] bg-[#131314] p-1.5 pr-2.5">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 text-red-400">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                    </svg>
+                    <Image className="h-5 w-5" />
                   </div>
                   <span className="text-xs font-medium text-slate-300">{attachment.name}</span>
                   <button
                     onClick={() => setAttachment(null)}
                     className="ml-2 rounded-full p-0.5 text-slate-400 hover:bg-[#2d2f31] hover:text-slate-200"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
-                      <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                    </svg>
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
               )}
@@ -385,9 +406,7 @@ function App() {
                   className="rounded-full p-2 text-slate-400 transition hover:bg-[#2d2f31] hover:text-slate-200"
                   title="上传文件/图片"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="h-5.5 w-5.5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                  </svg>
+                  <Paperclip className="h-5.5 w-5.5" />
                 </button>
 
                 <textarea
@@ -397,7 +416,11 @@ function App() {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
-                      handleSend();
+                      if (isGenerating) {
+                        handleStop();
+                      } else {
+                        handleSend();
+                      }
                     }
                   }}
                   placeholder="问问 AgentJax"
@@ -410,24 +433,28 @@ function App() {
                     className="rounded-full p-2 text-slate-400 transition hover:bg-[#2d2f31] hover:text-slate-200"
                     title="语音输入"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="h-5.5 w-5.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-                    </svg>
+                    <Mic className="h-5.5 w-5.5" />
                   </button>
 
                   <button
-                    onClick={() => handleSend()}
-                    disabled={!input.trim() || isGenerating}
+                    onClick={() => {
+                      if (isGenerating) {
+                        handleStop();
+                      } else {
+                        handleSend();
+                      }
+                    }}
+                    disabled={isGenerating ? isStopping : !input.trim()}
                     className={`rounded-full p-2 transition ${
-                      input.trim() && !isGenerating
-                        ? 'bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 text-white hover:opacity-90 cursor-pointer shadow shadow-purple-500/20'
-                        : 'bg-transparent text-slate-600'
+                      isGenerating
+                        ? 'bg-red-500/90 text-white hover:bg-red-500 shadow shadow-red-500/20'
+                        : input.trim()
+                          ? 'bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 text-white hover:opacity-90 cursor-pointer shadow shadow-purple-500/20'
+                          : 'bg-transparent text-slate-600'
                     }`}
-                    title="发送消息"
+                    title={isGenerating ? '停止生成' : '发送消息'}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="h-4.5 w-4.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-                    </svg>
+                    {isGenerating ? <Square className="h-4.5 w-4.5 fill-current" /> : <Send className="h-4.5 w-4.5" />}
                   </button>
                 </div>
               </div>

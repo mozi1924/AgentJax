@@ -1,6 +1,7 @@
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::time::Duration;
+use tokio::sync::watch;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
@@ -18,6 +19,7 @@ pub async fn create_response_streaming<F>(
   history: Option<&[ChatHistoryMessage]>,
   requested_model: Option<&str>,
   previous_response_id: Option<&str>,
+  cancel_rx: &mut watch::Receiver<bool>,
   mut on_delta: F,
 ) -> Result<ResponsesApiResponse, String>
 where
@@ -37,6 +39,7 @@ where
         requested_model,
         previous_response_id,
         store_value,
+        cancel_rx,
         &mut on_delta,
       )
         .await
@@ -49,6 +52,7 @@ where
         requested_model,
         previous_response_id,
         store_value,
+        cancel_rx,
         &mut on_delta,
       )
       .await
@@ -61,6 +65,7 @@ where
         requested_model,
         previous_response_id,
         store_value,
+        cancel_rx,
         &mut on_delta,
       )
       .await
@@ -77,6 +82,7 @@ where
           requested_model,
           previous_response_id,
           false,
+          cancel_rx,
           &mut on_delta,
         )
         .await
@@ -89,6 +95,7 @@ where
           requested_model,
           previous_response_id,
           false,
+          cancel_rx,
           &mut on_delta,
         )
         .await
@@ -177,6 +184,7 @@ async fn create_response_streaming_sse<F>(
   requested_model: Option<&str>,
   previous_response_id: Option<&str>,
   store: bool,
+  cancel_rx: &mut watch::Receiver<bool>,
   on_delta: &mut F,
 ) -> Result<ResponsesApiResponse, String>
 where
@@ -227,21 +235,35 @@ where
 
   let mut buffer = String::new();
   let mut stream = response.bytes_stream();
+  let mut cancelled = false;
 
-  while let Some(next_chunk) = stream.next().await {
-    let bytes = next_chunk.map_err(|e| format!("Failed to read streaming response: {e}"))?;
-    let chunk = String::from_utf8_lossy(&bytes);
-    buffer.push_str(&chunk);
+  loop {
+    tokio::select! {
+      changed = cancel_rx.changed() => {
+        if changed.is_ok() && *cancel_rx.borrow() {
+          cancelled = true;
+          break;
+        }
+      }
+      next_chunk = stream.next() => {
+        let Some(next_chunk) = next_chunk else {
+          break;
+        };
+        let bytes = next_chunk.map_err(|e| format!("Failed to read streaming response: {e}"))?;
+        let chunk = String::from_utf8_lossy(&bytes);
+        buffer.push_str(&chunk);
 
-    while let Some((event_block, rest)) = split_sse_event_block(&buffer) {
-      buffer = rest;
-      process_sse_event_block(
-        &event_block,
-        &mut response_id,
-        &mut output_text,
-        &mut last_response_obj,
-        on_delta,
-      )?;
+        while let Some((event_block, rest)) = split_sse_event_block(&buffer) {
+          buffer = rest;
+          process_sse_event_block(
+            &event_block,
+            &mut response_id,
+            &mut output_text,
+            &mut last_response_obj,
+            on_delta,
+          )?;
+        }
+      }
     }
   }
 
@@ -261,6 +283,10 @@ where
     }
   }
 
+  if cancelled && response_id.is_empty() {
+    response_id = String::new();
+  }
+
   Ok(ResponsesApiResponse {
     id: response_id,
     output_text,
@@ -274,6 +300,7 @@ async fn create_response_streaming_websocket<F>(
   requested_model: Option<&str>,
   previous_response_id: Option<&str>,
   store: bool,
+  cancel_rx: &mut watch::Receiver<bool>,
   on_delta: &mut F,
 ) -> Result<ResponsesApiResponse, String>
 where
@@ -318,54 +345,72 @@ where
   let mut response_id = String::new();
   let mut output_text = String::new();
   let mut last_response_obj: Option<Value> = None;
+  let mut cancelled = false;
 
-  while let Some(message) = ws.next().await {
-    let message = message.map_err(|e| format!("WebSocket receive error: {e}"))?;
-
-    match message {
-      Message::Text(text) => {
-        handle_stream_event_json(
-          &text,
-          &mut response_id,
-          &mut output_text,
-          &mut last_response_obj,
-          on_delta,
-        )?;
-
-        let maybe_done = serde_json::from_str::<Value>(&text)
-          .ok()
-          .and_then(|v| v.get("type").and_then(Value::as_str).map(ToOwned::to_owned));
-
-        if matches!(
-          maybe_done.as_deref(),
-          Some("response.completed") | Some("response.done")
-        ) {
+  loop {
+    tokio::select! {
+      changed = cancel_rx.changed() => {
+        if changed.is_ok() && *cancel_rx.borrow() {
+          cancelled = true;
           break;
         }
       }
-      Message::Binary(bin) => {
-        if let Ok(text) = String::from_utf8(bin.to_vec()) {
-          handle_stream_event_json(
-            &text,
-            &mut response_id,
-            &mut output_text,
-            &mut last_response_obj,
-            on_delta,
-          )?;
+      next_message = ws.next() => {
+        let Some(message) = next_message else {
+          break;
+        };
+        let message = message.map_err(|e| format!("WebSocket receive error: {e}"))?;
+
+        match message {
+          Message::Text(text) => {
+            handle_stream_event_json(
+              &text,
+              &mut response_id,
+              &mut output_text,
+              &mut last_response_obj,
+              on_delta,
+            )?;
+
+            let maybe_done = serde_json::from_str::<Value>(&text)
+              .ok()
+              .and_then(|v| v.get("type").and_then(Value::as_str).map(ToOwned::to_owned));
+
+            if matches!(
+              maybe_done.as_deref(),
+              Some("response.completed") | Some("response.done")
+            ) {
+              break;
+            }
+          }
+          Message::Binary(bin) => {
+            if let Ok(text) = String::from_utf8(bin.to_vec()) {
+              handle_stream_event_json(
+                &text,
+                &mut response_id,
+                &mut output_text,
+                &mut last_response_obj,
+                on_delta,
+              )?;
+            }
+          }
+          Message::Close(_) => {
+            break;
+          }
+          Message::Ping(payload) => {
+            let _ = ws.send(Message::Pong(payload)).await;
+          }
+          Message::Pong(_) => {}
+          Message::Frame(_) => {}
         }
       }
-      Message::Close(_) => {
-        break;
-      }
-      Message::Ping(payload) => {
-        let _ = ws.send(Message::Pong(payload)).await;
-      }
-      Message::Pong(_) => {}
-      Message::Frame(_) => {}
     }
   }
 
-  let _ = ws.close(None).await;
+  if cancelled {
+    let _ = ws.close(None).await;
+  } else {
+    let _ = ws.close(None).await;
+  }
 
   if output_text.is_empty() {
     if let Some(obj) = &last_response_obj {

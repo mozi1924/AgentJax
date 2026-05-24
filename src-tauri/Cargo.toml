@@ -26,5 +26,6 @@ log = "0.4"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio = { version = "1", features = ["macros", "rt", "sync"] }
 tauri = { version = "2.11.2", features = [] }
 tauri-plugin-log = "2"

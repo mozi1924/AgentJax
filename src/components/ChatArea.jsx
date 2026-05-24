@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { MessageSquare, Sparkles, Loader2 } from 'lucide-react';
 import CodeBlock from './CodeBlock';
 
 export default function ChatArea({
@@ -280,9 +281,7 @@ export default function ChatArea({
         /* Else, render conversation message logs */
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 py-4">
           <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest border-b border-[#2d2f31]/60 pb-3 mb-2 flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="h-4 w-4 text-cyan-400">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-            </svg>
+            <MessageSquare className="h-4 w-4 text-cyan-400" />
             <span>{activeChatTitle}</span>
           </div>
 
@@ -294,9 +293,7 @@ export default function ChatArea({
               {/* AI Avatar */}
               {m.role === 'assistant' && (
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 text-white shadow-md shadow-purple-500/20">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4.5 w-4.5 animate-pulse">
-                    <path d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 01-.383-.218 25.18 25.18 0 01-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0112 5.052 5.5 5.5 0 0116.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 01-4.244 3.17 15.247 15.247 0 01-.383.219l-.022.012-.007.004-.003.001a.752.752 0 01-.704 0l-.003-.001z" />
-                  </svg>
+                  <Sparkles className="h-4.5 w-4.5 animate-pulse" />
                 </div>
               )}
 
@@ -319,10 +316,8 @@ export default function ChatArea({
           {/* Sparkle glowing text animation during active response generation */}
           {isGenerating && messages[messages.length - 1]?.role === 'user' && (
             <div className="flex gap-4 items-start justify-start">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 text-white shadow-md shadow-purple-500/20 animate-spin">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4.5 w-4.5">
-                  <path d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 01-.383-.218 25.18 25.18 0 01-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0112 5.052 5.5 5.5 0 0116.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 01-4.244 3.17 15.247 15.247 0 01-.383.219l-.022.012-.007.004-.003.001a.752.752 0 01-.704 0l-.003-.001z" />
-                </svg>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 text-white shadow-md shadow-purple-500/20">
+                <Loader2 className="h-4.5 w-4.5 animate-spin" />
               </div>
               <div className="flex flex-col gap-2 w-full pt-1.5">
                 <div className="h-4 bg-[#2d2f31] rounded animate-pulse w-3/4"></div>

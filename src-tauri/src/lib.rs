@@ -6,6 +6,7 @@ mod openai;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .manage(commands::chat::ChatRequestRegistry::default())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -33,6 +34,7 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
       commands::chat::chat_with_responses_stream,
+      commands::chat::cancel_chat_stream,
       commands::config::get_runtime_config,
       commands::config::get_config_file_path,
       commands::models::get_model_catalog,
