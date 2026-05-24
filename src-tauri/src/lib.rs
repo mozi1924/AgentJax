@@ -32,7 +32,7 @@ pub fn run() {
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
-      commands::chat::chat_with_responses,
+      commands::chat::chat_with_responses_stream,
       commands::config::get_runtime_config,
       commands::config::get_config_file_path,
       commands::models::get_model_catalog,

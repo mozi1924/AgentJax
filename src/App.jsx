@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 
@@ -28,6 +29,8 @@ function App() {
   const [activeChatId, setActiveChatId] = useState('chat-1');
   const activeChat = chats.find((c) => c.id === activeChatId) || chats[0];
   const titlebarRef = useRef(null);
+  const streamRequestMapRef = useRef({});
+  const streamListenerRef = useRef(null);
 
   // Auto-size input box height
   const textareaRef = useRef(null);
@@ -83,6 +86,67 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let disposed = false;
+
+    const setup = async () => {
+      const unlisten = await listen('chat_stream_event', (event) => {
+        const payload = event?.payload || {};
+        const requestId = payload.requestId;
+        const mapping = requestId ? streamRequestMapRef.current[requestId] : null;
+        if (!mapping) return;
+        const eventIndex = Number(payload.eventIndex || 0);
+        if (eventIndex > 0) {
+          const lastEventIndex = Number(mapping.lastEventIndex || 0);
+          if (eventIndex <= lastEventIndex) {
+            return;
+          }
+          mapping.lastEventIndex = eventIndex;
+        }
+
+        if (payload.kind === 'delta' && payload.delta) {
+          setChats((prevChats) =>
+            prevChats.map((chat) => {
+              if (chat.id !== mapping.chatId) return chat;
+              const nextMessages = chat.messages.map((m) =>
+                m.id === mapping.assistantMsgId ? { ...m, text: `${m.text || ''}${payload.delta}` } : m
+              );
+              return { ...chat, messages: nextMessages };
+            })
+          );
+        }
+
+        if (payload.kind === 'done' && payload.responseId) {
+          setChats((prevChats) =>
+            prevChats.map((chat) =>
+              chat.id === mapping.chatId ? { ...chat, lastResponseId: payload.responseId } : chat
+            )
+          );
+        }
+      });
+
+      if (disposed) {
+        unlisten();
+        return;
+      }
+
+      if (streamListenerRef.current) {
+        streamListenerRef.current();
+      }
+      streamListenerRef.current = unlisten;
+    };
+
+    setup();
+
+    return () => {
+      disposed = true;
+      if (streamListenerRef.current) {
+        streamListenerRef.current();
+        streamListenerRef.current = null;
+      }
+    };
+  }, []);
+
   const handleSend = async (textToSend) => {
     const text = textToSend || input;
     if (!text.trim() || isGenerating) return;
@@ -134,12 +198,23 @@ function App() {
       })
     );
 
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    streamRequestMapRef.current[requestId] = {
+      chatId: activeChat.id,
+      assistantMsgId,
+      lastEventIndex: 0
+    };
+
     try {
-      const response = await invoke('chat_with_responses', {
+      const response = await invoke('chat_with_responses_stream', {
         req: {
           input: text,
+          history: (activeChat.messages || [])
+            .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
+            .map((m) => ({ role: m.role, text: m.text || '' })),
           previousResponseId: activeChat.lastResponseId,
-          model: selectedModel
+          model: selectedModel,
+          requestId
         }
       });
 
@@ -168,6 +243,7 @@ function App() {
         })
       );
     } finally {
+      delete streamRequestMapRef.current[requestId];
       setIsGenerating(false);
     }
   };

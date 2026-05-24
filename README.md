@@ -27,7 +27,11 @@ If you are developing a production application, we recommend using TypeScript wi
 
 ```yaml
 base_url: "https://api.openai.com/v1"
+websocket_url: ""
+transport: "websocket"
 api_key: ""
+store: false
+instructions: "You are Codex, a helpful AI assistant. Follow the user's instructions."
 default_model: "gpt-5-mini"
 available_models:
   - "gpt-5-mini"
@@ -40,6 +44,11 @@ request_timeout_seconds: 120
 - `api_key` 为空时，会回退读取环境变量 `OPENAI_API_KEY`。
 - 前端模型下拉会读取后端返回的 `effective_models`（优先使用配置文件中的 `available_models`）。
 - 聊天默认模型使用 `default_model`。
+- `transport` 支持 `websocket` / `sse`，默认 `websocket`。
+- `websocket_url` 为空时，会从 `base_url` 自动推导（`https -> wss`，`http -> ws`）。
+- `store` 控制 Responses 的会话持久化（部分第三方网关在 WebSocket 模式下要求 `store=false`，后端已做兼容）。
+- `instructions` 为系统提示词，后端会随每次请求发送（部分网关要求必填）。
+- 为兼容 `previous_response_id` 不稳定的网关，前端会将当前聊天历史一并发送给后端，由后端构造 `input[]`。
 
 ### 模型远端缓存
 

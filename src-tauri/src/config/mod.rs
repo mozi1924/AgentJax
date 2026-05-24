@@ -9,7 +9,11 @@ const CONFIG_FILE_NAME: &str = "config.yaml";
 #[serde(default)]
 pub struct AppConfig {
   pub base_url: String,
+  pub websocket_url: Option<String>,
+  pub transport: String,
   pub api_key: Option<String>,
+  pub store: bool,
+  pub instructions: String,
   pub default_model: String,
   pub available_models: Vec<String>,
   pub request_timeout_seconds: u64,
@@ -19,7 +23,11 @@ impl Default for AppConfig {
   fn default() -> Self {
     Self {
       base_url: "https://api.openai.com/v1".to_string(),
+      websocket_url: None,
+      transport: "websocket".to_string(),
       api_key: None,
+      store: false,
+      instructions: "You are Codex, a helpful AI assistant. Follow the user's instructions.".to_string(),
       default_model: "gpt-5-mini".to_string(),
       available_models: vec!["gpt-5-mini".to_string(), "gpt-5".to_string()],
       request_timeout_seconds: 120,
@@ -32,6 +40,24 @@ impl AppConfig {
     self.base_url = self.base_url.trim().trim_end_matches('/').to_string();
     if self.base_url.is_empty() {
       self.base_url = "https://api.openai.com/v1".to_string();
+    }
+
+    self.transport = self.transport.trim().to_lowercase();
+    if self.transport != "websocket" && self.transport != "sse" {
+      self.transport = "websocket".to_string();
+    }
+
+    self.websocket_url = self
+      .websocket_url
+      .as_deref()
+      .map(str::trim)
+      .filter(|s| !s.is_empty())
+      .map(|s| s.trim_end_matches('/').to_string());
+
+    self.instructions = self.instructions.trim().to_string();
+    if self.instructions.is_empty() {
+      self.instructions =
+        "You are Codex, a helpful AI assistant. Follow the user's instructions.".to_string();
     }
 
     if self.default_model.trim().is_empty() {
@@ -76,6 +102,21 @@ impl AppConfig {
       .map(ToOwned::to_owned)
       .unwrap_or_else(|| self.default_model.clone())
   }
+
+  pub fn resolved_websocket_url(&self) -> String {
+    if let Some(url) = &self.websocket_url {
+      return url.clone();
+    }
+
+    if self.base_url.starts_with("https://") {
+      return format!("wss://{}", self.base_url.trim_start_matches("https://"));
+    }
+    if self.base_url.starts_with("http://") {
+      return format!("ws://{}", self.base_url.trim_start_matches("http://"));
+    }
+
+    format!("wss://{}", self.base_url)
+  }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -83,6 +124,10 @@ impl AppConfig {
 pub struct ConfigInfo {
   pub config_path: String,
   pub base_url: String,
+  pub websocket_url: String,
+  pub transport: String,
+  pub store: bool,
+  pub instructions: String,
   pub default_model: String,
   pub available_models: Vec<String>,
   pub has_api_key: bool,
@@ -130,6 +175,10 @@ pub fn get_config_info() -> Result<ConfigInfo, String> {
   Ok(ConfigInfo {
     config_path: path.display().to_string(),
     base_url: config.base_url.clone(),
+    websocket_url: config.resolved_websocket_url(),
+    transport: config.transport.clone(),
+    store: config.store,
+    instructions: config.instructions.clone(),
     default_model: config.default_model.clone(),
     available_models: config.available_models.clone(),
     has_api_key: config.resolved_api_key().is_some(),
@@ -145,7 +194,11 @@ fn default_config_yaml() -> String {
     "# Windows: %APPDATA%\\AgentJax\\config.yaml",
     "",
     "base_url: \"https://api.openai.com/v1\"",
+    "websocket_url: \"\"",
+    "transport: \"websocket\"",
     "api_key: \"\"",
+    "store: false",
+    "instructions: \"You are Codex, a helpful AI assistant. Follow the user's instructions.\"",
     "default_model: \"gpt-5-mini\"",
     "available_models:",
     "  - \"gpt-5-mini\"",
