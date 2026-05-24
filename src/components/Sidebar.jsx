@@ -1,13 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import {
-  Ellipsis,
-  MessageSquare,
-  Pencil,
-  Plus,
-  Search,
-  Settings,
-  Trash2
-} from 'lucide-react';
+import { Plus, Search, Settings } from 'lucide-react';
+import SidebarActionMenu from './sidebar/SidebarActionMenu';
+import SidebarConversationRow from './sidebar/SidebarConversationRow';
+import { getConversationDisplayTitle } from '../features/conversations/conversationUtils';
 
 export default function Sidebar({
   isOpen,
@@ -22,12 +17,11 @@ export default function Sidebar({
   const [editingConversationId, setEditingConversationId] = useState(null);
   const [draftTitle, setDraftTitle] = useState('');
   const [menuState, setMenuState] = useState(null);
+  const [menuPosition, setMenuPosition] = useState(null);
 
-  const sidebarRef = useRef(null);
   const menuRef = useRef(null);
   const renameInputRef = useRef(null);
   const editingRowRef = useRef(null);
-  const [menuPosition, setMenuPosition] = useState(null);
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.conversationId === activeConversationId),
@@ -51,19 +45,11 @@ export default function Sidebar({
     const handlePointerDown = (event) => {
       const target = event.target;
 
-      if (
-        menuState &&
-        menuRef.current &&
-        !menuRef.current.contains(target)
-      ) {
+      if (menuState && menuRef.current && !menuRef.current.contains(target)) {
         setMenuState(null);
       }
 
-      if (
-        editingConversationId &&
-        editingRowRef.current &&
-        !editingRowRef.current.contains(target)
-      ) {
+      if (editingConversationId && editingRowRef.current && !editingRowRef.current.contains(target)) {
         setEditingConversationId(null);
         setDraftTitle('');
       }
@@ -122,7 +108,7 @@ export default function Sidebar({
   const beginRename = (conversation) => {
     setMenuState(null);
     setEditingConversationId(conversation.conversationId);
-    setDraftTitle(conversation.title || '');
+    setDraftTitle(getConversationDisplayTitle(conversation));
   };
 
   const submitRename = async (conversationId) => {
@@ -195,7 +181,6 @@ export default function Sidebar({
 
   return (
     <aside
-      ref={sidebarRef}
       className={`fixed inset-y-0 left-0 z-30 flex flex-col overflow-hidden border-r border-[#2d2f31] bg-[#1e1f20] pt-12 text-slate-200 transition-all duration-300 ${
         isOpen ? 'w-64' : 'w-20'
       }`}
@@ -233,77 +218,24 @@ export default function Sidebar({
                   isGenerating && conversation.conversationId === activeConversation?.conversationId;
                 const isMenuOpen = conversation.conversationId === menuState?.conversationId;
 
-                if (isEditing) {
-                  return (
-                    <div
-                      key={conversation.conversationId}
-                      ref={editingRowRef}
-                      className="rounded-2xl border border-[#3c4043] bg-[#131314] px-3 py-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <MessageSquare className="h-4.5 w-4.5 flex-shrink-0 text-slate-500" />
-                        <input
-                          ref={renameInputRef}
-                          value={draftTitle}
-                          onChange={(event) => setDraftTitle(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.preventDefault();
-                              submitRename(conversation.conversationId);
-                            }
-                            if (event.key === 'Escape') {
-                              event.preventDefault();
-                              cancelRename();
-                            }
-                          }}
-                          className="flex-1 bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500"
-                          placeholder="输入对话标题"
-                        />
-                      </div>
-                    </div>
-                  );
-                }
-
                 return (
-                  <div
+                  <SidebarConversationRow
                     key={conversation.conversationId}
-                    onContextMenu={(event) =>
-                      openMenuFromContext(event, conversation.conversationId, isBusy)
-                    }
-                    className={`group relative rounded-full transition ${
-                      isActive || isMenuOpen ? 'bg-[#2d2f31]' : 'hover:bg-[#2d2f31]/60'
-                    }`}
-                  >
-                    <button
-                      onClick={() => onSelectConversation(conversation.conversationId)}
-                      className={`flex w-full items-center gap-3 whitespace-nowrap rounded-full py-2.5 pl-[18px] pr-11 text-left text-sm transition ${
-                        isActive
-                          ? 'font-medium text-slate-100'
-                          : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                      title={conversation.title}
-                    >
-                      <MessageSquare className="h-5 w-5 flex-shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
-                    </button>
-
-                    <div className="absolute inset-y-0 right-2 flex items-center">
-                      <button
-                        onClick={(event) =>
-                          openMenuFromButton(event, conversation.conversationId, isBusy)
-                        }
-                        disabled={isBusy}
-                        className={`rounded-full p-1.5 transition ${
-                          isMenuOpen
-                            ? 'bg-[#131314] text-slate-100'
-                            : 'text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-[#131314] hover:text-slate-100'
-                        } disabled:cursor-not-allowed disabled:opacity-30`}
-                        title={isBusy ? '生成中暂不可操作' : '更多操作'}
-                      >
-                        <Ellipsis className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
+                    conversation={conversation}
+                    isActive={isActive}
+                    isEditing={isEditing}
+                    isBusy={isBusy}
+                    isMenuOpen={isMenuOpen}
+                    draftTitle={draftTitle}
+                    onDraftTitleChange={setDraftTitle}
+                    onSelect={onSelectConversation}
+                    onSubmitRename={submitRename}
+                    onCancelRename={cancelRename}
+                    onOpenMenuFromButton={openMenuFromButton}
+                    onOpenMenuFromContext={openMenuFromContext}
+                    editingRowRef={editingRowRef}
+                    renameInputRef={renameInputRef}
+                  />
                 );
               })}
             </div>
@@ -312,27 +244,12 @@ export default function Sidebar({
       </div>
 
       {menuState && (
-        <div
-          ref={menuRef}
-          style={menuPosition || undefined}
-          className="sidebar-context-menu fixed z-50 w-40 overflow-hidden rounded-2xl border border-[#3c4043] bg-[#131314]/98 p-1.5 shadow-2xl shadow-black/40 backdrop-blur-md"
-        >
-          <button
-            onClick={handleMenuRename}
-            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-[#2d2f31]"
-          >
-            <Pencil className="h-4 w-4" />
-            <span>重命名</span>
-          </button>
-          <div className="my-1 border-t border-[#2d2f31]" />
-          <button
-            onClick={handleMenuDelete}
-            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-rose-300 transition hover:bg-[#2d2f31]"
-          >
-            <Trash2 className="h-4 w-4" />
-            <span>删除</span>
-          </button>
-        </div>
+        <SidebarActionMenu
+          menuRef={menuRef}
+          menuPosition={menuPosition}
+          onRename={handleMenuRename}
+          onDelete={handleMenuDelete}
+        />
       )}
 
       <div className="border-t border-[#2d2f31] p-3">

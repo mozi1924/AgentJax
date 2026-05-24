@@ -1,92 +1,64 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
-import { Menu, ChevronDown, Image, X, Paperclip, Mic, Send, Square } from 'lucide-react';
+import AppHeader from './components/AppHeader';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
-
-function createConversationId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `conv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function createLocalConversation(conversationId = createConversationId()) {
-  return {
-    conversationId,
-    title: '新对话',
-    messages: [],
-    lastResponseId: null,
-    isLoaded: true
-  };
-}
-
-function isConversationEmpty(conversation) {
-  return Array.isArray(conversation?.messages) && conversation.messages.length === 0;
-}
-
-function canUseNativeContextMenu(target) {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
-  if (target.closest('input, textarea, [contenteditable="true"]')) {
-    return true;
-  }
-
-  return Boolean(target.closest('[data-native-context-menu="true"]'));
-}
-
-function applyConversationTitle(conversation, nextTitle) {
-  const title = (nextTitle || '').trim();
-  if (!title) {
-    return conversation;
-  }
-
-  return {
-    ...conversation,
-    title
-  };
-}
+import ChatComposer from './components/ChatComposer';
+import {
+  applyConversationTitle,
+  buildDraftConversationTitle,
+  canUseNativeContextMenu,
+  createLocalConversation,
+  getConversationDisplayTitle,
+  hydrateConversationMessages,
+  isConversationEmpty,
+  shouldShowConversationInSidebar
+} from './features/conversations/conversationUtils';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState('gpt-5-mini');
   const [modelOptions, setModelOptions] = useState([]);
-  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [configPath, setConfigPath] = useState('');
   const [cachePath, setCachePath] = useState('');
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [attachment, setAttachment] = useState(null);
-
-  const [conversations, setConversations] = useState([createLocalConversation()]);
+  const [conversations, setConversations] = useState(() => [createLocalConversation()]);
   const [activeConversationId, setActiveConversationId] = useState(
-    conversations[0].conversationId
+    () => conversations[0].conversationId
   );
-  const activeConversation =
-    conversations.find((conversation) => conversation.conversationId === activeConversationId) ||
-    conversations[0];
 
   const titlebarRef = useRef(null);
   const streamRequestMapRef = useRef({});
   const streamListenerRef = useRef(null);
   const activeRequestIdRef = useRef(null);
   const stoppedRequestIdsRef = useRef(new Set());
-  const textareaRef = useRef(null);
 
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
-    }
-  }, [input]);
+  const activeConversation = useMemo(
+    () =>
+      conversations.find((conversation) => conversation.conversationId === activeConversationId) ||
+      conversations[0],
+    [activeConversationId, conversations]
+  );
+
+  const sidebarConversations = useMemo(
+    () => conversations.filter(shouldShowConversationInSidebar),
+    [conversations]
+  );
+
+  const activeChatTitle = useMemo(
+    () => getConversationDisplayTitle(activeConversation),
+    [activeConversation]
+  );
 
   useEffect(() => {
     const titlebar = titlebarRef.current;
-    if (!titlebar) return undefined;
+    if (!titlebar) {
+      return undefined;
+    }
 
     const appWindow = getCurrentWindow();
     const handleMouseDown = async (event) => {
@@ -122,6 +94,7 @@ function App() {
 
   useEffect(() => {
     let mounted = true;
+
     invoke('get_model_catalog')
       .then((catalog) => {
         if (!mounted || !catalog) return;
@@ -132,6 +105,7 @@ function App() {
         const nextModel = configuredDefault && available.includes(configuredDefault)
           ? configuredDefault
           : available[0];
+
         setModelOptions(available);
         setSelectedModel(nextModel);
         if (catalog.configPath) {
@@ -155,21 +129,23 @@ function App() {
 
     invoke('list_conversations')
       .then((storedConversations) => {
-        if (!mounted || !Array.isArray(storedConversations)) return;
-        if (storedConversations.length === 0) return;
+        if (!mounted || !Array.isArray(storedConversations) || storedConversations.length === 0) {
+          return;
+        }
 
         const restoredConversations = storedConversations.map((conversation) => ({
           conversationId: conversation.conversationId,
-          title: conversation.title || '历史会话',
+          title: conversation.title || '',
+          titleSource: conversation.titleSource || 'stored',
           messages: [],
           lastResponseId: null,
+          lastMessagePreview: conversation.lastMessagePreview || '',
+          messageCount: conversation.messageCount || 0,
           isLoaded: false
         }));
 
         setConversations((prevConversations) => {
-          const localDrafts = prevConversations.filter((conversation) =>
-            isConversationEmpty(conversation)
-          );
+          const localDrafts = prevConversations.filter((conversation) => isConversationEmpty(conversation));
           return [...localDrafts, ...restoredConversations];
         });
       })
@@ -186,7 +162,9 @@ function App() {
     const selectedConversation = conversations.find(
       (conversation) => conversation.conversationId === activeConversationId
     );
-    if (!selectedConversation || selectedConversation.isLoaded) return;
+    if (!selectedConversation || selectedConversation.isLoaded) {
+      return undefined;
+    }
 
     let disposed = false;
     invoke('load_conversation', {
@@ -194,24 +172,28 @@ function App() {
     })
       .then((detail) => {
         if (disposed || !detail) return;
+
         setConversations((prevConversations) =>
           prevConversations.map((conversation) => {
             if (conversation.conversationId !== selectedConversation.conversationId) {
               return conversation;
             }
+
+            const hydratedMessages = hydrateConversationMessages(
+              detail.messages || [],
+              conversation.conversationId
+            );
+
             return {
               ...conversation,
               title: detail.title || conversation.title,
+              titleSource: detail.titleSource || conversation.titleSource,
               lastResponseId: detail.lastResponseId || null,
+              lastMessagePreview:
+                hydratedMessages[hydratedMessages.length - 1]?.text || conversation.lastMessagePreview,
+              messageCount: detail.messages?.length || hydratedMessages.filter((message) => message.text).length,
               isLoaded: true,
-              messages: (detail.messages || []).map((message) => ({
-                id: message.id,
-                role: message.role,
-                text: message.text || '',
-                status: 'done',
-                errorText: '',
-                retryable: false
-              }))
+              messages: hydratedMessages
             };
           })
         );
@@ -272,12 +254,17 @@ function App() {
                     }
                   : message
               );
-              return applyConversationTitle({
-                ...conversation,
-                messages: nextMessages,
-                lastResponseId: payload.responseId || conversation.lastResponseId,
-                isLoaded: true
-              }, payload.conversationTitle);
+              return applyConversationTitle(
+                {
+                  ...conversation,
+                  messages: nextMessages,
+                  lastResponseId: payload.responseId || conversation.lastResponseId,
+                  lastMessagePreview: payload.delta || conversation.lastMessagePreview,
+                  messageCount: nextMessages.filter((message) => message.role === 'user' || message.text).length,
+                  isLoaded: true
+                },
+                payload.conversationTitle
+              );
             })
           );
         }
@@ -339,12 +326,13 @@ function App() {
           return conversation;
         }
 
-        let nextTitle = conversation.title;
+        const wasEmptyConversation = isConversationEmpty(conversation);
         let nextMessages = [...conversation.messages];
+        let nextTitle = conversation.title;
 
         if (appendUserMessage && userMessage) {
-          if (nextMessages.length === 0 && !conversation.title.trim()) {
-            nextTitle = text.length > 20 ? `${text.slice(0, 18)}...` : text;
+          if (wasEmptyConversation) {
+            nextTitle = buildDraftConversationTitle(text);
           }
           nextMessages.push(userMessage);
         }
@@ -377,6 +365,8 @@ function App() {
         return {
           ...conversation,
           title: nextTitle,
+          lastMessagePreview: text,
+          messageCount: nextMessages.filter((message) => message.role === 'user' || message.text).length,
           messages: nextMessages,
           isLoaded: true
         };
@@ -418,12 +408,17 @@ function App() {
                 }
               : message
           );
-          return applyConversationTitle({
-            ...conversation,
-            messages,
-            lastResponseId: response.responseId || null,
-            isLoaded: true
-          }, response.conversationTitle);
+          return applyConversationTitle(
+            {
+              ...conversation,
+              messages,
+              lastResponseId: response.responseId || null,
+              lastMessagePreview: response.outputText || text,
+              messageCount: messages.filter((message) => message.role === 'user' || message.text).length,
+              isLoaded: true
+            },
+            response.conversationTitle
+          );
         })
       );
     } catch (err) {
@@ -446,7 +441,12 @@ function App() {
                 }
               : message
           );
-          return { ...conversation, messages };
+          return {
+            ...conversation,
+            messages,
+            lastMessagePreview: text,
+            messageCount: messages.filter((message) => message.role === 'user' || message.text).length
+          };
         })
       );
     } finally {
@@ -514,7 +514,7 @@ function App() {
     setConversations((prevConversations) =>
       prevConversations.map((conversation) =>
         conversation.conversationId === conversationId
-          ? { ...conversation, title: nextTitle }
+          ? { ...conversation, title: nextTitle, titleSource: 'manual' }
           : conversation
       )
     );
@@ -531,7 +531,7 @@ function App() {
         setConversations((prevConversations) =>
           prevConversations.map((conversation) =>
             conversation.conversationId === conversationId
-              ? { ...conversation, title: updatedSummary.title }
+              ? { ...conversation, title: updatedSummary.title, titleSource: 'manual' }
               : conversation
           )
         );
@@ -539,9 +539,7 @@ function App() {
     } catch {
       setConversations((prevConversations) =>
         prevConversations.map((conversation) =>
-          conversation.conversationId === conversationId
-            ? { ...conversation, title: previousConversation.title }
-            : conversation
+          conversation.conversationId === conversationId ? previousConversation : conversation
         )
       );
     }
@@ -554,7 +552,7 @@ function App() {
     if (!targetConversation) return;
 
     const confirmed = globalThis.confirm
-      ? globalThis.confirm(`删除对话“${targetConversation.title}”？此操作无法撤销。`)
+      ? globalThis.confirm(`删除对话“${getConversationDisplayTitle(targetConversation)}”？此操作无法撤销。`)
       : true;
     if (!confirmed) return;
 
@@ -603,70 +601,31 @@ function App() {
   };
 
   return (
-    <div className="app-shell relative flex h-screen w-screen overflow-hidden bg-[#131314] text-slate-100 antialiased font-sans select-none">
+    <div className="app-shell relative flex h-screen w-screen overflow-hidden bg-[#131314] font-sans text-slate-100 antialiased select-none">
       <Sidebar
         isOpen={sidebarOpen}
-        conversations={conversations}
+        conversations={sidebarConversations}
         activeConversationId={activeConversationId}
-        onSelectConversation={(conversationId) => setActiveConversationId(conversationId)}
+        onSelectConversation={setActiveConversationId}
         onNewChat={handleNewChat}
         onRenameConversation={handleRenameConversation}
         onDeleteConversation={handleDeleteConversation}
         isGenerating={isGenerating}
       />
 
-      <div
-        className="absolute inset-x-0 top-0 z-40 flex h-12 items-center border-b border-[#2d2f31]/40 bg-[#131314]/90 backdrop-blur pl-[84px]"
-        ref={titlebarRef}
-      >
-        <button
-          onClick={() => setSidebarOpen((prev) => !prev)}
-          data-no-drag="true"
-          className="flex h-7 w-7 items-center justify-center rounded-full text-slate-300 transition hover:bg-[#2d2f31] flex-shrink-0"
-          title={sidebarOpen ? '收起菜单' : '展开菜单'}
-        >
-          <Menu className="h-4.5 w-4.5" />
-        </button>
-
-        <div className="flex min-w-0 flex-1 items-center gap-1 pr-6 ml-2">
-          <div className="relative flex items-center gap-1.5" data-no-drag="true">
-            <button
-              onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
-              className="flex items-center gap-2 rounded-xl px-3 py-1 text-sm font-medium text-slate-300 transition hover:bg-[#2d2f31] whitespace-nowrap"
-              title={
-                configPath
-                  ? `配置文件: ${configPath}${cachePath ? `\n模型缓存: ${cachePath}` : ''}`
-                  : '模型配置'
-              }
-            >
-              <span className="truncate">AgentJax {selectedModel}</span>
-              <ChevronDown className="h-3 w-3 text-slate-400" />
-            </button>
-
-            {modelDropdownOpen && (
-              <div className="absolute top-10 left-0 z-50 w-56 rounded-2xl border border-[#2d2f31] bg-[#1e1f20] p-2 shadow-2xl">
-                {modelOptions.map((model, idx) => (
-                  <button
-                    key={model}
-                    onClick={() => {
-                      setSelectedModel(model);
-                      setModelDropdownOpen(false);
-                    }}
-                    className={`flex w-full flex-col rounded-xl px-3 py-2 text-left transition hover:bg-[#2d2f31] ${idx > 0 ? 'mt-1' : ''}`}
-                  >
-                    <span className="text-sm font-medium text-slate-200">{model}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="h-full min-w-0 flex-1" />
-        </div>
-      </div>
+      <AppHeader
+        titlebarRef={titlebarRef}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+        selectedModel={selectedModel}
+        modelOptions={modelOptions}
+        onSelectModel={setSelectedModel}
+        configPath={configPath}
+        cachePath={cachePath}
+      />
 
       <main
-        className={`flex h-full flex-col flex-1 pt-12 transition-all duration-300 ${
+        className={`flex h-full flex-1 flex-col pt-12 transition-all duration-300 ${
           sidebarOpen ? 'pl-64' : 'pl-20'
         }`}
       >
@@ -675,89 +634,20 @@ function App() {
           isGenerating={isGenerating}
           onRetryMessage={handleRetryMessage}
           onSuggestionClick={handleSuggestionClick}
-          activeChatTitle={activeConversation?.title || '新对话'}
+          activeChatTitle={activeChatTitle}
         />
 
-        <div className="bg-[#131314] px-4 md:px-6 pb-6 pt-2">
-          <div className="mx-auto flex max-w-3xl flex-col">
-            <div className="relative flex flex-col rounded-3xl border border-[#2d2f31] bg-[#1e1f20] px-4 py-3 shadow-md transition duration-200 focus-within:border-[#3c4043] focus-within:ring-1 focus-within:ring-[#3c4043]/50">
-              {attachment && (
-                <div className="mb-2 flex items-center gap-2 self-start rounded-xl border border-[#2d2f31] bg-[#131314] p-1.5 pr-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 text-red-400">
-                    <Image className="h-5 w-5" />
-                  </div>
-                  <span className="text-xs font-medium text-slate-300">{attachment.name}</span>
-                  <button
-                    onClick={() => setAttachment(null)}
-                    className="ml-2 rounded-full p-0.5 text-slate-400 hover:bg-[#2d2f31] hover:text-slate-200"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleAttachFile}
-                  className="rounded-full p-2 text-slate-400 transition hover:bg-[#2d2f31] hover:text-slate-200"
-                  title="上传文件/图片"
-                >
-                  <Paperclip className="h-5.5 w-5.5" />
-                </button>
-
-                <textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      if (isGenerating) {
-                        handleStop();
-                      } else {
-                        handleSend();
-                      }
-                    }
-                  }}
-                  placeholder="问问 AgentJax"
-                  rows={1}
-                  data-native-context-menu="true"
-                  className="max-h-[180px] flex-1 resize-none bg-transparent py-1.5 text-sm text-slate-200 placeholder-slate-500 scrollbar-thin focus:outline-none select-text"
-                />
-
-                <div className="flex items-center gap-2">
-                  <button
-                    className="rounded-full p-2 text-slate-400 transition hover:bg-[#2d2f31] hover:text-slate-200"
-                    title="语音输入"
-                  >
-                    <Mic className="h-5.5 w-5.5" />
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (isGenerating) {
-                        handleStop();
-                      } else {
-                        handleSend();
-                      }
-                    }}
-                    disabled={isGenerating ? isStopping : !input.trim()}
-                    className={`rounded-full p-2 transition ${
-                      isGenerating
-                        ? 'bg-red-500/90 text-white hover:bg-red-500 shadow shadow-red-500/20'
-                        : input.trim()
-                          ? 'bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 text-white hover:opacity-90 cursor-pointer shadow shadow-purple-500/20'
-                          : 'bg-transparent text-slate-600'
-                    }`}
-                    title={isGenerating ? '停止生成' : '发送消息'}
-                  >
-                    {isGenerating ? <Square className="h-4.5 w-4.5 fill-current" /> : <Send className="h-4.5 w-4.5" />}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ChatComposer
+          input={input}
+          onInputChange={setInput}
+          attachment={attachment}
+          onRemoveAttachment={() => setAttachment(null)}
+          onAttachFile={handleAttachFile}
+          isGenerating={isGenerating}
+          isStopping={isStopping}
+          onSend={() => handleSend()}
+          onStop={handleStop}
+        />
       </main>
     </div>
   );

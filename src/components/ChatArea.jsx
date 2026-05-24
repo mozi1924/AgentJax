@@ -308,12 +308,16 @@ export default function ChatArea({
               ) : (
                 <div className="flex-1 overflow-hidden space-y-1.5">
                   {/* Streaming indicator or response body */}
-                  {m.status === 'failed' ? (
+                  {m.status === 'failed' || m.status === 'interrupted' ? (
                     <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 px-4 py-3">
                       <div className="flex items-start gap-2">
                         <AlertTriangle className="h-4 w-4 mt-0.5 text-rose-300" />
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm text-rose-200">请求失败，未写入会话上下文。</p>
+                          <p className="text-sm text-rose-200">
+                            {m.status === 'interrupted'
+                              ? '上次请求在回复完成前中断了。'
+                              : '请求失败，未完成这轮回复。'}
+                          </p>
                           <p className="mt-1 text-xs text-rose-300/90 break-words">
                             {m.errorText || '请检查网络或配置后重试。'}
                           </p>

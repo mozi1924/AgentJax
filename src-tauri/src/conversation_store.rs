@@ -76,6 +76,7 @@ pub struct AppendMessageInput {
 pub struct ConversationSummary {
     pub conversation_id: String,
     pub title: String,
+    pub title_source: String,
     pub message_count: usize,
     pub last_message_preview: String,
     pub last_message_at_unix_ms: i64,
@@ -684,6 +685,7 @@ fn summary_from_meta(meta: &ConversationMetaLine) -> ConversationSummary {
     ConversationSummary {
         conversation_id: meta.conversation_id.clone(),
         title: normalized_meta_title(meta),
+        title_source: normalize_title_source(&meta.title_source),
         message_count: meta.message_count,
         last_message_preview: meta.last_message_preview.clone(),
         last_message_at_unix_ms: meta.updated_at_unix_ms.max(meta.last_message_at_unix_ms),
