@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Settings } from 'lucide-react';
+import { Plus, Search, Settings, Menu } from 'lucide-react';
 import SidebarActionMenu from './sidebar/SidebarActionMenu';
 import SidebarConversationRow from './sidebar/SidebarConversationRow';
 import { getConversationDisplayTitle } from '../features/conversations/conversationUtils';
@@ -12,7 +12,8 @@ export default function Sidebar({
   onNewChat,
   onRenameConversation,
   onDeleteConversation,
-  isGenerating
+  isGenerating,
+  onToggleSidebar
 }) {
   const [editingConversationId, setEditingConversationId] = useState(null);
   const [draftTitle, setDraftTitle] = useState('');
@@ -181,66 +182,97 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-30 flex flex-col overflow-hidden border-r border-[#2d2f31] bg-[#1e1f20] pt-12 text-slate-200 transition-all duration-300 ${
+      className={`fixed inset-y-0 left-0 z-30 flex flex-col overflow-visible text-slate-200 transition-all duration-300 ${
         isOpen ? 'w-64' : 'w-20'
-      }`}
+      } bg-transparent`}
     >
+      {/* Sliding Background Panel */}
+      <div
+        className={`absolute inset-y-0 left-0 -z-10 bg-[#1e1f20] border-r border-[#2d2f31]/60 transition-transform duration-300 ease-in-out ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        } w-64`}
+      />
+
+      {/* Spacing for AppHeader */}
+      <div className="h-12 shrink-0" />
+
       <div className="scrollbar-thin flex-1 space-y-6 overflow-y-auto px-3 py-2">
-        <div className="space-y-1">
+        <div className="space-y-2">
           <button
             onClick={onNewChat}
-            className="flex w-full items-center gap-3 whitespace-nowrap rounded-full border border-[#2d2f31]/50 bg-[#131314] py-3 pl-[18px] pr-4 text-sm font-medium transition hover:bg-[#2d2f31]"
+            className={`flex items-center transition-all duration-300 whitespace-nowrap border border-[#2d2f31]/50 bg-[#131314] hover:bg-[#2d2f31] h-11 text-sm font-medium ${
+              isOpen 
+                ? 'w-[232px] rounded-full pl-[18px] ml-0 pr-4' 
+                : 'w-11 rounded-full pl-[12px] ml-[6px]'
+            }`}
             title="发起新对话"
           >
             <Plus className="h-5 w-5 flex-shrink-0 text-cyan-400" />
-            {isOpen && <span>发起新对话</span>}
+            <span className={`transition-all duration-500 ease-out transform overflow-hidden whitespace-nowrap ${
+              isOpen ? 'max-w-[150px] opacity-100 translate-x-0 ml-3' : 'max-w-0 opacity-0 -translate-x-4 pointer-events-none'
+            }`}>
+              发起新对话
+            </span>
           </button>
 
           <button
-            className="flex w-full items-center gap-3 whitespace-nowrap rounded-xl py-2.5 pl-[18px] pr-4 text-sm text-slate-400 transition hover:bg-[#2d2f31] hover:text-slate-200"
+            className={`flex items-center transition-all duration-300 whitespace-nowrap text-slate-400 hover:text-slate-200 hover:bg-[#2d2f31] h-11 text-sm ${
+              isOpen 
+                ? 'w-[232px] rounded-xl pl-[18px] ml-0 pr-4' 
+                : 'w-11 rounded-full pl-[12px] ml-[6px]'
+            }`}
             title="搜索对话内容"
           >
             <Search className="h-5 w-5 flex-shrink-0" />
-            {isOpen && <span>搜索对话内容</span>}
+            <span className={`transition-all duration-500 ease-out transform overflow-hidden whitespace-nowrap ${
+              isOpen ? 'max-w-[150px] opacity-100 translate-x-0 ml-3' : 'max-w-0 opacity-0 -translate-x-4 pointer-events-none'
+            }`}>
+              搜索对话内容
+            </span>
           </button>
         </div>
 
-        {isOpen && conversations.length > 0 && (
-          <div className="space-y-2">
-            <h3 className="whitespace-nowrap px-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-              最近
-            </h3>
-            <div className="space-y-1">
-              {conversations.map((conversation) => {
-                const isActive = conversation.conversationId === activeConversationId;
-                const isEditing = conversation.conversationId === editingConversationId;
-                const isBusy =
-                  isGenerating && conversation.conversationId === activeConversation?.conversationId;
-                const isMenuOpen = conversation.conversationId === menuState?.conversationId;
+        {/* Dynamic transition for Recent conversation list */}
+        <div className={`transition-all duration-500 ease-out transform space-y-4 ${
+          isOpen ? 'opacity-100 max-h-[1000px] translate-x-0 visible' : 'opacity-0 max-h-0 -translate-x-8 overflow-hidden invisible pointer-events-none'
+        }`}>
+          {conversations.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="whitespace-nowrap px-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                最近
+              </h3>
+              <div className="space-y-1">
+                {conversations.map((conversation) => {
+                  const isActive = conversation.conversationId === activeConversationId;
+                  const isEditing = conversation.conversationId === editingConversationId;
+                  const isBusy =
+                    isGenerating && conversation.conversationId === activeConversation?.conversationId;
+                  const isMenuOpen = conversation.conversationId === menuState?.conversationId;
 
-                return (
-                  <SidebarConversationRow
-                    key={conversation.conversationId}
-                    conversation={conversation}
-                    isActive={isActive}
-                    isEditing={isEditing}
-                    isBusy={isBusy}
-                    isMenuOpen={isMenuOpen}
-                    draftTitle={draftTitle}
-                    onDraftTitleChange={setDraftTitle}
-                    onSelect={onSelectConversation}
-                    onSubmitRename={submitRename}
-                    onCancelRename={cancelRename}
-                    onOpenMenuFromButton={openMenuFromButton}
-                    onOpenMenuFromContext={openMenuFromContext}
-                    editingRowRef={editingRowRef}
-                    renameInputRef={renameInputRef}
-                  />
-                );
-              })}
+                  return (
+                    <SidebarConversationRow
+                      key={conversation.conversationId}
+                      conversation={conversation}
+                      isActive={isActive}
+                      isEditing={isEditing}
+                      isBusy={isBusy}
+                      isMenuOpen={isMenuOpen}
+                      draftTitle={draftTitle}
+                      onDraftTitleChange={setDraftTitle}
+                      onSelect={onSelectConversation}
+                      onSubmitRename={submitRename}
+                      onCancelRename={cancelRename}
+                      onOpenMenuFromButton={openMenuFromButton}
+                      onOpenMenuFromContext={openMenuFromContext}
+                      editingRowRef={editingRowRef}
+                      renameInputRef={renameInputRef}
+                    />
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {menuState && (
@@ -252,13 +284,21 @@ export default function Sidebar({
         />
       )}
 
-      <div className="border-t border-[#2d2f31] p-3">
+      <div className="p-3 shrink-0">
         <button
-          className="flex w-full items-center gap-3 whitespace-nowrap rounded-xl py-2.5 pl-[18px] pr-4 text-sm text-slate-400 transition hover:bg-[#2d2f31] hover:text-slate-200"
+          className={`flex items-center transition-all duration-300 whitespace-nowrap text-slate-400 hover:text-slate-200 hover:bg-[#2d2f31] h-11 text-sm ${
+            isOpen 
+              ? 'w-[232px] rounded-xl pl-[18px] ml-0 pr-4' 
+              : 'w-11 rounded-xl pl-[12px] ml-[6px]'
+          }`}
           title="设置"
         >
           <Settings className="h-5 w-5 flex-shrink-0" />
-          {isOpen && <span>设置</span>}
+          <span className={`transition-all duration-500 ease-out transform overflow-hidden whitespace-nowrap ${
+            isOpen ? 'max-w-[150px] opacity-100 translate-x-0 ml-3' : 'max-w-0 opacity-0 -translate-x-4 pointer-events-none'
+          }`}>
+            设置
+          </span>
         </button>
       </div>
     </aside>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import AppHeader from './components/AppHeader';
@@ -26,12 +26,17 @@ function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [attachment, setAttachment] = useState(null);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const [emptyComposerOffset, setEmptyComposerOffset] = useState(0);
   const [conversations, setConversations] = useState(() => [createLocalConversation()]);
   const [activeConversationId, setActiveConversationId] = useState(
     () => conversations[0].conversationId
   );
 
   const titlebarRef = useRef(null);
+  const mainRef = useRef(null);
+  const composerStageRef = useRef(null);
+  const composerShellRef = useRef(null);
   const streamRequestMapRef = useRef({});
   const streamListenerRef = useRef(null);
   const activeRequestIdRef = useRef(null);
@@ -53,6 +58,8 @@ function App() {
     () => getConversationDisplayTitle(activeConversation),
     [activeConversation]
   );
+  const isEmptyConversation = (activeConversation?.messages?.length ?? 0) === 0;
+  const conversationViewKey = `${activeConversationId}-${isEmptyConversation ? 'empty' : 'messages'}`;
 
   useEffect(() => {
     const titlebar = titlebarRef.current;
@@ -72,6 +79,47 @@ function App() {
       titlebar.removeEventListener('mousedown', handleMouseDown);
     };
   }, []);
+
+  useLayoutEffect(() => {
+    const mainElement = mainRef.current;
+    const composerStageElement = composerStageRef.current;
+    const composerShellElement = composerShellRef.current;
+    if (!mainElement || !composerStageElement || !composerShellElement) {
+      return undefined;
+    }
+
+    const updateMeasurements = () => {
+      const mainBounds = mainElement.getBoundingClientRect();
+      const composerBounds = composerShellElement.getBoundingClientRect();
+      const stageBounds = composerStageElement.getBoundingClientRect();
+
+      const nextComposerHeight = composerBounds.height;
+      const centeredTop = Math.max(0, (mainBounds.height - stageBounds.height) / 2);
+      const dockedTop = Math.max(0, mainBounds.height - stageBounds.height);
+      const nextEmptyOffset = centeredTop - dockedTop;
+
+      setComposerHeight((previousHeight) =>
+        Math.abs(previousHeight - nextComposerHeight) > 0.5 ? nextComposerHeight : previousHeight
+      );
+      setEmptyComposerOffset((previousOffset) =>
+        Math.abs(previousOffset - nextEmptyOffset) > 0.5 ? nextEmptyOffset : previousOffset
+      );
+    };
+
+    updateMeasurements();
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateMeasurements();
+    });
+
+    resizeObserver.observe(mainElement);
+    resizeObserver.observe(composerStageElement);
+    resizeObserver.observe(composerShellElement);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [attachment, input, isEmptyConversation]);
 
   useEffect(() => {
     const handleContextMenu = (event) => {
@@ -601,7 +649,29 @@ function App() {
   };
 
   return (
-    <div className="app-shell relative flex h-screen w-screen overflow-hidden bg-[#131314] font-sans text-slate-100 antialiased select-none">
+    <div className="app-shell relative flex h-screen w-screen overflow-hidden font-sans text-slate-100 antialiased select-none bg-transparent">
+      {/* Animated Glowing Background */}
+      <div className="absolute inset-0 -z-10 overflow-hidden bg-[#131314]">
+        {/* Layer 1: Model Outputting Glow */}
+        <div
+          className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full filter blur-[80px] md:blur-[120px] bg-gradient-to-tr from-cyan-500/25 via-purple-500/30 to-pink-500/25 animate-pulse-fast w-[550px] h-[550px] transition-opacity duration-1000 ease-in-out ${
+            isGenerating ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+        />
+        {/* Layer 2: New Chat Welcome Glow */}
+        <div
+          className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full filter blur-[80px] md:blur-[120px] bg-gradient-to-tr from-blue-600/20 via-indigo-500/25 to-purple-600/20 animate-pulse-slow w-[500px] h-[500px] transition-opacity duration-1000 ease-in-out ${
+            activeConversation?.messages?.length === 0 && !isGenerating ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+        />
+        {/* Layer 3: Active Chat Faint Glow */}
+        <div
+          className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full filter blur-[100px] bg-gradient-to-tr from-indigo-950/25 to-purple-950/25 w-[300px] h-[300px] transition-opacity duration-1000 ease-in-out ${
+            activeConversation?.messages?.length > 0 && !isGenerating ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+        />
+      </div>
+
       <Sidebar
         isOpen={sidebarOpen}
         conversations={sidebarConversations}
@@ -611,6 +681,7 @@ function App() {
         onRenameConversation={handleRenameConversation}
         onDeleteConversation={handleDeleteConversation}
         isGenerating={isGenerating}
+        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
       />
 
       <AppHeader
@@ -625,29 +696,82 @@ function App() {
       />
 
       <main
-        className={`flex h-full flex-1 flex-col pt-12 transition-all duration-300 ${
-          sidebarOpen ? 'pl-64' : 'pl-20'
-        }`}
+        className="flex h-full flex-1 flex-col pt-12"
       >
-        <ChatArea
-          messages={activeConversation?.messages || []}
-          isGenerating={isGenerating}
-          onRetryMessage={handleRetryMessage}
-          onSuggestionClick={handleSuggestionClick}
-          activeChatTitle={activeChatTitle}
-        />
+        <div
+          ref={mainRef}
+          className={`relative flex min-h-0 flex-1 flex-col transition-[margin] duration-300 ${
+            sidebarOpen ? 'ml-64' : 'ml-20'
+          }`}
+        >
+          {/* Chat Area Container */}
+          <div
+            className={`flex min-h-0 flex-1 flex-col overflow-hidden transition-opacity duration-300 ${
+              isEmptyConversation ? 'pointer-events-none opacity-0' : 'opacity-100'
+            }`}
+            style={{ paddingBottom: isEmptyConversation ? 0 : `${composerHeight}px` }}
+          >
+            <div key={conversationViewKey} className="flex min-h-0 flex-1 animate-conversation-content-in">
+              <ChatArea
+                messages={activeConversation?.messages || []}
+                isGenerating={isGenerating}
+                onRetryMessage={handleRetryMessage}
+                onSuggestionClick={handleSuggestionClick}
+                activeChatTitle={activeChatTitle}
+              />
+            </div>
+          </div>
 
-        <ChatComposer
-          input={input}
-          onInputChange={setInput}
-          attachment={attachment}
-          onRemoveAttachment={() => setAttachment(null)}
-          onAttachFile={handleAttachFile}
-          isGenerating={isGenerating}
-          isStopping={isStopping}
-          onSend={() => handleSend()}
-          onStop={handleStop}
-        />
+          {/* Bottom background mask for scrollable messages */}
+          <div
+            className={`absolute bottom-0 inset-x-0 bg-[#131314] z-10 pointer-events-none transition-opacity duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              isEmptyConversation ? 'opacity-0' : 'opacity-100'
+            }`}
+            style={{ height: `${composerHeight}px` }}
+          >
+            <div className="absolute top-0 left-0 right-0 h-10 -translate-y-full bg-gradient-to-t from-[#131314] to-transparent pointer-events-none" />
+          </div>
+
+          <div
+            ref={composerStageRef}
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-10 transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform"
+            style={{
+              transform: `translate3d(0, ${isEmptyConversation ? emptyComposerOffset : 0}px, 0)`
+            }}
+          >
+            <div className="flex w-full flex-col items-center">
+              <div
+                className={`mx-auto w-full max-w-3xl overflow-hidden px-4 text-center transition-[max-height,margin,opacity,transform] duration-200 ease-out md:px-8 lg:px-12 ${
+                  isEmptyConversation
+                    ? 'mb-6 max-h-40 translate-y-0 opacity-100 md:max-h-44'
+                    : 'mb-0 max-h-0 -translate-y-2 opacity-0'
+                }`}
+              >
+                <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">
+                  <span className="animate-gradient bg-gradient-to-r from-blue-400 via-purple-400 to-rose-400 bg-clip-text font-bold text-transparent">
+                    Mozi,
+                  </span>
+                  <br />
+                  <span className="text-[#444746] dark:text-[#e3e3e3]">想了解什么，尽管问吧！</span>
+                </h1>
+              </div>
+
+              <div ref={composerShellRef} className="pointer-events-auto w-full">
+                <ChatComposer
+                  input={input}
+                  onInputChange={setInput}
+                  attachment={attachment}
+                  onRemoveAttachment={() => setAttachment(null)}
+                  onAttachFile={handleAttachFile}
+                  isGenerating={isGenerating}
+                  isStopping={isStopping}
+                  onSend={() => handleSend()}
+                  onStop={handleStop}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </main>
     </div>
   );

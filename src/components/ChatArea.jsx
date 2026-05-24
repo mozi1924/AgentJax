@@ -263,107 +263,97 @@ export default function ChatArea({
     });
   };
 
+  if (messages.length === 0) {
+    return null;
+  }
+
   return (
     <div className="flex flex-1 flex-col overflow-y-auto px-4 py-6 md:px-8 lg:px-12 scrollbar-thin">
-      {/* If empty chat, show welcome greeting */}
-      {messages.length === 0 ? (
-        <div className="mx-auto flex max-w-3xl flex-col items-center justify-center flex-1 py-10 text-center md:py-16">
-          {/* Main Greeting */}
-          <h1 className="text-4xl font-semibold tracking-tight md:text-5xl text-center w-full mb-4">
-            <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-rose-400 bg-clip-text text-transparent animate-gradient">
-              Mozi,
-            </span>
-            <br />
-            <span className="text-[#444746] dark:text-[#e3e3e3]">想了解什么，尽管问吧！</span>
-          </h1>
+      {/* Else, render conversation message logs */}
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 py-4">
+        <div className="mb-2 flex items-center gap-2 border-b border-[#2d2f31]/60 pb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">
+          <MessageSquare className="h-4 w-4 text-cyan-400" />
+          <span>{activeChatTitle}</span>
         </div>
-      ) : (
-        /* Else, render conversation message logs */
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 py-4">
-          <div className="mb-2 flex items-center gap-2 border-b border-[#2d2f31]/60 pb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">
-            <MessageSquare className="h-4 w-4 text-cyan-400" />
-            <span>{activeChatTitle}</span>
-          </div>
 
-          {messages.map((m) => (
-            <div
-              key={m.id}
-              className={`flex gap-4 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              {/* AI Avatar */}
-              {m.role === 'assistant' && (
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 text-white shadow-md shadow-purple-500/20">
-                  <Sparkles className="h-4.5 w-4.5 animate-pulse" />
-                </div>
-              )}
+        {messages.map((m) => (
+          <div
+            key={m.id}
+            className={`flex gap-4 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            {/* AI Avatar */}
+            {m.role === 'assistant' && (
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 text-white shadow-md shadow-purple-500/20">
+                <Sparkles className="h-4.5 w-4.5 animate-pulse" />
+              </div>
+            )}
 
-              {/* Message Content */}
-              {m.role === 'user' ? (
-                <div
-                  data-native-context-menu="true"
-                  className="max-w-[80%] break-words rounded-3xl border border-[#2d2f31]/30 bg-[#1e1f20] px-5 py-3.5 text-sm leading-relaxed text-slate-200 transition hover:border-slate-500/30 select-text"
-                >
-                  {m.text}
-                </div>
-              ) : (
-                <div className="flex-1 overflow-hidden space-y-1.5">
-                  {/* Streaming indicator or response body */}
-                  {m.status === 'failed' || m.status === 'interrupted' ? (
-                    <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 px-4 py-3">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className="h-4 w-4 mt-0.5 text-rose-300" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm text-rose-200">
-                            {m.status === 'interrupted'
-                              ? '上次请求在回复完成前中断了。'
-                              : '请求失败，未完成这轮回复。'}
-                          </p>
-                          <p className="mt-1 text-xs text-rose-300/90 break-words">
-                            {m.errorText || '请检查网络或配置后重试。'}
-                          </p>
-                          <button
-                            onClick={() => onRetryMessage?.(m.id)}
-                            disabled={isGenerating}
-                            className={`mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                              isGenerating
-                                ? 'cursor-not-allowed border border-[#2d2f31] text-slate-500'
-                                : 'border border-rose-400/40 text-rose-200 hover:bg-rose-900/40'
-                            }`}
-                          >
-                            <RotateCcw className="h-3.5 w-3.5" />
-                            重试这条消息
-                          </button>
-                        </div>
+            {/* Message Content */}
+            {m.role === 'user' ? (
+              <div
+                data-native-context-menu="true"
+                className="max-w-[80%] break-words rounded-3xl border border-[#2d2f31]/30 bg-[#1e1f20] px-5 py-3.5 text-sm leading-relaxed text-slate-200 transition hover:border-slate-500/30 select-text"
+              >
+                {m.text}
+              </div>
+            ) : (
+              <div className="flex-1 overflow-hidden space-y-1.5">
+                {/* Streaming indicator or response body */}
+                {m.status === 'failed' || m.status === 'interrupted' ? (
+                  <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 px-4 py-3">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 text-rose-300" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-rose-200">
+                          {m.status === 'interrupted'
+                            ? '上次请求在回复完成前中断了。'
+                            : '请求失败，未完成这轮回复。'}
+                        </p>
+                        <p className="mt-1 text-xs text-rose-300/90 break-words">
+                          {m.errorText || '请检查网络或配置后重试。'}
+                        </p>
+                        <button
+                          onClick={() => onRetryMessage?.(m.id)}
+                          disabled={isGenerating}
+                          className={`mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                            isGenerating
+                              ? 'cursor-not-allowed border border-[#2d2f31] text-slate-500'
+                              : 'border border-rose-400/40 text-rose-200 hover:bg-rose-900/40'
+                          }`}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          重试这条消息
+                        </button>
                       </div>
                     </div>
-                  ) : (
-                    <div
-                      data-native-context-menu="true"
-                      className="prose prose-invert max-w-none text-slate-300 select-text"
-                    >
-                      {renderMarkdown(m.text)}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+                  </div>
+                ) : (
+                  <div
+                    data-native-context-menu="true"
+                    className="prose prose-invert max-w-none text-slate-300 select-text"
+                  >
+                    {renderMarkdown(m.text)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
 
-          {/* Sparkle glowing text animation during active response generation */}
-          {isGenerating && messages[messages.length - 1]?.role === 'user' && (
-            <div className="flex gap-4 items-start justify-start">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 text-white shadow-md shadow-purple-500/20">
-                <Loader2 className="h-4.5 w-4.5 animate-spin" />
-              </div>
-              <div className="flex flex-col gap-2 w-full pt-1.5">
-                <div className="h-4 bg-[#2d2f31] rounded animate-pulse w-3/4"></div>
-                <div className="h-4 bg-[#2d2f31] rounded animate-pulse w-1/2"></div>
-                <div className="h-4 bg-[#2d2f31] rounded animate-pulse w-5/6"></div>
-              </div>
+        {/* Sparkle glowing text animation during active response generation */}
+        {isGenerating && messages[messages.length - 1]?.role === 'user' && (
+          <div className="flex gap-4 items-start justify-start">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 text-white shadow-md shadow-purple-500/20">
+              <Loader2 className="h-4.5 w-4.5 animate-spin" />
             </div>
-          )}
-        </div>
-      )}
+            <div className="flex flex-col gap-2 w-full pt-1.5">
+              <div className="h-4 bg-[#2d2f31] rounded animate-pulse w-3/4"></div>
+              <div className="h-4 bg-[#2d2f31] rounded animate-pulse w-1/2"></div>
+              <div className="h-4 bg-[#2d2f31] rounded animate-pulse w-5/6"></div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Auto-scroll Target */}
       <div ref={messagesEndRef} />

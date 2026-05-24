@@ -80,3 +80,49 @@ textarea:focus {
 input:focus {
   outline: none;
 }
+
+/* Center Glow Animations */
+@keyframes pulse-slow {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
+    opacity: 0.8;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.08) rotate(180deg);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-fast {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.15) rotate(360deg);
+    opacity: 1;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 15s ease-in-out infinite;
+}
+
+.animate-pulse-fast {
+  animation: pulse-fast 5s linear infinite;
+}
+
+@keyframes conversation-content-in {
+  0% {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-conversation-content-in {
+  animation: conversation-content-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}

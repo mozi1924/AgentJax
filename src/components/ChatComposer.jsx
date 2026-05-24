@@ -31,7 +31,7 @@ export default function ChatComposer({
   };
 
   return (
-    <div className="bg-[#131314] px-4 pb-6 pt-2 md:px-6">
+    <div className="relative px-4 pb-6 pt-2 md:px-8 lg:px-12 bg-transparent">
       <div className="mx-auto flex max-w-3xl flex-col">
         <div className="relative flex flex-col rounded-3xl border border-[#2d2f31] bg-[#1e1f20] px-4 py-3 shadow-md transition duration-200 focus-within:border-[#3c4043] focus-within:ring-1 focus-within:ring-[#3c4043]/50">
           {attachment && (
