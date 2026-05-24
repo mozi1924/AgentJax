@@ -6,11 +6,14 @@ import ChatArea from './components/ChatArea';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [selectedModel, setSelectedModel] = useState('Flash');
+  const [selectedModel, setSelectedModel] = useState('gpt-5-mini');
+  const [modelOptions, setModelOptions] = useState([]);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const [configPath, setConfigPath] = useState('');
+  const [cachePath, setCachePath] = useState('');
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [mockAttachment, setMockAttachment] = useState(null);
+  const [attachment, setAttachment] = useState(null);
 
   // Start with an empty chat list containing one new chat
   const [chats, setChats] = useState([
@@ -52,13 +55,41 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    invoke('get_model_catalog')
+      .then((catalog) => {
+        if (!mounted || !catalog) return;
+        const available = Array.isArray(catalog.effectiveModels) && catalog.effectiveModels.length > 0
+          ? catalog.effectiveModels
+          : ['gpt-5-mini'];
+        const configuredDefault = (catalog.defaultModel || '').trim();
+        const nextModel = configuredDefault && available.includes(configuredDefault) ? configuredDefault : available[0];
+        setModelOptions(available);
+        setSelectedModel(nextModel);
+        if (catalog.configPath) {
+          setConfigPath(catalog.configPath);
+        }
+        if (catalog.cachePath) {
+          setCachePath(catalog.cachePath);
+        }
+      })
+      .catch(() => {
+        // Keep frontend defaults when backend config cannot be loaded.
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const handleSend = async (textToSend) => {
     const text = textToSend || input;
     if (!text.trim() || isGenerating) return;
 
     // Clear input & attachments
     setInput('');
-    setMockAttachment(null);
+    setAttachment(null);
 
     // Create user message
     const userMsg = {
@@ -108,7 +139,7 @@ function App() {
         req: {
           input: text,
           previousResponseId: activeChat.lastResponseId,
-          model: selectedModel === 'Pro' ? 'gpt-5' : 'gpt-5-mini'
+          model: selectedModel
         }
       });
 
@@ -124,7 +155,7 @@ function App() {
         })
       );
     } catch (err) {
-      const errorText = typeof err === 'string' ? err : '请求失败，请检查 OPENAI_API_KEY 和网络连接。';
+      const errorText = typeof err === 'string' ? err : '请求失败，请检查配置文件中的 api_key / base_url 和网络连接。';
       setChats((prevChats) =>
         prevChats.map((c) => {
           if (c.id === activeChat.id) {
@@ -157,8 +188,8 @@ function App() {
     handleSend(text);
   };
 
-  const handleAttachMockFile = () => {
-    setMockAttachment({
+  const handleAttachFile = () => {
+    setAttachment({
       name: 'screenshot_data.png',
       type: 'image'
     });
@@ -194,6 +225,11 @@ function App() {
             <button
               onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
               className="flex items-center gap-2 rounded-xl px-3 py-1 text-sm font-medium text-slate-300 transition hover:bg-[#2d2f31] whitespace-nowrap"
+              title={
+                configPath
+                  ? `配置文件: ${configPath}${cachePath ? `\n模型缓存: ${cachePath}` : ''}`
+                  : '模型配置'
+              }
             >
               <span className="truncate">AgentJax {selectedModel}</span>
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="h-3 w-3 text-slate-400">
@@ -203,26 +239,18 @@ function App() {
 
             {modelDropdownOpen && (
               <div className="absolute top-10 left-0 z-50 w-56 rounded-2xl border border-[#2d2f31] bg-[#1e1f20] p-2 shadow-2xl">
-                <button
-                  onClick={() => {
-                    setSelectedModel('Flash');
-                    setModelDropdownOpen(false);
-                  }}
-                  className="flex w-full flex-col rounded-xl px-3 py-2 text-left transition hover:bg-[#2d2f31]"
-                >
-                  <span className="text-sm font-medium text-slate-200">AgentJax Flash</span>
-                  <span className="text-[11px] text-slate-500">轻量快速，适合日常简单问答</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setSelectedModel('Pro');
-                    setModelDropdownOpen(false);
-                  }}
-                  className="mt-1 flex w-full flex-col rounded-xl px-3 py-2 text-left transition hover:bg-[#2d2f31]"
-                >
-                  <span className="text-sm font-medium text-purple-300">AgentJax Pro</span>
-                  <span className="text-[11px] text-slate-500">超强推理，支持复杂数据分析</span>
-                </button>
+                {modelOptions.map((model, idx) => (
+                  <button
+                    key={model}
+                    onClick={() => {
+                      setSelectedModel(model);
+                      setModelDropdownOpen(false);
+                    }}
+                    className={`flex w-full flex-col rounded-xl px-3 py-2 text-left transition hover:bg-[#2d2f31] ${idx > 0 ? 'mt-1' : ''}`}
+                  >
+                    <span className="text-sm font-medium text-slate-200">{model}</span>
+                  </button>
+                ))}
               </div>
             )}
           </div>
@@ -246,16 +274,16 @@ function App() {
         <div className="bg-[#131314] px-4 md:px-6 pb-6 pt-2">
           <div className="mx-auto flex max-w-3xl flex-col">
             <div className="relative flex flex-col rounded-3xl border border-[#2d2f31] bg-[#1e1f20] px-4 py-3 shadow-md transition duration-200 focus-within:border-[#3c4043] focus-within:ring-1 focus-within:ring-[#3c4043]/50">
-              {mockAttachment && (
+              {attachment && (
                 <div className="mb-2 flex items-center gap-2 self-start rounded-xl border border-[#2d2f31] bg-[#131314] p-1.5 pr-2.5">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 text-red-400">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
                     </svg>
                   </div>
-                  <span className="text-xs font-medium text-slate-300">{mockAttachment.name}</span>
+                  <span className="text-xs font-medium text-slate-300">{attachment.name}</span>
                   <button
-                    onClick={() => setMockAttachment(null)}
+                    onClick={() => setAttachment(null)}
                     className="ml-2 rounded-full p-0.5 text-slate-400 hover:bg-[#2d2f31] hover:text-slate-200"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
@@ -267,7 +295,7 @@ function App() {
 
               <div className="flex items-center gap-3">
                 <button
-                  onClick={handleAttachMockFile}
+                  onClick={handleAttachFile}
                   className="rounded-full p-2 text-slate-400 transition hover:bg-[#2d2f31] hover:text-slate-200"
                   title="上传文件/图片"
                 >
