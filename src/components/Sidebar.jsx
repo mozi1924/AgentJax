@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Plus, Search, Settings } from 'lucide-react';
 import SidebarActionMenu from './sidebar/SidebarActionMenu';
 import SidebarConversationRow from './sidebar/SidebarConversationRow';
@@ -12,7 +12,7 @@ export default function Sidebar({
   onNewChat,
   onRenameConversation,
   onDeleteConversation,
-  isGenerating
+  generatingConversationIds
 }) {
   const [editingConversationId, setEditingConversationId] = useState(null);
   const [draftTitle, setDraftTitle] = useState('');
@@ -22,11 +22,6 @@ export default function Sidebar({
   const menuRef = useRef(null);
   const renameInputRef = useRef(null);
   const editingRowRef = useRef(null);
-
-  const activeConversation = useMemo(
-    () => conversations.find((conversation) => conversation.conversationId === activeConversationId),
-    [activeConversationId, conversations]
-  );
 
   useEffect(() => {
     if (!editingConversationId) {
@@ -244,8 +239,7 @@ export default function Sidebar({
                 {conversations.map((conversation) => {
                   const isActive = conversation.conversationId === activeConversationId;
                   const isEditing = conversation.conversationId === editingConversationId;
-                  const isBusy =
-                    isGenerating && conversation.conversationId === activeConversation?.conversationId;
+                  const isBusy = generatingConversationIds?.has(conversation.conversationId) || false;
                   const isMenuOpen = conversation.conversationId === menuState?.conversationId;
 
                   return (

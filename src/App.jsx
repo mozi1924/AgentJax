@@ -24,8 +24,8 @@ function App() {
   const [configPath, setConfigPath] = useState('');
   const [cachePath, setCachePath] = useState('');
   const [input, setInput] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isStopping, setIsStopping] = useState(false);
+  const [generatingConversationIds, setGeneratingConversationIds] = useState(() => new Set());
+  const [stoppingConversationIds, setStoppingConversationIds] = useState(() => new Set());
   const [attachment, setAttachment] = useState(null);
   const [composerHeight, setComposerHeight] = useState(0);
   const [emptyComposerOffset, setEmptyComposerOffset] = useState(0);
@@ -41,7 +41,7 @@ function App() {
   const composerShellRef = useRef(null);
   const streamRequestMapRef = useRef({});
   const streamListenerRef = useRef(null);
-  const activeRequestIdRef = useRef(null);
+  const activeConversationRequestRef = useRef({});
   const stoppedRequestIdsRef = useRef(new Set());
 
   const activeConversation = useMemo(
@@ -60,8 +60,62 @@ function App() {
     () => getConversationDisplayTitle(activeConversation),
     [activeConversation]
   );
+  const activeConversationIsGenerating =
+    !!activeConversation?.conversationId &&
+    generatingConversationIds.has(activeConversation.conversationId);
+  const activeConversationIsStopping =
+    !!activeConversation?.conversationId &&
+    stoppingConversationIds.has(activeConversation.conversationId);
+  const hasAnyGenerating = generatingConversationIds.size > 0;
   const isEmptyConversation = (activeConversation?.messages?.length ?? 0) === 0;
   const conversationViewKey = `${activeConversationId}-${isEmptyConversation ? 'empty' : 'messages'}`;
+
+  const markConversationGenerating = (conversationId, isGenerating) => {
+    if (!conversationId) return;
+    setGeneratingConversationIds((prev) => {
+      const next = new Set(prev);
+      if (isGenerating) {
+        next.add(conversationId);
+      } else {
+        next.delete(conversationId);
+      }
+      return next;
+    });
+  };
+
+  const markConversationStopping = (conversationId, isStopping) => {
+    if (!conversationId) return;
+    setStoppingConversationIds((prev) => {
+      const next = new Set(prev);
+      if (isStopping) {
+        next.add(conversationId);
+      } else {
+        next.delete(conversationId);
+      }
+      return next;
+    });
+  };
+
+  const clearConversationRequestState = (conversationId) => {
+    if (!conversationId) return;
+
+    const requestId = activeConversationRequestRef.current[conversationId];
+    if (requestId) {
+      delete activeConversationRequestRef.current[conversationId];
+      stoppedRequestIdsRef.current.delete(requestId);
+      delete streamRequestMapRef.current[requestId];
+    }
+
+    Object.entries(streamRequestMapRef.current).forEach(([candidateRequestId, mapping]) => {
+      if (mapping?.conversationId === conversationId) {
+        delete streamRequestMapRef.current[candidateRequestId];
+        stoppedRequestIdsRef.current.delete(candidateRequestId);
+      }
+    });
+
+    markConversationGenerating(conversationId, false);
+    markConversationStopping(conversationId, false);
+  };
 
   useEffect(() => {
     const titlebar = titlebarRef.current;
@@ -262,9 +316,23 @@ function App() {
       const currentWindow = getCurrentWindow();
       const unlisten = await currentWindow.listen('chat_stream_event', (event) => {
         const payload = event?.payload || {};
+        const conversationId = payload.conversationId;
+
+        if (payload.kind === 'title' && conversationId && payload.conversationTitle) {
+          setConversations((prevConversations) =>
+            prevConversations.map((conversation) =>
+              conversation.conversationId === conversationId
+                ? applyConversationTitle(conversation, payload.conversationTitle)
+                : conversation
+            )
+          );
+          return;
+        }
+
         const requestId = payload.requestId;
         const mapping = requestId ? streamRequestMapRef.current[requestId] : null;
         if (!mapping) return;
+        if (conversationId && conversationId !== mapping.conversationId) return;
 
         const eventIndex = Number(payload.eventIndex || 0);
         if (eventIndex > 0) {
@@ -290,6 +358,9 @@ function App() {
         }
 
         if (payload.kind === 'done') {
+          markConversationGenerating(mapping.conversationId, false);
+          markConversationStopping(mapping.conversationId, false);
+
           setConversations((prevConversations) =>
             prevConversations.map((conversation) => {
               if (conversation.conversationId !== mapping.conversationId) return conversation;
@@ -350,7 +421,7 @@ function App() {
     } = options;
 
     const text = (textToSend ?? input).trim();
-    if (!text || isGenerating || !activeConversation) return;
+    if (!text || !activeConversation) return;
 
     if (appendUserMessage) {
       setInput('');
@@ -366,8 +437,15 @@ function App() {
       : null;
 
     const currentConversationId = conversationIdOverride ?? activeConversation.conversationId;
+    if (
+      generatingConversationIds.has(currentConversationId) ||
+      activeConversationRequestRef.current[currentConversationId]
+    ) {
+      return;
+    }
 
-    setIsGenerating(true);
+    markConversationGenerating(currentConversationId, true);
+    markConversationStopping(currentConversationId, false);
 
     const assistantMessageId = targetAssistantMessageId || `m-a-${Date.now()}`;
     setConversations((prevConversations) =>
@@ -429,7 +507,7 @@ function App() {
       assistantMessageId,
       lastEventIndex: 0
     };
-    activeRequestIdRef.current = requestId;
+    activeConversationRequestRef.current[currentConversationId] = requestId;
 
     try {
       const response = await invoke('chat_stream', {
@@ -502,16 +580,17 @@ function App() {
     } finally {
       delete streamRequestMapRef.current[requestId];
       stoppedRequestIdsRef.current.delete(requestId);
-      if (activeRequestIdRef.current === requestId) {
-        activeRequestIdRef.current = null;
+      if (activeConversationRequestRef.current[currentConversationId] === requestId) {
+        delete activeConversationRequestRef.current[currentConversationId];
       }
-      setIsGenerating(false);
-      setIsStopping(false);
+      markConversationGenerating(currentConversationId, false);
+      markConversationStopping(currentConversationId, false);
     }
   };
 
   const handleRetryMessage = (assistantMessageId) => {
-    if (isGenerating || !activeConversation) return;
+    if (!activeConversation) return;
+    if (generatingConversationIds.has(activeConversation.conversationId)) return;
     const failedMessage = (activeConversation.messages || []).find(
       (message) => message.id === assistantMessageId
     );
@@ -526,18 +605,21 @@ function App() {
   };
 
   const handleStop = async () => {
-    const requestId = activeRequestIdRef.current;
-    if (!requestId || isStopping) return;
+    const currentConversationId = activeConversation?.conversationId;
+    if (!currentConversationId) return;
+
+    const requestId = activeConversationRequestRef.current[currentConversationId];
+    if (!requestId || stoppingConversationIds.has(currentConversationId)) return;
 
     stoppedRequestIdsRef.current.add(requestId);
-    setIsStopping(true);
+    markConversationStopping(currentConversationId, true);
 
     try {
       await invoke('cancel_chat_stream', {
         req: { requestId }
       });
     } catch {
-      setIsStopping(false);
+      markConversationStopping(currentConversationId, false);
     }
   };
 
@@ -608,6 +690,7 @@ function App() {
     const conversationId = conversationToDelete.conversationId;
     const targetConversation = conversationToDelete;
     setConversationToDelete(null);
+    clearConversationRequestState(conversationId);
 
     let rollbackConversation = targetConversation;
     let optimisticNextActiveId = null;
@@ -733,19 +816,19 @@ function App() {
         {/* Layer 1: Model Outputting Glow */}
         <div
           className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full filter blur-[80px] md:blur-[120px] bg-gradient-to-tr from-cyan-500/25 via-purple-500/30 to-pink-500/25 animate-pulse-fast w-[550px] h-[550px] transition-opacity duration-1000 ease-in-out ${
-            isGenerating ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            hasAnyGenerating ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         />
         {/* Layer 2: New Chat Welcome Glow */}
         <div
           className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full filter blur-[80px] md:blur-[120px] bg-gradient-to-tr from-blue-600/20 via-indigo-500/25 to-purple-600/20 animate-pulse-slow w-[500px] h-[500px] transition-opacity duration-1000 ease-in-out ${
-            activeConversation?.messages?.length === 0 && !isGenerating ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            activeConversation?.messages?.length === 0 && !activeConversationIsGenerating ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         />
         {/* Layer 3: Active Chat Faint Glow */}
         <div
           className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full filter blur-[100px] bg-gradient-to-tr from-indigo-950/25 to-purple-950/25 w-[300px] h-[300px] transition-opacity duration-1000 ease-in-out ${
-            activeConversation?.messages?.length > 0 && !isGenerating ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            activeConversation?.messages?.length > 0 && !activeConversationIsGenerating ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         />
       </div>
@@ -758,7 +841,7 @@ function App() {
         onNewChat={handleNewChat}
         onRenameConversation={handleRenameConversation}
         onDeleteConversation={handleDeleteConversation}
-        isGenerating={isGenerating}
+        generatingConversationIds={generatingConversationIds}
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
       />
 
@@ -792,7 +875,7 @@ function App() {
             <div key={conversationViewKey} className="flex min-h-0 flex-1 animate-conversation-content-in">
               <ChatArea
                 messages={activeConversation?.messages || []}
-                isGenerating={isGenerating}
+                isGenerating={activeConversationIsGenerating}
                 onRetryMessage={handleRetryMessage}
                 onSuggestionClick={handleSuggestionClick}
                 activeChatTitle={activeChatTitle}
@@ -841,8 +924,8 @@ function App() {
                   attachment={attachment}
                   onRemoveAttachment={() => setAttachment(null)}
                   onAttachFile={handleAttachFile}
-                  isGenerating={isGenerating}
-                  isStopping={isStopping}
+                  isGenerating={activeConversationIsGenerating}
+                  isStopping={activeConversationIsStopping}
                   onSend={() => handleSend()}
                   onStop={handleStop}
                 />
