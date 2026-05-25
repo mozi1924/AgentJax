@@ -6,15 +6,9 @@ use crate::providers::types::ResponseStreamRequest;
 pub(crate) fn build_streaming_request_payload(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
-    previous_response_id: Option<&str>,
     store: bool,
     include_stream_field: bool,
 ) -> Value {
-    let previous_response_id = previous_response_id
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned);
-
     let input_items = normalize_input_items_for_responses(&req.input_items);
 
     let mut payload = json!({
@@ -37,10 +31,6 @@ pub(crate) fn build_streaming_request_payload(
         &resolved.request,
         req.reasoning_effort.as_deref(),
     );
-
-    if let Some(previous_id) = previous_response_id {
-        payload["previous_response_id"] = Value::String(previous_id);
-    }
 
     if let Some(tools) = &req.tools {
         if !tools.is_empty() {
@@ -72,7 +62,6 @@ mod tests {
         };
         let req = ResponseStreamRequest {
             input_items: Vec::new(),
-            previous_response_id: None,
             model: Some("gpt-5-mini".to_string()),
             reasoning_effort: None,
             instructions_override: None,
@@ -80,7 +69,7 @@ mod tests {
             tool_choice: None,
         };
 
-        let payload = build_streaming_request_payload(&resolved, &req, None, false, false);
+        let payload = build_streaming_request_payload(&resolved, &req, false, false);
         assert!(payload.get("stream").is_none());
     }
 
@@ -96,7 +85,6 @@ mod tests {
         };
         let req = ResponseStreamRequest {
             input_items: Vec::new(),
-            previous_response_id: None,
             model: Some("gpt-5-mini".to_string()),
             reasoning_effort: None,
             instructions_override: None,
@@ -104,8 +92,9 @@ mod tests {
             tool_choice: None,
         };
 
-        let payload = build_streaming_request_payload(&resolved, &req, None, false, true);
+        let payload = build_streaming_request_payload(&resolved, &req, false, true);
         assert_eq!(payload.get("stream").and_then(|v| v.as_bool()), Some(true));
+        assert!(payload.get("previous_response_id").is_none());
     }
 }
 

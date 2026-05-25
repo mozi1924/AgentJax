@@ -32,8 +32,7 @@ It behaves like a `Codex-style` provider with these important properties:
 - websocket requests require `instructions`
 - websocket requests require `stream=true`
 - `store=true` is rejected
-- same-socket continuation with `previous_response_id` works
-- cross-socket continuation with `store=false` fails with `previous_response_not_found`
+- provider-side `previous_response_id` continuation exists but is no longer used by runtime
 - final `response.completed.response.output` is empty
 - real output items arrive in `response.output_item.done`
 - function call arguments stream incrementally via `response.function_call_arguments.delta`
@@ -78,7 +77,7 @@ This means the agent runtime must be built around streamed items and tool-loop e
 
 | Case | Result | Notes |
 | --- | --- | --- |
-| Same-socket `previous_response_id` continuation | Pass | Works for text and tool-loop flows |
+| Same-socket `previous_response_id` continuation | Pass | Provider supports it, but runtime no longer depends on it |
 | Fresh-socket continuation with `store=false` | Fail | `previous_response_not_found` |
 | Fresh-socket continuation with `store=true` | Not available | `store=true` is rejected before generation |
 
@@ -122,7 +121,7 @@ These are the main differences we must preserve in the provider split:
 2. Persistence model
 
 - current gateway rejects `store=true`
-- standard OpenAI Responses supports stored responses and can hydrate older `previous_response_id` values when persistence is enabled
+- runtime continuation is now fully local and no longer depends on provider-side persisted response chains
 
 3. Final response shape
 
@@ -181,7 +180,6 @@ type AgentTurnRequest = {
   model: string
   instructions?: string
   inputItems: AgentInputItem[]
-  previousTurnRef?: ProviderTurnRef | null
   tools?: AgentToolDefinition[]
   toolChoice?: "auto" | "none" | "required" | { functionName: string }
   outputMode?: AgentOutputMode
@@ -213,7 +211,6 @@ type AgentTurnResult = {
   responseId: string
   outputItems: AgentOutputItem[]
   outputText: string
-  providerTurnRef: ProviderTurnRef
   rawFinal: unknown
 }
 ```
@@ -315,7 +312,7 @@ Text is one rendering of the model output. The runtime should consider these all
 
 2. Continuation state must be provider-aware
 
-`previous_response_id` is not enough by itself.
+`previous_response_id` should not be part of runtime continuation state.
 
 We also need:
 

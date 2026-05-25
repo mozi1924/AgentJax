@@ -150,55 +150,6 @@ pub async fn stream_response_with_behavior(
         return store_false_attempt;
     }
 
-    if should_retry_without_previous_response(&first_attempt, req.previous_response_id.as_deref()) {
-        let mut retry_req = req.clone();
-        retry_req.previous_response_id = None;
-
-        let retry_attempt = if use_sse {
-            transport::create_response_streaming_sse(
-                resolved,
-                &retry_req,
-                behavior,
-                persistence,
-                cancel_rx,
-                on_delta,
-            )
-            .await
-        } else {
-            transport::create_response_streaming_websocket(
-                resolved,
-                &retry_req,
-                behavior,
-                persistence,
-                cancel_rx,
-                on_delta,
-            )
-            .await
-        };
-
-        if !use_sse && retry_attempt.is_err() {
-            if let Err(err) = &retry_attempt {
-                log_websocket_fallback(
-                    resolved,
-                    &websocket_key,
-                    "WebSocket previous_response retry failed",
-                    err,
-                );
-            }
-            return transport::create_response_streaming_sse(
-                resolved,
-                &retry_req,
-                behavior,
-                persistence,
-                cancel_rx,
-                on_delta,
-            )
-            .await;
-        }
-
-        return retry_attempt;
-    }
-
     first_attempt
 }
 
@@ -217,25 +168,4 @@ fn should_retry_with_store_false(
     err.contains("Store must be set to false")
         || err.contains("store must be set to false")
         || err.contains("\"Store must be set to false\"")
-}
-
-fn should_retry_without_previous_response(
-    result: &Result<ResponseStreamResult, String>,
-    previous_response_id: Option<&str>,
-) -> bool {
-    if previous_response_id
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .is_none()
-    {
-        return false;
-    }
-
-    let Err(err) = result else {
-        return false;
-    };
-
-    err.contains("previous_response_not_found")
-        || err.contains("Previous response with id")
-        || err.contains("\"param\":\"previous_response_id\"")
 }

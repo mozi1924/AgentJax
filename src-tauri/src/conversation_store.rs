@@ -111,7 +111,6 @@ pub struct ConversationDetail {
 
 #[derive(Debug, Clone, Default)]
 pub struct ConversationContext {
-    pub previous_response_id: Option<String>,
     pub input_items: Vec<Value>,
 }
 
@@ -342,10 +341,7 @@ pub fn delete_conversation(conversation_id: &str) -> Result<bool, String> {
     Ok(true)
 }
 
-pub fn load_context_for_request(
-    conversation_id: &str,
-    target_provider: Option<&str>,
-) -> Result<ConversationContext, String> {
+pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationContext, String> {
     let path = conversation_file_path(conversation_id)?;
     let Some(mut data) = read_conversation_file(&path)? else {
         return Ok(ConversationContext::default());
@@ -354,40 +350,12 @@ pub fn load_context_for_request(
     data.entries.sort_by_key(|entry| entry.created_at_unix_ms);
 
     let mut context = ConversationContext::default();
-    let normalized_target_provider = target_provider
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned);
-
     for entry in data.entries {
         if entry.record_type != "message" {
             if !entry.context_items.is_empty() {
                 context.input_items.extend(entry.context_items);
             }
             continue;
-        }
-
-        let should_capture_previous_response_id =
-            if let Some(target) = normalized_target_provider.as_deref() {
-                let entry_provider = entry
-                    .provider
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty());
-                entry_provider == Some(target)
-            } else {
-                true
-            };
-
-        if should_capture_previous_response_id {
-            if let Some(response_id) = entry
-                .response_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-            {
-                context.previous_response_id = Some(response_id.to_string());
-            }
         }
 
         if !entry.context_items.is_empty() {
@@ -816,7 +784,7 @@ mod tests {
     }
 
     #[test]
-    fn load_context_shares_items_but_scopes_previous_response_id_by_provider() {
+    fn load_context_merges_history_for_all_providers() {
         let conversation_id = format!("test-provider-filter-{}", Uuid::new_v4());
         let utility_model = "gpt-5-mini";
         ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
@@ -881,23 +849,13 @@ mod tests {
         )
         .expect("append codex assistant");
 
-        let openai_context =
-            load_context_for_request(&conversation_id, Some("openai")).expect("openai context");
-        assert_eq!(
-            openai_context.previous_response_id.as_deref(),
-            Some("resp-openai")
-        );
+        let openai_context = load_context_for_request(&conversation_id).expect("openai context");
         assert!(
             openai_context.input_items.len() >= 3,
             "openai context should still include shared history items"
         );
 
-        let codex_context =
-            load_context_for_request(&conversation_id, Some("codex")).expect("codex context");
-        assert_eq!(
-            codex_context.previous_response_id.as_deref(),
-            Some("resp-codex")
-        );
+        let codex_context = load_context_for_request(&conversation_id).expect("codex context");
         assert!(
             codex_context.input_items.len() >= 3,
             "codex context should still include shared history items"

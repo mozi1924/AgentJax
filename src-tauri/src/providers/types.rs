@@ -49,7 +49,6 @@ pub enum ProviderStreamEvent {
 #[derive(Debug, Clone, Default)]
 pub struct ProviderTurnRequest {
     pub input_items: Vec<Value>,
-    pub previous_response_id: Option<String>,
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
     pub instructions_override: Option<String>,

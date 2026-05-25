@@ -38,13 +38,7 @@ pub(crate) async fn create_response_streaming_sse(
         resolved.provider.api_endpoint.trim_end_matches('/')
     );
 
-    let body = build_streaming_request_payload(
-        resolved,
-        req,
-        req.previous_response_id.as_deref(),
-        store,
-        true,
-    );
+    let body = build_streaming_request_payload(resolved, req, store, true);
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(resolved.timeout_seconds))
@@ -205,7 +199,6 @@ pub(crate) async fn create_response_streaming_websocket(
     let mut create_event = build_streaming_request_payload(
         resolved,
         req,
-        req.previous_response_id.as_deref(),
         store,
         behavior.capabilities.requires_stream_true_in_websocket,
     );

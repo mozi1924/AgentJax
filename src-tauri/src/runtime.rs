@@ -64,7 +64,6 @@ impl AgentRuntime {
         req: &crate::commands::chat::ChatRequest,
         _conversation_id: &str,
         mut context_items: Vec<Value>,
-        previous_response_id: Option<String>,
         tools_catalog: &ToolCatalog,
         cancel_rx: &mut watch::Receiver<bool>,
         mut on_event: F,
@@ -78,12 +77,6 @@ impl AgentRuntime {
         let tool_schema_format =
             crate::providers::get_tool_schema_format(&resolved_model.provider.kind)?;
 
-        let mut active_prev_response_id =
-            if provider_capabilities.supports_cross_socket_continuation {
-                previous_response_id
-            } else {
-                None
-            };
         let mut final_output_text = String::new();
         let mut final_response_id = String::new();
         let mut final_output_items = Vec::new();
@@ -119,7 +112,6 @@ impl AgentRuntime {
             // Build response request
             let stream_request = ResponseStreamRequest {
                 input_items,
-                previous_response_id: active_prev_response_id.clone(),
                 model: req.model.clone(),
                 reasoning_effort: req.reasoning_effort.clone(),
                 instructions_override: None,
@@ -195,7 +187,6 @@ impl AgentRuntime {
                 // Empty or closed response
             } else {
                 final_response_id = response_result.response_id.clone();
-                active_prev_response_id = Some(response_result.response_id.clone());
             }
 
             if !response_result.output_text.is_empty() {
@@ -296,10 +287,6 @@ impl AgentRuntime {
 
             context_items.extend(continuation_input_items.clone());
             next_input_items = Some(continuation_input_items);
-
-            if !final_capabilities.supports_cross_socket_continuation {
-                active_prev_response_id = None;
-            }
 
             if *cancel_rx.borrow() {
                 break;
