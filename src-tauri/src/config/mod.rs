@@ -22,18 +22,55 @@ pub struct AppConfig {
     pub model_profiles: BTreeMap<String, ModelProfile>,
     pub request_timeout_seconds: u64,
     #[serde(default)]
+    pub mcp_runtime: McpRuntimeConfig,
+    #[serde(default)]
     pub mcp_servers: BTreeMap<String, McpServerConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct McpServerConfig {
+    pub transport: McpTransportKind,
     pub command: String,
     pub args: Vec<String>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     pub cwd: Option<String>,
+    #[serde(default = "default_true")]
+    pub use_global_stdio_env: bool,
+    pub inherit_parent_env: Option<bool>,
+    pub uri: Option<String>,
+    pub auth_header: Option<String>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default = "default_true")]
+    pub allow_stateless: bool,
+    pub channel_buffer_capacity: Option<usize>,
+    #[serde(default = "default_true")]
+    pub reinit_on_expired_session: bool,
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct McpRuntimeConfig {
+    pub stdio: McpStdioRuntimeConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct McpStdioRuntimeConfig {
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    pub inherit_parent_env: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum McpTransportKind {
+    #[default]
+    Stdio,
+    StreamableHttp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,7 +154,38 @@ impl Default for AppConfig {
             utility_small_model: DEFAULT_UTILITY_SMALL_MODEL.to_string(),
             model_profiles,
             request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
+            mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
+        }
+    }
+}
+
+impl Default for McpServerConfig {
+    fn default() -> Self {
+        Self {
+            transport: McpTransportKind::Stdio,
+            command: String::new(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            cwd: None,
+            use_global_stdio_env: true,
+            inherit_parent_env: None,
+            uri: None,
+            auth_header: None,
+            headers: BTreeMap::new(),
+            allow_stateless: true,
+            channel_buffer_capacity: None,
+            reinit_on_expired_session: true,
+            enabled: true,
+        }
+    }
+}
+
+impl Default for McpStdioRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            env: BTreeMap::new(),
+            inherit_parent_env: false,
         }
     }
 }
@@ -267,6 +335,62 @@ impl ModelRequestConfig {
     }
 }
 
+impl McpRuntimeConfig {
+    fn normalize(mut self) -> Self {
+        self.stdio.env = normalize_string_map(std::mem::take(&mut self.stdio.env));
+        self
+    }
+}
+
+impl McpServerConfig {
+    fn normalize(mut self) -> Self {
+        self.command = self.command.trim().to_string();
+        self.args = self
+            .args
+            .iter()
+            .map(|arg| arg.trim().to_string())
+            .filter(|arg| !arg.is_empty())
+            .collect();
+        self.env = normalize_string_map(std::mem::take(&mut self.env));
+        self.headers = normalize_string_map(std::mem::take(&mut self.headers));
+        self.cwd = self
+            .cwd
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned);
+        self.uri = self
+            .uri
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned);
+        self.auth_header = self
+            .auth_header
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned);
+        if matches!(self.channel_buffer_capacity, Some(0)) {
+            self.channel_buffer_capacity = None;
+        }
+
+        self
+    }
+}
+
+fn normalize_string_map(map: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    let mut normalized = BTreeMap::new();
+    for (raw_key, raw_value) in map {
+        let key = raw_key.trim().to_string();
+        if key.is_empty() {
+            continue;
+        }
+        normalized.insert(key, raw_value.trim().to_string());
+    }
+    normalized
+}
+
 impl AppConfig {
     pub fn normalize(mut self) -> Self {
         self.active_provider = self.active_provider.trim().to_lowercase();
@@ -387,19 +511,15 @@ impl AppConfig {
             }
         }
 
+        self.mcp_runtime = self.mcp_runtime.normalize();
+
         let mut normalized_mcp_servers = BTreeMap::new();
         for (raw_key, mcp_server) in std::mem::take(&mut self.mcp_servers) {
             let server_key = raw_key.trim().to_lowercase();
             if server_key.is_empty() {
                 continue;
             }
-            let mut server = mcp_server;
-            server.command = server.command.trim().to_string();
-            server.args = server
-                .args
-                .iter()
-                .map(|arg| arg.trim().to_string())
-                .collect();
+            let server = mcp_server.normalize();
             normalized_mcp_servers.insert(server_key, server);
         }
         self.mcp_servers = normalized_mcp_servers;
@@ -620,6 +740,11 @@ fn default_config_yaml() -> String {
         "",
         "default_model: \"gpt-5-mini\"",
         "utility_small_model: \"gpt-5-mini\"",
+        "",
+        "mcp_runtime:",
+        "  stdio:",
+        "    inherit_parent_env: false",
+        "    env: {}",
         "",
         "mcp_servers: {}",
         "",

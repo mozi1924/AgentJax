@@ -1,14 +1,20 @@
-use rmcp::{
-    model::CallToolRequestParams, service::RoleClient, transport::TokioChildProcess, ServiceExt,
-};
+mod transport;
+mod types;
+
+use rmcp::{model::CallToolRequestParams, service::RoleClient};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use tokio::process::Command;
 use tokio::sync::Mutex;
+use types::resolve_server_runtime;
+
+struct ManagedService {
+    fingerprint: String,
+    service: rmcp::service::RunningService<RoleClient, ()>,
+}
 
 pub struct McpManager {
-    services: Arc<Mutex<BTreeMap<String, rmcp::service::RunningService<RoleClient, ()>>>>,
+    services: Arc<Mutex<BTreeMap<String, ManagedService>>>,
 }
 
 impl McpManager {
@@ -22,37 +28,31 @@ impl McpManager {
         &self,
         server_id: &str,
         config: &crate::config::McpServerConfig,
+        runtime_config: &crate::config::McpRuntimeConfig,
     ) -> Result<rmcp::Peer<RoleClient>, String> {
-        let mut services = self.services.lock().await;
-        if let Some(service) = services.get(server_id) {
-            return Ok(service.peer().clone());
-        }
-
-        if !config.enabled {
+        let resolved = resolve_server_runtime(server_id, config, runtime_config)?;
+        if !resolved.enabled {
             return Err(format!("MCP server '{}' is disabled", server_id));
         }
 
-        let mut cmd = Command::new(&config.command);
-        for arg in &config.args {
-            cmd.arg(arg);
-        }
-        for (k, v) in &config.env {
-            cmd.env(k, v);
-        }
-        if let Some(cwd) = &config.cwd {
-            cmd.current_dir(cwd);
+        let mut services = self.services.lock().await;
+        if let Some(entry) = services.get(server_id) {
+            if entry.fingerprint == resolved.fingerprint {
+                return Ok(entry.service.peer().clone());
+            }
+
+            services.remove(server_id);
         }
 
-        let transport = TokioChildProcess::new(cmd)
-            .map_err(|e| format!("Failed to create stdio transport: {e}"))?;
-
-        let service = ()
-            .serve(transport)
-            .await
-            .map_err(|e| format!("Failed to initialize MCP connection: {e}"))?;
-
+        let service = transport::start_transport(&resolved.connection).await?;
         let peer = service.peer().clone();
-        services.insert(server_id.to_string(), service);
+        services.insert(
+            server_id.to_string(),
+            ManagedService {
+                fingerprint: resolved.fingerprint,
+                service,
+            },
+        );
         Ok(peer)
     }
 
@@ -60,8 +60,9 @@ impl McpManager {
         &self,
         server_id: &str,
         config: &crate::config::McpServerConfig,
+        runtime_config: &crate::config::McpRuntimeConfig,
     ) -> Result<Vec<Value>, String> {
-        let peer = self.get_peer(server_id, config).await?;
+        let peer = self.get_peer(server_id, config, runtime_config).await?;
 
         let response = peer
             .list_tools(None)
@@ -80,10 +81,11 @@ impl McpManager {
         &self,
         server_id: &str,
         config: &crate::config::McpServerConfig,
+        runtime_config: &crate::config::McpRuntimeConfig,
         name: &str,
         arguments: Value,
     ) -> Result<Value, String> {
-        let peer = self.get_peer(server_id, config).await?;
+        let peer = self.get_peer(server_id, config, runtime_config).await?;
 
         let args_map = match arguments {
             Value::Object(map) => Some(map),

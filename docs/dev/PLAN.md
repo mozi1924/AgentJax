@@ -30,7 +30,7 @@
 
 关键约束：
 
-- **Codex-style provider** 继续使用同 socket `previous_response_id` continuation，因为 `docs/agent-provider-abstraction.md` 已确认 `store=false` 且跨 socket continuation 不可靠。
+- **Codex-style provider** 继续使用同 socket `previous_response_id` continuation，因为 `./agent-provider-abstraction.md` 已确认 `store=false` 且跨 socket continuation 不可靠。
 - **OpenAI-standard provider** 保持 `store/previous_response_id` 能力抽象，但第一阶段 runtime 依然以“显式 item 驱动”作为主路径，不依赖最终 `response.output_text` 单字段。
 - provider 返回的 canonical 完成 item 统一以 `output item` 为准，而不是只信最终 completed payload。
 

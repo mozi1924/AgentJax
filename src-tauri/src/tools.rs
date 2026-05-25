@@ -367,6 +367,7 @@ use std::sync::Arc;
 pub struct ToolCatalog {
     native_tools: Vec<Box<dyn Tool>>,
     mcp_manager: Arc<crate::mcp::McpManager>,
+    mcp_runtime: crate::config::McpRuntimeConfig,
     mcp_config: BTreeMap<String, crate::config::McpServerConfig>,
 }
 
@@ -383,6 +384,7 @@ impl ToolCatalog {
                 Box::new(FileWriterTool),
             ],
             mcp_manager,
+            mcp_runtime: config.mcp_runtime.clone(),
             mcp_config: config.mcp_servers.clone(),
         }
     }
@@ -405,7 +407,11 @@ impl ToolCatalog {
             if !server_config.enabled {
                 continue;
             }
-            match self.mcp_manager.list_tools(server_id, server_config).await {
+            match self
+                .mcp_manager
+                .list_tools(server_id, server_config, &self.mcp_runtime)
+                .await
+            {
                 Ok(mcp_tools) => {
                     for raw_tool in mcp_tools {
                         let raw_name = raw_tool
@@ -470,7 +476,13 @@ impl ToolCatalog {
 
                 return self
                     .mcp_manager
-                    .call_tool(server_id, server_config, &tool_name, arguments.clone())
+                    .call_tool(
+                        server_id,
+                        server_config,
+                        &self.mcp_runtime,
+                        &tool_name,
+                        arguments.clone(),
+                    )
                     .await;
             }
         }
