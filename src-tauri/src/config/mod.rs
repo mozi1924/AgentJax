@@ -5,7 +5,6 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
-const APP_CONFIG_DIR_NAME: &str = "AgentJax";
 const CONFIG_FILE_NAME: &str = "config.yaml";
 const DEFAULT_SYSTEM_PROMPT: &str =
     "You are Codex, a helpful AI assistant. Follow the user's instructions.";
@@ -629,9 +628,7 @@ pub struct ConfigUpgradeResult {
 }
 
 pub fn config_dir_path() -> Result<PathBuf, String> {
-    let base =
-        dirs::config_dir().ok_or_else(|| "Unable to locate OS config directory".to_string())?;
-    Ok(base.join(APP_CONFIG_DIR_NAME))
+    crate::agentjax_home::agentjax_home_dir()
 }
 
 pub fn init_config_if_missing() -> Result<PathBuf, String> {
@@ -697,9 +694,8 @@ pub fn get_config_info() -> Result<ConfigInfo, String> {
 fn default_config_yaml() -> String {
     [
         "# AgentJax configuration",
-        "# macOS: ~/Library/Application Support/AgentJax/config.yaml",
-        "# Linux: ~/.config/AgentJax/config.yaml",
-        "# Windows: %APPDATA%\\AgentJax\\config.yaml",
+        "# Home directory: AGENTJAX_HOME (default: ~/.agentjax)",
+        "# Config path: $AGENTJAX_HOME/config.yaml",
         "",
         "active_provider: \"openai\"",
         "request_timeout_seconds: 120",

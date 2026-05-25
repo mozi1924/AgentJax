@@ -2,16 +2,13 @@ use crate::conversation_store_utils::sanitize_conversation_id;
 use std::fs;
 use std::path::PathBuf;
 
-const AGENTJAX_DIR_NAME: &str = ".agentjax";
 const SESSIONS_DIR_NAME: &str = "sessions";
 const METADATA_FILE_NAME: &str = "metadata.json";
 const MESSAGES_FILE_NAME: &str = "messages.jsonl";
 const WORKSPACE_DIR_NAME: &str = "workspace";
 
 pub fn agentjax_home_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir()
-        .ok_or_else(|| "Failed to resolve home directory for .agentjax".to_string())?;
-    Ok(home.join(AGENTJAX_DIR_NAME))
+    crate::agentjax_home::agentjax_home_dir()
 }
 
 pub fn conversations_dir_path() -> Result<PathBuf, String> {

@@ -1,3 +1,4 @@
+mod agentjax_home;
 mod commands;
 mod config;
 mod conversation_store;
