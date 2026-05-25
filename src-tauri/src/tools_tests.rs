@@ -1,13 +1,15 @@
 #[cfg(test)]
 mod tests {
+    use crate::tools::{
+        CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool, Tool, ToolRegistry,
+    };
     use serde_json::json;
-    use crate::tools::{CalculatorTool, SystemTimeTool, FileReaderTool, FileWriterTool, Tool, ToolRegistry};
     use std::fs;
 
     #[test]
     fn test_calculator_success() {
         let calc = CalculatorTool;
-        
+
         // Basic arithmetic
         let args = json!({ "expression": "2 + 3 * 4" });
         let res = calc.execute(&args).unwrap();
@@ -46,12 +48,18 @@ mod tests {
         // Unbalanced parentheses
         let args = json!({ "expression": "(2 + 3" });
         let err = calc.execute(&args).unwrap_err();
-        assert!(err.contains("Missing matching closing parenthesis") || err.contains("Unexpected end of expression"));
+        assert!(
+            err.contains("Missing matching closing parenthesis")
+                || err.contains("Unexpected end of expression")
+        );
 
         // Missing sqrt parentheses
         let args = json!({ "expression": "sqrt 16" });
         let err = calc.execute(&args).unwrap_err();
-        assert!(err.contains("sqrt function requires parenthesis") || err.contains("Unsupported function"));
+        assert!(
+            err.contains("sqrt function requires parenthesis")
+                || err.contains("Unsupported function")
+        );
     }
 
     #[test]
@@ -59,7 +67,7 @@ mod tests {
         let time_tool = SystemTimeTool;
         let args = json!({});
         let res = time_tool.execute(&args).unwrap();
-        
+
         assert!(res.get("localTime").is_some());
         assert!(res["unixTimestampMs"].as_i64().unwrap() > 0);
     }
@@ -79,7 +87,10 @@ mod tests {
         });
         let write_res = writer.execute(&write_args).unwrap();
         assert_eq!(write_res["status"], "success");
-        assert_eq!(write_res["bytesWritten"].as_u64().unwrap(), test_content.len() as u64);
+        assert_eq!(
+            write_res["bytesWritten"].as_u64().unwrap(),
+            test_content.len() as u64
+        );
 
         // 2. Read the file back
         let read_args = json!({
@@ -104,11 +115,15 @@ mod tests {
             "filename": "traversal_test.txt"
         });
         let read_clean_res = reader.execute(&read_clean_args).unwrap();
-        assert_eq!(read_clean_res["content"].as_str().unwrap(), "traversal-secured");
+        assert_eq!(
+            read_clean_res["content"].as_str().unwrap(),
+            "traversal-secured"
+        );
 
         // Clean up
         let _ = fs::remove_file(FileReaderTool::validate_path(&reader, filename).unwrap());
-        let _ = fs::remove_file(FileReaderTool::validate_path(&reader, "traversal_test.txt").unwrap());
+        let _ =
+            fs::remove_file(FileReaderTool::validate_path(&reader, "traversal_test.txt").unwrap());
     }
 
     #[test]

@@ -1,12 +1,11 @@
 mod commands;
 mod config;
 mod conversation_store;
+pub mod mcp;
 mod models;
 mod providers;
-pub mod tools;
-pub mod mcp;
 pub mod runtime;
-
+pub mod tools;
 
 #[cfg(test)]
 mod tools_tests;

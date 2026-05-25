@@ -102,69 +102,97 @@ where
     F: FnMut(ProviderStreamEvent) -> Result<(), String>,
 {
     let persistence = resolved.provider.store_responses;
-    let first_attempt = match resolved.provider.stream_transport.as_str() {
-        "sse" => {
-            create_response_streaming_sse(resolved, req, persistence, cancel_rx, &mut on_delta)
-                .await
-        }
-        _ => {
+    let use_sse = resolved.provider.stream_transport == "sse";
+    let first_attempt = if use_sse {
+        create_response_streaming_sse(resolved, req, persistence, cancel_rx, &mut on_delta).await
+    } else {
+        create_response_streaming_websocket(
+            resolved,
+            req,
+            tools_catalog,
+            persistence,
+            cancel_rx,
+            &mut on_delta,
+        )
+        .await
+    };
+
+    if !use_sse && first_attempt.is_err() {
+        log::warn!(
+            "WebSocket transport failed for provider '{}', retrying with SSE transport",
+            resolved.provider_key
+        );
+        return create_response_streaming_sse(resolved, req, persistence, cancel_rx, &mut on_delta)
+            .await;
+    }
+
+    if should_retry_with_store_false(&first_attempt, persistence) {
+        let store_false_attempt = if use_sse {
+            create_response_streaming_sse(resolved, req, false, cancel_rx, &mut on_delta).await
+        } else {
             create_response_streaming_websocket(
                 resolved,
                 req,
+                tools_catalog,
+                false,
+                cancel_rx,
+                &mut on_delta,
+            )
+            .await
+        };
+
+        if !use_sse && store_false_attempt.is_err() {
+            log::warn!(
+                "WebSocket store=false retry failed for provider '{}', retrying with SSE transport",
+                resolved.provider_key
+            );
+            return create_response_streaming_sse(resolved, req, false, cancel_rx, &mut on_delta)
+                .await;
+        }
+
+        return store_false_attempt;
+    }
+
+    if should_retry_without_previous_response(&first_attempt, req.previous_response_id.as_deref()) {
+        let mut retry_req = req.clone();
+        retry_req.previous_response_id = None;
+        let retry_attempt = if use_sse {
+            create_response_streaming_sse(
+                resolved,
+                &retry_req,
+                persistence,
+                cancel_rx,
+                &mut on_delta,
+            )
+            .await
+        } else {
+            create_response_streaming_websocket(
+                resolved,
+                &retry_req,
                 tools_catalog,
                 persistence,
                 cancel_rx,
                 &mut on_delta,
             )
             .await
+        };
+
+        if !use_sse && retry_attempt.is_err() {
+            log::warn!(
+                "WebSocket previous_response retry failed for provider '{}', retrying with SSE transport",
+                resolved.provider_key
+            );
+            return create_response_streaming_sse(
+                resolved,
+                &retry_req,
+                persistence,
+                cancel_rx,
+                &mut on_delta,
+            )
+            .await;
         }
-    };
 
-    if should_retry_with_store_false(&first_attempt, persistence) {
-        return match resolved.provider.stream_transport.as_str() {
-            "sse" => {
-                create_response_streaming_sse(resolved, req, false, cancel_rx, &mut on_delta).await
-            }
-            _ => {
-                create_response_streaming_websocket(
-                    resolved,
-                    req,
-                    tools_catalog,
-                    false,
-                    cancel_rx,
-                    &mut on_delta,
-                )
-                .await
-            }
-        };
-    }
-
-    if should_retry_without_previous_response(&first_attempt, req.previous_response_id.as_deref()) {
-        let mut retry_req = req.clone();
-        retry_req.previous_response_id = None;
-        return match resolved.provider.stream_transport.as_str() {
-            "sse" => {
-                create_response_streaming_sse(
-                    resolved,
-                    &retry_req,
-                    persistence,
-                    cancel_rx,
-                    &mut on_delta,
-                )
-                .await
-            }
-            _ => {
-                create_response_streaming_websocket(
-                    resolved,
-                    &retry_req,
-                    tools_catalog,
-                    persistence,
-                    cancel_rx,
-                    &mut on_delta,
-                )
-                .await
-            }
-        };
+        return retry_attempt;
     }
 
     first_attempt
@@ -497,9 +525,18 @@ where
             .map_err(|e| format!("Failed to encode websocket authorization header: {e}"))?,
     );
 
-    let (mut ws, _) = connect_async(request)
-        .await
-        .map_err(|e| format!("Failed to connect websocket transport: {e}"))?;
+    let (mut ws, _) = tokio::time::timeout(
+        Duration::from_secs(resolved.timeout_seconds),
+        connect_async(request),
+    )
+    .await
+    .map_err(|_| {
+        format!(
+            "WebSocket connection timed out after {}s",
+            resolved.timeout_seconds
+        )
+    })?
+    .map_err(|e| format!("Failed to connect websocket transport: {e}"))?;
 
     let mut create_event =
         build_streaming_request_payload(resolved, req, req.previous_response_id.as_deref(), store);
@@ -522,29 +559,32 @@ where
         pending_tool_calls: Vec::new(),
     });
 
-    loop {
-        tokio::select! {
-          changed = cancel_rx.changed() => {
-            if changed.is_ok() && *cancel_rx.borrow() {
-              break;
-            }
-          }
-          next_message = ws.next() => {
-            let Some(message) = next_message else {
-              break;
-            };
-            let message = message.map_err(|e| format!("WebSocket receive error: {e}"))?;
+    let stream_result = tokio::time::timeout(
+        Duration::from_secs(resolved.timeout_seconds),
+        async {
+            loop {
+                tokio::select! {
+                  changed = cancel_rx.changed() => {
+                    if changed.is_ok() && *cancel_rx.borrow() {
+                      break;
+                    }
+                  }
+                  next_message = ws.next() => {
+                    let Some(message) = next_message else {
+                      break;
+                    };
+                    let message = message.map_err(|e| format!("WebSocket receive error: {e}"))?;
 
-            match message {
-              Message::Text(text) => {
-                handle_stream_event_json(
-                  &text,
-                  &mut response_id,
-                  &mut output_text,
-                  &mut last_response_obj,
-                  &state,
-                  on_delta,
-                )?;
+                    match message {
+                      Message::Text(text) => {
+                        handle_stream_event_json(
+                          &text,
+                          &mut response_id,
+                          &mut output_text,
+                          &mut last_response_obj,
+                          &state,
+                          on_delta,
+                        )?;
 
                 let parsed_val: Value = serde_json::from_str(&text).unwrap_or_default();
                 let maybe_type = parsed_val.get("type").and_then(Value::as_str).unwrap_or("");
@@ -556,10 +596,10 @@ where
                     }
                 }
 
-                if matches!(
-                  maybe_type,
-                  "response.completed" | "response.done"
-                ) {
+                        if matches!(
+                          maybe_type,
+                          "response.completed" | "response.done"
+                        ) {
                   let pending_calls = {
                       let mut p_state = state.lock().map_err(|_| "Failed to lock ParserState".to_string())?;
                       std::mem::take(&mut p_state.pending_tool_calls)
@@ -626,31 +666,45 @@ where
                       }
                   }
                   
-                  break;
+                          break;
+                        }
+                      }
+                      Message::Binary(bin) => {
+                        if let Ok(text) = String::from_utf8(bin.to_vec()) {
+                          handle_stream_event_json(
+                            &text,
+                            &mut response_id,
+                            &mut output_text,
+                            &mut last_response_obj,
+                            &state,
+                            on_delta,
+                          )?;
+                        }
+                      }
+                      Message::Close(_) => {
+                        break;
+                      }
+                      Message::Ping(payload) => {
+                        let _ = ws.send(Message::Pong(payload)).await;
+                      }
+                      Message::Pong(_) => {}
+                      Message::Frame(_) => {}
+                    }
+                  }
                 }
-              }
-              Message::Binary(bin) => {
-                if let Ok(text) = String::from_utf8(bin.to_vec()) {
-                  handle_stream_event_json(
-                    &text,
-                    &mut response_id,
-                    &mut output_text,
-                    &mut last_response_obj,
-                    &state,
-                    on_delta,
-                  )?;
-                }
-              }
-              Message::Close(_) => {
-                break;
-              }
-              Message::Ping(payload) => {
-                let _ = ws.send(Message::Pong(payload)).await;
-              }
-              Message::Pong(_) => {}
-              Message::Frame(_) => {}
             }
-          }
+            Ok::<(), String>(())
+        }
+    )
+    .await;
+
+    match stream_result {
+        Ok(inner) => inner?,
+        Err(_) => {
+            return Err(format!(
+                "WebSocket stream timed out after {}s",
+                resolved.timeout_seconds
+            ))
         }
     }
 
@@ -773,7 +827,9 @@ where
         }
     }
 
-    let mut state = state_mutex.lock().map_err(|_| "Failed to lock ParserState".to_string())?;
+    let mut state = state_mutex
+        .lock()
+        .map_err(|_| "Failed to lock ParserState".to_string())?;
 
     if !state.emitted_reasoning_started
         && matches!(
@@ -816,9 +872,21 @@ where
         if let Some(item) = value.get("item") {
             let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
             if item_type == "function_call" {
-                let item_id = item.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-                let call_id = item.get("call_id").and_then(Value::as_str).unwrap_or("").to_string();
-                let name = item.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                let item_id = item
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let call_id = item
+                    .get("call_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
 
                 if !item_id.is_empty() && !call_id.is_empty() {
                     state.active_tools_map.insert(item_id.clone(), name.clone());
@@ -833,9 +901,21 @@ where
     }
 
     if event_type == "response.function_call_arguments.delta" {
-        let item_id = value.get("item_id").and_then(Value::as_str).unwrap_or("").to_string();
-        let call_id = value.get("call_id").and_then(Value::as_str).unwrap_or("").to_string();
-        let delta = value.get("delta").and_then(Value::as_str).unwrap_or("").to_string();
+        let item_id = value
+            .get("item_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let call_id = value
+            .get("call_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let delta = value
+            .get("delta")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
 
         if !item_id.is_empty() && !call_id.is_empty() && !delta.is_empty() {
             on_delta(ProviderStreamEvent::ToolCallArgumentsDelta {
@@ -847,14 +927,33 @@ where
     }
 
     if event_type == "response.function_call_arguments.done" {
-        let item_id = value.get("item_id").and_then(Value::as_str).unwrap_or("").to_string();
-        let call_id = value.get("call_id").and_then(Value::as_str).unwrap_or("").to_string();
-        let arguments = value.get("arguments").and_then(Value::as_str).unwrap_or("").to_string();
+        let item_id = value
+            .get("item_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let call_id = value
+            .get("call_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let arguments = value
+            .get("arguments")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
 
-        if !item_id.is_empty() && !call_id.is_empty() && !state.completed_tool_calls.contains(&call_id) {
-            let name = state.active_tools_map.get(&item_id).cloned().unwrap_or_default();
+        if !item_id.is_empty()
+            && !call_id.is_empty()
+            && !state.completed_tool_calls.contains(&call_id)
+        {
+            let name = state
+                .active_tools_map
+                .get(&item_id)
+                .cloned()
+                .unwrap_or_default();
             state.completed_tool_calls.push(call_id.clone());
-            
+
             let pending = PendingToolCall {
                 item_id: item_id.clone(),
                 call_id: call_id.clone(),
@@ -876,14 +975,33 @@ where
         if let Some(item) = value.get("item") {
             let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
             if item_type == "function_call" {
-                let item_id = item.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-                let call_id = item.get("call_id").and_then(Value::as_str).unwrap_or("").to_string();
-                let name = item.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-                let arguments = item.get("arguments").and_then(Value::as_str).unwrap_or("").to_string();
+                let item_id = item
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let call_id = item
+                    .get("call_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let arguments = item
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
 
-                if !item_id.is_empty() && !call_id.is_empty() && !state.completed_tool_calls.contains(&call_id) {
+                if !item_id.is_empty()
+                    && !call_id.is_empty()
+                    && !state.completed_tool_calls.contains(&call_id)
+                {
                     state.completed_tool_calls.push(call_id.clone());
-                    
+
                     let pending = PendingToolCall {
                         item_id: item_id.clone(),
                         call_id: call_id.clone(),
@@ -1038,12 +1156,12 @@ fn normalize_reasoning_levels(levels: &[String]) -> Vec<String> {
 fn fallback_reasoning_levels(model_id: &str) -> Vec<String> {
     let model_id = model_id.trim().to_lowercase();
 
-    if model_id == "gpt-4o" || model_id.starts_with("gpt-4o") || model_id.starts_with("o1") || model_id.starts_with("o3") {
-        return vec![
-            "low".to_string(),
-            "medium".to_string(),
-            "high".to_string(),
-        ];
+    if model_id == "gpt-4o"
+        || model_id.starts_with("gpt-4o")
+        || model_id.starts_with("o1")
+        || model_id.starts_with("o3")
+    {
+        return vec!["low".to_string(), "medium".to_string(), "high".to_string()];
     }
 
     Vec::new()

@@ -14,11 +14,9 @@ pub trait Tool: Send + Sync {
     fn to_schema(&self) -> Value {
         json!({
             "type": "function",
-            "function": {
-                "name": self.name(),
-                "description": self.description(),
-                "parameters": self.parameters_schema(),
-            }
+            "name": self.name(),
+            "description": self.description(),
+            "parameters": self.parameters_schema(),
         })
     }
 }
@@ -88,7 +86,7 @@ impl Tool for SystemTimeTool {
         let duration = now
             .duration_since(UNIX_EPOCH)
             .map_err(|e| format!("System clock error: {e}"))?;
-        
+
         let seconds = duration.as_secs();
         let minutes = seconds / 60;
         let hours = minutes / 60;
@@ -159,10 +157,12 @@ impl FileReaderTool {
 
     pub(crate) fn validate_path(&self, filename: &str) -> Result<PathBuf, String> {
         let sandbox_dir = Self::get_sandbox_dir()?;
-        
+
         let path = Path::new(filename);
-        let filename_only = path.file_name().ok_or_else(|| "Invalid filename".to_string())?;
-        
+        let filename_only = path
+            .file_name()
+            .ok_or_else(|| "Invalid filename".to_string())?;
+
         // Ensure path remains strictly inside the sandbox (no subdirectory traversal)
         let resolved = sandbox_dir.join(filename_only);
         Ok(resolved)
@@ -202,8 +202,8 @@ impl Tool for FileReaderTool {
             return Err(format!("File '{}' not found in sandbox", filename));
         }
 
-        let content = fs::read_to_string(&safe_path)
-            .map_err(|e| format!("Failed to read file: {e}"))?;
+        let content =
+            fs::read_to_string(&safe_path).map_err(|e| format!("Failed to read file: {e}"))?;
 
         Ok(json!({
             "filename": filename,
@@ -227,10 +227,12 @@ impl FileWriterTool {
 
     pub(crate) fn validate_path(&self, filename: &str) -> Result<PathBuf, String> {
         let sandbox_dir = Self::get_sandbox_dir()?;
-        
+
         let path = Path::new(filename);
-        let filename_only = path.file_name().ok_or_else(|| "Invalid filename".to_string())?;
-        
+        let filename_only = path
+            .file_name()
+            .ok_or_else(|| "Invalid filename".to_string())?;
+
         let resolved = sandbox_dir.join(filename_only);
         Ok(resolved)
     }
@@ -267,7 +269,7 @@ impl Tool for FileWriterTool {
             .get("filename")
             .and_then(Value::as_str)
             .ok_or_else(|| "Missing required parameter 'filename'".to_string())?;
-        
+
         let content = arguments
             .get("content")
             .and_then(Value::as_str)
@@ -275,8 +277,7 @@ impl Tool for FileWriterTool {
 
         let safe_path = self.validate_path(filename)?;
 
-        fs::write(&safe_path, content)
-            .map_err(|e| format!("Failed to write to file: {e}"))?;
+        fs::write(&safe_path, content).map_err(|e| format!("Failed to write to file: {e}"))?;
 
         Ok(json!({
             "filename": filename,
@@ -313,7 +314,7 @@ impl ToolRegistry {
             .iter()
             .find(|tool| tool.name() == name)
             .ok_or_else(|| format!("Tool '{}' not found in registry", name))?;
-        
+
         tool.execute(arguments)
     }
 }
@@ -361,7 +362,11 @@ impl ToolCatalog {
             match self.mcp_manager.list_tools(server_id, server_config).await {
                 Ok(mcp_tools) => {
                     for raw_tool in mcp_tools {
-                        let raw_name = raw_tool.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                        let raw_name = raw_tool
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
                         if raw_name.is_empty() {
                             continue;
                         }
@@ -369,24 +374,34 @@ impl ToolCatalog {
                         // Prefix naming mapping: mcp__<server_id>__<tool_name>
                         let prefixed_name = format!("mcp__{}__{}", server_id, raw_name);
 
-                        let description = raw_tool.get("description").and_then(Value::as_str).unwrap_or("").to_string();
-                        let input_schema = raw_tool.get("inputSchema").or_else(|| raw_tool.get("input_schema")).cloned().unwrap_or(json!({
-                            "type": "object",
-                            "properties": {}
-                        }));
+                        let description = raw_tool
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let input_schema = raw_tool
+                            .get("inputSchema")
+                            .or_else(|| raw_tool.get("input_schema"))
+                            .cloned()
+                            .unwrap_or(json!({
+                                "type": "object",
+                                "properties": {}
+                            }));
 
                         schemas.push(json!({
                             "type": "function",
-                            "function": {
-                                "name": prefixed_name,
-                                "description": description,
-                                "parameters": input_schema,
-                            }
+                            "name": prefixed_name,
+                            "description": description,
+                            "parameters": input_schema,
                         }));
                     }
                 }
                 Err(err) => {
-                    log::warn!("Failed to list tools from MCP server '{}': {}", server_id, err);
+                    log::warn!(
+                        "Failed to list tools from MCP server '{}': {}",
+                        server_id,
+                        err
+                    );
                 }
             }
         }
@@ -402,10 +417,15 @@ impl ToolCatalog {
                 let server_id = parts[1];
                 let tool_name = parts[2..].join("__");
 
-                let server_config = self.mcp_config.get(server_id)
+                let server_config = self
+                    .mcp_config
+                    .get(server_id)
                     .ok_or_else(|| format!("MCP server '{}' config not found", server_id))?;
 
-                return self.mcp_manager.call_tool(server_id, server_config, &tool_name, arguments.clone()).await;
+                return self
+                    .mcp_manager
+                    .call_tool(server_id, server_config, &tool_name, arguments.clone())
+                    .await;
             }
         }
 
@@ -415,11 +435,10 @@ impl ToolCatalog {
             .iter()
             .find(|tool| tool.name() == prefixed_name)
             .ok_or_else(|| format!("Tool '{}' not found in catalog", prefixed_name))?;
-        
+
         tool.execute(arguments)
     }
 }
-
 
 // ----------------- Pure-Rust Safe Math Evaluator -----------------
 fn evaluate_math_expression(expr: &str) -> Result<f64, String> {

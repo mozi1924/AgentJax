@@ -1,6 +1,6 @@
+use super::capabilities::ProviderCapabilities;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use super::capabilities::ProviderCapabilities;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

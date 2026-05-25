@@ -2,8 +2,8 @@ use crate::config::AppConfig;
 use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
 use crate::tools::ToolCatalog;
 use serde_json::{json, Value};
-use tokio::sync::watch;
 use std::time::Instant;
+use tokio::sync::watch;
 
 pub struct AgentRuntime;
 
@@ -63,18 +63,27 @@ impl AgentRuntime {
                 |event| {
                     match &event {
                         ProviderStreamEvent::ToolCallStarted { call_id, name, .. } => {
-                            active_tool_calls_in_turn.insert(call_id.clone(), (name.clone(), Value::Null));
+                            active_tool_calls_in_turn
+                                .insert(call_id.clone(), (name.clone(), Value::Null));
                         }
                         ProviderStreamEvent::ToolCallArgumentsDelta { .. } => {
                             // Accumulate arguments if delta is emitted
                         }
-                        ProviderStreamEvent::ToolCallCompleted { call_id, name, arguments, .. } => {
-                            let parsed_args: Value = serde_json::from_str(arguments).unwrap_or_default();
-                            active_tool_calls_in_turn.insert(call_id.clone(), (name.clone(), parsed_args));
+                        ProviderStreamEvent::ToolCallCompleted {
+                            call_id,
+                            name,
+                            arguments,
+                            ..
+                        } => {
+                            let parsed_args: Value =
+                                serde_json::from_str(arguments).unwrap_or_default();
+                            active_tool_calls_in_turn
+                                .insert(call_id.clone(), (name.clone(), parsed_args));
                         }
                         ProviderStreamEvent::ToolCallExecuted { call_id, output } => {
                             if let Some((name, args)) = active_tool_calls_in_turn.get(call_id) {
-                                let output_val: Value = serde_json::from_str(output).unwrap_or_else(|_| Value::String(output.clone()));
+                                let output_val: Value = serde_json::from_str(output)
+                                    .unwrap_or_else(|_| Value::String(output.clone()));
                                 timeline_events.push(json!({
                                     "type": "toolCall",
                                     "callId": call_id.clone(),
@@ -89,8 +98,9 @@ impl AgentRuntime {
                         _ => {}
                     }
                     on_event(event)
-                }
-            ).await;
+                },
+            )
+            .await;
 
             let response_result = match provider_res {
                 Ok(res) => res,
@@ -127,30 +137,52 @@ impl AgentRuntime {
                     if let (Some(call_id), Some(name), Some(args)) = (
                         item.get("call_id").and_then(Value::as_str),
                         item.get("name").and_then(Value::as_str),
-                        item.get("arguments")
+                        item.get("arguments"),
                     ) {
                         let has_output = response_result.output_items.iter().any(|other| {
-                            other.get("type").and_then(Value::as_str) == Some("function_call_output")
+                            other.get("type").and_then(Value::as_str)
+                                == Some("function_call_output")
                                 && other.get("call_id").and_then(Value::as_str) == Some(call_id)
                         });
                         if !has_output {
-                            pending_tools.push((call_id.to_string(), name.to_string(), args.clone()));
+                            pending_tools.push((
+                                call_id.to_string(),
+                                name.to_string(),
+                                args.clone(),
+                            ));
                         }
                     }
                 }
             }
 
             // Standard OpenAI format check
-            if let Some(choices) = response_result.output_items.first().and_then(|i| i.get("choices")).and_then(Value::as_array) {
+            if let Some(choices) = response_result
+                .output_items
+                .first()
+                .and_then(|i| i.get("choices"))
+                .and_then(Value::as_array)
+            {
                 if let Some(first) = choices.first() {
                     if let Some(message) = first.get("message") {
-                        if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
+                        if let Some(tool_calls) =
+                            message.get("tool_calls").and_then(Value::as_array)
+                        {
                             for tc in tool_calls {
-                                if let (Some(call_id), Some(func)) = (tc.get("id").and_then(Value::as_str), tc.get("function")) {
+                                if let (Some(call_id), Some(func)) =
+                                    (tc.get("id").and_then(Value::as_str), tc.get("function"))
+                                {
                                     if let Some(name) = func.get("name").and_then(Value::as_str) {
-                                        let arguments_str = func.get("arguments").and_then(Value::as_str).unwrap_or("{}");
-                                        let args: Value = serde_json::from_str(arguments_str).unwrap_or_default();
-                                        pending_tools.push((call_id.to_string(), name.to_string(), args));
+                                        let arguments_str = func
+                                            .get("arguments")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or("{}");
+                                        let args: Value =
+                                            serde_json::from_str(arguments_str).unwrap_or_default();
+                                        pending_tools.push((
+                                            call_id.to_string(),
+                                            name.to_string(),
+                                            args,
+                                        ));
                                     }
                                 }
                             }
@@ -194,7 +226,8 @@ impl AgentRuntime {
                     output: output_str.clone(),
                 })?;
 
-                let output_val: Value = serde_json::from_str(&output_str).unwrap_or_else(|_| Value::String(output_str.clone()));
+                let output_val: Value = serde_json::from_str(&output_str)
+                    .unwrap_or_else(|_| Value::String(output_str.clone()));
                 timeline_events.push(json!({
                     "type": "toolCall",
                     "callId": call_id.clone(),

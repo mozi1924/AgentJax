@@ -1,14 +1,11 @@
+use rmcp::{
+    model::CallToolRequestParams, service::RoleClient, transport::TokioChildProcess, ServiceExt,
+};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use serde_json::Value;
-use rmcp::{
-    ServiceExt,
-    transport::TokioChildProcess,
-    model::CallToolRequestParams,
-    service::RoleClient,
-};
 use tokio::process::Command;
+use tokio::sync::Mutex;
 
 pub struct McpManager {
     services: Arc<Mutex<BTreeMap<String, rmcp::service::RunningService<RoleClient, ()>>>>,
@@ -49,7 +46,9 @@ impl McpManager {
         let transport = TokioChildProcess::new(cmd)
             .map_err(|e| format!("Failed to create stdio transport: {e}"))?;
 
-        let service = ().serve(transport).await
+        let service = ()
+            .serve(transport)
+            .await
             .map_err(|e| format!("Failed to initialize MCP connection: {e}"))?;
 
         let peer = service.peer().clone();
@@ -63,8 +62,10 @@ impl McpManager {
         config: &crate::config::McpServerConfig,
     ) -> Result<Vec<Value>, String> {
         let peer = self.get_peer(server_id, config).await?;
-        
-        let response = peer.list_tools(None).await
+
+        let response = peer
+            .list_tools(None)
+            .await
             .map_err(|e| format!("Failed to list tools from MCP server '{server_id}': {e}"))?;
 
         let mut tool_schemas = Vec::new();
@@ -94,7 +95,9 @@ impl McpManager {
             param = param.with_arguments(args);
         }
 
-        let response = peer.call_tool(param).await
+        let response = peer
+            .call_tool(param)
+            .await
             .map_err(|e| format!("Failed to call tool '{name}' on server '{server_id}': {e}"))?;
 
         Ok(serde_json::to_value(response).unwrap_or_default())

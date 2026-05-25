@@ -352,17 +352,30 @@ pub async fn chat_stream(
                     chat_event.kind = "delta".to_string();
                     chat_event.delta = Some(delta);
                 }
-                ProviderStreamEvent::ToolCallStarted { item_id: _, call_id, name } => {
+                ProviderStreamEvent::ToolCallStarted {
+                    item_id: _,
+                    call_id,
+                    name,
+                } => {
                     chat_event.kind = "tool_call_started".to_string();
                     chat_event.tool_call_id = Some(call_id);
                     chat_event.tool_name = Some(name);
                 }
-                ProviderStreamEvent::ToolCallArgumentsDelta { item_id: _, call_id, delta } => {
+                ProviderStreamEvent::ToolCallArgumentsDelta {
+                    item_id: _,
+                    call_id,
+                    delta,
+                } => {
                     chat_event.kind = "tool_call_delta".to_string();
                     chat_event.tool_call_id = Some(call_id);
                     chat_event.delta = Some(delta);
                 }
-                ProviderStreamEvent::ToolCallCompleted { item_id: _, call_id, name, arguments } => {
+                ProviderStreamEvent::ToolCallCompleted {
+                    item_id: _,
+                    call_id,
+                    name,
+                    arguments,
+                } => {
                     chat_event.kind = "tool_call_done".to_string();
                     chat_event.tool_call_id = Some(call_id);
                     chat_event.tool_name = Some(name);
@@ -381,7 +394,7 @@ pub async fn chat_stream(
             closure_window
                 .emit("chat_stream_event", chat_event)
                 .map_err(|e| format!("Failed to emit stream event: {e}"))
-        }
+        },
     )
     .await;
 
@@ -562,7 +575,10 @@ async fn generate_title_and_emit(
     };
 
     let response =
-        providers::stream_response(&config, &title_request, None, &mut title_cancel_rx, |_| Ok(())).await;
+        providers::stream_response(&config, &title_request, None, &mut title_cancel_rx, |_| {
+            Ok(())
+        })
+        .await;
 
     let cancelled = *title_cancel_rx.borrow();
     registry.finish_title_request(conversation_id, &job_id)?;

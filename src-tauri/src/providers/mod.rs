@@ -43,13 +43,15 @@ where
     let resolved = config.resolve_model_profile(req.model.as_deref())?;
 
     match ProviderKind::from_provider_kind(&resolved.provider.kind)? {
-        ProviderKind::Codex => codex::stream_response(&resolved, req, tools_catalog, cancel_rx, on_delta).await,
+        ProviderKind::Codex => {
+            codex::stream_response(&resolved, req, tools_catalog, cancel_rx, on_delta).await
+        }
         ProviderKind::OpenAIStandard => {
-            openai_standard::stream_response(&resolved, req, tools_catalog, cancel_rx, on_delta).await
+            openai_standard::stream_response(&resolved, req, tools_catalog, cancel_rx, on_delta)
+                .await
         }
     }
 }
-
 
 pub async fn fetch_remote_models(
     config: &AppConfig,
@@ -78,8 +80,9 @@ pub fn get_reasoning_capability(
 ) -> Result<ModelReasoningCapability, String> {
     match ProviderKind::from_provider_kind(provider_kind)? {
         ProviderKind::Codex => Ok(codex::get_reasoning_capability(model_id, cached_levels)),
-        ProviderKind::OpenAIStandard => {
-            Ok(openai_standard::get_reasoning_capability(model_id, cached_levels))
-        }
+        ProviderKind::OpenAIStandard => Ok(openai_standard::get_reasoning_capability(
+            model_id,
+            cached_levels,
+        )),
     }
 }

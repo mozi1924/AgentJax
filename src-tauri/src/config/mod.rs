@@ -386,7 +386,11 @@ impl AppConfig {
             }
             let mut server = mcp_server;
             server.command = server.command.trim().to_string();
-            server.args = server.args.iter().map(|arg| arg.trim().to_string()).collect();
+            server.args = server
+                .args
+                .iter()
+                .map(|arg| arg.trim().to_string())
+                .collect();
             normalized_mcp_servers.insert(server_key, server);
         }
         self.mcp_servers = normalized_mcp_servers;
