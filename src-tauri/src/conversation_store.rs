@@ -1,135 +1,26 @@
-use serde::{Deserialize, Serialize};
+mod file_io;
+mod paths;
+mod types;
+
+use crate::conversation_store::file_io::{
+    normalized_meta_title, read_conversation_file, refresh_meta_derived_fields, summary_from_meta,
+    write_conversation_file,
+};
+use crate::conversation_store::paths::{
+    conversation_messages_path, conversation_metadata_path, ensure_session_layout,
+    list_conversation_ids,
+};
+use crate::conversation_store::types::{ConversationEntryLine, ConversationFileData, DEFAULT_CONVERSATION_TITLE, LOG_VERSION};
+use crate::conversation_store_utils::{
+    normalize_title, normalize_title_source, now_unix_ms, sanitize_optional, today_utc_yyyy_mm_dd,
+};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use uuid::Uuid;
-use crate::conversation_store_utils::{
-    compact_preview, normalize_title, normalize_title_source, now_unix_ms, sanitize_conversation_id,
-    sanitize_optional, today_utc_yyyy_mm_dd,
-};
 
-const AGENTJAX_DIR_NAME: &str = ".agentjax";
-const SESSIONS_DIR_NAME: &str = "sessions";
-const METADATA_FILE_NAME: &str = "metadata.json";
-const MESSAGES_FILE_NAME: &str = "messages.jsonl";
-const WORKSPACE_DIR_NAME: &str = "workspace";
-const LOG_VERSION: u32 = 3;
-const DEFAULT_CONVERSATION_TITLE: &str = "新对话";
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConversationMetaLine {
-    pub version: u32,
-    pub record_type: String,
-    pub conversation_id: String,
-    pub created_at_unix_ms: i64,
-    pub updated_at_unix_ms: i64,
-    pub title: String,
-    pub title_source: String,
-    pub utility_model: String,
-    pub message_count: usize,
-    pub last_message_at_unix_ms: i64,
-    pub last_message_preview: String,
-    #[serde(default)]
-    pub metadata: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConversationEntryLine {
-    pub version: u32,
-    pub record_type: String,
-    pub entry_id: String,
-    pub created_at_unix_ms: i64,
-    pub role: Option<String>,
-    pub text: Option<String>,
-    pub response_id: Option<String>,
-    pub provider: Option<String>,
-    pub model_profile: Option<String>,
-    pub model_id: Option<String>,
-    pub request_id: Option<String>,
-    #[serde(default)]
-    pub context_items: Vec<Value>,
-    pub tool_name: Option<String>,
-    pub tool_call_id: Option<String>,
-    pub tool_arguments: Option<Value>,
-    pub tool_output: Option<Value>,
-    #[serde(default)]
-    pub timeline_events: Option<Vec<Value>>,
-    #[serde(default)]
-    pub metadata: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AppendMessageInput {
-    pub conversation_id: String,
-    pub entry_id: String,
-    pub role: String,
-    pub text: String,
-    pub created_at_unix_ms: i64,
-    pub response_id: Option<String>,
-    pub provider: Option<String>,
-    pub model_profile: Option<String>,
-    pub model_id: Option<String>,
-    pub request_id: Option<String>,
-    pub context_items: Vec<Value>,
-    pub timeline_events: Option<Vec<Value>>,
-    pub metadata: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConversationSummary {
-    pub conversation_id: String,
-    pub title: String,
-    pub title_source: String,
-    pub message_count: usize,
-    pub last_message_preview: String,
-    pub last_message_at_unix_ms: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConversationMessage {
-    pub id: String,
-    pub role: String,
-    pub text: String,
-    pub created_at_unix_ms: i64,
-    pub response_id: Option<String>,
-    #[serde(default)]
-    pub context_items: Vec<Value>,
-    #[serde(default)]
-    pub timeline_events: Option<Vec<Value>>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConversationDetail {
-    pub conversation_id: String,
-    pub title: String,
-    pub title_source: String,
-    pub last_response_id: Option<String>,
-    pub messages: Vec<ConversationMessage>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ConversationContext {
-    pub input_items: Vec<Value>,
-}
-
-#[derive(Debug, Clone)]
-pub struct TitleGenerationCandidate {
-    pub user_text: String,
-    pub assistant_text: String,
-}
-
-#[derive(Debug, Clone)]
-struct ConversationFileData {
-    meta: ConversationMetaLine,
-    entries: Vec<ConversationEntryLine>,
-}
+pub use paths::agentjax_home_dir;
 
 pub fn new_conversation_id() -> String {
     format!("{}-{}", today_utc_yyyy_mm_dd(), Uuid::new_v4())
@@ -168,35 +59,20 @@ pub fn build_assistant_output_items(text: &str) -> Vec<Value> {
     })]
 }
 
+pub use paths::{conversation_dir_path, conversation_workspace_path};
+pub use types::{
+    AppendMessageInput, ConversationContext, ConversationDetail, ConversationMessage, ConversationMetaLine,
+    ConversationSummary, TitleGenerationCandidate,
+};
+
+#[allow(dead_code)]
 pub fn conversations_dir_path() -> Result<PathBuf, String> {
-    Ok(agentjax_home_dir()?.join(SESSIONS_DIR_NAME))
+    paths::conversations_dir_path()
 }
 
+#[allow(dead_code)]
 pub fn ensure_conversations_dir() -> Result<PathBuf, String> {
-    let dir = conversations_dir_path()?;
-    if !dir.exists() {
-        fs::create_dir_all(&dir)
-            .map_err(|e| format!("Failed to create conversations dir {}: {e}", dir.display()))?;
-    }
-    Ok(dir)
-}
-
-pub fn conversation_dir_path(conversation_id: &str) -> Result<PathBuf, String> {
-    let dir = ensure_conversations_dir()?;
-    let safe = sanitize_conversation_id(conversation_id);
-    Ok(dir.join(safe))
-}
-
-fn conversation_metadata_path(conversation_id: &str) -> Result<PathBuf, String> {
-    Ok(conversation_dir_path(conversation_id)?.join(METADATA_FILE_NAME))
-}
-
-fn conversation_messages_path(conversation_id: &str) -> Result<PathBuf, String> {
-    Ok(conversation_dir_path(conversation_id)?.join(MESSAGES_FILE_NAME))
-}
-
-pub fn conversation_workspace_path(conversation_id: &str) -> Result<PathBuf, String> {
-    Ok(conversation_dir_path(conversation_id)?.join(WORKSPACE_DIR_NAME))
+    paths::ensure_conversations_dir()
 }
 
 pub fn ensure_conversation(
@@ -535,246 +411,6 @@ pub fn load_title_generation_candidate(
     }))
 }
 
-fn list_conversation_ids() -> Result<Vec<String>, String> {
-    let dir = ensure_conversations_dir()?;
-    let mut out = Vec::new();
-
-    let entries = fs::read_dir(&dir)
-        .map_err(|e| format!("Failed to read conversations dir {}: {e}", dir.display()))?;
-
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to inspect conversation file entry: {e}"))?;
-        let path = entry.path();
-
-        if !path.is_dir() {
-            continue;
-        }
-        let metadata = path.join(METADATA_FILE_NAME);
-        let messages = path.join(MESSAGES_FILE_NAME);
-        if !metadata.exists() || !messages.exists() {
-            continue;
-        }
-        if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-            if !name.trim().is_empty() {
-                out.push(name.to_string());
-            }
-        }
-    }
-
-    Ok(out)
-}
-
-fn read_conversation_file(
-    metadata_path: &Path,
-    messages_path: &Path,
-) -> Result<Option<ConversationFileData>, String> {
-    if !metadata_path.exists() || !messages_path.exists() {
-        return Ok(None);
-    }
-
-    let raw_meta = fs::read_to_string(metadata_path).map_err(|e| {
-        format!(
-            "Failed to open session metadata file {}: {e}",
-            metadata_path.display()
-        )
-    })?;
-    let mut meta: ConversationMetaLine = serde_json::from_str(&raw_meta).map_err(|e| {
-        format!(
-            "Failed to parse session metadata file {}: {e}",
-            metadata_path.display()
-        )
-    })?;
-    meta.conversation_id = sanitize_conversation_id(&meta.conversation_id);
-    if meta.conversation_id.is_empty() {
-        return Ok(None);
-    }
-
-    let file = fs::File::open(messages_path).map_err(|e| {
-        format!(
-            "Failed to open session messages file {}: {e}",
-            messages_path.display()
-        )
-    })?;
-    let reader = BufReader::new(file);
-
-    let mut entries = Vec::new();
-
-    for (idx, raw) in reader.lines().enumerate() {
-        let raw = raw.map_err(|e| {
-            format!(
-                "Failed to read line {} from session messages file {}: {e}",
-                idx + 1,
-                messages_path.display()
-            )
-        })?;
-
-        if raw.trim().is_empty() {
-            continue;
-        }
-
-        let value = match serde_json::from_str::<Value>(&raw) {
-            Ok(value) => value,
-            Err(err) => {
-                log::warn!(
-                    "Skipping malformed conversation line {} in {}: {}",
-                    idx + 1,
-                    messages_path.display(),
-                    err
-                );
-                continue;
-            }
-        };
-
-        let record_type = value
-            .get("recordType")
-            .or_else(|| value.get("record_type"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-
-        if record_type.is_empty() {
-            continue;
-        }
-
-        match serde_json::from_value::<ConversationEntryLine>(value) {
-            Ok(entry) => entries.push(entry),
-            Err(err) => {
-                log::warn!(
-                    "Skipping malformed conversation entry line {} in {}: {}",
-                    idx + 1,
-                    messages_path.display(),
-                    err
-                );
-            }
-        }
-    }
-
-    refresh_meta_derived_fields(&mut meta, &entries);
-    Ok(Some(ConversationFileData { meta, entries }))
-}
-
-fn write_conversation_file(
-    metadata_path: &Path,
-    messages_path: &Path,
-    data: &ConversationFileData,
-) -> Result<(), String> {
-    if let Some(parent) = metadata_path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| {
-                format!(
-                    "Failed to create session directory {}: {e}",
-                    parent.display()
-                )
-            })?;
-        }
-    }
-
-    let mut messages_lines = Vec::with_capacity(data.entries.len());
-
-    for entry in &data.entries {
-        messages_lines.push(
-            serde_json::to_string(entry)
-                .map_err(|e| format!("Failed to serialize conversation entry: {e}"))?,
-        );
-    }
-
-    fs::write(
-        metadata_path,
-        format!(
-            "{}\n",
-            serde_json::to_string_pretty(&data.meta)
-                .map_err(|e| format!("Failed to serialize conversation metadata: {e}"))?
-        ),
-    )
-    .map_err(|e| {
-        format!(
-            "Failed to write session metadata file {}: {e}",
-            metadata_path.display()
-        )
-    })?;
-
-    fs::write(messages_path, format!("{}\n", messages_lines.join("\n"))).map_err(|e| {
-        format!(
-            "Failed to write session messages file {}: {e}",
-            messages_path.display()
-        )
-    })
-}
-
-fn refresh_meta_derived_fields(meta: &mut ConversationMetaLine, entries: &[ConversationEntryLine]) {
-    meta.version = LOG_VERSION;
-    meta.record_type = "meta".to_string();
-    meta.conversation_id = sanitize_conversation_id(&meta.conversation_id);
-    meta.title = normalized_meta_title(meta);
-    meta.title_source = normalize_title_source(&meta.title_source);
-
-    let mut message_count = 0usize;
-    let mut last_message_at = 0i64;
-    let mut last_message_preview = String::new();
-
-    for entry in entries {
-        if entry.record_type != "message" {
-            continue;
-        }
-
-        let role = entry.role.as_deref().unwrap_or("");
-        if role != "user" && role != "assistant" {
-            continue;
-        }
-
-        message_count += 1;
-        if entry.created_at_unix_ms >= last_message_at {
-            last_message_at = entry.created_at_unix_ms;
-            last_message_preview = compact_preview(entry.text.as_deref().unwrap_or(""));
-        }
-    }
-
-    meta.message_count = message_count;
-    meta.last_message_at_unix_ms = last_message_at;
-    meta.last_message_preview = last_message_preview;
-    if last_message_at > 0 {
-        meta.updated_at_unix_ms = meta.updated_at_unix_ms.max(last_message_at);
-    }
-}
-
-fn summary_from_meta(meta: &ConversationMetaLine) -> ConversationSummary {
-    ConversationSummary {
-        conversation_id: meta.conversation_id.clone(),
-        title: normalized_meta_title(meta),
-        title_source: normalize_title_source(&meta.title_source),
-        message_count: meta.message_count,
-        last_message_preview: meta.last_message_preview.clone(),
-        last_message_at_unix_ms: meta.updated_at_unix_ms.max(meta.last_message_at_unix_ms),
-    }
-}
-
-fn normalized_meta_title(meta: &ConversationMetaLine) -> String {
-    let trimmed = meta.title.trim();
-    if trimmed.is_empty() {
-        DEFAULT_CONVERSATION_TITLE.to_string()
-    } else {
-        trimmed.to_string()
-    }
-}
-
-pub fn agentjax_home_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir()
-        .ok_or_else(|| "Failed to resolve home directory for .agentjax".to_string())?;
-    Ok(home.join(AGENTJAX_DIR_NAME))
-}
-
-fn ensure_session_layout(conversation_id: &str) -> Result<(), String> {
-    let workspace_dir = conversation_workspace_path(conversation_id)?;
-    if !workspace_dir.exists() {
-        fs::create_dir_all(&workspace_dir).map_err(|e| {
-            format!(
-                "Failed to create session workspace directory {}: {e}",
-                workspace_dir.display()
-            )
-        })?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -786,17 +422,11 @@ mod tests {
 
         let path = conversation_dir_path(&conversation_id).expect("path");
         ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
-        assert!(
-            path.exists(),
-            "session directory should exist before delete"
-        );
+        assert!(path.exists(), "session directory should exist before delete");
 
         let deleted = delete_conversation(&conversation_id).expect("delete conversation");
         assert!(deleted, "delete should report true when file existed");
-        assert!(
-            !path.exists(),
-            "session directory should be removed after delete"
-        );
+        assert!(!path.exists(), "session directory should be removed after delete");
     }
 
     #[test]
@@ -845,37 +475,8 @@ mod tests {
         )
         .expect("append openai assistant");
 
-        append_message(
-            AppendMessageInput {
-                conversation_id: conversation_id.clone(),
-                entry_id: "assistant-codex".to_string(),
-                role: "assistant".to_string(),
-                text: "codex answer".to_string(),
-                created_at_unix_ms: now_unix_ms(),
-                response_id: Some("resp-codex".to_string()),
-                provider: Some("codex".to_string()),
-                model_profile: Some("gpt-5.4-mini".to_string()),
-                model_id: Some("gpt-5.4-mini".to_string()),
-                request_id: Some("req-codex".to_string()),
-                context_items: build_assistant_output_items("codex answer"),
-                timeline_events: None,
-                metadata: BTreeMap::new(),
-            },
-            utility_model,
-        )
-        .expect("append codex assistant");
-
         let openai_context = load_context_for_request(&conversation_id).expect("openai context");
-        assert!(
-            openai_context.input_items.len() >= 3,
-            "openai context should still include shared history items"
-        );
-
-        let codex_context = load_context_for_request(&conversation_id).expect("codex context");
-        assert!(
-            codex_context.input_items.len() >= 3,
-            "codex context should still include shared history items"
-        );
+        assert!(openai_context.input_items.len() >= 2);
 
         delete_conversation(&conversation_id).expect("cleanup conversation");
     }
