@@ -33,7 +33,7 @@ impl ProviderKind {
 pub async fn stream_response<F>(
     config: &AppConfig,
     req: &ResponseStreamRequest,
-    tools_registry: Option<&crate::tools::ToolRegistry>,
+    tools_catalog: Option<&crate::tools::ToolCatalog>,
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: F,
 ) -> Result<ResponseStreamResult, String>
@@ -43,12 +43,13 @@ where
     let resolved = config.resolve_model_profile(req.model.as_deref())?;
 
     match ProviderKind::from_provider_kind(&resolved.provider.kind)? {
-        ProviderKind::Codex => codex::stream_response(&resolved, req, tools_registry, cancel_rx, on_delta).await,
+        ProviderKind::Codex => codex::stream_response(&resolved, req, tools_catalog, cancel_rx, on_delta).await,
         ProviderKind::OpenAIStandard => {
-            openai_standard::stream_response(&resolved, req, tools_registry, cancel_rx, on_delta).await
+            openai_standard::stream_response(&resolved, req, tools_catalog, cancel_rx, on_delta).await
         }
     }
 }
+
 
 pub async fn fetch_remote_models(
     config: &AppConfig,

@@ -14,7 +14,7 @@ use super::types::{
     ResponseStreamResult,
 };
 use crate::config::{ModelRequestConfig, ResolvedModelConfig};
-use crate::tools::ToolRegistry;
+use crate::tools::ToolCatalog;
 
 #[derive(Debug, Clone, Deserialize)]
 struct RemoteModelsResponse {
@@ -94,7 +94,7 @@ pub async fn fetch_remote_models(
 pub async fn stream_response<F>(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
-    tools_registry: Option<&ToolRegistry>,
+    tools_catalog: Option<&ToolCatalog>,
     cancel_rx: &mut watch::Receiver<bool>,
     mut on_delta: F,
 ) -> Result<ResponseStreamResult, String>
@@ -111,7 +111,7 @@ where
             create_response_streaming_websocket(
                 resolved,
                 req,
-                tools_registry,
+                tools_catalog,
                 persistence,
                 cancel_rx,
                 &mut on_delta,
@@ -129,7 +129,7 @@ where
                 create_response_streaming_websocket(
                     resolved,
                     req,
-                    tools_registry,
+                    tools_catalog,
                     false,
                     cancel_rx,
                     &mut on_delta,
@@ -157,7 +157,7 @@ where
                 create_response_streaming_websocket(
                     resolved,
                     &retry_req,
-                    tools_registry,
+                    tools_catalog,
                     persistence,
                     cancel_rx,
                     &mut on_delta,
@@ -463,7 +463,7 @@ where
 async fn create_response_streaming_websocket<F>(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
-    tools_registry: Option<&ToolRegistry>,
+    tools_catalog: Option<&ToolCatalog>,
     store: bool,
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut F,
@@ -565,7 +565,7 @@ where
                       std::mem::take(&mut p_state.pending_tool_calls)
                   };
                   
-                  if let Some(registry) = tools_registry {
+                  if let Some(catalog) = tools_catalog {
                       if !pending_calls.is_empty() {
                           let mut tool_input_items = Vec::new();
                           
@@ -576,7 +576,7 @@ where
                               
                               let parsed_args: Value = serde_json::from_str(&arguments_str).unwrap_or(json!({}));
                               
-                              let exec_result = registry.execute(&name, &parsed_args);
+                              let exec_result = catalog.execute(&name, &parsed_args).await;
                               let (output_str, is_success) = match exec_result {
                                   Ok(res) => (serde_json::to_string(&res).unwrap_or_default(), true),
                                   Err(err) => (err, false),

@@ -105,11 +105,29 @@ export function getConversationDisplayTitle(conversation) {
 function createConversationMessage(message) {
   const toolCallsMap = {};
 
+  if (Array.isArray(message.timelineEvents)) {
+    for (const item of message.timelineEvents) {
+      if (item.type === 'toolCall') {
+        const callId = item.callId;
+        if (callId) {
+          toolCallsMap[callId] = {
+            id: callId,
+            name: item.name,
+            arguments: typeof item.arguments === 'object' ? JSON.stringify(item.arguments) : item.arguments || '',
+            output: typeof item.output === 'object' ? JSON.stringify(item.output) : item.output || '',
+            status: item.status === 'success' ? 'executed' : 'failed',
+            durationMs: item.durationMs
+          };
+        }
+      }
+    }
+  }
+
   if (Array.isArray(message.contextItems)) {
     for (const item of message.contextItems) {
       if (item.type === 'function_call') {
         const callId = item.call_id || item.callId;
-        if (callId) {
+        if (callId && !toolCallsMap[callId]) {
           toolCallsMap[callId] = {
             id: callId,
             name: item.name,
@@ -125,8 +143,10 @@ function createConversationMessage(message) {
       if (item.type === 'function_call_output') {
         const callId = item.call_id || item.callId;
         if (callId && toolCallsMap[callId]) {
-          toolCallsMap[callId].output = item.output || '';
-          toolCallsMap[callId].status = 'executed';
+          if (!toolCallsMap[callId].output) {
+            toolCallsMap[callId].output = item.output || '';
+            toolCallsMap[callId].status = 'executed';
+          }
         }
       }
     }
@@ -143,6 +163,7 @@ function createConversationMessage(message) {
     retryConversationId: null,
     createdAtUnixMs: message.createdAtUnixMs || 0,
     responseId: message.responseId || null,
+    timelineEvents: message.timelineEvents || null,
     toolCalls: Object.values(toolCallsMap)
   };
 }

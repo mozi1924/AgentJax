@@ -21,6 +21,19 @@ pub struct AppConfig {
     pub utility_small_model: String,
     pub model_profiles: BTreeMap<String, ModelProfile>,
     pub request_timeout_seconds: u64,
+    #[serde(default)]
+    pub mcp_servers: BTreeMap<String, McpServerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct McpServerConfig {
+    pub command: String,
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    pub cwd: Option<String>,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +115,7 @@ impl Default for AppConfig {
             utility_small_model: DEFAULT_UTILITY_SMALL_MODEL.to_string(),
             model_profiles,
             request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
+            mcp_servers: BTreeMap::new(),
         }
     }
 }
@@ -364,6 +378,19 @@ impl AppConfig {
             }
         }
 
+        let mut normalized_mcp_servers = BTreeMap::new();
+        for (raw_key, mcp_server) in std::mem::take(&mut self.mcp_servers) {
+            let server_key = raw_key.trim().to_lowercase();
+            if server_key.is_empty() {
+                continue;
+            }
+            let mut server = mcp_server;
+            server.command = server.command.trim().to_string();
+            server.args = server.args.iter().map(|arg| arg.trim().to_string()).collect();
+            normalized_mcp_servers.insert(server_key, server);
+        }
+        self.mcp_servers = normalized_mcp_servers;
+
         self
     }
 
@@ -580,6 +607,8 @@ fn default_config_yaml() -> String {
         "",
         "default_model: \"gpt-5-mini\"",
         "utility_small_model: \"gpt-5-mini\"",
+        "",
+        "mcp_servers: {}",
         "",
     ]
     .join("\n")

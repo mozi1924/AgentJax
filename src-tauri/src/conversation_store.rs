@@ -52,6 +52,8 @@ pub struct ConversationEntryLine {
     pub tool_arguments: Option<Value>,
     pub tool_output: Option<Value>,
     #[serde(default)]
+    pub timeline_events: Option<Vec<Value>>,
+    #[serde(default)]
     pub metadata: BTreeMap<String, Value>,
 }
 
@@ -68,6 +70,7 @@ pub struct AppendMessageInput {
     pub model_id: Option<String>,
     pub request_id: Option<String>,
     pub context_items: Vec<Value>,
+    pub timeline_events: Option<Vec<Value>>,
     pub metadata: BTreeMap<String, Value>,
 }
 
@@ -92,6 +95,8 @@ pub struct ConversationMessage {
     pub response_id: Option<String>,
     #[serde(default)]
     pub context_items: Vec<Value>,
+    #[serde(default)]
+    pub timeline_events: Option<Vec<Value>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -271,6 +276,7 @@ pub fn append_message(input: AppendMessageInput, utility_model: &str) -> Result<
         tool_call_id: None,
         tool_arguments: None,
         tool_output: None,
+        timeline_events: input.timeline_events,
         metadata: input.metadata,
     });
 
@@ -447,6 +453,7 @@ pub fn load_conversation(conversation_id: &str) -> Result<Option<ConversationDet
             created_at_unix_ms: entry.created_at_unix_ms,
             response_id: entry.response_id,
             context_items: entry.context_items,
+            timeline_events: entry.timeline_events,
         });
     }
 

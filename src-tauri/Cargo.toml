@@ -30,3 +30,5 @@ tokio = { version = "1", features = ["macros", "rt", "sync"] }
 tauri = { version = "2.11.2", features = [] }
 tauri-plugin-log = "2"
 uuid = { version = "1", features = ["v4"] }
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", branch = "main", features = ["client", "transport-child-process"] }
+

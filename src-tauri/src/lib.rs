@@ -4,6 +4,9 @@ mod conversation_store;
 mod models;
 mod providers;
 pub mod tools;
+pub mod mcp;
+pub mod runtime;
+
 
 #[cfg(test)]
 mod tools_tests;
@@ -49,6 +52,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(commands::chat::ChatRequestRegistry::default())
+        .manage(std::sync::Arc::new(crate::mcp::McpManager::new()))
         .setup(move |app| {
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()

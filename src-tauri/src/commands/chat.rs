@@ -8,7 +8,8 @@ use crate::config;
 use crate::conversation_store;
 use crate::providers;
 use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
-use crate::tools::ToolRegistry;
+use crate::tools::ToolCatalog;
+use serde_json::Value;
 
 const TITLE_GENERATION_INSTRUCTIONS: &str = "You generate concise conversation titles. Return only the title text with no quotes, no markdown, and no explanation. Match the user's language when it is obvious. Keep it under 12 Chinese characters or under 8 English words.";
 
@@ -267,6 +268,7 @@ pub struct ChatResponse {
 pub async fn chat_stream(
     window: tauri::Window,
     registry: State<'_, ChatRequestRegistry>,
+    mcp_manager: State<'_, std::sync::Arc<crate::mcp::McpManager>>,
     req: ChatRequest,
 ) -> Result<ChatResponse, String> {
     let config = config::load_config()?;
@@ -309,81 +311,82 @@ pub async fn chat_stream(
 
     registry.register_chat_request(request_id.clone(), conversation_id.clone(), cancel_tx)?;
 
-    let tools_registry = ToolRegistry::new_with_defaults();
-    let tools_schemas = tools_registry.list_schemas();
+    let tools_catalog = ToolCatalog::new(mcp_manager.inner().clone(), &config);
 
-    let stream_request = ResponseStreamRequest {
-        input_text: input_text.clone(),
-        previous_response_id: context.previous_response_id,
-        model: req.model.clone(),
-        reasoning_effort: req.reasoning_effort.clone(),
-        context_items: context.input_items,
-        instructions_override: None,
-        tools: Some(tools_schemas),
-        tool_choice: Some(serde_json::Value::String("auto".to_string())),
-    };
+    let closure_window = window.clone();
+    let closure_request_id = request_id.clone();
+    let closure_conversation_id = conversation_id.clone();
 
-    let result = providers::stream_response(&config, &stream_request, Some(&tools_registry), &mut cancel_rx, |event| {
-        let mut chat_event = ChatStreamEvent {
-            request_id: request_id.clone(),
-            event_index: next_event_index(&mut event_index),
-            kind: "".to_string(),
-            delta: None,
-            response_id: None,
-            conversation_id: Some(conversation_id.clone()),
-            conversation_title: None,
-            error: None,
-            tool_call_id: None,
-            tool_name: None,
-            tool_arguments: None,
-            tool_output: None,
-        };
+    let result = crate::runtime::AgentRuntime::run_turn(
+        &config,
+        &req,
+        &conversation_id,
+        context.input_items,
+        context.previous_response_id,
+        &tools_catalog,
+        &mut cancel_rx,
+        move |event| {
+            let mut chat_event = ChatStreamEvent {
+                request_id: closure_request_id.clone(),
+                event_index: next_event_index(&mut event_index),
+                kind: "".to_string(),
+                delta: None,
+                response_id: None,
+                conversation_id: Some(closure_conversation_id.clone()),
+                conversation_title: None,
+                error: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_output: None,
+            };
 
-        match event {
-            ProviderStreamEvent::ReasoningStarted => {
-                chat_event.kind = "thinking".to_string();
-            }
-            ProviderStreamEvent::OutputTextStarted => {
-                chat_event.kind = "output_started".to_string();
-            }
-            ProviderStreamEvent::OutputTextDelta(delta) => {
-                chat_event.kind = "delta".to_string();
-                chat_event.delta = Some(delta);
-            }
-            ProviderStreamEvent::ToolCallStarted { item_id: _, call_id, name } => {
-                chat_event.kind = "tool_call_started".to_string();
-                chat_event.tool_call_id = Some(call_id);
-                chat_event.tool_name = Some(name);
-            }
-            ProviderStreamEvent::ToolCallArgumentsDelta { item_id: _, call_id, delta } => {
-                chat_event.kind = "tool_call_delta".to_string();
-                chat_event.tool_call_id = Some(call_id);
-                chat_event.delta = Some(delta);
-            }
-            ProviderStreamEvent::ToolCallCompleted { item_id: _, call_id, name, arguments } => {
-                chat_event.kind = "tool_call_done".to_string();
-                chat_event.tool_call_id = Some(call_id);
-                chat_event.tool_name = Some(name);
-                chat_event.tool_arguments = Some(arguments);
-            }
-            ProviderStreamEvent::ToolCallExecuted { call_id, output } => {
-                chat_event.kind = "tool_call_exec".to_string();
-                chat_event.tool_call_id = Some(call_id);
-                chat_event.tool_output = Some(output);
-            }
-            ProviderStreamEvent::ResponseCompleted => {
-                return Ok(());
-            }
-        };
+            match event {
+                ProviderStreamEvent::ReasoningStarted => {
+                    chat_event.kind = "thinking".to_string();
+                }
+                ProviderStreamEvent::OutputTextStarted => {
+                    chat_event.kind = "output_started".to_string();
+                }
+                ProviderStreamEvent::OutputTextDelta(delta) => {
+                    chat_event.kind = "delta".to_string();
+                    chat_event.delta = Some(delta);
+                }
+                ProviderStreamEvent::ToolCallStarted { item_id: _, call_id, name } => {
+                    chat_event.kind = "tool_call_started".to_string();
+                    chat_event.tool_call_id = Some(call_id);
+                    chat_event.tool_name = Some(name);
+                }
+                ProviderStreamEvent::ToolCallArgumentsDelta { item_id: _, call_id, delta } => {
+                    chat_event.kind = "tool_call_delta".to_string();
+                    chat_event.tool_call_id = Some(call_id);
+                    chat_event.delta = Some(delta);
+                }
+                ProviderStreamEvent::ToolCallCompleted { item_id: _, call_id, name, arguments } => {
+                    chat_event.kind = "tool_call_done".to_string();
+                    chat_event.tool_call_id = Some(call_id);
+                    chat_event.tool_name = Some(name);
+                    chat_event.tool_arguments = Some(arguments);
+                }
+                ProviderStreamEvent::ToolCallExecuted { call_id, output } => {
+                    chat_event.kind = "tool_call_exec".to_string();
+                    chat_event.tool_call_id = Some(call_id);
+                    chat_event.tool_output = Some(output);
+                }
+                ProviderStreamEvent::ResponseCompleted => {
+                    return Ok(());
+                }
+            };
 
-        window
-            .emit("chat_stream_event", chat_event)
-            .map_err(|e| format!("Failed to emit stream event: {e}"))
-    })
+            closure_window
+                .emit("chat_stream_event", chat_event)
+                .map_err(|e| format!("Failed to emit stream event: {e}"))
+        }
+    )
     .await;
 
     let _ = registry.remove_chat_request(&request_id)?;
-    let response = result?;
+    let (response, timeline_events) = result?;
 
     let conversation_title: Option<String> = None;
     if !registry.is_conversation_deleted(&conversation_id)? {
@@ -392,6 +395,7 @@ pub async fn chat_stream(
             &request_id,
             &input_text,
             &response,
+            Some(timeline_events),
             &utility_model,
         )
         .await?;
@@ -618,6 +622,7 @@ async fn persist_completed_exchange(
     request_id: &str,
     input_text: &str,
     response: &ResponseStreamResult,
+    timeline_events: Option<Vec<Value>>,
     utility_model: &str,
 ) -> Result<(), String> {
     let conversation_id = conversation_id.to_string();
@@ -641,6 +646,7 @@ async fn persist_completed_exchange(
                 model_id: Some(response.model_id.clone()),
                 request_id: Some(request_id.clone()),
                 context_items: conversation_store::build_user_input_items(&input_text),
+                timeline_events: None,
                 metadata: Default::default(),
             },
             &utility_model,
@@ -659,6 +665,7 @@ async fn persist_completed_exchange(
                 model_id: Some(response.model_id.clone()),
                 request_id: Some(request_id.clone()),
                 context_items: response.output_items.clone(),
+                timeline_events: timeline_events,
                 metadata: Default::default(),
             },
             &utility_model,

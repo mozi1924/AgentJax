@@ -13,6 +13,8 @@ function ToolCallWidget({ toolCall }) {
         return 'text-cyan-400 border-cyan-500/20 bg-cyan-500/5';
       case 'executed':
         return 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5';
+      case 'failed':
+        return 'text-rose-400 border-rose-500/20 bg-rose-500/5';
       default:
         return 'text-slate-400 border-slate-500/20 bg-slate-500/5';
     }
@@ -26,26 +28,64 @@ function ToolCallWidget({ toolCall }) {
         return '正在执行中...';
       case 'executed':
         return '执行成功';
+      case 'failed':
+        return '执行失败';
       default:
         return '等待中';
     }
   };
 
+  const formatValue = (val) => {
+    if (!val) return '';
+    try {
+      const parsed = typeof val === 'string' ? JSON.parse(val) : val;
+      return JSON.stringify(parsed, null, 2);
+    } catch (e) {
+      return String(val);
+    }
+  };
+
+  const rawName = toolCall.name || '';
+  let displayName = rawName;
+  let originLabel = 'Native Tool';
+
+  if (rawName.startsWith('mcp__')) {
+    const parts = rawName.split('__');
+    if (parts.length >= 3) {
+      const serverId = parts[1];
+      const toolName = parts.slice(2).join('__');
+      displayName = toolName;
+      originLabel = `MCP: ${serverId}`;
+    }
+  }
+
+  const isFailed = toolCall.status === 'failed' || (toolCall.output && toolCall.output.toLowerCase().includes('failed'));
+
   return (
-    <div className={`rounded-xl border px-4 py-2 text-xs leading-relaxed transition-all duration-300 backdrop-blur-md mb-2 ${getStatusColor()}`}>
+    <div className={`rounded-xl border px-4 py-2 text-xs leading-relaxed transition-all duration-300 backdrop-blur-md mb-2 ${isFailed ? 'text-rose-400 border-rose-500/20 bg-rose-500/5' : getStatusColor()}`}>
       <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpanded(!expanded)}>
         <div className="flex items-center gap-2 font-mono">
-          {toolCall.status === 'executed' ? (
+          {toolCall.status === 'executed' && !isFailed ? (
             <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+          ) : isFailed ? (
+            <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
           ) : (
             <Loader2 className="h-4 w-4 text-cyan-400 animate-spin shrink-0" />
           )}
+          <span className="bg-slate-500/10 px-1.5 py-0.5 rounded text-[10px] opacity-75 font-sans mr-0.5">
+            {originLabel}
+          </span>
           <span className="font-semibold text-slate-200">
-            {toolCall.name}
+            {displayName}
           </span>
           <span className="opacity-75">
             ({getStatusText()})
           </span>
+          {toolCall.durationMs !== undefined && toolCall.durationMs !== null && (
+            <span className="opacity-50 text-[10px] ml-1">
+              [{toolCall.durationMs}ms]
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5 opacity-70 hover:opacity-100 transition">
           <span className="text-[10px]">详情</span>
@@ -58,14 +98,14 @@ function ToolCallWidget({ toolCall }) {
           <div>
             <span className="font-semibold opacity-70 block mb-1">输入参数 (Arguments):</span>
             <pre className="bg-[#1e1f20]/60 p-2 rounded-lg text-[10px] text-cyan-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-40 scrollbar-thin">
-              {toolCall.arguments || '{}'}
+              {formatValue(toolCall.arguments) || '{}'}
             </pre>
           </div>
           {toolCall.output && (
             <div>
               <span className="font-semibold opacity-70 block mb-1">输出结果 (Output):</span>
-              <pre className="bg-[#131314]/80 p-2 rounded-lg text-[10px] text-emerald-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-40 scrollbar-thin">
-                {toolCall.output}
+              <pre className={`p-2 rounded-lg text-[10px] font-mono overflow-x-auto whitespace-pre-wrap max-h-40 scrollbar-thin ${isFailed ? 'bg-rose-950/20 text-rose-300' : 'bg-[#131314]/80 text-emerald-300'}`}>
+                {formatValue(toolCall.output)}
               </pre>
             </div>
           )}
