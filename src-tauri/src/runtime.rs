@@ -1,11 +1,38 @@
 use crate::config::AppConfig;
 use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
 use crate::tools::ToolCatalog;
+use crate::tools::ToolSchemaFormat;
 use serde_json::{json, Value};
 use std::time::Instant;
 use tokio::sync::watch;
 
 pub struct AgentRuntime;
+
+fn collect_reasoning_items(output_items: &[Value]) -> Vec<Value> {
+    output_items
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("reasoning"))
+        .cloned()
+        .collect()
+}
+
+fn build_function_call_output_item(call_id: &str, output: &str) -> Value {
+    json!({
+        "type": "function_call_output",
+        "call_id": call_id,
+        "output": output
+    })
+}
+
+fn describe_item_shape(item: &Value) -> String {
+    if let Some(kind) = item.get("type").and_then(Value::as_str) {
+        return format!("type:{kind}");
+    }
+    if let Some(role) = item.get("role").and_then(Value::as_str) {
+        return format!("role:{role}");
+    }
+    "unknown".to_string()
+}
 
 impl AgentRuntime {
     pub async fn run_turn<F>(
@@ -22,16 +49,17 @@ impl AgentRuntime {
         F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send + 'static,
     {
         let resolved_model = config.resolve_model_profile(req.model.as_deref())?;
-        let provider_capabilities = crate::providers::get_capabilities(&resolved_model.provider.kind)?;
+        let provider_capabilities =
+            crate::providers::get_capabilities(&resolved_model.provider.kind)?;
         let tool_schema_format =
             crate::providers::get_tool_schema_format(&resolved_model.provider.kind)?;
 
-        let mut active_prev_response_id = if provider_capabilities.supports_cross_socket_continuation
-        {
-            previous_response_id
-        } else {
-            None
-        };
+        let mut active_prev_response_id =
+            if provider_capabilities.supports_cross_socket_continuation {
+                previous_response_id
+            } else {
+                None
+            };
         let mut final_output_text = String::new();
         let mut final_response_id = String::new();
         let mut final_output_items = Vec::new();
@@ -81,11 +109,8 @@ impl AgentRuntime {
             // Call provider to stream response
             let mut active_tool_calls_in_turn = std::collections::HashMap::new();
 
-            let provider_res = crate::providers::stream_response(
-                config,
-                &stream_request,
-                cancel_rx,
-                |event| {
+            let provider_res =
+                crate::providers::stream_response(config, &stream_request, cancel_rx, |event| {
                     match &event {
                         ProviderStreamEvent::ToolCallStarted { call_id, name, .. } => {
                             active_tool_calls_in_turn
@@ -123,9 +148,8 @@ impl AgentRuntime {
                         _ => {}
                     }
                     on_event(event)
-                },
-            )
-            .await;
+                })
+                .await;
 
             let response_result = match provider_res {
                 Ok(res) => res,
@@ -182,6 +206,8 @@ impl AgentRuntime {
                 break;
             }
 
+            let use_native_response_items =
+                matches!(tool_schema_format, ToolSchemaFormat::Responses);
             let mut tool_results_items = Vec::new();
 
             for (call_id, name, args) in pending_tools {
@@ -211,27 +237,47 @@ impl AgentRuntime {
                     "durationMs": duration_ms
                 }));
 
-                let tool_input_item = json!({
-                    "role": "tool",
-                    "tool_call_id": call_id.clone(),
-                    "content": [
-                        {
-                            "type": "tool_output",
-                            "text": output_str.clone()
-                        }
-                    ]
-                });
+                let tool_input_item = if use_native_response_items {
+                    build_function_call_output_item(&call_id, &output_str)
+                } else {
+                    json!({
+                        "role": "tool",
+                        "tool_call_id": call_id.clone(),
+                        "content": [
+                            {
+                                "type": "tool_output",
+                                "text": output_str.clone()
+                            }
+                        ]
+                    })
+                };
                 tool_results_items.push(tool_input_item);
             }
 
-            let assistant_item = json!({
-                "role": "assistant",
-                "content": response_result.output_items
-            });
-            let mut continuation_input_items = vec![assistant_item];
-            for result_item in tool_results_items {
-                continuation_input_items.push(result_item);
-            }
+            let continuation_input_items = if use_native_response_items {
+                let mut items = collect_reasoning_items(&response_result.output_items);
+                items.extend(tool_results_items);
+                items
+            } else {
+                let assistant_item = json!({
+                    "role": "assistant",
+                    "content": response_result.output_items
+                });
+                let mut items = vec![assistant_item];
+                items.extend(tool_results_items);
+                items
+            };
+
+            let continuation_shape: Vec<String> = continuation_input_items
+                .iter()
+                .map(describe_item_shape)
+                .collect();
+            log::debug!(
+                "Tool continuation items for provider '{}': {}",
+                resolved_model.provider_key,
+                continuation_shape.join(", ")
+            );
+
             context_items.extend(continuation_input_items.clone());
             next_input_items = Some(continuation_input_items);
 
@@ -255,5 +301,43 @@ impl AgentRuntime {
         };
 
         Ok((final_res, timeline_events))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_function_call_output_item, collect_reasoning_items};
+    use serde_json::json;
+
+    #[test]
+    fn collect_reasoning_items_only_keeps_reasoning_type() {
+        let output_items = vec![
+            json!({"type":"reasoning","id":"r1"}),
+            json!({"type":"function_call","id":"f1"}),
+            json!({"type":"message","id":"m1"}),
+            json!({"type":"reasoning","id":"r2"}),
+        ];
+
+        let reasoning = collect_reasoning_items(&output_items);
+        assert_eq!(reasoning.len(), 2);
+        assert_eq!(reasoning[0].get("id").and_then(|v| v.as_str()), Some("r1"));
+        assert_eq!(reasoning[1].get("id").and_then(|v| v.as_str()), Some("r2"));
+    }
+
+    #[test]
+    fn function_call_output_item_shape_matches_responses_input_item() {
+        let item = build_function_call_output_item("call_123", "{\"ok\":true}");
+        assert_eq!(
+            item.get("type").and_then(|v| v.as_str()),
+            Some("function_call_output")
+        );
+        assert_eq!(
+            item.get("call_id").and_then(|v| v.as_str()),
+            Some("call_123")
+        );
+        assert_eq!(
+            item.get("output").and_then(|v| v.as_str()),
+            Some("{\"ok\":true}")
+        );
     }
 }

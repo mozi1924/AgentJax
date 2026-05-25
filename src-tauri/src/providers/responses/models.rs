@@ -68,7 +68,12 @@ pub async fn fetch_remote_models_with_strategy(
     let mut errors = Vec::new();
     for candidate in &strategy.endpoint_candidates {
         let endpoint = build_models_endpoint(&resolved.provider.api_endpoint, candidate);
-        let response = match client.get(endpoint.clone()).bearer_auth(&credential).send().await {
+        let response = match client
+            .get(endpoint.clone())
+            .bearer_auth(&credential)
+            .send()
+            .await
+        {
             Ok(response) => response,
             Err(err) => {
                 errors.push(format!("{endpoint}: request failed: {err}"));
@@ -165,7 +170,10 @@ fn parse_model_descriptors(root: &Value) -> Vec<ProviderModelDescriptor> {
                 let supported_reasoning_levels = obj
                     .get("supportedReasoningLevels")
                     .and_then(Value::as_array)
-                    .or_else(|| obj.get("supported_reasoning_levels").and_then(Value::as_array))
+                    .or_else(|| {
+                        obj.get("supported_reasoning_levels")
+                            .and_then(Value::as_array)
+                    })
                     .map(|arr| {
                         arr.iter()
                             .filter_map(Value::as_str)

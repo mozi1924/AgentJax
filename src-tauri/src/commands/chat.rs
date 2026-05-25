@@ -579,10 +579,8 @@ async fn generate_title_and_emit(
         tool_choice: None,
     };
 
-    let response = providers::stream_response(&config, &title_request, &mut title_cancel_rx, |_| {
-        Ok(())
-    })
-    .await;
+    let response =
+        providers::stream_response(&config, &title_request, &mut title_cancel_rx, |_| Ok(())).await;
 
     let cancelled = *title_cancel_rx.borrow();
     registry.finish_title_request(conversation_id, &job_id)?;

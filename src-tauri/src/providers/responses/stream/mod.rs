@@ -2,6 +2,9 @@ mod parser;
 mod payload;
 mod transport;
 
+use std::collections::HashSet;
+use std::sync::{Mutex, OnceLock};
+
 use tokio::sync::watch;
 
 use crate::config::ResolvedModelConfig;
@@ -16,6 +19,53 @@ pub struct ResponsesStreamBehavior {
     pub retry_store_false: bool,
 }
 
+static WEBSOCKET_DOWNGRADED_PROVIDERS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn websocket_fallback_key(resolved: &ResolvedModelConfig) -> String {
+    format!(
+        "{}::{}",
+        resolved.provider_key,
+        resolved.provider.resolved_realtime_endpoint()
+    )
+}
+
+fn websocket_is_downgraded(key: &str) -> bool {
+    WEBSOCKET_DOWNGRADED_PROVIDERS
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .map(|cached| cached.contains(key))
+        .unwrap_or(false)
+}
+
+fn mark_websocket_downgraded(key: &str) -> bool {
+    WEBSOCKET_DOWNGRADED_PROVIDERS
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .map(|mut cached| cached.insert(key.to_string()))
+        .unwrap_or(false)
+}
+
+fn log_websocket_fallback(
+    resolved: &ResolvedModelConfig,
+    websocket_key: &str,
+    context: &str,
+    err: &str,
+) {
+    log::warn!(
+        "{} for provider '{}': {}. Retrying with SSE transport",
+        context,
+        resolved.provider_key,
+        err
+    );
+
+    if mark_websocket_downgraded(websocket_key) {
+        log::info!(
+            "Provider '{}' websocket transport is temporarily disabled for this app session; future turns will use SSE",
+            resolved.provider_key
+        );
+    }
+}
+
 pub async fn stream_response_with_behavior(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
@@ -28,7 +78,9 @@ pub async fn stream_response_with_behavior(
     } else {
         resolved.provider.store_responses
     };
-    let use_sse = resolved.provider.stream_transport == "sse";
+    let websocket_key = websocket_fallback_key(resolved);
+    let use_sse =
+        resolved.provider.stream_transport == "sse" || websocket_is_downgraded(&websocket_key);
 
     let first_attempt = if use_sse {
         transport::create_response_streaming_sse(
@@ -53,10 +105,9 @@ pub async fn stream_response_with_behavior(
     };
 
     if !use_sse && first_attempt.is_err() {
-        log::warn!(
-            "WebSocket transport failed for provider '{}', retrying with SSE transport",
-            resolved.provider_key
-        );
+        if let Err(err) = &first_attempt {
+            log_websocket_fallback(resolved, &websocket_key, "WebSocket transport failed", err);
+        }
         return transport::create_response_streaming_sse(
             resolved,
             req,
@@ -82,10 +133,14 @@ pub async fn stream_response_with_behavior(
         };
 
         if !use_sse && store_false_attempt.is_err() {
-            log::warn!(
-                "WebSocket store=false retry failed for provider '{}', retrying with SSE transport",
-                resolved.provider_key
-            );
+            if let Err(err) = &store_false_attempt {
+                log_websocket_fallback(
+                    resolved,
+                    &websocket_key,
+                    "WebSocket store=false retry failed",
+                    err,
+                );
+            }
             return transport::create_response_streaming_sse(
                 resolved, req, behavior, false, cancel_rx, on_delta,
             )
@@ -122,10 +177,14 @@ pub async fn stream_response_with_behavior(
         };
 
         if !use_sse && retry_attempt.is_err() {
-            log::warn!(
-                "WebSocket previous_response retry failed for provider '{}', retrying with SSE transport",
-                resolved.provider_key
-            );
+            if let Err(err) = &retry_attempt {
+                log_websocket_fallback(
+                    resolved,
+                    &websocket_key,
+                    "WebSocket previous_response retry failed",
+                    err,
+                );
+            }
             return transport::create_response_streaming_sse(
                 resolved,
                 &retry_req,

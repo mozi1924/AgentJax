@@ -8,6 +8,10 @@ mod tests {
         let codex = providers::get_capabilities("codex").expect("codex adapter should exist");
         assert!(!codex.supports_stored_responses);
 
+        let openai_default =
+            providers::get_capabilities("openai").expect("openai adapter should exist");
+        assert!(openai_default.supports_stored_responses);
+
         let openai = providers::get_capabilities("openai-standard")
             .expect("openai-standard adapter should exist");
         assert!(openai.supports_stored_responses);
@@ -20,6 +24,10 @@ mod tests {
     fn test_provider_tool_schema_format_lookup() {
         let codex = providers::get_tool_schema_format("codex").expect("codex adapter should exist");
         assert_eq!(codex, ToolSchemaFormat::Responses);
+
+        let openai_default =
+            providers::get_tool_schema_format("openai").expect("openai adapter should exist");
+        assert_eq!(openai_default, ToolSchemaFormat::Responses);
 
         let openai = providers::get_tool_schema_format("openai-standard")
             .expect("openai-standard adapter should exist");

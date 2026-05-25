@@ -17,7 +17,8 @@ use types::{
     ResponseStreamRequest, ResponseStreamResult,
 };
 
-type StreamFuture<'a> = Pin<Box<dyn Future<Output = Result<ResponseStreamResult, String>> + Send + 'a>>;
+type StreamFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<ResponseStreamResult, String>> + Send + 'a>>;
 type ModelsFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Vec<ProviderModelDescriptor>, String>> + Send + 'a>>;
 
@@ -44,7 +45,7 @@ struct CodexAdapter;
 
 impl ProviderAdapter for CodexAdapter {
     fn matches_kind(&self, provider_kind: &str) -> bool {
-        matches!(provider_kind, "openai" | "codex")
+        matches!(provider_kind, "codex" | "openai-codex" | "openai_codex")
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
@@ -82,7 +83,10 @@ struct OpenAIStandardAdapter;
 
 impl ProviderAdapter for OpenAIStandardAdapter {
     fn matches_kind(&self, provider_kind: &str) -> bool {
-        matches!(provider_kind, "openai-standard" | "openai_standard")
+        matches!(
+            provider_kind,
+            "openai" | "openai-standard" | "openai_standard"
+        )
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
@@ -100,7 +104,9 @@ impl ProviderAdapter for OpenAIStandardAdapter {
         cancel_rx: &'a mut watch::Receiver<bool>,
         on_delta: &'a mut ProviderEventSink<'a>,
     ) -> StreamFuture<'a> {
-        Box::pin(openai_standard::stream_response(resolved, req, cancel_rx, on_delta))
+        Box::pin(openai_standard::stream_response(
+            resolved, req, cancel_rx, on_delta,
+        ))
     }
 
     fn fetch_remote_models<'a>(&'a self, resolved: &'a ResolvedModelConfig) -> ModelsFuture<'a> {
@@ -154,7 +160,9 @@ where
 {
     let resolved = config.resolve_model_profile(req.model.as_deref())?;
     let adapter = adapter_for_kind(&resolved.provider.kind)?;
-    adapter.stream_response(&resolved, req, cancel_rx, &mut on_delta).await
+    adapter
+        .stream_response(&resolved, req, cancel_rx, &mut on_delta)
+        .await
 }
 
 pub async fn fetch_remote_models(

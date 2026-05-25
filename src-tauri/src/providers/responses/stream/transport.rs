@@ -8,7 +8,9 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
 use crate::config::ResolvedModelConfig;
-use crate::providers::types::{ProviderEventSink, ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
+use crate::providers::types::{
+    ProviderEventSink, ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult,
+};
 
 use super::parser::{
     extract_output_items, extract_output_text, handle_stream_event_json, process_sse_event_block,
@@ -36,8 +38,13 @@ pub(crate) async fn create_response_streaming_sse(
         resolved.provider.api_endpoint.trim_end_matches('/')
     );
 
-    let body =
-        build_streaming_request_payload(resolved, req, req.previous_response_id.as_deref(), store);
+    let body = build_streaming_request_payload(
+        resolved,
+        req,
+        req.previous_response_id.as_deref(),
+        store,
+        true,
+    );
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(resolved.timeout_seconds))
@@ -59,7 +66,10 @@ pub(crate) async fn create_response_streaming_sse(
             .text()
             .await
             .unwrap_or_else(|_| "<unable to read error body>".to_string());
-        return Err(format!("{} API error ({status}): {text}", behavior.api_label));
+        return Err(format!(
+            "{} API error ({status}): {text}",
+            behavior.api_label
+        ));
     }
 
     let mut response_id = String::new();
@@ -192,8 +202,13 @@ pub(crate) async fn create_response_streaming_websocket(
     })?
     .map_err(|e| format!("Failed to connect websocket transport: {e}"))?;
 
-    let mut create_event =
-        build_streaming_request_payload(resolved, req, req.previous_response_id.as_deref(), store);
+    let mut create_event = build_streaming_request_payload(
+        resolved,
+        req,
+        req.previous_response_id.as_deref(),
+        store,
+        behavior.capabilities.requires_stream_true_in_websocket,
+    );
     create_event["type"] = Value::String("response.create".to_string());
 
     ws.send(Message::Text(create_event.to_string().into()))

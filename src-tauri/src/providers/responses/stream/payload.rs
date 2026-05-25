@@ -8,6 +8,7 @@ pub(crate) fn build_streaming_request_payload(
     req: &ResponseStreamRequest,
     previous_response_id: Option<&str>,
     store: bool,
+    include_stream_field: bool,
 ) -> Value {
     let previous_response_id = previous_response_id
         .map(str::trim)
@@ -24,9 +25,12 @@ pub(crate) fn build_streaming_request_payload(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(&resolved.provider.system_prompt),
       "input": input_items,
-      "store": store,
-      "stream": true
+      "store": store
     });
+
+    if include_stream_field {
+        payload["stream"] = Value::Bool(true);
+    }
 
     apply_model_request_config(
         &mut payload,
@@ -48,6 +52,61 @@ pub(crate) fn build_streaming_request_payload(
     }
 
     payload
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_streaming_request_payload;
+    use crate::config::{ModelRequestConfig, ProviderConfig, ResolvedModelConfig};
+    use crate::providers::types::ResponseStreamRequest;
+
+    #[test]
+    fn websocket_payload_can_omit_stream_field() {
+        let resolved = ResolvedModelConfig {
+            profile_key: "test".to_string(),
+            provider_key: "openai".to_string(),
+            provider: ProviderConfig::default(),
+            model_id: "gpt-5-mini".to_string(),
+            request: ModelRequestConfig::default(),
+            timeout_seconds: 60,
+        };
+        let req = ResponseStreamRequest {
+            input_items: Vec::new(),
+            previous_response_id: None,
+            model: Some("gpt-5-mini".to_string()),
+            reasoning_effort: None,
+            instructions_override: None,
+            tools: None,
+            tool_choice: None,
+        };
+
+        let payload = build_streaming_request_payload(&resolved, &req, None, false, false);
+        assert!(payload.get("stream").is_none());
+    }
+
+    #[test]
+    fn sse_payload_includes_stream_field() {
+        let resolved = ResolvedModelConfig {
+            profile_key: "test".to_string(),
+            provider_key: "openai".to_string(),
+            provider: ProviderConfig::default(),
+            model_id: "gpt-5-mini".to_string(),
+            request: ModelRequestConfig::default(),
+            timeout_seconds: 60,
+        };
+        let req = ResponseStreamRequest {
+            input_items: Vec::new(),
+            previous_response_id: None,
+            model: Some("gpt-5-mini".to_string()),
+            reasoning_effort: None,
+            instructions_override: None,
+            tools: None,
+            tool_choice: None,
+        };
+
+        let payload = build_streaming_request_payload(&resolved, &req, None, false, true);
+        assert_eq!(payload.get("stream").and_then(|v| v.as_bool()), Some(true));
+    }
 }
 
 fn apply_model_request_config(
@@ -95,6 +154,18 @@ fn apply_model_request_config(
 }
 
 fn normalize_input_items_for_responses(items: &[Value]) -> Vec<Value> {
+    fn is_legacy_output_item_type(content_type: &str) -> bool {
+        matches!(
+            content_type,
+            "function_call"
+                | "function_call_output"
+                | "reasoning"
+                | "custom_tool_call"
+                | "custom_tool_call_output"
+                | "message"
+        )
+    }
+
     fn normalize_content_type(content: &mut Value, role: Option<&str>) {
         if let Some(obj) = content.as_object_mut() {
             if let Some(content_type) = obj.get("type").and_then(Value::as_str) {
@@ -117,13 +188,78 @@ fn normalize_input_items_for_responses(items: &[Value]) -> Vec<Value> {
             .get("role")
             .and_then(Value::as_str)
             .map(ToOwned::to_owned);
+
+        let mut extracted_output_items = Vec::new();
+
         if let Some(content) = cloned.get_mut("content").and_then(Value::as_array_mut) {
-            for part in content {
-                normalize_content_type(part, role.as_deref());
+            let original_parts = std::mem::take(content);
+            for mut part in original_parts {
+                let part_type = part.get("type").and_then(Value::as_str).unwrap_or("");
+
+                // Backward-compat: older runtime versions wrapped output items as assistant message
+                // content. Responses input expects these as top-level items.
+                if role.as_deref() == Some("assistant") && is_legacy_output_item_type(part_type) {
+                    extracted_output_items.push(part);
+                    continue;
+                }
+
+                normalize_content_type(&mut part, role.as_deref());
+                content.push(part);
+            }
+
+            if content.is_empty() {
+                if let Some(obj) = cloned.as_object_mut() {
+                    obj.remove("content");
+                }
             }
         }
-        normalized.push(cloned);
+
+        let has_role = cloned.get("role").and_then(Value::as_str).is_some();
+        let has_content = cloned
+            .get("content")
+            .and_then(Value::as_array)
+            .map(|arr| !arr.is_empty())
+            .unwrap_or(false);
+
+        if !has_role || has_content {
+            normalized.push(cloned);
+        }
+
+        normalized.extend(extracted_output_items);
     }
 
     normalized
+}
+
+#[cfg(test)]
+mod normalization_tests {
+    use super::normalize_input_items_for_responses;
+    use serde_json::json;
+
+    #[test]
+    fn flattens_legacy_assistant_content_wrapped_function_call() {
+        let input = vec![json!({
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "tool_a",
+                    "arguments": "{}"
+                }
+            ]
+        })];
+
+        let normalized = normalize_input_items_for_responses(&input);
+        assert_eq!(normalized.len(), 1);
+        assert_eq!(
+            normalized[0].get("type").and_then(|v| v.as_str()),
+            Some("function_call")
+        );
+        assert_eq!(
+            normalized[0].get("call_id").and_then(|v| v.as_str()),
+            Some("call_1")
+        );
+    }
 }
