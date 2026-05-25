@@ -2,7 +2,7 @@ use crate::config::AppConfig;
 use crate::providers::types::{
     ProviderPendingToolCall, ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult,
 };
-use crate::tools::ToolCatalog;
+use crate::tools::{ToolCatalog, ToolExecutionContext};
 use serde_json::{json, Value};
 use std::time::Instant;
 use tokio::sync::watch;
@@ -62,7 +62,7 @@ impl AgentRuntime {
     pub async fn run_turn<F>(
         config: &AppConfig,
         req: &crate::commands::chat::ChatRequest,
-        _conversation_id: &str,
+        conversation_id: &str,
         mut context_items: Vec<Value>,
         tools_catalog: &ToolCatalog,
         cancel_rx: &mut watch::Receiver<bool>,
@@ -86,7 +86,12 @@ impl AgentRuntime {
 
         // 1. Initial tools schema mapping (provider-specific conversion)
         let tools_schemas = tools_catalog
-            .list_schemas_with_format(tool_schema_format)
+            .list_schemas_with_format(
+                tool_schema_format,
+                &ToolExecutionContext {
+                    conversation_id: Some(conversation_id.to_string()),
+                },
+            )
             .await;
 
         let mut turn_idx = 0;
@@ -236,7 +241,15 @@ impl AgentRuntime {
                     json!({})
                 };
                 let start_time = Instant::now();
-                let exec_result = tools_catalog.execute(&name, &args).await;
+                let exec_result = tools_catalog
+                    .execute(
+                        &name,
+                        &args,
+                        &ToolExecutionContext {
+                            conversation_id: Some(conversation_id.to_string()),
+                        },
+                    )
+                    .await;
                 let duration_ms = start_time.elapsed().as_millis() as u64;
 
                 let (output_str, is_success) = match exec_result {

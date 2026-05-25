@@ -4,11 +4,14 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-use crate::config;
-
-const CONVERSATIONS_DIR_NAME: &str = "conversations";
+const AGENTJAX_DIR_NAME: &str = ".agentjax";
+const SESSIONS_DIR_NAME: &str = "sessions";
+const METADATA_FILE_NAME: &str = "metadata.json";
+const MESSAGES_FILE_NAME: &str = "messages.jsonl";
+const WORKSPACE_DIR_NAME: &str = "workspace";
 const LOG_VERSION: u32 = 3;
 const DEFAULT_CONVERSATION_TITLE: &str = "新对话";
 
@@ -35,7 +38,6 @@ pub struct ConversationMetaLine {
 pub struct ConversationEntryLine {
     pub version: u32,
     pub record_type: String,
-    pub conversation_id: String,
     pub entry_id: String,
     pub created_at_unix_ms: i64,
     pub role: Option<String>,
@@ -127,7 +129,7 @@ struct ConversationFileData {
 }
 
 pub fn new_conversation_id() -> String {
-    Uuid::new_v4().to_string()
+    format!("{}-{}", today_utc_yyyy_mm_dd(), Uuid::new_v4())
 }
 
 pub fn build_user_input_items(text: &str) -> Vec<Value> {
@@ -164,11 +166,10 @@ pub fn build_assistant_output_items(text: &str) -> Vec<Value> {
 }
 
 pub fn conversations_dir_path() -> Result<PathBuf, String> {
-    Ok(config::config_dir_path()?.join(CONVERSATIONS_DIR_NAME))
+    Ok(agentjax_home_dir()?.join(SESSIONS_DIR_NAME))
 }
 
 pub fn ensure_conversations_dir() -> Result<PathBuf, String> {
-    let _ = config::init_config_if_missing()?;
     let dir = conversations_dir_path()?;
     if !dir.exists() {
         fs::create_dir_all(&dir)
@@ -177,18 +178,31 @@ pub fn ensure_conversations_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-pub fn conversation_file_path(conversation_id: &str) -> Result<PathBuf, String> {
+pub fn conversation_dir_path(conversation_id: &str) -> Result<PathBuf, String> {
     let dir = ensure_conversations_dir()?;
     let safe = sanitize_conversation_id(conversation_id);
-    Ok(dir.join(format!("{}.jsonl", safe)))
+    Ok(dir.join(safe))
+}
+
+fn conversation_metadata_path(conversation_id: &str) -> Result<PathBuf, String> {
+    Ok(conversation_dir_path(conversation_id)?.join(METADATA_FILE_NAME))
+}
+
+fn conversation_messages_path(conversation_id: &str) -> Result<PathBuf, String> {
+    Ok(conversation_dir_path(conversation_id)?.join(MESSAGES_FILE_NAME))
+}
+
+pub fn conversation_workspace_path(conversation_id: &str) -> Result<PathBuf, String> {
+    Ok(conversation_dir_path(conversation_id)?.join(WORKSPACE_DIR_NAME))
 }
 
 pub fn ensure_conversation(
     conversation_id: &str,
     utility_model: &str,
 ) -> Result<ConversationMetaLine, String> {
-    let path = conversation_file_path(conversation_id)?;
-    if let Some(mut data) = read_conversation_file(&path)? {
+    let metadata_path = conversation_metadata_path(conversation_id)?;
+    let messages_path = conversation_messages_path(conversation_id)?;
+    if let Some(mut data) = read_conversation_file(&metadata_path, &messages_path)? {
         let mut changed = false;
 
         if data.meta.title.trim().is_empty() {
@@ -206,7 +220,7 @@ pub fn ensure_conversation(
 
         refresh_meta_derived_fields(&mut data.meta, &data.entries);
         if changed {
-            write_conversation_file(&path, &data)?;
+            write_conversation_file(&metadata_path, &messages_path, &data)?;
         }
         return Ok(data.meta);
     }
@@ -230,13 +244,15 @@ pub fn ensure_conversation(
         entries: Vec::new(),
     };
 
-    write_conversation_file(&path, &data)?;
+    ensure_session_layout(conversation_id)?;
+    write_conversation_file(&metadata_path, &messages_path, &data)?;
     Ok(data.meta)
 }
 
 pub fn append_message(input: AppendMessageInput, utility_model: &str) -> Result<(), String> {
-    let path = conversation_file_path(&input.conversation_id)?;
-    let mut data = if let Some(existing) = read_conversation_file(&path)? {
+    let metadata_path = conversation_metadata_path(&input.conversation_id)?;
+    let messages_path = conversation_messages_path(&input.conversation_id)?;
+    let mut data = if let Some(existing) = read_conversation_file(&metadata_path, &messages_path)? {
         existing
     } else {
         ConversationFileData {
@@ -260,7 +276,6 @@ pub fn append_message(input: AppendMessageInput, utility_model: &str) -> Result<
     data.entries.push(ConversationEntryLine {
         version: LOG_VERSION,
         record_type: "message".to_string(),
-        conversation_id: input.conversation_id.clone(),
         entry_id: input.entry_id,
         created_at_unix_ms: input.created_at_unix_ms,
         role: Some(role),
@@ -283,7 +298,7 @@ pub fn append_message(input: AppendMessageInput, utility_model: &str) -> Result<
     if data.meta.utility_model.trim().is_empty() && !utility_model.trim().is_empty() {
         data.meta.utility_model = utility_model.trim().to_string();
     }
-    write_conversation_file(&path, &data)
+    write_conversation_file(&metadata_path, &messages_path, &data)
 }
 
 pub fn rename_conversation(
@@ -291,8 +306,9 @@ pub fn rename_conversation(
     title: &str,
     utility_model: &str,
 ) -> Result<ConversationSummary, String> {
-    let path = conversation_file_path(conversation_id)?;
-    let mut data = if let Some(existing) = read_conversation_file(&path)? {
+    let metadata_path = conversation_metadata_path(conversation_id)?;
+    let messages_path = conversation_messages_path(conversation_id)?;
+    let mut data = if let Some(existing) = read_conversation_file(&metadata_path, &messages_path)? {
         existing
     } else {
         ConversationFileData {
@@ -305,7 +321,7 @@ pub fn rename_conversation(
     data.meta.title_source = "manual".to_string();
     data.meta.updated_at_unix_ms = now_unix_ms();
     refresh_meta_derived_fields(&mut data.meta, &data.entries);
-    write_conversation_file(&path, &data)?;
+    write_conversation_file(&metadata_path, &messages_path, &data)?;
     Ok(summary_from_meta(&data.meta))
 }
 
@@ -313,8 +329,9 @@ pub fn update_auto_title(
     conversation_id: &str,
     title: &str,
 ) -> Result<Option<ConversationSummary>, String> {
-    let path = conversation_file_path(conversation_id)?;
-    let Some(mut data) = read_conversation_file(&path)? else {
+    let metadata_path = conversation_metadata_path(conversation_id)?;
+    let messages_path = conversation_messages_path(conversation_id)?;
+    let Some(mut data) = read_conversation_file(&metadata_path, &messages_path)? else {
         return Ok(None);
     };
 
@@ -326,24 +343,25 @@ pub fn update_auto_title(
     data.meta.title_source = "auto".to_string();
     data.meta.updated_at_unix_ms = now_unix_ms();
     refresh_meta_derived_fields(&mut data.meta, &data.entries);
-    write_conversation_file(&path, &data)?;
+    write_conversation_file(&metadata_path, &messages_path, &data)?;
     Ok(Some(summary_from_meta(&data.meta)))
 }
 
 pub fn delete_conversation(conversation_id: &str) -> Result<bool, String> {
-    let path = conversation_file_path(conversation_id)?;
-    if !path.exists() {
+    let dir = conversation_dir_path(conversation_id)?;
+    if !dir.exists() {
         return Ok(false);
     }
 
-    fs::remove_file(&path)
-        .map_err(|e| format!("Failed to delete conversation file {}: {e}", path.display()))?;
+    fs::remove_dir_all(&dir)
+        .map_err(|e| format!("Failed to delete session dir {}: {e}", dir.display()))?;
     Ok(true)
 }
 
 pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationContext, String> {
-    let path = conversation_file_path(conversation_id)?;
-    let Some(mut data) = read_conversation_file(&path)? else {
+    let metadata_path = conversation_metadata_path(conversation_id)?;
+    let messages_path = conversation_messages_path(conversation_id)?;
+    let Some(mut data) = read_conversation_file(&metadata_path, &messages_path)? else {
         return Ok(ConversationContext::default());
     };
 
@@ -387,8 +405,9 @@ pub fn list_conversations() -> Result<Vec<ConversationSummary>, String> {
     let mut out = Vec::new();
 
     for conversation_id in list_conversation_ids()? {
-        let path = conversation_file_path(&conversation_id)?;
-        let Some(data) = read_conversation_file(&path)? else {
+        let metadata_path = conversation_metadata_path(&conversation_id)?;
+        let messages_path = conversation_messages_path(&conversation_id)?;
+        let Some(data) = read_conversation_file(&metadata_path, &messages_path)? else {
             continue;
         };
         out.push(summary_from_meta(&data.meta));
@@ -403,8 +422,9 @@ pub fn list_conversations() -> Result<Vec<ConversationSummary>, String> {
 }
 
 pub fn load_conversation(conversation_id: &str) -> Result<Option<ConversationDetail>, String> {
-    let path = conversation_file_path(conversation_id)?;
-    let Some(mut data) = read_conversation_file(&path)? else {
+    let metadata_path = conversation_metadata_path(conversation_id)?;
+    let messages_path = conversation_messages_path(conversation_id)?;
+    let Some(mut data) = read_conversation_file(&metadata_path, &messages_path)? else {
         return Ok(None);
     };
 
@@ -459,8 +479,9 @@ pub fn load_conversation(conversation_id: &str) -> Result<Option<ConversationDet
 pub fn load_title_generation_candidate(
     conversation_id: &str,
 ) -> Result<Option<TitleGenerationCandidate>, String> {
-    let path = conversation_file_path(conversation_id)?;
-    let Some(mut data) = read_conversation_file(&path)? else {
+    let metadata_path = conversation_metadata_path(conversation_id)?;
+    let messages_path = conversation_messages_path(conversation_id)?;
+    let Some(mut data) = read_conversation_file(&metadata_path, &messages_path)? else {
         return Ok(None);
     };
 
@@ -522,15 +543,17 @@ fn list_conversation_ids() -> Result<Vec<String>, String> {
         let entry = entry.map_err(|e| format!("Failed to inspect conversation file entry: {e}"))?;
         let path = entry.path();
 
-        if !path.is_file() {
+        if !path.is_dir() {
             continue;
         }
-        if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
+        let metadata = path.join(METADATA_FILE_NAME);
+        let messages = path.join(MESSAGES_FILE_NAME);
+        if !metadata.exists() || !messages.exists() {
             continue;
         }
-        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-            if !stem.trim().is_empty() {
-                out.push(stem.to_string());
+        if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+            if !name.trim().is_empty() {
+                out.push(name.to_string());
             }
         }
     }
@@ -538,24 +561,47 @@ fn list_conversation_ids() -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-fn read_conversation_file(path: &Path) -> Result<Option<ConversationFileData>, String> {
-    if !path.exists() {
+fn read_conversation_file(
+    metadata_path: &Path,
+    messages_path: &Path,
+) -> Result<Option<ConversationFileData>, String> {
+    if !metadata_path.exists() || !messages_path.exists() {
         return Ok(None);
     }
 
-    let file = fs::File::open(path)
-        .map_err(|e| format!("Failed to open conversation file {}: {e}", path.display()))?;
+    let raw_meta = fs::read_to_string(metadata_path).map_err(|e| {
+        format!(
+            "Failed to open session metadata file {}: {e}",
+            metadata_path.display()
+        )
+    })?;
+    let mut meta: ConversationMetaLine = serde_json::from_str(&raw_meta).map_err(|e| {
+        format!(
+            "Failed to parse session metadata file {}: {e}",
+            metadata_path.display()
+        )
+    })?;
+    meta.conversation_id = sanitize_conversation_id(&meta.conversation_id);
+    if meta.conversation_id.is_empty() {
+        return Ok(None);
+    }
+
+    let file = fs::File::open(messages_path).map_err(|e| {
+        format!(
+            "Failed to open session messages file {}: {e}",
+            messages_path.display()
+        )
+    })?;
     let reader = BufReader::new(file);
 
-    let mut meta = None;
     let mut entries = Vec::new();
 
     for (idx, raw) in reader.lines().enumerate() {
         let raw = raw.map_err(|e| {
             format!(
-                "Failed to read line {} from conversation file {}: {e}",
+                "Failed to read line {} from session messages file {}: {e}",
                 idx + 1,
-                path.display()
+                messages_path.display()
             )
         })?;
 
@@ -569,7 +615,7 @@ fn read_conversation_file(path: &Path) -> Result<Option<ConversationFileData>, S
                 log::warn!(
                     "Skipping malformed conversation line {} in {}: {}",
                     idx + 1,
-                    path.display(),
+                    messages_path.display(),
                     err
                 );
                 continue;
@@ -582,29 +628,6 @@ fn read_conversation_file(path: &Path) -> Result<Option<ConversationFileData>, S
             .and_then(Value::as_str)
             .unwrap_or("");
 
-        if idx == 0 {
-            if record_type != "meta" {
-                log::warn!(
-                    "Skipping conversation file {} because first line is not metadata",
-                    path.display()
-                );
-                return Ok(None);
-            }
-
-            meta = match serde_json::from_value::<ConversationMetaLine>(value) {
-                Ok(parsed) => Some(parsed),
-                Err(err) => {
-                    log::warn!(
-                        "Skipping conversation file {} because metadata line is invalid: {}",
-                        path.display(),
-                        err
-                    );
-                    return Ok(None);
-                }
-            };
-            continue;
-        }
-
         if record_type.is_empty() {
             continue;
         }
@@ -615,36 +638,63 @@ fn read_conversation_file(path: &Path) -> Result<Option<ConversationFileData>, S
                 log::warn!(
                     "Skipping malformed conversation entry line {} in {}: {}",
                     idx + 1,
-                    path.display(),
+                    messages_path.display(),
                     err
                 );
             }
         }
     }
 
-    let Some(mut meta) = meta else {
-        return Ok(None);
-    };
     refresh_meta_derived_fields(&mut meta, &entries);
     Ok(Some(ConversationFileData { meta, entries }))
 }
 
-fn write_conversation_file(path: &Path, data: &ConversationFileData) -> Result<(), String> {
-    let mut lines = Vec::with_capacity(data.entries.len() + 1);
-    lines.push(
-        serde_json::to_string(&data.meta)
-            .map_err(|e| format!("Failed to serialize conversation metadata: {e}"))?,
-    );
+fn write_conversation_file(
+    metadata_path: &Path,
+    messages_path: &Path,
+    data: &ConversationFileData,
+) -> Result<(), String> {
+    if let Some(parent) = metadata_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "Failed to create session directory {}: {e}",
+                    parent.display()
+                )
+            })?;
+        }
+    }
+
+    let mut messages_lines = Vec::with_capacity(data.entries.len());
 
     for entry in &data.entries {
-        lines.push(
+        messages_lines.push(
             serde_json::to_string(entry)
                 .map_err(|e| format!("Failed to serialize conversation entry: {e}"))?,
         );
     }
 
-    fs::write(path, format!("{}\n", lines.join("\n")))
-        .map_err(|e| format!("Failed to write conversation file {}: {e}", path.display()))
+    fs::write(
+        metadata_path,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&data.meta)
+                .map_err(|e| format!("Failed to serialize conversation metadata: {e}"))?
+        ),
+    )
+    .map_err(|e| {
+        format!(
+            "Failed to write session metadata file {}: {e}",
+            metadata_path.display()
+        )
+    })?;
+
+    fs::write(messages_path, format!("{}\n", messages_lines.join("\n"))).map_err(|e| {
+        format!(
+            "Failed to write session messages file {}: {e}",
+            messages_path.display()
+        )
+    })
 }
 
 fn refresh_meta_derived_fields(meta: &mut ConversationMetaLine, entries: &[ConversationEntryLine]) {
@@ -742,6 +792,47 @@ fn sanitize_conversation_id(conversation_id: &str) -> String {
     }
 }
 
+pub fn agentjax_home_dir() -> Result<PathBuf, String> {
+    let home = dirs::home_dir()
+        .ok_or_else(|| "Failed to resolve home directory for .agentjax".to_string())?;
+    Ok(home.join(AGENTJAX_DIR_NAME))
+}
+
+fn ensure_session_layout(conversation_id: &str) -> Result<(), String> {
+    let workspace_dir = conversation_workspace_path(conversation_id)?;
+    if !workspace_dir.exists() {
+        fs::create_dir_all(&workspace_dir).map_err(|e| {
+            format!(
+                "Failed to create session workspace directory {}: {e}",
+                workspace_dir.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn today_utc_yyyy_mm_dd() -> String {
+    let now = SystemTime::now();
+    let duration = now.duration_since(UNIX_EPOCH).unwrap_or_default();
+    let total_days = duration.as_secs() / 86_400;
+    let (year, month, day) = civil_from_days(total_days as i64);
+    format!("{:04}-{:02}-{:02}", year, month, day)
+}
+
+fn civil_from_days(days_since_unix_epoch: i64) -> (i64, u32, u32) {
+    let z = days_since_unix_epoch + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if m <= 2 { 1 } else { 0 };
+    (year, m as u32, d as u32)
+}
+
 fn compact_preview(raw: &str) -> String {
     let cleaned = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     if cleaned.chars().count() <= 60 {
@@ -764,22 +855,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn delete_conversation_removes_jsonl_file() {
+    fn delete_conversation_removes_session_directory() {
         let conversation_id = format!("test-delete-{}", Uuid::new_v4());
         let utility_model = "gpt-5-mini";
 
-        let path = conversation_file_path(&conversation_id).expect("path");
+        let path = conversation_dir_path(&conversation_id).expect("path");
         ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
         assert!(
             path.exists(),
-            "conversation file should exist before delete"
+            "session directory should exist before delete"
         );
 
         let deleted = delete_conversation(&conversation_id).expect("delete conversation");
         assert!(deleted, "delete should report true when file existed");
         assert!(
             !path.exists(),
-            "conversation file should be removed after delete"
+            "session directory should be removed after delete"
         );
     }
 

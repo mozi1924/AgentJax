@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::config;
+use crate::conversation_store;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolSchemaFormat {
@@ -39,7 +39,7 @@ pub trait Tool: Send + Sync {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn parameters_schema(&self) -> Value;
-    fn execute(&self, arguments: &Value) -> Result<Value, String>;
+    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> Result<Value, String>;
 
     fn to_schema_with_format(&self, format: ToolSchemaFormat) -> Value {
         format_tool_schema(
@@ -53,6 +53,11 @@ pub trait Tool: Send + Sync {
     fn to_schema(&self) -> Value {
         self.to_schema_with_format(ToolSchemaFormat::Responses)
     }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ToolExecutionContext {
+    pub conversation_id: Option<String>,
 }
 
 // 1. Calculator Tool
@@ -80,7 +85,7 @@ impl Tool for CalculatorTool {
         })
     }
 
-    fn execute(&self, arguments: &Value) -> Result<Value, String> {
+    fn execute(&self, arguments: &Value, _context: &ToolExecutionContext) -> Result<Value, String> {
         let expression = arguments
             .get("expression")
             .and_then(Value::as_str)
@@ -115,7 +120,7 @@ impl Tool for SystemTimeTool {
         })
     }
 
-    fn execute(&self, _arguments: &Value) -> Result<Value, String> {
+    fn execute(&self, _arguments: &Value, _context: &ToolExecutionContext) -> Result<Value, String> {
         let now = SystemTime::now();
         let duration = now
             .duration_since(UNIX_EPOCH)
@@ -180,25 +185,39 @@ impl Tool for SystemTimeTool {
 pub struct FileReaderTool;
 
 impl FileReaderTool {
-    fn get_sandbox_dir() -> Result<PathBuf, String> {
-        let dir = config::config_dir_path()?.join("sandbox");
+    fn get_workspace_dir(context: &ToolExecutionContext) -> Result<PathBuf, String> {
+        let dir = if let Some(conversation_id) = context
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            conversation_store::conversation_workspace_path(conversation_id)?
+        } else {
+            conversation_store::agentjax_home_dir()?.join("sandbox")
+        };
         if !dir.exists() {
-            fs::create_dir_all(&dir)
-                .map_err(|e| format!("Failed to create sandbox directory: {e}"))?;
+            fs::create_dir_all(&dir).map_err(|e| {
+                format!("Failed to create workspace directory {}: {e}", dir.display())
+            })?;
         }
         Ok(dir)
     }
 
-    pub(crate) fn validate_path(&self, filename: &str) -> Result<PathBuf, String> {
-        let sandbox_dir = Self::get_sandbox_dir()?;
+    pub(crate) fn validate_path(
+        &self,
+        filename: &str,
+        context: &ToolExecutionContext,
+    ) -> Result<PathBuf, String> {
+        let workspace_dir = Self::get_workspace_dir(context)?;
 
         let path = Path::new(filename);
         let filename_only = path
             .file_name()
             .ok_or_else(|| "Invalid filename".to_string())?;
 
-        // Ensure path remains strictly inside the sandbox (no subdirectory traversal)
-        let resolved = sandbox_dir.join(filename_only);
+        // Ensure path remains strictly inside the session workspace (no subdirectory traversal)
+        let resolved = workspace_dir.join(filename_only);
         Ok(resolved)
     }
 }
@@ -225,13 +244,13 @@ impl Tool for FileReaderTool {
         })
     }
 
-    fn execute(&self, arguments: &Value) -> Result<Value, String> {
+    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> Result<Value, String> {
         let filename = arguments
             .get("filename")
             .and_then(Value::as_str)
             .ok_or_else(|| "Missing required parameter 'filename'".to_string())?;
 
-        let safe_path = self.validate_path(filename)?;
+        let safe_path = self.validate_path(filename, context)?;
         if !safe_path.exists() {
             return Err(format!("File '{}' not found in sandbox", filename));
         }
@@ -250,24 +269,38 @@ impl Tool for FileReaderTool {
 pub struct FileWriterTool;
 
 impl FileWriterTool {
-    fn get_sandbox_dir() -> Result<PathBuf, String> {
-        let dir = config::config_dir_path()?.join("sandbox");
+    fn get_workspace_dir(context: &ToolExecutionContext) -> Result<PathBuf, String> {
+        let dir = if let Some(conversation_id) = context
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            conversation_store::conversation_workspace_path(conversation_id)?
+        } else {
+            conversation_store::agentjax_home_dir()?.join("sandbox")
+        };
         if !dir.exists() {
-            fs::create_dir_all(&dir)
-                .map_err(|e| format!("Failed to create sandbox directory: {e}"))?;
+            fs::create_dir_all(&dir).map_err(|e| {
+                format!("Failed to create workspace directory {}: {e}", dir.display())
+            })?;
         }
         Ok(dir)
     }
 
-    pub(crate) fn validate_path(&self, filename: &str) -> Result<PathBuf, String> {
-        let sandbox_dir = Self::get_sandbox_dir()?;
+    pub(crate) fn validate_path(
+        &self,
+        filename: &str,
+        context: &ToolExecutionContext,
+    ) -> Result<PathBuf, String> {
+        let workspace_dir = Self::get_workspace_dir(context)?;
 
         let path = Path::new(filename);
         let filename_only = path
             .file_name()
             .ok_or_else(|| "Invalid filename".to_string())?;
 
-        let resolved = sandbox_dir.join(filename_only);
+        let resolved = workspace_dir.join(filename_only);
         Ok(resolved)
     }
 }
@@ -298,7 +331,7 @@ impl Tool for FileWriterTool {
         })
     }
 
-    fn execute(&self, arguments: &Value) -> Result<Value, String> {
+    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> Result<Value, String> {
         let filename = arguments
             .get("filename")
             .and_then(Value::as_str)
@@ -309,7 +342,7 @@ impl Tool for FileWriterTool {
             .and_then(Value::as_str)
             .ok_or_else(|| "Missing required parameter 'content'".to_string())?;
 
-        let safe_path = self.validate_path(filename)?;
+        let safe_path = self.validate_path(filename, context)?;
 
         fs::write(&safe_path, content).map_err(|e| format!("Failed to write to file: {e}"))?;
 
@@ -349,14 +382,19 @@ impl ToolRegistry {
             .collect()
     }
 
-    pub fn execute(&self, name: &str, arguments: &Value) -> Result<Value, String> {
+    pub fn execute(
+        &self,
+        name: &str,
+        arguments: &Value,
+        context: &ToolExecutionContext,
+    ) -> Result<Value, String> {
         let tool = self
             .tools
             .iter()
             .find(|tool| tool.name() == name)
             .ok_or_else(|| format!("Tool '{}' not found in registry", name))?;
 
-        tool.execute(arguments)
+        tool.execute(arguments, context)
     }
 }
 
@@ -389,12 +427,16 @@ impl ToolCatalog {
         }
     }
 
-    pub async fn list_schemas(&self) -> Vec<Value> {
-        self.list_schemas_with_format(ToolSchemaFormat::Responses)
+    pub async fn list_schemas(&self, context: &ToolExecutionContext) -> Vec<Value> {
+        self.list_schemas_with_format(ToolSchemaFormat::Responses, context)
             .await
     }
 
-    pub async fn list_schemas_with_format(&self, format: ToolSchemaFormat) -> Vec<Value> {
+    pub async fn list_schemas_with_format(
+        &self,
+        format: ToolSchemaFormat,
+        context: &ToolExecutionContext,
+    ) -> Vec<Value> {
         let mut schemas = Vec::new();
 
         // 1. Native tools
@@ -407,9 +449,11 @@ impl ToolCatalog {
             if !server_config.enabled {
                 continue;
             }
+            let resolved_server_config =
+                self.resolve_server_config_with_workspace_fallback(server_config, context);
             match self
                 .mcp_manager
-                .list_tools(server_id, server_config, &self.mcp_runtime)
+                .list_tools(server_id, &resolved_server_config, &self.mcp_runtime)
                 .await
             {
                 Ok(mcp_tools) => {
@@ -461,7 +505,12 @@ impl ToolCatalog {
         schemas
     }
 
-    pub async fn execute(&self, prefixed_name: &str, arguments: &Value) -> Result<Value, String> {
+    pub async fn execute(
+        &self,
+        prefixed_name: &str,
+        arguments: &Value,
+        context: &ToolExecutionContext,
+    ) -> Result<Value, String> {
         // Check if it's an MCP tool
         if prefixed_name.starts_with("mcp__") {
             let parts: Vec<&str> = prefixed_name.split("__").collect();
@@ -473,12 +522,14 @@ impl ToolCatalog {
                     .mcp_config
                     .get(server_id)
                     .ok_or_else(|| format!("MCP server '{}' config not found", server_id))?;
+                let resolved_server_config =
+                    self.resolve_server_config_with_workspace_fallback(server_config, context);
 
                 return self
                     .mcp_manager
                     .call_tool(
                         server_id,
-                        server_config,
+                        &resolved_server_config,
                         &self.mcp_runtime,
                         &tool_name,
                         arguments.clone(),
@@ -494,7 +545,43 @@ impl ToolCatalog {
             .find(|tool| tool.name() == prefixed_name)
             .ok_or_else(|| format!("Tool '{}' not found in catalog", prefixed_name))?;
 
-        tool.execute(arguments)
+        tool.execute(arguments, context)
+    }
+
+    fn resolve_server_config_with_workspace_fallback(
+        &self,
+        server_config: &crate::config::McpServerConfig,
+        context: &ToolExecutionContext,
+    ) -> crate::config::McpServerConfig {
+        if server_config.cwd.is_some() {
+            return server_config.clone();
+        }
+
+        let conversation_id = context
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let Some(conversation_id) = conversation_id else {
+            return server_config.clone();
+        };
+
+        let workspace = match crate::conversation_store::conversation_workspace_path(conversation_id)
+        {
+            Ok(path) => path,
+            Err(err) => {
+                log::warn!(
+                    "Failed to resolve workspace for conversation '{}' as MCP cwd fallback: {}",
+                    conversation_id,
+                    err
+                );
+                return server_config.clone();
+            }
+        };
+
+        let mut next = server_config.clone();
+        next.cwd = Some(workspace.to_string_lossy().to_string());
+        next
     }
 }
 
