@@ -8,18 +8,59 @@ pub mod tools;
 #[cfg(test)]
 mod tools_tests;
 
+fn parse_rust_log_level() -> log::LevelFilter {
+    let default_level = if cfg!(debug_assertions) {
+        log::LevelFilter::Info
+    } else {
+        log::LevelFilter::Warn
+    };
+
+    let raw = match std::env::var("RUST_LOG") {
+        Ok(value) => value,
+        Err(_) => return default_level,
+    };
+
+    let directive = raw
+        .split(',')
+        .map(str::trim)
+        .find(|part| !part.is_empty())
+        .unwrap_or("");
+
+    let level_part = directive
+        .rsplit_once('=')
+        .map(|(_, level)| level.trim())
+        .unwrap_or(directive)
+        .to_ascii_lowercase();
+
+    match level_part.as_str() {
+        "off" => log::LevelFilter::Off,
+        "error" => log::LevelFilter::Error,
+        "warn" | "warning" => log::LevelFilter::Warn,
+        "info" => log::LevelFilter::Info,
+        "debug" => log::LevelFilter::Debug,
+        "trace" => log::LevelFilter::Trace,
+        _ => default_level,
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let log_level = parse_rust_log_level();
+
     tauri::Builder::default()
         .manage(commands::chat::ChatRequestRegistry::default())
-        .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+        .setup(move |app| {
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log_level)
+                    .build(),
+            )?;
+
+            log::info!(
+                "Logger initialized with level={} (RUST_LOG={})",
+                log_level,
+                std::env::var("RUST_LOG").unwrap_or_else(|_| "<unset>".to_string())
+            );
 
             let config_path =
                 config::init_config_if_missing().map_err(|e| std::io::Error::other(e))?;
