@@ -12,9 +12,10 @@ use tokio::sync::watch;
 use crate::config::{AppConfig, ResolvedModelConfig};
 use crate::tools::ToolSchemaFormat;
 use capabilities::ProviderCapabilities;
+use serde_json::Value;
 use types::{
-    ModelReasoningCapability, ProviderEventSink, ProviderModelDescriptor, ProviderStreamEvent,
-    ResponseStreamRequest, ResponseStreamResult,
+    ModelReasoningCapability, ProviderEventSink, ProviderModelDescriptor, ProviderPendingToolCall,
+    ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult,
 };
 
 type StreamFuture<'a> =
@@ -39,6 +40,14 @@ trait ProviderAdapter: Send + Sync {
         model_id: &str,
         cached_levels: Option<&[String]>,
     ) -> ModelReasoningCapability;
+    fn extract_pending_tool_calls(&self, output_items: &[Value]) -> Vec<ProviderPendingToolCall>;
+    fn build_tool_result_input_item(&self, call_id: &str, output: &str) -> Value;
+    fn build_user_input_item(&self, text: &str) -> Value;
+    fn compose_tool_continuation_input(
+        &self,
+        output_items: &[Value],
+        tool_results_items: Vec<Value>,
+    ) -> Vec<Value>;
 }
 
 struct CodexAdapter;
@@ -76,6 +85,26 @@ impl ProviderAdapter for CodexAdapter {
         cached_levels: Option<&[String]>,
     ) -> ModelReasoningCapability {
         codex::get_reasoning_capability(model_id, cached_levels)
+    }
+
+    fn extract_pending_tool_calls(&self, output_items: &[Value]) -> Vec<ProviderPendingToolCall> {
+        responses::extract_pending_tool_calls_from_output(output_items)
+    }
+
+    fn build_tool_result_input_item(&self, call_id: &str, output: &str) -> Value {
+        responses::build_tool_result_input_item(call_id, output)
+    }
+
+    fn build_user_input_item(&self, text: &str) -> Value {
+        responses::build_user_input_item(text)
+    }
+
+    fn compose_tool_continuation_input(
+        &self,
+        output_items: &[Value],
+        tool_results_items: Vec<Value>,
+    ) -> Vec<Value> {
+        responses::compose_tool_continuation_input(output_items, tool_results_items)
     }
 }
 
@@ -119,6 +148,26 @@ impl ProviderAdapter for OpenAIStandardAdapter {
         cached_levels: Option<&[String]>,
     ) -> ModelReasoningCapability {
         openai_standard::get_reasoning_capability(model_id, cached_levels)
+    }
+
+    fn extract_pending_tool_calls(&self, output_items: &[Value]) -> Vec<ProviderPendingToolCall> {
+        responses::extract_pending_tool_calls_from_output(output_items)
+    }
+
+    fn build_tool_result_input_item(&self, call_id: &str, output: &str) -> Value {
+        responses::build_tool_result_input_item(call_id, output)
+    }
+
+    fn build_user_input_item(&self, text: &str) -> Value {
+        responses::build_user_input_item(text)
+    }
+
+    fn compose_tool_continuation_input(
+        &self,
+        output_items: &[Value],
+        tool_results_items: Vec<Value>,
+    ) -> Vec<Value> {
+        responses::compose_tool_continuation_input(output_items, tool_results_items)
     }
 }
 
@@ -189,4 +238,32 @@ pub fn get_reasoning_capability(
     cached_levels: Option<&[String]>,
 ) -> Result<ModelReasoningCapability, String> {
     Ok(adapter_for_kind(provider_kind)?.reasoning_capability(model_id, cached_levels))
+}
+
+pub fn extract_pending_tool_calls(
+    provider_kind: &str,
+    output_items: &[Value],
+) -> Result<Vec<ProviderPendingToolCall>, String> {
+    Ok(adapter_for_kind(provider_kind)?.extract_pending_tool_calls(output_items))
+}
+
+pub fn build_tool_result_input_item(
+    provider_kind: &str,
+    call_id: &str,
+    output: &str,
+) -> Result<Value, String> {
+    Ok(adapter_for_kind(provider_kind)?.build_tool_result_input_item(call_id, output))
+}
+
+pub fn build_user_input_item(provider_kind: &str, text: &str) -> Result<Value, String> {
+    Ok(adapter_for_kind(provider_kind)?.build_user_input_item(text))
+}
+
+pub fn compose_tool_continuation_input(
+    provider_kind: &str,
+    output_items: &[Value],
+    tool_results_items: Vec<Value>,
+) -> Result<Vec<Value>, String> {
+    Ok(adapter_for_kind(provider_kind)?
+        .compose_tool_continuation_input(output_items, tool_results_items))
 }

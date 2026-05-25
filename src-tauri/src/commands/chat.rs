@@ -302,9 +302,12 @@ pub async fn chat_stream(
     let context = {
         let conversation_id = conversation_id.clone();
         let utility_model = utility_model.clone();
+        let target_provider = config
+            .resolve_model_profile(req.model.as_deref())?
+            .provider_key;
         run_blocking(move || {
             conversation_store::ensure_conversation(&conversation_id, &utility_model)?;
-            conversation_store::load_context_for_request(&conversation_id)
+            conversation_store::load_context_for_request(&conversation_id, Some(&target_provider))
         })
         .await?
     };
@@ -567,7 +570,7 @@ async fn generate_title_and_emit(
         input_items: vec![serde_json::json!({
             "role": "user",
             "content": [{
-                "type": "text",
+                "type": "input_text",
                 "text": build_title_generation_prompt(&candidate)
             }]
         })],

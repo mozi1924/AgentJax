@@ -140,7 +140,7 @@ pub fn build_user_input_items(text: &str) -> Vec<Value> {
     vec![json!({
         "role": "user",
         "content": [{
-            "type": "text",
+            "type": "input_text",
             "text": trimmed
         }]
     })]
@@ -157,7 +157,7 @@ pub fn build_assistant_output_items(text: &str) -> Vec<Value> {
         "role": "assistant",
         "status": "completed",
         "content": [{
-            "type": "text",
+            "type": "output_text",
             "text": trimmed,
             "annotations": []
         }]
@@ -342,7 +342,10 @@ pub fn delete_conversation(conversation_id: &str) -> Result<bool, String> {
     Ok(true)
 }
 
-pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationContext, String> {
+pub fn load_context_for_request(
+    conversation_id: &str,
+    target_provider: Option<&str>,
+) -> Result<ConversationContext, String> {
     let path = conversation_file_path(conversation_id)?;
     let Some(mut data) = read_conversation_file(&path)? else {
         return Ok(ConversationContext::default());
@@ -351,6 +354,11 @@ pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationCon
     data.entries.sort_by_key(|entry| entry.created_at_unix_ms);
 
     let mut context = ConversationContext::default();
+    let normalized_target_provider = target_provider
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned);
+
     for entry in data.entries {
         if entry.record_type != "message" {
             if !entry.context_items.is_empty() {
@@ -359,13 +367,27 @@ pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationCon
             continue;
         }
 
-        if let Some(response_id) = entry
-            .response_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            context.previous_response_id = Some(response_id.to_string());
+        let should_capture_previous_response_id =
+            if let Some(target) = normalized_target_provider.as_deref() {
+                let entry_provider = entry
+                    .provider
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty());
+                entry_provider == Some(target)
+            } else {
+                true
+            };
+
+        if should_capture_previous_response_id {
+            if let Some(response_id) = entry
+                .response_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                context.previous_response_id = Some(response_id.to_string());
+            }
         }
 
         if !entry.context_items.is_empty() {
@@ -791,5 +813,96 @@ mod tests {
             !path.exists(),
             "conversation file should be removed after delete"
         );
+    }
+
+    #[test]
+    fn load_context_shares_items_but_scopes_previous_response_id_by_provider() {
+        let conversation_id = format!("test-provider-filter-{}", Uuid::new_v4());
+        let utility_model = "gpt-5-mini";
+        ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
+
+        append_message(
+            AppendMessageInput {
+                conversation_id: conversation_id.clone(),
+                entry_id: "user-openai".to_string(),
+                role: "user".to_string(),
+                text: "hello openai".to_string(),
+                created_at_unix_ms: now_unix_ms(),
+                response_id: None,
+                provider: Some("openai".to_string()),
+                model_profile: Some("gpt-5-mini".to_string()),
+                model_id: Some("gpt-5-mini".to_string()),
+                request_id: Some("req-openai".to_string()),
+                context_items: build_user_input_items("hello openai"),
+                timeline_events: None,
+                metadata: BTreeMap::new(),
+            },
+            utility_model,
+        )
+        .expect("append openai user");
+
+        append_message(
+            AppendMessageInput {
+                conversation_id: conversation_id.clone(),
+                entry_id: "assistant-openai".to_string(),
+                role: "assistant".to_string(),
+                text: "openai answer".to_string(),
+                created_at_unix_ms: now_unix_ms(),
+                response_id: Some("resp-openai".to_string()),
+                provider: Some("openai".to_string()),
+                model_profile: Some("gpt-5-mini".to_string()),
+                model_id: Some("gpt-5-mini".to_string()),
+                request_id: Some("req-openai".to_string()),
+                context_items: build_assistant_output_items("openai answer"),
+                timeline_events: None,
+                metadata: BTreeMap::new(),
+            },
+            utility_model,
+        )
+        .expect("append openai assistant");
+
+        append_message(
+            AppendMessageInput {
+                conversation_id: conversation_id.clone(),
+                entry_id: "assistant-codex".to_string(),
+                role: "assistant".to_string(),
+                text: "codex answer".to_string(),
+                created_at_unix_ms: now_unix_ms(),
+                response_id: Some("resp-codex".to_string()),
+                provider: Some("codex".to_string()),
+                model_profile: Some("gpt-5.4-mini".to_string()),
+                model_id: Some("gpt-5.4-mini".to_string()),
+                request_id: Some("req-codex".to_string()),
+                context_items: build_assistant_output_items("codex answer"),
+                timeline_events: None,
+                metadata: BTreeMap::new(),
+            },
+            utility_model,
+        )
+        .expect("append codex assistant");
+
+        let openai_context =
+            load_context_for_request(&conversation_id, Some("openai")).expect("openai context");
+        assert_eq!(
+            openai_context.previous_response_id.as_deref(),
+            Some("resp-openai")
+        );
+        assert!(
+            openai_context.input_items.len() >= 3,
+            "openai context should still include shared history items"
+        );
+
+        let codex_context =
+            load_context_for_request(&conversation_id, Some("codex")).expect("codex context");
+        assert_eq!(
+            codex_context.previous_response_id.as_deref(),
+            Some("resp-codex")
+        );
+        assert!(
+            codex_context.input_items.len() >= 3,
+            "codex context should still include shared history items"
+        );
+
+        delete_conversation(&conversation_id).expect("cleanup conversation");
     }
 }

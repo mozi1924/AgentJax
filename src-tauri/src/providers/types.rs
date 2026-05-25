@@ -61,6 +61,13 @@ pub type ResponseStreamRequest = ProviderTurnRequest;
 pub type ProviderEventSink<'a> = dyn FnMut(ProviderStreamEvent) -> Result<(), String> + Send + 'a;
 
 #[derive(Debug, Clone)]
+pub struct ProviderPendingToolCall {
+    pub call_id: String,
+    pub name: String,
+    pub arguments: Value,
+}
+
+#[derive(Debug, Clone)]
 pub struct ResponseStreamResult {
     pub response_id: String,
     pub output_text: String,

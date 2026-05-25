@@ -1,28 +1,13 @@
 use crate::config::AppConfig;
-use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
+use crate::providers::types::{
+    ProviderPendingToolCall, ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult,
+};
 use crate::tools::ToolCatalog;
-use crate::tools::ToolSchemaFormat;
 use serde_json::{json, Value};
 use std::time::Instant;
 use tokio::sync::watch;
 
 pub struct AgentRuntime;
-
-fn collect_reasoning_items(output_items: &[Value]) -> Vec<Value> {
-    output_items
-        .iter()
-        .filter(|item| item.get("type").and_then(Value::as_str) == Some("reasoning"))
-        .cloned()
-        .collect()
-}
-
-fn build_function_call_output_item(call_id: &str, output: &str) -> Value {
-    json!({
-        "type": "function_call_output",
-        "call_id": call_id,
-        "output": output
-    })
-}
 
 fn describe_item_shape(item: &Value) -> String {
     if let Some(kind) = item.get("type").and_then(Value::as_str) {
@@ -32,6 +17,45 @@ fn describe_item_shape(item: &Value) -> String {
         return format!("role:{role}");
     }
     "unknown".to_string()
+}
+
+fn push_or_update_pending_tool_call(
+    calls: &mut Vec<ProviderPendingToolCall>,
+    call_id: String,
+    name: String,
+    arguments: Value,
+) {
+    if let Some(existing) = calls.iter_mut().find(|call| call.call_id == call_id) {
+        existing.name = name;
+        existing.arguments = arguments;
+        return;
+    }
+
+    calls.push(ProviderPendingToolCall {
+        call_id,
+        name,
+        arguments,
+    });
+}
+
+fn parse_tool_arguments(arguments: &str, fallback_delta: Option<&str>) -> Value {
+    let parse_json_object = |raw: &str| -> Option<Value> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let parsed = serde_json::from_str::<Value>(trimmed).ok()?;
+        if parsed.is_object() {
+            Some(parsed)
+        } else {
+            None
+        }
+    };
+
+    parse_json_object(arguments)
+        .or_else(|| fallback_delta.and_then(parse_json_object))
+        .unwrap_or_else(|| json!({}))
 }
 
 impl AgentRuntime {
@@ -85,13 +109,10 @@ impl AgentRuntime {
                 continuation_items
             } else {
                 let mut initial_items = context_items.clone();
-                initial_items.push(json!({
-                    "role": "user",
-                    "content": [{
-                        "type": "text",
-                        "text": req.input.trim()
-                    }]
-                }));
+                initial_items.push(crate::providers::build_user_input_item(
+                    &resolved_model.provider.kind,
+                    req.input.trim(),
+                )?);
                 initial_items
             };
 
@@ -108,6 +129,9 @@ impl AgentRuntime {
 
             // Call provider to stream response
             let mut active_tool_calls_in_turn = std::collections::HashMap::new();
+            let mut tool_args_delta_by_call: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            let mut pending_tools_from_events: Vec<ProviderPendingToolCall> = Vec::new();
 
             let provider_res =
                 crate::providers::stream_response(config, &stream_request, cancel_rx, |event| {
@@ -116,8 +140,9 @@ impl AgentRuntime {
                             active_tool_calls_in_turn
                                 .insert(call_id.clone(), (name.clone(), Value::Null));
                         }
-                        ProviderStreamEvent::ToolCallArgumentsDelta { .. } => {
-                            // Accumulate arguments if delta is emitted
+                        ProviderStreamEvent::ToolCallArgumentsDelta { call_id, delta, .. } => {
+                            let entry = tool_args_delta_by_call.entry(call_id.clone()).or_default();
+                            entry.push_str(delta);
                         }
                         ProviderStreamEvent::ToolCallCompleted {
                             call_id,
@@ -125,10 +150,18 @@ impl AgentRuntime {
                             arguments,
                             ..
                         } => {
-                            let parsed_args: Value =
-                                serde_json::from_str(arguments).unwrap_or_default();
+                            let parsed_args = parse_tool_arguments(
+                                arguments,
+                                tool_args_delta_by_call.get(call_id).map(String::as_str),
+                            );
                             active_tool_calls_in_turn
-                                .insert(call_id.clone(), (name.clone(), parsed_args));
+                                .insert(call_id.clone(), (name.clone(), parsed_args.clone()));
+                            push_or_update_pending_tool_call(
+                                &mut pending_tools_from_events,
+                                call_id.clone(),
+                                name.clone(),
+                                parsed_args,
+                            );
                         }
                         ProviderStreamEvent::ToolCallExecuted { call_id, output } => {
                             if let Some((name, args)) = active_tool_calls_in_turn.get(call_id) {
@@ -176,29 +209,19 @@ impl AgentRuntime {
                 final_output_items.push(item.clone());
             }
 
-            // Check if there are tool calls that need execution (SSE/REST)
-            let mut pending_tools = Vec::new();
-
-            for item in &response_result.output_items {
-                if item.get("type").and_then(Value::as_str) == Some("function_call") {
-                    if let (Some(call_id), Some(name), Some(args)) = (
-                        item.get("call_id").and_then(Value::as_str),
-                        item.get("name").and_then(Value::as_str),
-                        item.get("arguments"),
-                    ) {
-                        let has_output = response_result.output_items.iter().any(|other| {
-                            other.get("type").and_then(Value::as_str)
-                                == Some("function_call_output")
-                                && other.get("call_id").and_then(Value::as_str) == Some(call_id)
-                        });
-                        if !has_output {
-                            pending_tools.push((
-                                call_id.to_string(),
-                                name.to_string(),
-                                args.clone(),
-                            ));
-                        }
-                    }
+            // Prefer event-driven tool-call extraction, fallback to output-item scan.
+            let mut pending_tools = pending_tools_from_events;
+            if pending_tools.is_empty() {
+                pending_tools = crate::providers::extract_pending_tool_calls(
+                    &resolved_model.provider.kind,
+                    &response_result.output_items,
+                )?;
+                if !pending_tools.is_empty() {
+                    log::debug!(
+                        "Tool-call fallback path used for provider '{}': extracted {} calls from output items",
+                        resolved_model.provider_key,
+                        pending_tools.len()
+                    );
                 }
             }
 
@@ -206,11 +229,21 @@ impl AgentRuntime {
                 break;
             }
 
-            let use_native_response_items =
-                matches!(tool_schema_format, ToolSchemaFormat::Responses);
             let mut tool_results_items = Vec::new();
 
-            for (call_id, name, args) in pending_tools {
+            for pending in pending_tools {
+                let call_id = pending.call_id;
+                let name = pending.name;
+                let args = if pending.arguments.is_object() {
+                    pending.arguments
+                } else {
+                    log::warn!(
+                        "Tool call '{}' arguments are not an object (type={}), defaulting to empty object",
+                        call_id,
+                        describe_item_shape(&pending.arguments)
+                    );
+                    json!({})
+                };
                 let start_time = Instant::now();
                 let exec_result = tools_catalog.execute(&name, &args).await;
                 let duration_ms = start_time.elapsed().as_millis() as u64;
@@ -237,36 +270,19 @@ impl AgentRuntime {
                     "durationMs": duration_ms
                 }));
 
-                let tool_input_item = if use_native_response_items {
-                    build_function_call_output_item(&call_id, &output_str)
-                } else {
-                    json!({
-                        "role": "tool",
-                        "tool_call_id": call_id.clone(),
-                        "content": [
-                            {
-                                "type": "tool_output",
-                                "text": output_str.clone()
-                            }
-                        ]
-                    })
-                };
+                let tool_input_item = crate::providers::build_tool_result_input_item(
+                    &resolved_model.provider.kind,
+                    &call_id,
+                    &output_str,
+                )?;
                 tool_results_items.push(tool_input_item);
             }
 
-            let continuation_input_items = if use_native_response_items {
-                let mut items = collect_reasoning_items(&response_result.output_items);
-                items.extend(tool_results_items);
-                items
-            } else {
-                let assistant_item = json!({
-                    "role": "assistant",
-                    "content": response_result.output_items
-                });
-                let mut items = vec![assistant_item];
-                items.extend(tool_results_items);
-                items
-            };
+            let continuation_input_items = crate::providers::compose_tool_continuation_input(
+                &resolved_model.provider.kind,
+                &response_result.output_items,
+                tool_results_items,
+            )?;
 
             let continuation_shape: Vec<String> = continuation_input_items
                 .iter()
@@ -301,43 +317,5 @@ impl AgentRuntime {
         };
 
         Ok((final_res, timeline_events))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{build_function_call_output_item, collect_reasoning_items};
-    use serde_json::json;
-
-    #[test]
-    fn collect_reasoning_items_only_keeps_reasoning_type() {
-        let output_items = vec![
-            json!({"type":"reasoning","id":"r1"}),
-            json!({"type":"function_call","id":"f1"}),
-            json!({"type":"message","id":"m1"}),
-            json!({"type":"reasoning","id":"r2"}),
-        ];
-
-        let reasoning = collect_reasoning_items(&output_items);
-        assert_eq!(reasoning.len(), 2);
-        assert_eq!(reasoning[0].get("id").and_then(|v| v.as_str()), Some("r1"));
-        assert_eq!(reasoning[1].get("id").and_then(|v| v.as_str()), Some("r2"));
-    }
-
-    #[test]
-    fn function_call_output_item_shape_matches_responses_input_item() {
-        let item = build_function_call_output_item("call_123", "{\"ok\":true}");
-        assert_eq!(
-            item.get("type").and_then(|v| v.as_str()),
-            Some("function_call_output")
-        );
-        assert_eq!(
-            item.get("call_id").and_then(|v| v.as_str()),
-            Some("call_123")
-        );
-        assert_eq!(
-            item.get("output").and_then(|v| v.as_str()),
-            Some("{\"ok\":true}")
-        );
     }
 }
