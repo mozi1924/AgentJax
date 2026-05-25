@@ -71,7 +71,7 @@ function ToolCallWidget({ toolCall }) {
 
   const rawName = toolCall.name || '';
   let displayName = rawName;
-  let originLabel = 'Native Tool';
+  let originLabel = '内置工具';
 
   if (rawName.startsWith('mcp__')) {
     const parts = rawName.split('__');
@@ -83,7 +83,16 @@ function ToolCallWidget({ toolCall }) {
     }
   }
 
-  const isFailed = toolCall.status === 'failed' || (toolCall.output && toolCall.output.toLowerCase().includes('failed'));
+  const isFailed = (() => {
+    if (toolCall.status === 'failed') return true;
+    if (!toolCall.output) return false;
+    try {
+      const parsed = typeof toolCall.output === 'string' ? JSON.parse(toolCall.output) : toolCall.output;
+      return parsed?.ok === false || !!parsed?.error;
+    } catch {
+      return String(toolCall.output).toLowerCase().includes('failed');
+    }
+  })();
 
   return (
     <div className={`rounded-xl border px-4 py-2 text-xs leading-relaxed transition-all duration-300 backdrop-blur-md mb-2 ${isFailed ? 'text-rose-400 border-rose-500/20 bg-rose-500/5' : getStatusColor()}`}>
@@ -121,7 +130,7 @@ function ToolCallWidget({ toolCall }) {
         <div className="mt-2.5 space-y-2 border-t border-slate-500/10 pt-2.5 transition-all">
           <div>
             <div className="flex justify-between items-center mb-1 select-none">
-              <span className="font-semibold opacity-70">输入参数 (Arguments):</span>
+              <span className="font-semibold opacity-70">输入参数：</span>
               <button
                 onClick={handleCopyArgs}
                 className="flex items-center gap-1 opacity-60 hover:opacity-100 text-[10px] text-cyan-300 font-medium transition py-0.5 px-1.5 rounded hover:bg-slate-500/10 cursor-pointer"
@@ -130,7 +139,7 @@ function ToolCallWidget({ toolCall }) {
                 {copiedArgs ? (
                   <>
                     <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                    <span className="text-emerald-400">已复制!</span>
+                    <span className="text-emerald-400">已复制</span>
                   </>
                 ) : (
                   <>
@@ -147,7 +156,7 @@ function ToolCallWidget({ toolCall }) {
           {toolCall.output && (
             <div>
               <div className="flex justify-between items-center mb-1 select-none">
-                <span className="font-semibold opacity-70">输出结果 (Output):</span>
+                <span className="font-semibold opacity-70">输出结果：</span>
                 <button
                   onClick={handleCopyOutput}
                   className="flex items-center gap-1 opacity-60 hover:opacity-100 text-[10px] text-emerald-300 font-medium transition py-0.5 px-1.5 rounded hover:bg-slate-500/10 cursor-pointer"
@@ -156,7 +165,7 @@ function ToolCallWidget({ toolCall }) {
                   {copiedOutput ? (
                     <>
                       <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                      <span className="text-emerald-400">已复制!</span>
+                      <span className="text-emerald-400">已复制</span>
                     </>
                   ) : (
                     <>
@@ -539,7 +548,7 @@ export default function ChatArea({
                             {copiedErrorId === m.id ? (
                               <>
                                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                                <span className="text-emerald-400">已复制错误!</span>
+                                <span className="text-emerald-400">已复制错误</span>
                               </>
                             ) : (
                               <>
@@ -556,7 +565,7 @@ export default function ChatArea({
                   <div className="flex min-h-8 items-center">
                     <div className="inline-flex items-center gap-2 rounded-full border border-[#2d2f31] bg-[#1b1c1d] px-3 py-1.5 text-xs text-slate-400">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-300" />
-                      {isThinking && <span>Thinking（思考中）</span>}
+                      {isThinking && <span>思考中...</span>}
                     </div>
                   </div>
                 ) : (

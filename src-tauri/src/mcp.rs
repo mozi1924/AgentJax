@@ -5,6 +5,7 @@ use rmcp::{model::CallToolRequestParams, service::RoleClient};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use types::resolve_server_runtime;
 
@@ -44,7 +45,17 @@ impl McpManager {
             services.remove(server_id);
         }
 
-        let service = transport::start_transport(&resolved.connection).await?;
+        let service = tokio::time::timeout(
+            Duration::from_millis(runtime_config.startup_timeout_ms),
+            transport::start_transport(&resolved.connection),
+        )
+        .await
+        .map_err(|_| {
+            format!(
+                "Timed out while starting MCP server '{}' after {}ms",
+                server_id, runtime_config.startup_timeout_ms
+            )
+        })??;
         let peer = service.peer().clone();
         services.insert(
             server_id.to_string(),
@@ -64,10 +75,18 @@ impl McpManager {
     ) -> Result<Vec<Value>, String> {
         let peer = self.get_peer(server_id, config, runtime_config).await?;
 
-        let response = peer
-            .list_tools(None)
-            .await
-            .map_err(|e| format!("Failed to list tools from MCP server '{server_id}': {e}"))?;
+        let response = tokio::time::timeout(
+            Duration::from_millis(runtime_config.tool_timeout_ms),
+            peer.list_tools(None),
+        )
+        .await
+        .map_err(|_| {
+            format!(
+                "Timed out while listing tools from MCP server '{}' after {}ms",
+                server_id, runtime_config.tool_timeout_ms
+            )
+        })?
+        .map_err(|e| format!("Failed to list tools from MCP server '{server_id}': {e}"))?;
 
         let mut tool_schemas = Vec::new();
         for tool in response.tools {
@@ -97,10 +116,18 @@ impl McpManager {
             param = param.with_arguments(args);
         }
 
-        let response = peer
-            .call_tool(param)
-            .await
-            .map_err(|e| format!("Failed to call tool '{name}' on server '{server_id}': {e}"))?;
+        let response = tokio::time::timeout(
+            Duration::from_millis(runtime_config.tool_timeout_ms),
+            peer.call_tool(param),
+        )
+        .await
+        .map_err(|_| {
+            format!(
+                "Timed out while calling tool '{}' on MCP server '{}' after {}ms",
+                name, server_id, runtime_config.tool_timeout_ms
+            )
+        })?
+        .map_err(|e| format!("Failed to call tool '{name}' on server '{server_id}': {e}"))?;
 
         Ok(serde_json::to_value(response).unwrap_or_default())
     }

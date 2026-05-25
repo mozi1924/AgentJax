@@ -4,10 +4,13 @@ use crate::providers::types::{
 };
 use crate::tools::{ToolCatalog, ToolExecutionContext};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::time::Instant;
 use tokio::sync::watch;
 
 pub struct AgentRuntime;
+const MAX_TOOL_EXEC_RETRIES: usize = 2;
+const MAX_REPEATED_FAILED_SIGNATURES: usize = 3;
 
 fn describe_item_shape(item: &Value) -> String {
     if let Some(kind) = item.get("type").and_then(Value::as_str) {
@@ -83,6 +86,7 @@ impl AgentRuntime {
         let mut timeline_events = Vec::new();
         let final_capabilities = provider_capabilities;
         let mut next_input_items: Option<Vec<Value>> = None;
+        let mut repeated_failed_tool_signatures: HashMap<String, usize> = HashMap::new();
 
         // 1. Initial tools schema mapping (provider-specific conversion)
         let tools_schemas = tools_catalog
@@ -240,21 +244,69 @@ impl AgentRuntime {
                     );
                     json!({})
                 };
+                let signature = format!("{}::{}", name, serde_json::to_string(&args).unwrap_or_default());
+                let repeated_fail_count = repeated_failed_tool_signatures
+                    .get(&signature)
+                    .copied()
+                    .unwrap_or(0);
+                let is_repeated_failure_guarded = repeated_fail_count >= MAX_REPEATED_FAILED_SIGNATURES;
                 let start_time = Instant::now();
-                let exec_result = tools_catalog
-                    .execute(
-                        &name,
-                        &args,
-                        &ToolExecutionContext {
-                            conversation_id: Some(conversation_id.to_string()),
-                        },
-                    )
-                    .await;
+                let mut last_error: Option<String> = None;
+                let mut success_result: Option<Value> = None;
+                let mut attempt = 0usize;
+                let mut max_attempts = MAX_TOOL_EXEC_RETRIES;
+                if is_repeated_failure_guarded {
+                    max_attempts = 0;
+                }
+                while attempt < max_attempts {
+                    attempt += 1;
+                    let exec_result = tools_catalog
+                        .execute(
+                            &name,
+                            &args,
+                            &ToolExecutionContext {
+                                conversation_id: Some(conversation_id.to_string()),
+                            },
+                        )
+                        .await;
+                    match exec_result {
+                        Ok(res) => {
+                            success_result = Some(res);
+                            break;
+                        }
+                        Err(err) => {
+                            last_error = Some(err);
+                        }
+                    }
+                }
                 let duration_ms = start_time.elapsed().as_millis() as u64;
 
-                let (output_str, is_success) = match exec_result {
-                    Ok(res) => (serde_json::to_string(&res).unwrap_or_default(), true),
-                    Err(err) => (err, false),
+                let (output_str, is_success) = if let Some(res) = success_result {
+                    let output_payload = json!({
+                        "ok": true,
+                        "tool": name,
+                        "result": res,
+                    });
+                    (serde_json::to_string(&output_payload).unwrap_or_default(), true)
+                } else {
+                    let error_message = if is_repeated_failure_guarded {
+                        format!(
+                            "Tool '{}' with the same arguments has failed {} times in a row. Stop retrying this exact call and adjust arguments or choose another approach.",
+                            name, repeated_fail_count
+                        )
+                    } else {
+                        last_error.unwrap_or_else(|| "Tool execution failed".to_string())
+                    };
+                    let output_payload = json!({
+                        "ok": false,
+                        "tool": name,
+                        "error": {
+                            "message": error_message,
+                            "retriable": !is_repeated_failure_guarded,
+                            "attempts": max_attempts,
+                        }
+                    });
+                    (serde_json::to_string(&output_payload).unwrap_or_default(), false)
                 };
 
                 on_event(ProviderStreamEvent::ToolCallExecuted {
@@ -273,6 +325,14 @@ impl AgentRuntime {
                     "status": if is_success { "success" } else { "failed" },
                     "durationMs": duration_ms
                 }));
+                if is_success {
+                    repeated_failed_tool_signatures.remove(&signature);
+                } else {
+                    repeated_failed_tool_signatures
+                        .entry(signature)
+                        .and_modify(|count| *count += 1)
+                        .or_insert(1);
+                }
 
                 let tool_input_item = crate::providers::build_tool_result_input_item(
                     &resolved_model.provider.kind,

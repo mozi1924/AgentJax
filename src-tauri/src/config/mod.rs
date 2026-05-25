@@ -51,10 +51,12 @@ pub struct McpServerConfig {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct McpRuntimeConfig {
     pub stdio: McpStdioRuntimeConfig,
+    pub startup_timeout_ms: u64,
+    pub tool_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,6 +169,24 @@ impl Default for McpStdioRuntimeConfig {
         Self {
             env: BTreeMap::new(),
             inherit_parent_env: false,
+        }
+    }
+}
+
+const fn default_mcp_startup_timeout_ms() -> u64 {
+    15_000
+}
+
+const fn default_mcp_tool_timeout_ms() -> u64 {
+    30_000
+}
+
+impl Default for McpRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            stdio: McpStdioRuntimeConfig::default(),
+            startup_timeout_ms: default_mcp_startup_timeout_ms(),
+            tool_timeout_ms: default_mcp_tool_timeout_ms(),
         }
     }
 }
