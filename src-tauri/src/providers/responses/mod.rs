@@ -189,7 +189,12 @@ pub fn compose_tool_continuation_input(
 ) -> Vec<Value> {
     let mut items: Vec<Value> = output_items
         .iter()
-        .filter(|item| item.get("type").and_then(Value::as_str) == Some("reasoning"))
+        .filter(|item| {
+            matches!(
+                item.get("type").and_then(Value::as_str),
+                Some("reasoning") | Some("function_call") | Some("custom_tool_call")
+            )
+        })
         .cloned()
         .collect();
     items.append(&mut tool_results_items);

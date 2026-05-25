@@ -7,7 +7,6 @@ mod tests {
         ToolSchemaFormat,
     };
     use serde_json::json;
-    use std::fs;
 
     #[test]
     fn test_calculator_success() {
@@ -78,59 +77,20 @@ mod tests {
     }
 
     #[test]
-    fn test_file_tools_sandbox() {
+    fn test_file_tools_require_conversation_context() {
         let reader = FileReaderTool;
         let writer = FileWriterTool;
         let ctx = ToolExecutionContext::default();
 
-        let filename = "test_sandbox_run.txt";
-        let test_content = "Hello from Tauri Agent Sandbox Tool Test!";
+        let write_err = writer
+            .execute(&json!({"filename": "x.txt", "content": "x"}), &ctx)
+            .unwrap_err();
+        assert!(write_err.contains("Missing conversation context"));
 
-        // 1. Write the file
-        let write_args = json!({
-            "filename": filename,
-            "content": test_content
-        });
-        let write_res = writer.execute(&write_args, &ctx).unwrap();
-        assert_eq!(write_res["status"], "success");
-        assert_eq!(
-            write_res["bytesWritten"].as_u64().unwrap(),
-            test_content.len() as u64
-        );
-
-        // 2. Read the file back
-        let read_args = json!({
-            "filename": filename
-        });
-        let read_res = reader.execute(&read_args, &ctx).unwrap();
-        assert_eq!(read_res["content"].as_str().unwrap(), test_content);
-
-        // 3. Verify directory traversal protection.
-        // The path validator must extract only the file name part.
-        // Therefore writing to "../traversal_test.txt" should write to "traversal_test.txt" inside sandbox.
-        let traversal_filename = "../traversal_test.txt";
-        let traversal_args = json!({
-            "filename": traversal_filename,
-            "content": "traversal-secured"
-        });
-        let traversal_res = writer.execute(&traversal_args, &ctx).unwrap();
-        assert_eq!(traversal_res["filename"], traversal_filename); // returns input filename back
-
-        // Reading it via pure filename "traversal_test.txt" should succeed because it was sandboxed
-        let read_clean_args = json!({
-            "filename": "traversal_test.txt"
-        });
-        let read_clean_res = reader.execute(&read_clean_args, &ctx).unwrap();
-        assert_eq!(
-            read_clean_res["content"].as_str().unwrap(),
-            "traversal-secured"
-        );
-
-        // Clean up
-        let _ = fs::remove_file(FileReaderTool::validate_path(&reader, filename, &ctx).unwrap());
-        let _ = fs::remove_file(
-            FileReaderTool::validate_path(&reader, "traversal_test.txt", &ctx).unwrap(),
-        );
+        let read_err = reader
+            .execute(&json!({"filename": "x.txt"}), &ctx)
+            .unwrap_err();
+        assert!(read_err.contains("Missing conversation context"));
     }
 
     #[test]

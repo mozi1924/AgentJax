@@ -136,7 +136,10 @@ impl FileReaderTool {
         {
             conversation_store::conversation_workspace_path(conversation_id)?
         } else {
-            conversation_store::agentjax_home_dir()?.join("sandbox")
+            return Err(
+                "Missing conversation context for file tool. File tools require a conversation workspace."
+                    .to_string(),
+            );
         };
         if !dir.exists() {
             fs::create_dir_all(&dir).map_err(|e| {
@@ -166,7 +169,7 @@ impl Tool for FileReaderTool {
     }
 
     fn description(&self) -> &'static str {
-        "Reads the text content of a file located in the safe sandboxed directory."
+        "Reads the text content of a file located in the current conversation workspace."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -190,7 +193,10 @@ impl Tool for FileReaderTool {
 
         let safe_path = self.validate_path(filename, context)?;
         if !safe_path.exists() {
-            return Err(format!("File '{}' not found in sandbox", filename));
+            return Err(format!(
+                "File '{}' not found in current conversation workspace",
+                filename
+            ));
         }
 
         let content =
@@ -215,7 +221,10 @@ impl FileWriterTool {
         {
             conversation_store::conversation_workspace_path(conversation_id)?
         } else {
-            conversation_store::agentjax_home_dir()?.join("sandbox")
+            return Err(
+                "Missing conversation context for file tool. File tools require a conversation workspace."
+                    .to_string(),
+            );
         };
         if !dir.exists() {
             fs::create_dir_all(&dir).map_err(|e| {
@@ -245,7 +254,7 @@ impl Tool for FileWriterTool {
     }
 
     fn description(&self) -> &'static str {
-        "Writes text content to a file located in the safe sandboxed directory. Overwrites existing contents."
+        "Writes text content to a file located in the current conversation workspace. Overwrites existing contents."
     }
 
     fn parameters_schema(&self) -> Value {

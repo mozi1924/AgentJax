@@ -94,13 +94,17 @@ mod tests {
             vec![tool_output_item.clone()],
         )
         .expect("codex adapter should build continuation input items");
-        assert_eq!(continuation_items.len(), 2);
+        assert_eq!(continuation_items.len(), 3);
         assert_eq!(
             continuation_items[0].get("id").and_then(|v| v.as_str()),
             Some("r1")
         );
         assert_eq!(
             continuation_items[1].get("type").and_then(|v| v.as_str()),
+            Some("function_call")
+        );
+        assert_eq!(
+            continuation_items[2].get("type").and_then(|v| v.as_str()),
             Some("function_call_output")
         );
     }

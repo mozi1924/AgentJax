@@ -347,6 +347,19 @@ impl AgentRuntime {
                 &response_result.output_items,
                 tool_results_items,
             )?;
+            // Persist local tool outputs in conversation context so follow-up turns
+            // can keep function_call/function_call_output pairs consistent.
+            final_output_items.extend(
+                continuation_input_items
+                    .iter()
+                    .filter(|item| {
+                        matches!(
+                            item.get("type").and_then(Value::as_str),
+                            Some("function_call_output") | Some("custom_tool_call_output")
+                        )
+                    })
+                    .cloned(),
+            );
 
             let continuation_shape: Vec<String> = continuation_input_items
                 .iter()
