@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import AppHeader from './components/AppHeader';
@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import ChatComposer from './components/ChatComposer';
 import ConfirmModal from './components/ConfirmModal';
+import SettingsModal from './components/SettingsModal';
 import {
   applyConversationTitle,
   buildDraftConversationTitle,
@@ -39,6 +40,7 @@ import {
   normalizeModelOption,
   resolveConfiguredDefaultOptionProfileKey,
 } from './features/models/modelCatalog';
+import type { SettingsSnapshotEvent } from './features/settings/types';
 
 interface ComposerAttachment {
   name: string;
@@ -57,6 +59,7 @@ const isModelOption = (option: ModelOption | null): option is ModelOption =>
 export default function App() {
   const initialConversation = useMemo(() => createLocalConversation(), []);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL_PROFILE);
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [selectedReasoningMode, setSelectedReasoningMode] = useState(DEFAULT_REASONING_MODE);
@@ -89,6 +92,8 @@ export default function App() {
   const streamListenerRef = useRef<(() => void) | null>(null);
   const activeConversationRequestRef = useRef<Record<string, string>>({});
   const stoppedRequestIdsRef = useRef<Set<string>>(new Set());
+  const selectedModelRef = useRef(DEFAULT_MODEL_PROFILE);
+  const selectedReasoningModeRef = useRef(DEFAULT_REASONING_MODE);
 
   const activeConversation = useMemo(
     () =>
@@ -128,6 +133,14 @@ export default function App() {
   const hasAnyGenerating = generatingConversationIds.size > 0;
   const isEmptyConversation = (activeConversation?.messages?.length ?? 0) === 0;
   const conversationViewKey = `${activeConversationId}-${isEmptyConversation ? 'empty' : 'messages'}`;
+
+  useEffect(() => {
+    selectedModelRef.current = selectedModel;
+  }, [selectedModel]);
+
+  useEffect(() => {
+    selectedReasoningModeRef.current = selectedReasoningMode;
+  }, [selectedReasoningMode]);
 
   const markConversationGenerating = (conversationId: string, isGenerating: boolean) => {
     if (!conversationId) return;
@@ -273,54 +286,68 @@ export default function App() {
     };
   }, []);
 
+  const refreshModelCatalog = useCallback(async () => {
+    const catalog = await invoke<ModelCatalogResponse>('get_model_catalog');
+    if (!catalog) return;
+
+    const available =
+      Array.isArray(catalog.modelOptions) && catalog.modelOptions.length > 0
+        ? catalog.modelOptions.map(normalizeModelOption).filter(isModelOption)
+        : (
+            Array.isArray(catalog.effectiveModels) && catalog.effectiveModels.length > 0
+              ? catalog.effectiveModels
+              : [DEFAULT_MODEL_PROFILE]
+          ).map(buildFallbackModelOption);
+    const configuredDefault = (catalog.defaultModel || '').trim();
+    const configuredDefaultProfileKey = resolveConfiguredDefaultOptionProfileKey(
+      configuredDefault,
+      available
+    );
+    const preservedSelection = available.find(
+      (option) => option.profileKey === selectedModelRef.current
+    )?.profileKey;
+    const nextModel =
+      preservedSelection ||
+      configuredDefaultProfileKey ||
+      available[0]?.profileKey ||
+      DEFAULT_MODEL_PROFILE;
+    const nextModelOption =
+      available.find((option) => option.profileKey === nextModel) || null;
+    const preservedReasoning = selectedReasoningModeRef.current;
+    const canPreserveReasoning =
+      !!nextModelOption?.supportsReasoning &&
+      preservedReasoning !== DEFAULT_REASONING_MODE &&
+      nextModelOption.supportedReasoningLevels.includes(preservedReasoning);
+
+    setModelOptions(available);
+    setSelectedModel(nextModel);
+    setSelectedReasoningMode(
+      canPreserveReasoning
+        ? preservedReasoning
+        : nextModelOption?.configuredReasoningEffort || DEFAULT_REASONING_MODE
+    );
+    if (catalog.configPath) {
+      setConfigPath(catalog.configPath);
+    }
+    if (catalog.cachePath) {
+      setCachePath(catalog.cachePath);
+    }
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
-    invoke<ModelCatalogResponse>('get_model_catalog')
-      .then((catalog) => {
-        if (!mounted || !catalog) return;
-        const available =
-          Array.isArray(catalog.modelOptions) && catalog.modelOptions.length > 0
-            ? catalog.modelOptions.map(normalizeModelOption).filter(isModelOption)
-            : (
-                Array.isArray(catalog.effectiveModels) && catalog.effectiveModels.length > 0
-                  ? catalog.effectiveModels
-                  : [DEFAULT_MODEL_PROFILE]
-              ).map(buildFallbackModelOption);
-        const normalizedAvailable = available;
-        const configuredDefault = (catalog.defaultModel || '').trim();
-        const configuredDefaultProfileKey = resolveConfiguredDefaultOptionProfileKey(
-          configuredDefault,
-          normalizedAvailable
-        );
-        const nextModel =
-          configuredDefaultProfileKey ||
-          normalizedAvailable[0]?.profileKey ||
-          DEFAULT_MODEL_PROFILE;
-
-        setModelOptions(normalizedAvailable);
-        setSelectedModel(nextModel);
-        const nextModelOption = normalizedAvailable.find(
-          (option) => option.profileKey === nextModel
-        );
-        setSelectedReasoningMode(
-          nextModelOption?.configuredReasoningEffort || DEFAULT_REASONING_MODE
-        );
-        if (catalog.configPath) {
-          setConfigPath(catalog.configPath);
-        }
-        if (catalog.cachePath) {
-          setCachePath(catalog.cachePath);
-        }
-      })
-      .catch(() => {
-        // Keep frontend defaults when backend config cannot be loaded.
-      });
+    refreshModelCatalog().catch(() => {
+      if (!mounted) {
+        return;
+      }
+      // Keep frontend defaults when backend config cannot be loaded.
+    });
 
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [refreshModelCatalog]);
 
   useEffect(() => {
     let mounted = true;
@@ -610,6 +637,37 @@ export default function App() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    const setup = async () => {
+      const currentWindow = getCurrentWindow();
+      unlisten = await currentWindow.listen<SettingsSnapshotEvent>(
+        'config_snapshot_changed',
+        () => {
+          if (disposed) return;
+          void refreshModelCatalog().catch(() => {});
+        }
+      );
+
+      if (disposed && unlisten) {
+        unlisten();
+        unlisten = null;
+      }
+    };
+
+    void setup();
+
+    return () => {
+      disposed = true;
+      if (unlisten) {
+        unlisten();
+        unlisten = null;
+      }
+    };
+  }, [refreshModelCatalog]);
 
   const handleSend = async (
     textToSend?: string,
@@ -1047,6 +1105,7 @@ export default function App() {
         activeConversationId={activeConversationId}
         onSelectConversation={setActiveConversationId}
         onNewChat={handleNewChat}
+        onOpenSettings={() => setSettingsOpen(true)}
         onRenameConversation={handleRenameConversation}
         onDeleteConversation={handleDeleteConversation}
         generatingConversationIds={generatingConversationIds}
@@ -1149,6 +1208,8 @@ export default function App() {
           onCancel={() => setConversationToDelete(null)}
         />
       )}
+
+      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

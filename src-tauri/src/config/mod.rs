@@ -2,11 +2,17 @@ mod app_config;
 mod constants;
 mod io;
 mod model_ref;
+mod settings;
 mod schema;
 
 pub use io::{
     config_dir_path, get_config_info, init_config_if_missing, load_config, upgrade_config_file,
     ConfigInfo, ConfigUpgradeResult,
+};
+#[allow(unused_imports)]
+pub use settings::{
+    apply_settings_patch, get_settings_snapshot, SecretStatus, SettingsOption,
+    SettingsPatch, SettingsPatchOperation, SettingsSnapshot,
 };
 #[allow(unused_imports)]
 pub use schema::{
@@ -15,15 +21,17 @@ pub use schema::{
 };
 
 #[cfg(test)]
+pub(crate) fn test_env_lock() -> &'static std::sync::Mutex<()> {
+    use std::sync::{Mutex, OnceLock};
+
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
-    use std::sync::{Mutex, OnceLock};
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     #[test]
     fn resolves_model_with_provider_scoped_reference() {
@@ -99,7 +107,9 @@ mod tests {
 
     #[test]
     fn load_config_does_not_rewrite_file_on_startup() {
-        let _guard = env_lock().lock().expect("lock AGENTJAX_HOME env");
+        let _guard = test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let home = std::env::temp_dir().join(format!("agentjax-config-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&home).expect("create temp home");
         let path = home.join("config.yaml");

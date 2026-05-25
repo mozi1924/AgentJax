@@ -9,6 +9,8 @@ mod providers;
 pub mod runtime;
 pub mod tools;
 
+use tauri::Manager;
+
 #[cfg(test)]
 mod providers_tests;
 #[cfg(test)]
@@ -56,6 +58,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(commands::chat::ChatRequestRegistry::default())
         .manage(std::sync::Arc::new(crate::mcp::McpManager::new()))
+        .manage(std::sync::Arc::new(commands::config::ConfigEventState::default()))
         .setup(move |app| {
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
@@ -72,6 +75,12 @@ pub fn run() {
             let config_path =
                 config::init_config_if_missing().map_err(|e| std::io::Error::other(e))?;
             log::info!("Config file ready at {}", config_path.display());
+            let config_event_state = app.state::<std::sync::Arc<commands::config::ConfigEventState>>();
+            commands::config::start_config_watcher(
+                app.handle().clone(),
+                config_event_state.inner().clone(),
+            )
+            .map_err(std::io::Error::other)?;
 
             std::thread::spawn(|| loop {
                 let sync_result = tauri::async_runtime::block_on(models::sync_remote_model_cache());
@@ -95,6 +104,8 @@ pub fn run() {
             commands::config::get_runtime_config,
             commands::config::get_config_file_path,
             commands::config::upgrade_config_file,
+            commands::config::get_settings_snapshot,
+            commands::config::apply_settings_patch,
             commands::models::get_model_catalog,
             commands::models::force_sync_model_cache
         ])

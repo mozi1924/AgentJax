@@ -1,0 +1,61 @@
+import type { SettingsModuleSchema } from '../types';
+
+export const mcpRuntimeSettingsSchema: SettingsModuleSchema = {
+  namespace: 'mcp-runtime',
+  sections: [
+    {
+      id: 'mcp-runtime',
+      title: 'MCP Runtime',
+      icon: 'Cpu',
+      order: 40,
+      description: '所有本地 stdio MCP 进程共享的运行时默认值。',
+      children: [
+        {
+          kind: 'group',
+          id: 'mcp-runtime-group',
+          title: 'Shared runtime',
+          children: [
+            {
+              kind: 'field',
+              id: 'mcp-runtime-inherit-parent-env',
+              title: 'Inherit parent env',
+              path: 'mcp_runtime.stdio.inherit_parent_env',
+              valueType: 'boolean',
+              control: 'switch',
+            },
+            {
+              kind: 'field',
+              id: 'mcp-runtime-env',
+              title: 'Shared env',
+              path: 'mcp_runtime.stdio.env',
+              valueType: 'string_map',
+              control: 'key_value',
+            },
+            {
+              kind: 'field',
+              id: 'mcp-runtime-startup-timeout',
+              title: 'Startup timeout (ms)',
+              path: 'mcp_runtime.startup_timeout_ms',
+              valueType: 'integer',
+              control: 'number',
+              min: 100,
+              max: 600000,
+              step: 100,
+            },
+            {
+              kind: 'field',
+              id: 'mcp-runtime-tool-timeout',
+              title: 'Tool timeout (ms)',
+              path: 'mcp_runtime.tool_timeout_ms',
+              valueType: 'integer',
+              control: 'number',
+              min: 100,
+              max: 600000,
+              step: 100,
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};

@@ -19,6 +19,7 @@ interface SidebarProps {
   activeConversationId: string;
   onSelectConversation: (conversationId: string) => void;
   onNewChat: () => void;
+  onOpenSettings: () => void;
   onRenameConversation: (conversationId: string, title: string) => Promise<void>;
   onDeleteConversation: (conversationId: string) => Promise<void> | void;
   generatingConversationIds: Set<string>;
@@ -30,6 +31,7 @@ export default function Sidebar({
   activeConversationId,
   onSelectConversation,
   onNewChat,
+  onOpenSettings,
   onRenameConversation,
   onDeleteConversation,
   generatingConversationIds,
@@ -319,6 +321,7 @@ export default function Sidebar({
 
       <div className="shrink-0 p-3">
         <button
+          onClick={onOpenSettings}
           className={`flex h-11 items-center whitespace-nowrap text-sm text-slate-400 transition-all duration-300 hover:bg-[#2d2f31] hover:text-slate-200 ${
             isOpen ? 'ml-0 w-[232px] rounded-xl pl-[18px] pr-4' : 'ml-[6px] w-11 rounded-xl pl-[12px]'
           }`}
