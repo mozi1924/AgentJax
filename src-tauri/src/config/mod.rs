@@ -41,6 +41,8 @@ pub struct McpServerConfig {
 pub struct ProviderConfig {
     pub kind: String,
     pub api_endpoint: String,
+    #[serde(default)]
+    pub models_endpoint_candidates: Vec<String>,
     pub realtime_endpoint: Option<String>,
     pub stream_transport: String,
     pub credential: Option<String>,
@@ -125,6 +127,7 @@ impl Default for ProviderConfig {
         Self {
             kind: "openai".to_string(),
             api_endpoint: "https://api.openai.com/v1".to_string(),
+            models_endpoint_candidates: Vec::new(),
             realtime_endpoint: None,
             stream_transport: "websocket".to_string(),
             credential: None,
@@ -158,6 +161,12 @@ impl ProviderConfig {
         if self.api_endpoint.is_empty() {
             self.api_endpoint = "https://api.openai.com/v1".to_string();
         }
+        self.models_endpoint_candidates = self
+            .models_endpoint_candidates
+            .iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect();
 
         self.stream_transport = self.stream_transport.trim().to_lowercase();
         if self.stream_transport != "websocket" && self.stream_transport != "sse" {

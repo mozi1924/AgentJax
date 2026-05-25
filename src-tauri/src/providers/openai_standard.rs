@@ -8,9 +8,6 @@ use super::types::{
 };
 use crate::config::ResolvedModelConfig;
 
-const MODELS_FETCH_STRATEGY: responses::models::ModelsFetchStrategy =
-    responses::models::ModelsFetchStrategy::openai_compatible();
-
 fn stream_behavior() -> responses::stream::ResponsesStreamBehavior {
     responses::stream::ResponsesStreamBehavior {
         api_label: "OpenAI",
@@ -23,7 +20,9 @@ fn stream_behavior() -> responses::stream::ResponsesStreamBehavior {
 pub async fn fetch_remote_models(
     resolved: &ResolvedModelConfig,
 ) -> Result<Vec<ProviderModelDescriptor>, String> {
-    responses::models::fetch_remote_models_with_strategy(resolved, &MODELS_FETCH_STRATEGY).await
+    let strategy = responses::models::ModelsFetchStrategy::openai_compatible()
+        .with_provider_overrides(&resolved.provider.models_endpoint_candidates);
+    responses::models::fetch_remote_models_with_strategy(resolved, &strategy).await
 }
 
 pub async fn stream_response(

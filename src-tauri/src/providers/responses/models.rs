@@ -7,13 +7,44 @@ use crate::providers::types::ProviderModelDescriptor;
 use super::normalize_reasoning_levels;
 
 pub struct ModelsFetchStrategy {
-    pub endpoint_candidates: &'static [&'static str],
+    pub endpoint_candidates: Vec<String>,
 }
 
 impl ModelsFetchStrategy {
-    pub const fn openai_compatible() -> Self {
+    pub fn openai_compatible() -> Self {
         Self {
-            endpoint_candidates: &["/models", "models"],
+            endpoint_candidates: vec!["/models".to_string(), "models".to_string()],
+        }
+    }
+
+    pub fn with_provider_overrides(self, overrides: &[String]) -> Self {
+        if overrides.is_empty() {
+            return self;
+        }
+
+        let mut merged = Vec::new();
+        for candidate in overrides {
+            let trimmed = candidate.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !merged.iter().any(|existing| existing == trimmed) {
+                merged.push(trimmed.to_string());
+            }
+        }
+
+        for candidate in &self.endpoint_candidates {
+            let trimmed = candidate.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !merged.iter().any(|existing| existing == trimmed) {
+                merged.push(trimmed.to_string());
+            }
+        }
+
+        Self {
+            endpoint_candidates: merged,
         }
     }
 }
@@ -35,7 +66,7 @@ pub async fn fetch_remote_models_with_strategy(
         .map_err(|e| format!("Failed to initialize HTTP client: {e}"))?;
 
     let mut errors = Vec::new();
-    for candidate in strategy.endpoint_candidates {
+    for candidate in &strategy.endpoint_candidates {
         let endpoint = build_models_endpoint(&resolved.provider.api_endpoint, candidate);
         let response = match client.get(endpoint.clone()).bearer_auth(&credential).send().await {
             Ok(response) => response,
@@ -158,7 +189,7 @@ fn parse_model_descriptors(root: &Value) -> Vec<ProviderModelDescriptor> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_model_descriptors;
+    use super::{parse_model_descriptors, ModelsFetchStrategy};
     use serde_json::json;
 
     #[test]
@@ -199,5 +230,19 @@ mod tests {
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].id, "model-a");
         assert_eq!(models[1].id, "model-b");
+    }
+
+    #[test]
+    fn strategy_prefers_overrides_and_keeps_defaults() {
+        let strategy = ModelsFetchStrategy::openai_compatible().with_provider_overrides(&[
+            "/custom-models".to_string(),
+            " /custom-models ".to_string(),
+        ]);
+
+        assert_eq!(strategy.endpoint_candidates[0], "/custom-models");
+        assert!(strategy
+            .endpoint_candidates
+            .iter()
+            .any(|candidate| candidate == "/models"));
     }
 }
