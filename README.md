@@ -31,10 +31,10 @@ pnpm build:desktop
 
 ## Configuration
 
-AgentJax creates its configuration on first launch in the OS config directory:
+AgentJax creates its configuration on first launch under `AGENTJAX_HOME`:
 
-- macOS: `~/Library/Application Support/AgentJax/config.yaml`
-- Linux: `~/.config/AgentJax/config.yaml`
-- Windows: `%APPDATA%\\AgentJax\\config.yaml`
+- `AGENTJAX_HOME` default: `~/.agentjax`
+- Config file: `$AGENTJAX_HOME/config.yaml`
+- Sessions directory: `$AGENTJAX_HOME/sessions/`
 
 The full configuration layout, field descriptions, and generated cache files are documented in [docs/configuration.md](docs/configuration.md).

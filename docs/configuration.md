@@ -9,11 +9,13 @@ This page documents the files and sections involved in AgentJax configuration.
 
 ## File Location
 
-AgentJax creates the config directory automatically on first launch:
+AgentJax creates the home directory automatically on first launch:
 
-- macOS: `~/Library/Application Support/AgentJax/`
-- Linux: `~/.config/AgentJax/`
-- Windows: `%APPDATA%\\AgentJax\\`
+- Environment variable: `AGENTJAX_HOME`
+- Default value when unset: `~/.agentjax`
+- Config file path: `$AGENTJAX_HOME/config.yaml`
+- Model cache path: `$AGENTJAX_HOME/models-cache.yaml`
+- Sessions root: `$AGENTJAX_HOME/sessions/`
 
 ## Recommended `config.yaml` Layout
 
