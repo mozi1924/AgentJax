@@ -1,5 +1,22 @@
 import { useEffect, useRef } from 'react';
-import { Image, X, Paperclip, Mic, Send, Square } from 'lucide-react';
+import { Image, Mic, Paperclip, Send, Square, X } from 'lucide-react';
+
+interface ComposerAttachment {
+  name: string;
+  type: string;
+}
+
+interface ChatComposerProps {
+  input: string;
+  onInputChange: (value: string) => void;
+  attachment: ComposerAttachment | null;
+  onRemoveAttachment: () => void;
+  onAttachFile: () => void;
+  isGenerating: boolean;
+  isStopping: boolean;
+  onSend: () => void;
+  onStop: () => void;
+}
 
 export default function ChatComposer({
   input,
@@ -10,15 +27,14 @@ export default function ChatComposer({
   isGenerating,
   isStopping,
   onSend,
-  onStop
-}) {
-  const textareaRef = useRef(null);
+  onStop,
+}: ChatComposerProps) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
-    }
+    if (!textareaRef.current) return;
+    textareaRef.current.style.height = 'auto';
+    textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
   }, [input]);
 
   const handleSubmit = () => {
@@ -31,7 +47,7 @@ export default function ChatComposer({
   };
 
   return (
-    <div className="relative px-4 pb-6 pt-2 md:px-8 lg:px-12 bg-transparent">
+    <div className="relative bg-transparent px-4 pt-2 pb-6 md:px-8 lg:px-12">
       <div className="mx-auto flex max-w-3xl flex-col">
         <div className="relative flex flex-col rounded-3xl border border-[#2d2f31] bg-[#1e1f20] px-4 py-3 shadow-md transition duration-200 focus-within:border-[#3c4043] focus-within:ring-1 focus-within:ring-[#3c4043]/50">
           {attachment && (

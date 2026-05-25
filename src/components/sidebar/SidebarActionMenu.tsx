@@ -1,6 +1,19 @@
 import { Pencil, Trash2 } from 'lucide-react';
+import type { CSSProperties, RefObject } from 'react';
 
-export default function SidebarActionMenu({ menuRef, menuPosition, onRename, onDelete }) {
+interface SidebarActionMenuProps {
+  menuRef: RefObject<HTMLDivElement | null>;
+  menuPosition: CSSProperties | null;
+  onRename: () => void;
+  onDelete: () => void;
+}
+
+export default function SidebarActionMenu({
+  menuRef,
+  menuPosition,
+  onRename,
+  onDelete,
+}: SidebarActionMenuProps) {
   return (
     <div
       ref={menuRef}

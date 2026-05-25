@@ -1,13 +1,22 @@
+import type {
+  Conversation,
+  ConversationMessage,
+  RawConversationMessage,
+  ToolCall,
+} from './types';
+
 export const DEFAULT_CONVERSATION_TITLE = '新对话';
 
-export function createConversationId() {
+export function createConversationId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
   return `conv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function createLocalConversation(conversationId = createConversationId()) {
+export function createLocalConversation(
+  conversationId = createConversationId()
+): Conversation {
   return {
     conversationId,
     title: DEFAULT_CONVERSATION_TITLE,
@@ -16,15 +25,17 @@ export function createLocalConversation(conversationId = createConversationId())
     lastResponseId: null,
     lastMessagePreview: '',
     messageCount: 0,
-    isLoaded: true
+    isLoaded: true,
   };
 }
 
-export function isConversationEmpty(conversation) {
+export function isConversationEmpty(conversation: Conversation | null | undefined): boolean {
   return Array.isArray(conversation?.messages) && conversation.messages.length === 0;
 }
 
-export function shouldShowConversationInSidebar(conversation) {
+export function shouldShowConversationInSidebar(
+  conversation: Conversation | null | undefined
+): boolean {
   if (!conversation) {
     return false;
   }
@@ -33,10 +44,13 @@ export function shouldShowConversationInSidebar(conversation) {
     return true;
   }
 
-  return Number(conversation.messageCount || 0) > 0 || Boolean((conversation.lastMessagePreview || '').trim());
+  return (
+    Number(conversation.messageCount || 0) > 0 ||
+    Boolean((conversation.lastMessagePreview || '').trim())
+  );
 }
 
-export function canUseNativeContextMenu(target) {
+export function canUseNativeContextMenu(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
   }
@@ -48,7 +62,10 @@ export function canUseNativeContextMenu(target) {
   return Boolean(target.closest('[data-native-context-menu="true"]'));
 }
 
-export function applyConversationTitle(conversation, nextTitle) {
+export function applyConversationTitle(
+  conversation: Conversation,
+  nextTitle: string | null | undefined
+): Conversation {
   const title = (nextTitle || '').trim();
   if (!title) {
     return conversation;
@@ -56,12 +73,15 @@ export function applyConversationTitle(conversation, nextTitle) {
 
   return {
     ...conversation,
-    title
+    title,
   };
 }
 
-function compactText(rawText, maxLength = 28) {
-  const cleaned = (rawText || '').split(/\s+/).filter(Boolean).join(' ');
+function compactText(rawText: string | null | undefined, maxLength = 28): string {
+  const cleaned = (rawText || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ');
   if (!cleaned) {
     return '';
   }
@@ -73,11 +93,11 @@ function compactText(rawText, maxLength = 28) {
   return `${cleaned.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
-export function buildDraftConversationTitle(rawText) {
+export function buildDraftConversationTitle(rawText: string): string {
   return compactText(rawText, 30) || DEFAULT_CONVERSATION_TITLE;
 }
 
-function getFirstUserMessageText(conversation) {
+function getFirstUserMessageText(conversation: Conversation | null | undefined): string {
   if (!Array.isArray(conversation?.messages)) {
     return '';
   }
@@ -89,7 +109,9 @@ function getFirstUserMessageText(conversation) {
   return firstUserMessage?.text || '';
 }
 
-export function getConversationDisplayTitle(conversation) {
+export function getConversationDisplayTitle(
+  conversation: Conversation | null | undefined
+): string {
   const explicitTitle = (conversation?.title || '').trim();
   if (
     explicitTitle &&
@@ -98,12 +120,13 @@ export function getConversationDisplayTitle(conversation) {
     return explicitTitle;
   }
 
-  const fallbackTitle = getFirstUserMessageText(conversation) || conversation?.lastMessagePreview || '';
+  const fallbackTitle =
+    getFirstUserMessageText(conversation) || conversation?.lastMessagePreview || '';
   return compactText(fallbackTitle, 30) || DEFAULT_CONVERSATION_TITLE;
 }
 
-function createConversationMessage(message) {
-  const toolCallsMap = {};
+function createConversationMessage(message: RawConversationMessage): ConversationMessage {
+  const toolCallsMap: Record<string, ToolCall> = {};
 
   if (Array.isArray(message.timelineEvents)) {
     for (const item of message.timelineEvents) {
@@ -112,11 +135,21 @@ function createConversationMessage(message) {
         if (callId) {
           toolCallsMap[callId] = {
             id: callId,
-            name: item.name,
-            arguments: typeof item.arguments === 'object' ? JSON.stringify(item.arguments) : item.arguments || '',
-            output: typeof item.output === 'object' ? JSON.stringify(item.output) : item.output || '',
+            name: item.name || '',
+            arguments:
+              typeof item.arguments === 'object'
+                ? JSON.stringify(item.arguments)
+                : item.arguments == null
+                  ? ''
+                  : String(item.arguments),
+            output:
+              typeof item.output === 'object'
+                ? JSON.stringify(item.output)
+                : item.output == null
+                  ? ''
+                  : String(item.output),
             status: item.status === 'success' ? 'executed' : 'failed',
-            durationMs: item.durationMs
+            durationMs: item.durationMs,
           };
         }
       }
@@ -130,10 +163,10 @@ function createConversationMessage(message) {
         if (callId && !toolCallsMap[callId]) {
           toolCallsMap[callId] = {
             id: callId,
-            name: item.name,
+            name: item.name || '',
             arguments: item.arguments || '',
             output: '',
-            status: 'arguments_done'
+            status: 'arguments_done',
           };
         }
       }
@@ -142,11 +175,9 @@ function createConversationMessage(message) {
     for (const item of message.contextItems) {
       if (item.type === 'function_call_output') {
         const callId = item.call_id || item.callId;
-        if (callId && toolCallsMap[callId]) {
-          if (!toolCallsMap[callId].output) {
-            toolCallsMap[callId].output = item.output || '';
-            toolCallsMap[callId].status = 'executed';
-          }
+        if (callId && toolCallsMap[callId] && !toolCallsMap[callId].output) {
+          toolCallsMap[callId].output = item.output || '';
+          toolCallsMap[callId].status = 'executed';
         }
       }
     }
@@ -164,11 +195,13 @@ function createConversationMessage(message) {
     createdAtUnixMs: message.createdAtUnixMs || 0,
     responseId: message.responseId || null,
     timelineEvents: message.timelineEvents || null,
-    toolCalls: Object.values(toolCallsMap)
+    toolCalls: Object.values(toolCallsMap),
   };
 }
 
-function findRetryableUserMessage(messages) {
+function findRetryableUserMessage(
+  messages: ConversationMessage[]
+): ConversationMessage | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (!message || !(message.text || '').trim()) {
@@ -187,7 +220,10 @@ function findRetryableUserMessage(messages) {
   return null;
 }
 
-export function createInterruptedAssistantMessage(userMessage, conversationId) {
+export function createInterruptedAssistantMessage(
+  userMessage: ConversationMessage | null,
+  conversationId: string
+): ConversationMessage | null {
   if (!userMessage || !(userMessage.text || '').trim()) {
     return null;
   }
@@ -200,14 +236,20 @@ export function createInterruptedAssistantMessage(userMessage, conversationId) {
     errorText: '上次发送后在模型回复前中断了，这条提问还没有拿到回答。',
     retryable: true,
     retryInput: userMessage.text,
-    retryConversationId: conversationId
+    retryConversationId: conversationId,
   };
 }
 
-export function hydrateConversationMessages(rawMessages = [], conversationId) {
+export function hydrateConversationMessages(
+  rawMessages: RawConversationMessage[] = [],
+  conversationId: string
+): ConversationMessage[] {
   const messages = rawMessages.map(createConversationMessage);
   const pendingUserMessage = findRetryableUserMessage(messages);
-  const retryMessage = createInterruptedAssistantMessage(pendingUserMessage, conversationId);
+  const retryMessage = createInterruptedAssistantMessage(
+    pendingUserMessage,
+    conversationId
+  );
 
   if (retryMessage) {
     messages.push(retryMessage);

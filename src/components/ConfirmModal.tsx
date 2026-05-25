@@ -1,19 +1,27 @@
 import { useEffect, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
+interface ConfirmModalProps {
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
 export default function ConfirmModal({
   title,
   message,
   confirmText = '确认删除',
   cancelText = '取消',
   onConfirm,
-  onCancel
-}) {
-  const modalRef = useRef(null);
+  onCancel,
+}: ConfirmModalProps) {
+  const modalRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    // 监听 ESC 键自动关闭
-    const handleKeyDown = (event) => {
+    const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onCancel();
       }
@@ -25,7 +33,7 @@ export default function ConfirmModal({
   return (
     <div
       onClick={onCancel}
-      className="animate-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md px-4"
+      className="animate-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-md"
     >
       <div
         ref={modalRef}
@@ -37,25 +45,23 @@ export default function ConfirmModal({
             <AlertTriangle className="h-5 w-5" />
           </div>
           <div className="flex-1 space-y-1">
-            <h3 className="font-semibold text-lg text-slate-100 font-sans tracking-tight">
+            <h3 className="font-sans text-lg font-semibold tracking-tight text-slate-100">
               {title}
             </h3>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              {message}
-            </p>
+            <p className="text-sm leading-relaxed text-slate-400">{message}</p>
           </div>
         </div>
 
         <div className="mt-6 flex justify-end gap-3">
           <button
             onClick={onCancel}
-            className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-400 hover:text-slate-200 hover:bg-[#2d2f31]/60 transition-all duration-200 cursor-pointer"
+            className="cursor-pointer rounded-xl px-4 py-2.5 text-sm font-medium text-slate-400 transition-all duration-200 hover:bg-[#2d2f31]/60 hover:text-slate-200"
           >
             {cancelText}
           </button>
           <button
             onClick={onConfirm}
-            className="rounded-xl bg-rose-500/10 text-rose-300 border border-rose-500/20 hover:bg-rose-600 hover:text-white hover:border-transparent px-5 py-2.5 text-sm font-medium transition-all duration-200 shadow-lg shadow-rose-950/20 cursor-pointer"
+            className="cursor-pointer rounded-xl border border-rose-500/20 bg-rose-500/10 px-5 py-2.5 text-sm font-medium text-rose-300 shadow-lg shadow-rose-950/20 transition-all duration-200 hover:border-transparent hover:bg-rose-600 hover:text-white"
           >
             {confirmText}
           </button>

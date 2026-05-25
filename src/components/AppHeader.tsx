@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Menu, ChevronDown, ChevronRight } from 'lucide-react';
+import type { RefObject } from 'react';
+import { ChevronDown, ChevronRight, Menu } from 'lucide-react';
+import {
+  DEFAULT_REASONING_MODE,
+} from '../features/models/modelCatalog';
+import type { ModelOption } from '../features/conversations/types';
 
-const DEFAULT_REASONING_MODE = '__default__';
-
-const formatReasoningLabel = (value) => {
+const formatReasoningLabel = (value: string) => {
   const normalized = `${value || ''}`.trim().toLowerCase();
   if (!normalized || normalized === DEFAULT_REASONING_MODE) {
     return '跟随配置';
@@ -14,7 +17,7 @@ const formatReasoningLabel = (value) => {
   return normalized.toUpperCase();
 };
 
-const formatProviderModelLabel = (option) => {
+const formatProviderModelLabel = (option: ModelOption) => {
   const provider = `${option?.providerKey || ''}`.trim();
   const profile = `${option?.profileKey || ''}`.trim();
   if (!provider) {
@@ -25,6 +28,20 @@ const formatProviderModelLabel = (option) => {
   }
   return `${provider} / ${profile}`;
 };
+
+interface AppHeaderProps {
+  titlebarRef: RefObject<HTMLDivElement | null>;
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
+  selectedModel: string;
+  selectedModelOption: ModelOption | null;
+  modelOptions: ModelOption[];
+  onSelectModel: (profileKey: string) => void;
+  selectedReasoningMode: string;
+  onSelectReasoningMode: (value: string) => void;
+  configPath: string;
+  cachePath: string;
+}
 
 export default function AppHeader({
   titlebarRef,
@@ -37,30 +54,30 @@ export default function AppHeader({
   selectedReasoningMode,
   onSelectReasoningMode,
   configPath,
-  cachePath
-}) {
+  cachePath,
+}: AppHeaderProps) {
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
-  const [activeSubmenuKey, setActiveSubmenuKey] = useState(null);
-  const dropdownRef = useRef(null);
-  const submenuTimeoutRef = useRef(null);
+  const [activeSubmenuKey, setActiveSubmenuKey] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const submenuTimeoutRef = useRef<number | null>(null);
 
-  const handleMouseEnterRow = (key) => {
+  const handleMouseEnterRow = (key: string | null) => {
     if (submenuTimeoutRef.current) {
-      clearTimeout(submenuTimeoutRef.current);
+      window.clearTimeout(submenuTimeoutRef.current);
       submenuTimeoutRef.current = null;
     }
     setActiveSubmenuKey(key);
   };
 
   const handleMouseLeaveDropdown = () => {
-    submenuTimeoutRef.current = setTimeout(() => {
+    submenuTimeoutRef.current = window.setTimeout(() => {
       setActiveSubmenuKey(null);
     }, 150);
   };
 
   const handleMouseEnterSubmenu = () => {
     if (submenuTimeoutRef.current) {
-      clearTimeout(submenuTimeoutRef.current);
+      window.clearTimeout(submenuTimeoutRef.current);
       submenuTimeoutRef.current = null;
     }
   };
@@ -68,14 +85,14 @@ export default function AppHeader({
   useEffect(() => {
     return () => {
       if (submenuTimeoutRef.current) {
-        clearTimeout(submenuTimeoutRef.current);
+        window.clearTimeout(submenuTimeoutRef.current);
       }
     };
   }, []);
 
   useEffect(() => {
-    const handlePointerDown = (event) => {
-      if (!dropdownRef.current?.contains(event.target)) {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!dropdownRef.current?.contains(event.target as Node)) {
         setModelDropdownOpen(false);
       }
     };
@@ -87,9 +104,10 @@ export default function AppHeader({
   }, []);
 
   const hasReasoningSupport = !!selectedModelOption?.supportsReasoning;
-  const reasoningOptions = hasReasoningSupport && Array.isArray(selectedModelOption?.supportedReasoningLevels)
-    ? selectedModelOption.supportedReasoningLevels
-    : [];
+  const reasoningOptions =
+    hasReasoningSupport && Array.isArray(selectedModelOption?.supportedReasoningLevels)
+      ? selectedModelOption.supportedReasoningLevels
+      : [];
 
   const selectedReasoningLabel = hasReasoningSupport
     ? formatReasoningLabel(selectedReasoningMode)
@@ -136,7 +154,6 @@ export default function AppHeader({
               onMouseLeave={handleMouseLeaveDropdown}
               className="absolute left-0 top-10 z-50 w-[320px] rounded-2xl border border-[#2d2f31] bg-[#1e1f20] p-2 shadow-2xl"
             >
-              {/* TOP ROW: Unified Global Reasoning Selection Row */}
               <div
                 onMouseEnter={() => {
                   if (hasReasoningSupport) {
@@ -145,73 +162,70 @@ export default function AppHeader({
                 }}
                 className={`relative flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left transition select-none ${
                   hasReasoningSupport
-                    ? 'hover:bg-[#2d2f31] cursor-pointer group text-slate-200'
-                    : 'opacity-45 cursor-not-allowed text-slate-400'
+                    ? 'group cursor-pointer text-slate-200 hover:bg-[#2d2f31]'
+                    : 'cursor-not-allowed text-slate-400 opacity-45'
                 }`}
               >
-                <div className="flex-1 min-w-0">
-                  <span className="block text-sm font-medium">
-                    推理等级 (Reasoning)
-                  </span>
-                  <span className="mt-0.5 block text-[10px] text-slate-500 truncate">
+                <div className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">推理等级 (Reasoning)</span>
+                  <span className="mt-0.5 block truncate text-[10px] text-slate-500">
                     {hasReasoningSupport
                       ? '选择全局思考努力程度'
                       : '当前选中模型不支持思考等级'}
                   </span>
                 </div>
                 {hasReasoningSupport && (
-                  <div className="flex items-center gap-1.5 shrink-0 select-none text-xs text-cyan-300 font-medium">
+                  <div className="flex shrink-0 select-none items-center gap-1.5 text-xs font-medium text-cyan-300">
                     <span>{formatReasoningLabel(selectedReasoningMode)}</span>
-                    <ChevronRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300 transition" />
+                    <ChevronRight className="h-3.5 w-3.5 text-slate-500 transition group-hover:text-slate-300" />
                   </div>
                 )}
               </div>
 
-              {/* Secondary hover popout sub-menu for Global Reasoning Levels (Direct child of dropdown for pixel-perfect vertical alignment) */}
               {activeSubmenuKey === 'reasoning' && hasReasoningSupport && (
                 <div
                   onMouseEnter={handleMouseEnterSubmenu}
-                  className="absolute left-[324px] top-0 z-50 w-[180px] rounded-2xl border border-[#2d2f31] bg-[#1e1f20] p-2 shadow-2xl sidebar-context-menu before:absolute before:-left-3 before:top-0 before:bottom-0 before:w-3 before:content-['']"
+                  className="sidebar-context-menu before:content-[''] absolute left-[324px] top-0 z-50 w-[180px] rounded-2xl border border-[#2d2f31] bg-[#1e1f20] p-2 shadow-2xl before:absolute before:-left-3 before:top-0 before:bottom-0 before:w-3"
                 >
-                  <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 border-b border-[#2d2f31]/60 mb-1">
+                  <div className="mb-1 border-b border-[#2d2f31]/60 px-3 py-1.5 text-[11px] font-semibold tracking-[0.2em] text-slate-500 uppercase">
                     选择推理等级
                   </div>
                   <div className="grid gap-0.5">
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
+                      onClick={(event) => {
+                        event.stopPropagation();
                         onSelectReasoningMode(DEFAULT_REASONING_MODE);
                         setModelDropdownOpen(false);
                       }}
-                      className={`flex items-center justify-between rounded-xl px-2.5 py-1.5 text-left transition text-xs cursor-pointer ${
+                      className={`flex cursor-pointer items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-xs transition ${
                         selectedReasoningMode === DEFAULT_REASONING_MODE
-                          ? 'bg-cyan-400/10 text-cyan-200 font-medium'
+                          ? 'bg-cyan-400/10 font-medium text-cyan-200'
                           : 'text-slate-300 hover:bg-[#2d2f31]'
                       }`}
                     >
                       <span>跟随配置</span>
                       {selectedReasoningMode === DEFAULT_REASONING_MODE && (
-                        <span className="text-[10px] text-cyan-200 font-sans">✓</span>
+                        <span className="font-sans text-[10px] text-cyan-200">✓</span>
                       )}
                     </button>
 
                     {reasoningOptions.map((level) => (
                       <button
                         key={level}
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={(event) => {
+                          event.stopPropagation();
                           onSelectReasoningMode(level);
                           setModelDropdownOpen(false);
                         }}
-                        className={`flex items-center justify-between rounded-xl px-2.5 py-1.5 text-left transition text-xs cursor-pointer ${
+                        className={`flex cursor-pointer items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-xs transition ${
                           selectedReasoningMode === level
-                            ? 'bg-cyan-400/10 text-cyan-200 font-medium'
+                            ? 'bg-cyan-400/10 font-medium text-cyan-200'
                             : 'text-slate-300 hover:bg-[#2d2f31]'
                         }`}
                       >
                         <span>{formatReasoningLabel(level)}</span>
                         {selectedReasoningMode === level && (
-                          <span className="text-[10px] text-cyan-200 font-sans">✓</span>
+                          <span className="font-sans text-[10px] text-cyan-200">✓</span>
                         )}
                       </button>
                     ))}
@@ -219,11 +233,9 @@ export default function AppHeader({
                 </div>
               )}
 
-              {/* Divider */}
               <div className="my-1 border-t border-[#2d2f31]/40" />
 
-              {/* Models List */}
-              {modelOptions.map((option, index) => {
+              {modelOptions.map((option) => {
                 const isSelected = option.profileKey === selectedModel;
 
                 return (
@@ -237,8 +249,10 @@ export default function AppHeader({
                         setModelDropdownOpen(false);
                       }}
                       onMouseEnter={() => handleMouseEnterRow(null)}
-                      className={`flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-[#2d2f31] cursor-pointer ${
-                        isSelected ? 'border-cyan-400/30 bg-[#232526]' : 'border-transparent'
+                      className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-[#2d2f31] ${
+                        isSelected
+                          ? 'border-cyan-400/30 bg-[#232526]'
+                          : 'border-transparent'
                       }`}
                     >
                       <span className="min-w-0">

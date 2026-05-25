@@ -1,5 +1,32 @@
 import { Ellipsis, MessageSquare } from 'lucide-react';
+import type { MouseEvent, RefObject } from 'react';
 import { getConversationDisplayTitle } from '../../features/conversations/conversationUtils';
+import type { Conversation } from '../../features/conversations/types';
+
+interface SidebarConversationRowProps {
+  conversation: Conversation;
+  isActive: boolean;
+  isEditing: boolean;
+  isBusy: boolean;
+  isMenuOpen: boolean;
+  draftTitle: string;
+  onDraftTitleChange: (value: string) => void;
+  onSelect: (conversationId: string) => void;
+  onSubmitRename: (conversationId: string) => void;
+  onCancelRename: () => void;
+  onOpenMenuFromButton: (
+    event: MouseEvent<HTMLButtonElement>,
+    conversationId: string,
+    disabled: boolean
+  ) => void;
+  onOpenMenuFromContext: (
+    event: MouseEvent<HTMLDivElement>,
+    conversationId: string,
+    disabled: boolean
+  ) => void;
+  editingRowRef: RefObject<HTMLDivElement | null>;
+  renameInputRef: RefObject<HTMLInputElement | null>;
+}
 
 export default function SidebarConversationRow({
   conversation,
@@ -15,8 +42,8 @@ export default function SidebarConversationRow({
   onOpenMenuFromButton,
   onOpenMenuFromContext,
   editingRowRef,
-  renameInputRef
-}) {
+  renameInputRef,
+}: SidebarConversationRowProps) {
   if (isEditing) {
     return (
       <div
@@ -49,7 +76,9 @@ export default function SidebarConversationRow({
 
   return (
     <div
-      onContextMenu={(event) => onOpenMenuFromContext(event, conversation.conversationId, isBusy)}
+      onContextMenu={(event) =>
+        onOpenMenuFromContext(event, conversation.conversationId, isBusy)
+      }
       className={`group relative rounded-full transition ${
         isActive || isMenuOpen ? 'bg-[#2d2f31]' : 'hover:bg-[#2d2f31]/60'
       }`}
@@ -62,12 +91,16 @@ export default function SidebarConversationRow({
         title={getConversationDisplayTitle(conversation)}
       >
         <MessageSquare className="h-5 w-5 flex-shrink-0" />
-        <span className="min-w-0 flex-1 truncate">{getConversationDisplayTitle(conversation)}</span>
+        <span className="min-w-0 flex-1 truncate">
+          {getConversationDisplayTitle(conversation)}
+        </span>
       </button>
 
       <div className="absolute inset-y-0 right-2 flex items-center">
         <button
-          onClick={(event) => onOpenMenuFromButton(event, conversation.conversationId, isBusy)}
+          onClick={(event) =>
+            onOpenMenuFromButton(event, conversation.conversationId, isBusy)
+          }
           disabled={isBusy}
           className={`rounded-full p-1.5 transition ${
             isMenuOpen
