@@ -271,49 +271,48 @@ fn build_model_catalog_entries(
 ) -> Result<Vec<ModelCatalogEntry>, String> {
     let mut entries = Vec::new();
 
-    for (profile_key, profile) in &cfg.model_profiles {
-        if !profile.enabled {
-            continue;
-        }
+    for (provider_key, provider) in &cfg.providers {
+        for (model_key, model_cfg) in &provider.models {
+            if !model_cfg.enabled {
+                continue;
+            }
 
-        let cached_levels = cache
-            .and_then(|cache| cache.providers.get(&profile.provider))
-            .and_then(|provider_cache| {
-                provider_cache
-                    .models
-                    .iter()
-                    .find(|model| model.id == profile.model)
-                    .map(|model| model.supported_reasoning_levels.as_slice())
+            let cached_levels = cache
+                .and_then(|cache| cache.providers.get(provider_key))
+                .and_then(|provider_cache| {
+                    provider_cache
+                        .models
+                        .iter()
+                        .find(|model| model.id == model_cfg.model)
+                        .map(|model| model.supported_reasoning_levels.as_slice())
+                });
+
+            let reasoning =
+                providers::get_reasoning_capability(&provider.kind, &model_cfg.model, cached_levels)?;
+
+            let configured_reasoning_effort = model_cfg
+                .request
+                .reasoning_effort
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .filter(|value| {
+                    reasoning
+                        .supported_reasoning_levels
+                        .iter()
+                        .any(|level| level == value)
+                })
+                .map(ToOwned::to_owned);
+
+            entries.push(ModelCatalogEntry {
+                profile_key: format!("{}/{}", provider_key, model_key),
+                provider_key: provider_key.clone(),
+                model_id: model_cfg.model.clone(),
+                supports_reasoning: reasoning.supports_reasoning,
+                supported_reasoning_levels: reasoning.supported_reasoning_levels,
+                configured_reasoning_effort,
             });
-
-        let reasoning = providers::get_reasoning_capability(
-            &cfg.resolved_provider(&profile.provider)?.kind,
-            &profile.model,
-            cached_levels,
-        )?;
-
-        let configured_reasoning_effort = profile
-            .request
-            .reasoning_effort
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .filter(|value| {
-                reasoning
-                    .supported_reasoning_levels
-                    .iter()
-                    .any(|level| level == value)
-            })
-            .map(ToOwned::to_owned);
-
-        entries.push(ModelCatalogEntry {
-            profile_key: profile_key.clone(),
-            provider_key: profile.provider.clone(),
-            model_id: profile.model.clone(),
-            supports_reasoning: reasoning.supports_reasoning,
-            supported_reasoning_levels: reasoning.supported_reasoning_levels,
-            configured_reasoning_effort,
-        });
+        }
     }
 
     Ok(entries)

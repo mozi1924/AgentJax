@@ -222,6 +222,8 @@ pub async fn fetch_remote_models(
     let resolved = ResolvedModelConfig {
         profile_key: "<catalog-sync>".to_string(),
         provider_key: provider_key.to_string(),
+        model_ref: format!("{}/<catalog-sync>", provider_key),
+        system_prompt: config.system_prompt.clone(),
         timeout_seconds: provider.resolved_timeout_seconds(config.request_timeout_seconds),
         provider,
         model_id: "".to_string(),

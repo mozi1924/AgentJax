@@ -17,7 +17,7 @@ pub(crate) fn build_streaming_request_payload(
         .instructions_override
         .as_deref()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or(&resolved.provider.system_prompt),
+        .unwrap_or(&resolved.system_prompt),
       "input": input_items,
       "store": store
     });
@@ -57,6 +57,8 @@ mod tests {
             provider_key: "openai".to_string(),
             provider: ProviderConfig::default(),
             model_id: "gpt-5-mini".to_string(),
+            model_ref: "openai/gpt-5-mini".to_string(),
+            system_prompt: "test prompt".to_string(),
             request: ModelRequestConfig::default(),
             timeout_seconds: 60,
         };
@@ -80,6 +82,8 @@ mod tests {
             provider_key: "openai".to_string(),
             provider: ProviderConfig::default(),
             model_id: "gpt-5-mini".to_string(),
+            model_ref: "openai/gpt-5-mini".to_string(),
+            system_prompt: "test prompt".to_string(),
             request: ModelRequestConfig::default(),
             timeout_seconds: 60,
         };

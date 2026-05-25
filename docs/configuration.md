@@ -22,11 +22,11 @@ AgentJax creates the home directory automatically on first launch:
 Keep the file in the same order as the runtime expects it:
 
 1. `active_provider`
-2. `request_timeout_seconds`
-3. `providers`
-4. `model_profiles`
-5. `default_model`
-6. `utility_small_model`
+2. `default_model`
+3. `utility_small_model`
+4. `request_timeout_seconds`
+5. `system_prompt`
+6. `providers`
 7. `mcp_runtime`
 8. `mcp_servers`
 
@@ -35,11 +35,11 @@ That order keeps the file easier to scan as it grows.
 ## Top-Level Settings
 
 - `active_provider`: the provider key currently in use.
+- `default_model`: default model reference in `{provider}/{model_id}` format.
+- `utility_small_model`: lightweight utility model in `{provider}/{model_id}` format.
 - `request_timeout_seconds`: global fallback timeout in seconds.
+- `system_prompt`: global default instruction string for all providers.
 - `providers`: map of provider definitions.
-- `model_profiles`: map of named model presets shown in the UI.
-- `default_model`: the default model profile key.
-- `utility_small_model`: the smaller utility profile used for lightweight tasks.
 - `mcp_runtime`: shared runtime settings for local MCP processes.
 - `mcp_servers`: map of configured MCP servers.
 
@@ -54,20 +54,21 @@ Each entry under `providers` supports these fields:
 - `stream_transport`: `websocket` or `sse`.
 - `credential`: inline credential value.
 - `credential_env`: environment variable to read when `credential` is empty.
-- `store_responses`: whether the provider supports stored responses.
-- `system_prompt`: default instruction string sent with requests.
 - `request_timeout_seconds`: provider-specific timeout override.
+- `models`: provider-local model map.
 
 If `credential` is empty, AgentJax falls back to `credential_env`.
 
-## Model Profiles
+## Provider Models
 
-Each entry under `model_profiles` is a reusable preset for the UI and request layer.
+Each entry under `providers.<provider>.models` is a reusable preset for that provider.
 
-- `provider`: provider key that owns the model.
 - `model`: model identifier sent to the provider.
 - `enabled`: whether the profile can be selected.
 - `request`: model-specific request parameters.
+
+Model selection keys are globally referenced as `{provider}/{model_id}`.
+For example, `openai/gpt-5-mini`.
 
 Supported request fields:
 
@@ -129,4 +130,5 @@ Transport rules:
 
 - The first launch writes the default `config.yaml` if no file exists yet.
 - The runtime normalizes keys, trims empty values, and fills in missing defaults where possible.
+- Context is always managed locally by AgentJax conversation storage; runtime does not depend on `previous_response_id` chaining.
 - If you are changing config fields in code, update this page at the same time so the layout stays readable.

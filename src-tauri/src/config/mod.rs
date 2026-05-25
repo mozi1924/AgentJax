@@ -9,16 +9,17 @@ const CONFIG_FILE_NAME: &str = "config.yaml";
 const DEFAULT_SYSTEM_PROMPT: &str =
     "You are Codex, a helpful AI assistant. Follow the user's instructions.";
 const DEFAULT_TIMEOUT_SECONDS: u64 = 120;
-const DEFAULT_UTILITY_SMALL_MODEL: &str = "gpt-5-mini";
+const DEFAULT_DEFAULT_MODEL_REF: &str = "openai/gpt-5-mini";
+const DEFAULT_UTILITY_SMALL_MODEL_REF: &str = "openai/gpt-5-mini";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub active_provider: String,
     pub providers: BTreeMap<String, ProviderConfig>,
-    pub default_model: String,
-    pub utility_small_model: String,
-    pub model_profiles: BTreeMap<String, ModelProfile>,
+    pub default_model: String,       // {provider}/{model_key}
+    pub utility_small_model: String, // {provider}/{model_key}
+    pub system_prompt: String,
     pub request_timeout_seconds: u64,
     #[serde(default)]
     pub mcp_runtime: McpRuntimeConfig,
@@ -83,15 +84,14 @@ pub struct ProviderConfig {
     pub stream_transport: String,
     pub credential: Option<String>,
     pub credential_env: String,
-    pub store_responses: bool,
-    pub system_prompt: String,
     pub request_timeout_seconds: Option<u64>,
+    #[serde(default)]
+    pub models: BTreeMap<String, ProviderModelConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct ModelProfile {
-    pub provider: String,
+pub struct ProviderModelConfig {
     pub model: String,
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -113,10 +113,12 @@ pub struct ModelRequestConfig {
 
 #[derive(Debug, Clone)]
 pub struct ResolvedModelConfig {
-    pub profile_key: String,
+    pub profile_key: String, // kept for compatibility in existing runtime structs
     pub provider_key: String,
     pub provider: ProviderConfig,
     pub model_id: String,
+    pub model_ref: String,
+    pub system_prompt: String,
     pub request: ModelRequestConfig,
     pub timeout_seconds: u64,
 }
@@ -126,32 +128,12 @@ impl Default for AppConfig {
         let mut providers = BTreeMap::new();
         providers.insert("openai".to_string(), ProviderConfig::default());
 
-        let mut model_profiles = BTreeMap::new();
-        model_profiles.insert(
-            "gpt-5-mini".to_string(),
-            ModelProfile {
-                provider: "openai".to_string(),
-                model: "gpt-5-mini".to_string(),
-                enabled: true,
-                request: ModelRequestConfig::default(),
-            },
-        );
-        model_profiles.insert(
-            "gpt-5".to_string(),
-            ModelProfile {
-                provider: "openai".to_string(),
-                model: "gpt-5".to_string(),
-                enabled: true,
-                request: ModelRequestConfig::default(),
-            },
-        );
-
         Self {
             active_provider: "openai".to_string(),
             providers,
-            default_model: "gpt-5-mini".to_string(),
-            utility_small_model: DEFAULT_UTILITY_SMALL_MODEL.to_string(),
-            model_profiles,
+            default_model: DEFAULT_DEFAULT_MODEL_REF.to_string(),
+            utility_small_model: DEFAULT_UTILITY_SMALL_MODEL_REF.to_string(),
+            system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
             request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
             mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
@@ -191,6 +173,24 @@ impl Default for McpStdioRuntimeConfig {
 
 impl Default for ProviderConfig {
     fn default() -> Self {
+        let mut models = BTreeMap::new();
+        models.insert(
+            "gpt-5-mini".to_string(),
+            ProviderModelConfig {
+                model: "gpt-5-mini".to_string(),
+                enabled: true,
+                request: ModelRequestConfig::default(),
+            },
+        );
+        models.insert(
+            "gpt-5".to_string(),
+            ProviderModelConfig {
+                model: "gpt-5".to_string(),
+                enabled: true,
+                request: ModelRequestConfig::default(),
+            },
+        );
+
         Self {
             kind: "openai".to_string(),
             api_endpoint: "https://api.openai.com/v1".to_string(),
@@ -199,18 +199,16 @@ impl Default for ProviderConfig {
             stream_transport: "websocket".to_string(),
             credential: None,
             credential_env: "OPENAI_API_KEY".to_string(),
-            store_responses: false,
-            system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
             request_timeout_seconds: None,
+            models,
         }
     }
 }
 
-impl Default for ModelProfile {
+impl Default for ProviderModelConfig {
     fn default() -> Self {
         Self {
-            provider: "".to_string(),
-            model: "".to_string(),
+            model: String::new(),
             enabled: true,
             request: ModelRequestConfig::default(),
         }
@@ -265,14 +263,24 @@ impl ProviderConfig {
             );
         }
 
-        self.system_prompt = self.system_prompt.trim().to_string();
-        if self.system_prompt.is_empty() {
-            self.system_prompt = DEFAULT_SYSTEM_PROMPT.to_string();
-        }
-
         if matches!(self.request_timeout_seconds, Some(0)) {
             self.request_timeout_seconds = None;
         }
+
+        let mut normalized_models = BTreeMap::new();
+        for (raw_key, mut model_cfg) in std::mem::take(&mut self.models) {
+            let model_key = raw_key.trim().to_string();
+            if model_key.is_empty() {
+                continue;
+            }
+            model_cfg.model = model_cfg.model.trim().to_string();
+            if model_cfg.model.is_empty() {
+                model_cfg.model = model_key.clone();
+            }
+            model_cfg.request.normalize();
+            normalized_models.insert(model_key, model_cfg);
+        }
+        self.models = normalized_models;
 
         self
     }
@@ -310,20 +318,6 @@ impl ProviderConfig {
 
     pub fn resolved_timeout_seconds(&self, global_default: u64) -> u64 {
         self.request_timeout_seconds.unwrap_or(global_default)
-    }
-}
-
-impl ModelProfile {
-    fn normalize(mut self, default_provider: &str) -> Self {
-        self.provider = self.provider.trim().to_lowercase();
-        if self.provider.is_empty() {
-            self.provider = default_provider.to_string();
-        }
-
-        self.model = self.model.trim().to_string();
-        self.request.normalize();
-
-        self
     }
 }
 
@@ -396,9 +390,29 @@ fn normalize_string_map(map: BTreeMap<String, String>) -> BTreeMap<String, Strin
     normalized
 }
 
+fn parse_model_ref(model_ref: &str) -> Option<(String, String)> {
+    let trimmed = model_ref.trim();
+    let (provider, model_key) = trimmed.split_once('/')?;
+    let provider = provider.trim().to_lowercase();
+    let model_key = model_key.trim().to_string();
+    if provider.is_empty() || model_key.is_empty() {
+        return None;
+    }
+    Some((provider, model_key))
+}
+
+fn model_ref(provider_key: &str, model_key: &str) -> String {
+    format!("{}/{}", provider_key, model_key)
+}
+
 impl AppConfig {
     pub fn normalize(mut self) -> Self {
         self.active_provider = self.active_provider.trim().to_lowercase();
+        self.system_prompt = self.system_prompt.trim().to_string();
+        if self.system_prompt.is_empty() {
+            self.system_prompt = DEFAULT_SYSTEM_PROMPT.to_string();
+        }
+
         if self.request_timeout_seconds == 0 {
             self.request_timeout_seconds = DEFAULT_TIMEOUT_SECONDS;
         }
@@ -428,92 +442,40 @@ impl AppConfig {
                 .unwrap_or_else(|| "openai".to_string());
         }
 
-        let mut normalized_profiles = BTreeMap::new();
-        for (raw_key, profile) in std::mem::take(&mut self.model_profiles) {
-            let profile_key = raw_key.trim().to_string();
-            if profile_key.is_empty() {
-                continue;
+        let has_any_model = self
+            .providers
+            .values()
+            .any(|provider| provider.models.values().any(|model| model.enabled));
+        if !has_any_model {
+            if let Some(provider) = self.providers.get_mut(&self.active_provider) {
+                provider.models.insert(
+                    "gpt-5-mini".to_string(),
+                    ProviderModelConfig {
+                        model: "gpt-5-mini".to_string(),
+                        enabled: true,
+                        request: ModelRequestConfig::default(),
+                    },
+                );
             }
-
-            let profile = profile.normalize(&self.active_provider);
-            if profile.model.is_empty() {
-                continue;
-            }
-            if !self.providers.contains_key(&profile.provider) {
-                continue;
-            }
-
-            normalized_profiles.insert(profile_key, profile);
         }
-
-        if normalized_profiles.is_empty() {
-            normalized_profiles.insert(
-                "gpt-5-mini".to_string(),
-                ModelProfile {
-                    provider: self.active_provider.clone(),
-                    model: "gpt-5-mini".to_string(),
-                    enabled: true,
-                    request: ModelRequestConfig::default(),
-                },
-            );
-            normalized_profiles.insert(
-                "gpt-5".to_string(),
-                ModelProfile {
-                    provider: self.active_provider.clone(),
-                    model: "gpt-5".to_string(),
-                    enabled: true,
-                    request: ModelRequestConfig::default(),
-                },
-            );
-        }
-        self.model_profiles = normalized_profiles;
 
         self.default_model = self.default_model.trim().to_string();
-        let default_is_usable = self
-            .model_profiles
-            .get(&self.default_model)
-            .map(|p| p.enabled)
-            .unwrap_or(false);
-
-        if !default_is_usable {
-            if let Some((profile_key, _)) = self.model_profiles.iter().find(|(_, p)| p.enabled) {
-                self.default_model = profile_key.clone();
-            } else if let Some((profile_key, _)) = self.model_profiles.first_key_value() {
-                self.default_model = profile_key.clone();
-            }
+        if parse_model_ref(&self.default_model).is_none() {
+            self.default_model = DEFAULT_DEFAULT_MODEL_REF.to_string();
         }
-
-        if self
-            .model_profiles
-            .get(&self.default_model)
-            .map(|p| !p.enabled)
-            .unwrap_or(false)
-        {
-            if let Some(profile) = self.model_profiles.get_mut(&self.default_model) {
-                profile.enabled = true;
-            }
+        if self.resolve_model_ref(&self.default_model).is_none() {
+            self.default_model = self
+                .configured_models()
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| DEFAULT_DEFAULT_MODEL_REF.to_string());
         }
 
         self.utility_small_model = self.utility_small_model.trim().to_string();
-        let utility_is_usable = self
-            .model_profiles
-            .get(&self.utility_small_model)
-            .map(|p| p.enabled)
-            .unwrap_or(false);
-
-        if !utility_is_usable {
-            self.utility_small_model = self.default_model.clone();
-        }
-
-        if self
-            .model_profiles
-            .get(&self.utility_small_model)
-            .map(|p| !p.enabled)
-            .unwrap_or(false)
+        if parse_model_ref(&self.utility_small_model).is_none()
+            || self.resolve_model_ref(&self.utility_small_model).is_none()
         {
-            if let Some(profile) = self.model_profiles.get_mut(&self.utility_small_model) {
-                profile.enabled = true;
-            }
+            self.utility_small_model = self.default_model.clone();
         }
 
         self.mcp_runtime = self.mcp_runtime.normalize();
@@ -533,57 +495,60 @@ impl AppConfig {
     }
 
     pub fn configured_models(&self) -> Vec<String> {
-        self.model_profiles
-            .iter()
-            .filter(|(_, profile)| profile.enabled)
-            .map(|(profile_key, _)| profile_key.clone())
-            .collect()
+        let mut models = Vec::new();
+        for (provider_key, provider) in &self.providers {
+            for (model_key, model) in &provider.models {
+                if model.enabled {
+                    models.push(model_ref(provider_key, model_key));
+                }
+            }
+        }
+        models.sort();
+        models
+    }
+
+    fn resolve_model_ref(
+        &self,
+        full_ref: &str,
+    ) -> Option<(String, ProviderConfig, String, ProviderModelConfig)> {
+        let (provider_key, model_key) = parse_model_ref(full_ref)?;
+        let provider = self.providers.get(&provider_key)?.clone();
+        let model_cfg = provider.models.get(&model_key)?.clone();
+        if !model_cfg.enabled {
+            return None;
+        }
+        Some((provider_key, provider, model_key, model_cfg))
     }
 
     pub fn resolve_model_profile(
         &self,
         requested: Option<&str>,
     ) -> Result<ResolvedModelConfig, String> {
-        let requested_key = requested.map(str::trim).filter(|s| !s.is_empty());
+        let requested_ref = requested.map(str::trim).filter(|s| !s.is_empty());
+        let chosen_ref = requested_ref.unwrap_or(&self.default_model).to_string();
 
-        let profile_key = if let Some(key) = requested_key {
-            if self.model_profiles.contains_key(key) {
-                key.to_string()
-            } else {
-                self.default_model.clone()
-            }
-        } else {
-            self.default_model.clone()
-        };
-
-        let profile = self
-            .model_profiles
-            .get(&profile_key)
-            .ok_or_else(|| format!("Model profile '{}' not found", profile_key))?;
-
-        if !profile.enabled {
-            return Err(format!("Model profile '{}' is disabled", profile_key));
-        }
-
-        let provider_key = profile.provider.clone();
-        let provider = self
-            .providers
-            .get(&provider_key)
+        let resolved = self
+            .resolve_model_ref(&chosen_ref)
+            .or_else(|| self.resolve_model_ref(&self.default_model))
             .ok_or_else(|| {
                 format!(
-                    "Provider '{}' referenced by model profile '{}' is missing",
-                    provider_key, profile_key
+                    "Model '{}' not found or disabled. Expected format: {{provider}}/{{model_id}}",
+                    chosen_ref
                 )
-            })?
-            .clone();
+            })?;
 
+        let (provider_key, provider, model_key, model_cfg) = resolved;
+
+        let resolved_ref = model_ref(&provider_key, &model_key);
         Ok(ResolvedModelConfig {
-            profile_key,
+            profile_key: resolved_ref.clone(),
             provider_key,
-            model_id: profile.model.clone(),
-            request: profile.request.clone(),
+            provider: provider.clone(),
+            model_id: model_cfg.model.clone(),
+            model_ref: resolved_ref,
+            system_prompt: self.system_prompt.clone(),
+            request: model_cfg.request.clone(),
             timeout_seconds: provider.resolved_timeout_seconds(self.request_timeout_seconds),
-            provider,
         })
     }
 
@@ -698,7 +663,10 @@ fn default_config_yaml() -> String {
         "# Config path: $AGENTJAX_HOME/config.yaml",
         "",
         "active_provider: \"openai\"",
+        "default_model: \"openai/gpt-5-mini\"",
+        "utility_small_model: \"openai/gpt-5-mini\"",
         "request_timeout_seconds: 120",
+        "system_prompt: \"You are Codex, a helpful AI assistant. Follow the user's instructions.\"",
         "",
         "providers:",
         "  openai:",
@@ -708,40 +676,32 @@ fn default_config_yaml() -> String {
         "    stream_transport: \"websocket\"",
         "    credential: \"\"",
         "    credential_env: \"OPENAI_API_KEY\"",
-        "    store_responses: false",
-        "    system_prompt: \"You are Codex, a helpful AI assistant. Follow the user's instructions.\"",
         "    request_timeout_seconds: 120",
-        "",
-        "model_profiles:",
-        "  gpt-5-mini:",
-        "    provider: \"openai\"",
-        "    model: \"gpt-5-mini\"",
-        "    enabled: true",
-        "    request:",
-        "      temperature: null",
-        "      top_p: null",
-        "      top_k: null",
-        "      max_output_tokens: null",
-        "      frequency_penalty: null",
-        "      presence_penalty: null",
-        "      reasoning_effort: null",
-        "      extra_body: {}",
-        "  gpt-5:",
-        "    provider: \"openai\"",
-        "    model: \"gpt-5\"",
-        "    enabled: true",
-        "    request:",
-        "      temperature: null",
-        "      top_p: null",
-        "      top_k: null",
-        "      max_output_tokens: null",
-        "      frequency_penalty: null",
-        "      presence_penalty: null",
-        "      reasoning_effort: null",
-        "      extra_body: {}",
-        "",
-        "default_model: \"gpt-5-mini\"",
-        "utility_small_model: \"gpt-5-mini\"",
+        "    models:",
+        "      gpt-5-mini:",
+        "        model: \"gpt-5-mini\"",
+        "        enabled: true",
+        "        request:",
+        "          temperature: null",
+        "          top_p: null",
+        "          top_k: null",
+        "          max_output_tokens: null",
+        "          frequency_penalty: null",
+        "          presence_penalty: null",
+        "          reasoning_effort: null",
+        "          extra_body: {}",
+        "      gpt-5:",
+        "        model: \"gpt-5\"",
+        "        enabled: true",
+        "        request:",
+        "          temperature: null",
+        "          top_p: null",
+        "          top_k: null",
+        "          max_output_tokens: null",
+        "          frequency_penalty: null",
+        "          presence_penalty: null",
+        "          reasoning_effort: null",
+        "          extra_body: {}",
         "",
         "mcp_runtime:",
         "  stdio:",
@@ -793,4 +753,29 @@ fn persist_config_if_changed(
     log::info!("Config file upgraded at {}", path.display());
 
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_model_with_provider_scoped_reference() {
+        let cfg = AppConfig::default().normalize();
+        let resolved = cfg
+            .resolve_model_profile(Some("openai/gpt-5"))
+            .expect("resolve model");
+        assert_eq!(resolved.provider_key, "openai");
+        assert_eq!(resolved.model_id, "gpt-5");
+        assert_eq!(resolved.model_ref, "openai/gpt-5");
+    }
+
+    #[test]
+    fn falls_back_to_default_when_requested_model_invalid() {
+        let cfg = AppConfig::default().normalize();
+        let resolved = cfg
+            .resolve_model_profile(Some("openai/not-exist"))
+            .expect("fallback to default");
+        assert_eq!(resolved.model_ref, cfg.default_model);
+    }
 }

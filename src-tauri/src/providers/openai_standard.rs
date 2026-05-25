@@ -12,7 +12,6 @@ fn stream_behavior() -> responses::stream::ResponsesStreamBehavior {
     responses::stream::ResponsesStreamBehavior {
         api_label: "OpenAI",
         capabilities: ProviderCapabilities::openai_standard(),
-        force_store_false: false,
         retry_store_false: true,
     }
 }

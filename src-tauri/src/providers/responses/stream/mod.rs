@@ -15,7 +15,6 @@ use crate::providers::types::{ProviderEventSink, ResponseStreamRequest, Response
 pub struct ResponsesStreamBehavior {
     pub api_label: &'static str,
     pub capabilities: ProviderCapabilities,
-    pub force_store_false: bool,
     pub retry_store_false: bool,
 }
 
@@ -73,11 +72,7 @@ pub async fn stream_response_with_behavior(
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<ResponseStreamResult, String> {
-    let persistence = if behavior.force_store_false {
-        false
-    } else {
-        resolved.provider.store_responses
-    };
+    let persistence = false;
     let websocket_key = websocket_fallback_key(resolved);
     let use_sse =
         resolved.provider.stream_transport == "sse" || websocket_is_downgraded(&websocket_key);
