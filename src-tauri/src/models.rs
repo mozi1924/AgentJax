@@ -186,6 +186,9 @@ fn load_model_cache() -> Result<Option<ModelCache>, String> {
 
     let raw = fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read model cache {}: {e}", path.display()))?;
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
     let parsed: ModelCache = serde_yaml::from_str(&raw)
         .map_err(|e| format!("Invalid YAML in model cache {}: {e}", path.display()))?;
 
@@ -221,7 +224,7 @@ fn dedup_models(models: Vec<String>) -> Vec<String> {
 }
 
 fn dedup_model_descriptors(models: Vec<ProviderModelDescriptor>) -> Vec<ProviderModelDescriptor> {
-    let mut deduped = BTreeMap::new();
+    let mut deduped: BTreeMap<String, ProviderModelDescriptor> = BTreeMap::new();
 
     for model in models {
         let id = model.id.trim().to_string();
@@ -240,6 +243,14 @@ fn dedup_model_descriptors(models: Vec<ProviderModelDescriptor>) -> Vec<Provider
                 continue;
             }
             supported_reasoning_levels.push(level);
+        }
+
+        if let Some(existing) = deduped.get_mut(&id) {
+            // Preserve whichever entry carries richer reasoning metadata.
+            if supported_reasoning_levels.len() > existing.supported_reasoning_levels.len() {
+                existing.supported_reasoning_levels = supported_reasoning_levels;
+            }
+            continue;
         }
 
         deduped.insert(
@@ -348,4 +359,35 @@ fn now_unix() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{dedup_model_descriptors, ProviderModelDescriptor};
+
+    #[test]
+    fn dedup_prefers_descriptor_with_more_reasoning_levels() {
+        let models = vec![
+            ProviderModelDescriptor {
+                id: "gpt-5.2-codex".to_string(),
+                supported_reasoning_levels: Vec::new(),
+            },
+            ProviderModelDescriptor {
+                id: "gpt-5.2-codex".to_string(),
+                supported_reasoning_levels: vec![
+                    "low".to_string(),
+                    "medium".to_string(),
+                    "high".to_string(),
+                    "xhigh".to_string(),
+                ],
+            },
+        ];
+
+        let deduped = dedup_model_descriptors(models);
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(
+            deduped[0].supported_reasoning_levels,
+            vec!["low", "medium", "high", "xhigh"]
+        );
+    }
 }

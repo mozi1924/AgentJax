@@ -57,15 +57,5 @@ pub fn get_reasoning_capability(
 }
 
 fn fallback_reasoning_levels(model_id: &str) -> Vec<String> {
-    let model_id = model_id.trim().to_lowercase();
-
-    if model_id == "gpt-4o"
-        || model_id.starts_with("gpt-4o")
-        || model_id.starts_with("o1")
-        || model_id.starts_with("o3")
-    {
-        return vec!["low".to_string(), "medium".to_string(), "high".to_string()];
-    }
-
-    Vec::new()
+    responses::infer_reasoning_levels_from_model_id(model_id)
 }

@@ -24,6 +24,68 @@ pub fn normalize_reasoning_levels(levels: &[String]) -> Vec<String> {
     normalized
 }
 
+pub fn infer_reasoning_levels_from_model_id(model_id: &str) -> Vec<String> {
+    let model = model_id.trim().to_lowercase();
+    if model.is_empty() {
+        return Vec::new();
+    }
+
+    if model.starts_with("gpt-5-pro") {
+        return vec!["high".to_string()];
+    }
+
+    if model.starts_with("gpt-5.2-pro") {
+        return vec![
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+        ];
+    }
+
+    if model.starts_with("gpt-5.2-codex") {
+        return vec![
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+        ];
+    }
+
+    if model.starts_with("gpt-5.2") {
+        return vec![
+            "none".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+        ];
+    }
+
+    if model.starts_with("gpt-5.1") {
+        return vec![
+            "none".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+        ];
+    }
+
+    if model.starts_with("gpt-5") {
+        return vec![
+            "minimal".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+        ];
+    }
+
+    if model.starts_with("o1") || model.starts_with("o3") || model.starts_with("o4") {
+        return vec!["low".to_string(), "medium".to_string(), "high".to_string()];
+    }
+
+    Vec::new()
+}
+
 pub fn extract_pending_tool_calls_from_output(
     output_items: &[Value],
 ) -> Vec<ProviderPendingToolCall> {
@@ -136,7 +198,7 @@ pub fn compose_tool_continuation_input(
 
 #[cfg(test)]
 mod tests {
-    use super::extract_pending_tool_calls_from_output;
+    use super::{extract_pending_tool_calls_from_output, infer_reasoning_levels_from_model_id};
     use serde_json::json;
 
     #[test]
@@ -168,5 +230,23 @@ mod tests {
         let pending = extract_pending_tool_calls_from_output(&output_items);
         assert_eq!(pending.len(), 1);
         assert!(pending[0].arguments.is_object());
+    }
+
+    #[test]
+    fn infers_reasoning_levels_for_gpt_5_2_codex() {
+        let levels = infer_reasoning_levels_from_model_id("gpt-5.2-codex");
+        assert_eq!(levels, vec!["low", "medium", "high", "xhigh"]);
+    }
+
+    #[test]
+    fn infers_reasoning_levels_for_gpt_5_1() {
+        let levels = infer_reasoning_levels_from_model_id("gpt-5.1");
+        assert_eq!(levels, vec!["none", "low", "medium", "high"]);
+    }
+
+    #[test]
+    fn infers_reasoning_levels_for_gpt_5_pro() {
+        let levels = infer_reasoning_levels_from_model_id("gpt-5-pro");
+        assert_eq!(levels, vec!["high"]);
     }
 }

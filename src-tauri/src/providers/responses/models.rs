@@ -130,69 +130,95 @@ fn build_models_endpoint(base_endpoint: &str, candidate: &str) -> String {
 }
 
 fn parse_model_descriptors(root: &Value) -> Vec<ProviderModelDescriptor> {
-    let candidates = root
-        .get("data")
-        .and_then(Value::as_array)
-        .or_else(|| root.get("models").and_then(Value::as_array))
-        .or_else(|| root.get("results").and_then(Value::as_array))
-        .or_else(|| root.as_array());
+    let mut out = Vec::new();
 
-    let Some(items) = candidates else {
-        return Vec::new();
+    let mut append_items = |items: &[Value]| {
+        for item in items {
+            if let Some(descriptor) = parse_model_descriptor(item) {
+                out.push(descriptor);
+            }
+        }
     };
 
-    let mut out = Vec::new();
-    for item in items {
-        match item {
-            Value::String(id) => {
-                let id = id.trim();
-                if !id.is_empty() {
-                    out.push(ProviderModelDescriptor {
-                        id: id.to_string(),
-                        supported_reasoning_levels: Vec::new(),
-                    });
-                }
-            }
-            Value::Object(obj) => {
-                let raw_id = obj
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .or_else(|| obj.get("name").and_then(Value::as_str))
-                    .or_else(|| obj.get("model").and_then(Value::as_str))
-                    .unwrap_or("")
-                    .trim();
-
-                if raw_id.is_empty() {
-                    continue;
-                }
-
-                let id = raw_id.to_string();
-                let supported_reasoning_levels = obj
-                    .get("supportedReasoningLevels")
-                    .and_then(Value::as_array)
-                    .or_else(|| {
-                        obj.get("supported_reasoning_levels")
-                            .and_then(Value::as_array)
-                    })
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(Value::as_str)
-                            .map(ToOwned::to_owned)
-                            .collect::<Vec<_>>()
-                    })
-                    .map(|levels| normalize_reasoning_levels(&levels))
-                    .unwrap_or_default();
-
-                out.push(ProviderModelDescriptor {
-                    id,
-                    supported_reasoning_levels,
-                });
-            }
-            _ => {}
-        }
+    if let Some(items) = root.get("data").and_then(Value::as_array) {
+        append_items(items);
+    }
+    if let Some(items) = root.get("models").and_then(Value::as_array) {
+        append_items(items);
+    }
+    if let Some(items) = root.get("results").and_then(Value::as_array) {
+        append_items(items);
+    }
+    if let Some(items) = root.as_array() {
+        append_items(items);
     }
 
     out
+}
+
+fn parse_model_descriptor(item: &Value) -> Option<ProviderModelDescriptor> {
+    match item {
+        Value::String(id) => {
+            let id = id.trim();
+            if id.is_empty() {
+                return None;
+            }
+            Some(ProviderModelDescriptor {
+                id: id.to_string(),
+                supported_reasoning_levels: Vec::new(),
+            })
+        }
+        Value::Object(obj) => {
+            let raw_id = obj
+                .get("id")
+                .and_then(Value::as_str)
+                .or_else(|| obj.get("slug").and_then(Value::as_str))
+                .or_else(|| obj.get("name").and_then(Value::as_str))
+                .or_else(|| obj.get("model").and_then(Value::as_str))
+                .unwrap_or("")
+                .trim();
+            if raw_id.is_empty() {
+                return None;
+            }
+
+            let supported_reasoning_levels =
+                parse_supported_reasoning_levels(obj).unwrap_or_default();
+
+            Some(ProviderModelDescriptor {
+                id: raw_id.to_string(),
+                supported_reasoning_levels,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn parse_supported_reasoning_levels(obj: &serde_json::Map<String, Value>) -> Option<Vec<String>> {
+    let levels_raw = obj
+        .get("supportedReasoningLevels")
+        .or_else(|| obj.get("supported_reasoning_levels"))?;
+    let arr = levels_raw.as_array()?;
+
+    let mut levels = Vec::new();
+    for item in arr {
+        if let Some(level) = item.as_str() {
+            levels.push(level.to_string());
+            continue;
+        }
+
+        if let Some(level_obj) = item.as_object() {
+            if let Some(level) = level_obj
+                .get("effort")
+                .and_then(Value::as_str)
+                .or_else(|| level_obj.get("level").and_then(Value::as_str))
+                .or_else(|| level_obj.get("name").and_then(Value::as_str))
+            {
+                levels.push(level.to_string());
+            }
+        }
+    }
+
+    Some(normalize_reasoning_levels(&levels))
 }
 
 #[cfg(test)]
@@ -225,6 +251,34 @@ mod tests {
         let models = parse_model_descriptors(&body);
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].id, "models/gemini-2.5-pro");
+    }
+
+    #[test]
+    fn parses_codex_models_shape_with_reasoning_effort_objects() {
+        let body = json!({
+            "data": [
+                { "id": "gpt-5.2-codex" }
+            ],
+            "models": [
+                {
+                    "slug": "gpt-5.2-codex",
+                    "supported_reasoning_levels": [
+                        { "effort": "low" },
+                        { "effort": "medium" },
+                        { "effort": "high" },
+                        { "effort": "xhigh" }
+                    ]
+                }
+            ]
+        });
+
+        let models = parse_model_descriptors(&body);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[1].id, "gpt-5.2-codex");
+        assert_eq!(
+            models[1].supported_reasoning_levels,
+            vec!["low", "medium", "high", "xhigh"]
+        );
     }
 
     #[test]
