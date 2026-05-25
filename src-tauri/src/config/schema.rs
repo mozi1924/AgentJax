@@ -1,0 +1,223 @@
+use crate::config::constants::{
+    default_mcp_startup_timeout_ms, default_mcp_tool_timeout_ms, default_true,
+    DEFAULT_DEFAULT_MODEL_REF, DEFAULT_SYSTEM_PROMPT, DEFAULT_TIMEOUT_SECONDS,
+    DEFAULT_UTILITY_SMALL_MODEL_REF,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppConfig {
+    pub active_provider: String,
+    pub providers: BTreeMap<String, ProviderConfig>,
+    pub default_model: String,
+    pub utility_small_model: String,
+    pub system_prompt: String,
+    pub request_timeout_seconds: u64,
+    #[serde(default)]
+    pub mcp_runtime: McpRuntimeConfig,
+    #[serde(default)]
+    pub mcp_servers: BTreeMap<String, McpServerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct McpServerConfig {
+    pub transport: McpTransportKind,
+    pub command: String,
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    pub cwd: Option<String>,
+    #[serde(default = "default_true")]
+    pub use_global_stdio_env: bool,
+    pub inherit_parent_env: Option<bool>,
+    pub uri: Option<String>,
+    pub auth_header: Option<String>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default = "default_true")]
+    pub allow_stateless: bool,
+    pub channel_buffer_capacity: Option<usize>,
+    #[serde(default = "default_true")]
+    pub reinit_on_expired_session: bool,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct McpRuntimeConfig {
+    pub stdio: McpStdioRuntimeConfig,
+    pub startup_timeout_ms: u64,
+    pub tool_timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct McpStdioRuntimeConfig {
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    pub inherit_parent_env: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum McpTransportKind {
+    #[default]
+    Stdio,
+    StreamableHttp,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProviderConfig {
+    pub kind: String,
+    pub api_endpoint: String,
+    #[serde(default)]
+    pub models_endpoint_candidates: Vec<String>,
+    pub realtime_endpoint: Option<String>,
+    pub stream_transport: String,
+    pub credential: Option<String>,
+    pub credential_env: String,
+    pub request_timeout_seconds: Option<u64>,
+    #[serde(default)]
+    pub models: BTreeMap<String, ProviderModelConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProviderModelConfig {
+    pub model: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub request: ModelRequestConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ModelRequestConfig {
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub top_k: Option<u32>,
+    pub max_output_tokens: Option<u32>,
+    pub frequency_penalty: Option<f32>,
+    pub presence_penalty: Option<f32>,
+    pub reasoning_effort: Option<String>,
+    pub extra_body: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedModelConfig {
+    pub profile_key: String,
+    pub provider_key: String,
+    pub provider: ProviderConfig,
+    pub model_id: String,
+    pub model_ref: String,
+    pub system_prompt: String,
+    pub request: ModelRequestConfig,
+    pub timeout_seconds: u64,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        let mut providers = BTreeMap::new();
+        providers.insert("openai".to_string(), ProviderConfig::default());
+
+        Self {
+            active_provider: "openai".to_string(),
+            providers,
+            default_model: DEFAULT_DEFAULT_MODEL_REF.to_string(),
+            utility_small_model: DEFAULT_UTILITY_SMALL_MODEL_REF.to_string(),
+            system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
+            request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
+            mcp_runtime: McpRuntimeConfig::default(),
+            mcp_servers: BTreeMap::new(),
+        }
+    }
+}
+
+impl Default for McpServerConfig {
+    fn default() -> Self {
+        Self {
+            transport: McpTransportKind::Stdio,
+            command: String::new(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            cwd: None,
+            use_global_stdio_env: true,
+            inherit_parent_env: None,
+            uri: None,
+            auth_header: None,
+            headers: BTreeMap::new(),
+            allow_stateless: true,
+            channel_buffer_capacity: None,
+            reinit_on_expired_session: true,
+            enabled: true,
+        }
+    }
+}
+
+impl Default for McpStdioRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            env: BTreeMap::new(),
+            inherit_parent_env: false,
+        }
+    }
+}
+
+impl Default for McpRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            stdio: McpStdioRuntimeConfig::default(),
+            startup_timeout_ms: default_mcp_startup_timeout_ms(),
+            tool_timeout_ms: default_mcp_tool_timeout_ms(),
+        }
+    }
+}
+
+impl Default for ProviderConfig {
+    fn default() -> Self {
+        let mut models = BTreeMap::new();
+        models.insert(
+            "gpt-5-mini".to_string(),
+            ProviderModelConfig {
+                model: "gpt-5-mini".to_string(),
+                enabled: true,
+                request: ModelRequestConfig::default(),
+            },
+        );
+        models.insert(
+            "gpt-5".to_string(),
+            ProviderModelConfig {
+                model: "gpt-5".to_string(),
+                enabled: true,
+                request: ModelRequestConfig::default(),
+            },
+        );
+
+        Self {
+            kind: "openai".to_string(),
+            api_endpoint: "https://api.openai.com/v1".to_string(),
+            models_endpoint_candidates: Vec::new(),
+            realtime_endpoint: None,
+            stream_transport: "websocket".to_string(),
+            credential: None,
+            credential_env: "OPENAI_API_KEY".to_string(),
+            request_timeout_seconds: None,
+            models,
+        }
+    }
+}
+
+impl Default for ProviderModelConfig {
+    fn default() -> Self {
+        Self {
+            model: String::new(),
+            enabled: true,
+            request: ModelRequestConfig::default(),
+        }
+    }
+}

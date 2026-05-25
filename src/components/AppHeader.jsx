@@ -14,6 +14,18 @@ const formatReasoningLabel = (value) => {
   return normalized.toUpperCase();
 };
 
+const formatProviderModelLabel = (option) => {
+  const provider = `${option?.providerKey || ''}`.trim();
+  const profile = `${option?.profileKey || ''}`.trim();
+  if (!provider) {
+    return profile || 'provider';
+  }
+  if (profile.startsWith(`${provider}/`)) {
+    return `${provider} / ${profile.slice(provider.length + 1)}`;
+  }
+  return `${provider} / ${profile}`;
+};
+
 export default function AppHeader({
   titlebarRef,
   sidebarOpen,
@@ -234,7 +246,7 @@ export default function AppHeader({
                           {option.modelId}
                         </span>
                         <span className="mt-0.5 block truncate text-[11px] text-slate-500">
-                          {option.providerKey || 'provider'} / {option.profileKey}
+                          {formatProviderModelLabel(option)}
                         </span>
                       </span>
 

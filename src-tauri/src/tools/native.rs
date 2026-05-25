@@ -64,7 +64,11 @@ impl Tool for SystemTimeTool {
         })
     }
 
-    fn execute(&self, _arguments: &Value, _context: &ToolExecutionContext) -> Result<Value, String> {
+    fn execute(
+        &self,
+        _arguments: &Value,
+        _context: &ToolExecutionContext,
+    ) -> Result<Value, String> {
         let now = SystemTime::now();
         let duration = now
             .duration_since(UNIX_EPOCH)
@@ -143,7 +147,10 @@ impl FileReaderTool {
         };
         if !dir.exists() {
             fs::create_dir_all(&dir).map_err(|e| {
-                format!("Failed to create workspace directory {}: {e}", dir.display())
+                format!(
+                    "Failed to create workspace directory {}: {e}",
+                    dir.display()
+                )
             })?;
         }
         Ok(dir)
@@ -228,7 +235,10 @@ impl FileWriterTool {
         };
         if !dir.exists() {
             fs::create_dir_all(&dir).map_err(|e| {
-                format!("Failed to create workspace directory {}: {e}", dir.display())
+                format!(
+                    "Failed to create workspace directory {}: {e}",
+                    dir.display()
+                )
             })?;
         }
         Ok(dir)

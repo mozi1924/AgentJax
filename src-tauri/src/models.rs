@@ -287,8 +287,11 @@ fn build_model_catalog_entries(
                         .map(|model| model.supported_reasoning_levels.as_slice())
                 });
 
-            let reasoning =
-                providers::get_reasoning_capability(&provider.kind, &model_cfg.model, cached_levels)?;
+            let reasoning = providers::get_reasoning_capability(
+                &provider.kind,
+                &model_cfg.model,
+                cached_levels,
+            )?;
 
             let configured_reasoning_effort = model_cfg
                 .request

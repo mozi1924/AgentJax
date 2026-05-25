@@ -3,8 +3,7 @@ mod tests {
     use crate::conversation_store;
     use crate::tools::{
         CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool, Tool, ToolExecutionContext,
-        ToolRegistry,
-        ToolSchemaFormat,
+        ToolRegistry, ToolSchemaFormat,
     };
     use serde_json::json;
 
@@ -70,7 +69,9 @@ mod tests {
     fn test_system_time() {
         let time_tool = SystemTimeTool;
         let args = json!({});
-        let res = time_tool.execute(&args, &ToolExecutionContext::default()).unwrap();
+        let res = time_tool
+            .execute(&args, &ToolExecutionContext::default())
+            .unwrap();
 
         assert!(res.get("localTime").is_some());
         assert!(res["unixTimestampMs"].as_i64().unwrap() > 0);
@@ -119,8 +120,12 @@ mod tests {
             .execute(&json!({"filename": filename, "content": "from-b"}), &ctx_b)
             .unwrap();
 
-        let read_a = reader.execute(&json!({"filename": filename}), &ctx_a).unwrap();
-        let read_b = reader.execute(&json!({"filename": filename}), &ctx_b).unwrap();
+        let read_a = reader
+            .execute(&json!({"filename": filename}), &ctx_a)
+            .unwrap();
+        let read_b = reader
+            .execute(&json!({"filename": filename}), &ctx_b)
+            .unwrap();
         assert_eq!(read_a["content"], "from-a");
         assert_eq!(read_b["content"], "from-b");
 

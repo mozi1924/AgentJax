@@ -10,17 +10,21 @@ use crate::conversation_store::paths::{
     conversation_messages_path, conversation_metadata_path, ensure_session_layout,
     list_conversation_ids,
 };
-use crate::conversation_store::types::{ConversationEntryLine, ConversationFileData, DEFAULT_CONVERSATION_TITLE, LOG_VERSION};
+use crate::conversation_store::types::{
+    ConversationEntryLine, ConversationFileData, DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
+};
 use crate::conversation_store_utils::{
     normalize_title, normalize_title_source, now_unix_ms, sanitize_optional, today_utc_yyyy_mm_dd,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use uuid::Uuid;
 
-pub use paths::agentjax_home_dir;
+const MAX_CONTEXT_ITEMS_PER_REQUEST: usize = 200;
 
 pub fn new_conversation_id() -> String {
     format!("{}-{}", today_utc_yyyy_mm_dd(), Uuid::new_v4())
@@ -61,8 +65,8 @@ pub fn build_assistant_output_items(text: &str) -> Vec<Value> {
 
 pub use paths::{conversation_dir_path, conversation_workspace_path};
 pub use types::{
-    AppendMessageInput, ConversationContext, ConversationDetail, ConversationMessage, ConversationMetaLine,
-    ConversationSummary, TitleGenerationCandidate,
+    AppendMessageInput, ConversationContext, ConversationDetail, ConversationMessage,
+    ConversationMetaLine, ConversationSummary, TitleGenerationCandidate,
 };
 
 #[allow(dead_code)]
@@ -151,6 +155,7 @@ pub fn append_message(input: AppendMessageInput, utility_model: &str) -> Result<
     } else {
         Vec::new()
     };
+    let context_items = sanitize_tool_call_pairs(context_items);
 
     data.entries.push(ConversationEntryLine {
         version: LOG_VERSION,
@@ -277,7 +282,159 @@ pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationCon
         }
     }
 
+    context.input_items = sanitize_tool_call_pairs(context.input_items);
+    context.input_items = truncate_context_items_preserving_tool_pairs(
+        context.input_items,
+        MAX_CONTEXT_ITEMS_PER_REQUEST,
+    );
     Ok(context)
+}
+
+fn sanitize_tool_call_pairs(items: Vec<Value>) -> Vec<Value> {
+    let mut function_call_ids = HashSet::new();
+    let mut function_call_output_ids = HashSet::new();
+    let mut custom_call_ids = HashSet::new();
+    let mut custom_call_output_ids = HashSet::new();
+
+    for item in &items {
+        match item.get("type").and_then(Value::as_str) {
+            Some("function_call") => {
+                if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
+                    function_call_ids.insert(call_id.to_string());
+                }
+            }
+            Some("function_call_output") => {
+                if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
+                    function_call_output_ids.insert(call_id.to_string());
+                }
+            }
+            Some("custom_tool_call") => {
+                if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
+                    custom_call_ids.insert(call_id.to_string());
+                }
+            }
+            Some("custom_tool_call_output") => {
+                if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
+                    custom_call_output_ids.insert(call_id.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    items
+        .into_iter()
+        .filter(|item| match item.get("type").and_then(Value::as_str) {
+            Some("function_call") => item
+                .get("call_id")
+                .and_then(Value::as_str)
+                .map(|call_id| function_call_output_ids.contains(call_id))
+                .unwrap_or(false),
+            Some("function_call_output") => item
+                .get("call_id")
+                .and_then(Value::as_str)
+                .map(|call_id| function_call_ids.contains(call_id))
+                .unwrap_or(false),
+            Some("custom_tool_call") => item
+                .get("call_id")
+                .and_then(Value::as_str)
+                .map(|call_id| custom_call_output_ids.contains(call_id))
+                .unwrap_or(false),
+            Some("custom_tool_call_output") => item
+                .get("call_id")
+                .and_then(Value::as_str)
+                .map(|call_id| custom_call_ids.contains(call_id))
+                .unwrap_or(false),
+            _ => true,
+        })
+        .collect()
+}
+
+fn truncate_context_items_preserving_tool_pairs(items: Vec<Value>, max_items: usize) -> Vec<Value> {
+    if items.len() <= max_items {
+        return items;
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    enum ToolKind {
+        Function,
+        Custom,
+    }
+
+    let mut groups: HashMap<(ToolKind, String), Vec<usize>> = HashMap::new();
+    for (idx, item) in items.iter().enumerate() {
+        let kind = match item.get("type").and_then(Value::as_str) {
+            Some("function_call") | Some("function_call_output") => Some(ToolKind::Function),
+            Some("custom_tool_call") | Some("custom_tool_call_output") => Some(ToolKind::Custom),
+            _ => None,
+        };
+        let Some(kind) = kind else {
+            continue;
+        };
+        let Some(call_id) = item.get("call_id").and_then(Value::as_str) else {
+            continue;
+        };
+        groups
+            .entry((kind, call_id.to_string()))
+            .or_default()
+            .push(idx);
+    }
+
+    let mut selected = vec![false; items.len()];
+    let mut kept = 0usize;
+
+    for idx in (0..items.len()).rev() {
+        if selected[idx] {
+            continue;
+        }
+
+        let group_indices: Vec<usize> = match items[idx].get("type").and_then(Value::as_str) {
+            Some("function_call") | Some("function_call_output") => {
+                match items[idx].get("call_id").and_then(Value::as_str) {
+                    Some(call_id) => groups
+                        .get(&(ToolKind::Function, call_id.to_string()))
+                        .cloned()
+                        .unwrap_or_else(|| vec![idx]),
+                    None => vec![idx],
+                }
+            }
+            Some("custom_tool_call") | Some("custom_tool_call_output") => {
+                match items[idx].get("call_id").and_then(Value::as_str) {
+                    Some(call_id) => groups
+                        .get(&(ToolKind::Custom, call_id.to_string()))
+                        .cloned()
+                        .unwrap_or_else(|| vec![idx]),
+                    None => vec![idx],
+                }
+            }
+            _ => vec![idx],
+        };
+
+        let new_items = group_indices
+            .iter()
+            .filter(|&&group_idx| !selected[group_idx])
+            .count();
+        if kept + new_items > max_items {
+            continue;
+        }
+
+        for group_idx in group_indices {
+            if !selected[group_idx] {
+                selected[group_idx] = true;
+                kept += 1;
+            }
+        }
+
+        if kept >= max_items {
+            break;
+        }
+    }
+
+    items
+        .into_iter()
+        .enumerate()
+        .filter_map(|(idx, item)| if selected[idx] { Some(item) } else { None })
+        .collect()
 }
 
 pub fn list_conversations() -> Result<Vec<ConversationSummary>, String> {
@@ -422,11 +579,17 @@ mod tests {
 
         let path = conversation_dir_path(&conversation_id).expect("path");
         ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
-        assert!(path.exists(), "session directory should exist before delete");
+        assert!(
+            path.exists(),
+            "session directory should exist before delete"
+        );
 
         let deleted = delete_conversation(&conversation_id).expect("delete conversation");
         assert!(deleted, "delete should report true when file existed");
-        assert!(!path.exists(), "session directory should be removed after delete");
+        assert!(
+            !path.exists(),
+            "session directory should be removed after delete"
+        );
     }
 
     #[test]
@@ -479,5 +642,117 @@ mod tests {
         assert!(openai_context.input_items.len() >= 2);
 
         delete_conversation(&conversation_id).expect("cleanup conversation");
+    }
+
+    #[test]
+    fn load_context_filters_orphan_tool_call_items() {
+        let conversation_id = format!("test-orphan-tool-items-{}", Uuid::new_v4());
+        let utility_model = "gpt-5-mini";
+        ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
+
+        let context_items = vec![
+            json!({"type":"function_call","call_id":"call_orphan","name":"tool_a","arguments":{}}),
+            json!({"type":"function_call","call_id":"call_ok","name":"tool_b","arguments":{}}),
+            json!({"type":"function_call_output","call_id":"call_ok","output":"{\"ok\":true}"}),
+        ];
+
+        append_message(
+            AppendMessageInput {
+                conversation_id: conversation_id.clone(),
+                entry_id: "assistant-tool-history".to_string(),
+                role: "assistant".to_string(),
+                text: "done".to_string(),
+                created_at_unix_ms: now_unix_ms(),
+                response_id: Some("resp-tool".to_string()),
+                provider: Some("openai".to_string()),
+                model_profile: Some("gpt-5-mini".to_string()),
+                model_id: Some("gpt-5-mini".to_string()),
+                request_id: Some("req-tool".to_string()),
+                context_items,
+                timeline_events: None,
+                metadata: BTreeMap::new(),
+            },
+            utility_model,
+        )
+        .expect("append assistant");
+
+        let context = load_context_for_request(&conversation_id).expect("context");
+        assert!(
+            !context.input_items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("function_call")
+                    && item.get("call_id").and_then(Value::as_str) == Some("call_orphan")
+            }),
+            "orphan function_call should be filtered"
+        );
+        assert!(
+            context.input_items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("function_call")
+                    && item.get("call_id").and_then(Value::as_str) == Some("call_ok")
+            }),
+            "paired function_call should be kept"
+        );
+        assert!(
+            context.input_items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("function_call_output")
+                    && item.get("call_id").and_then(Value::as_str) == Some("call_ok")
+            }),
+            "paired function_call_output should be kept"
+        );
+
+        delete_conversation(&conversation_id).expect("cleanup");
+    }
+
+    #[test]
+    fn load_context_truncates_without_splitting_tool_pairs() {
+        let conversation_id = format!("test-context-truncate-{}", Uuid::new_v4());
+        let utility_model = "gpt-5-mini";
+        ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
+
+        let mut context_items = Vec::new();
+        for i in 0..260 {
+            context_items.push(json!({
+                "role":"user",
+                "content":[{"type":"input_text","text": format!("u-{i}")}]
+            }));
+        }
+        context_items.push(
+            json!({"type":"function_call","call_id":"call_tail","name":"tool_x","arguments":{}}),
+        );
+        context_items.push(
+            json!({"type":"function_call_output","call_id":"call_tail","output":"{\"ok\":true}"}),
+        );
+
+        append_message(
+            AppendMessageInput {
+                conversation_id: conversation_id.clone(),
+                entry_id: "assistant-long-history".to_string(),
+                role: "assistant".to_string(),
+                text: "done".to_string(),
+                created_at_unix_ms: now_unix_ms(),
+                response_id: Some("resp-long".to_string()),
+                provider: Some("openai".to_string()),
+                model_profile: Some("gpt-5-mini".to_string()),
+                model_id: Some("gpt-5-mini".to_string()),
+                request_id: Some("req-long".to_string()),
+                context_items,
+                timeline_events: None,
+                metadata: BTreeMap::new(),
+            },
+            utility_model,
+        )
+        .expect("append");
+
+        let context = load_context_for_request(&conversation_id).expect("context");
+        assert!(context.input_items.len() <= MAX_CONTEXT_ITEMS_PER_REQUEST);
+        assert!(context.input_items.iter().any(|item| {
+            item.get("type").and_then(Value::as_str) == Some("function_call")
+                && item.get("call_id").and_then(Value::as_str) == Some("call_tail")
+        }));
+        assert!(context.input_items.iter().any(|item| {
+            item.get("type").and_then(Value::as_str) == Some("function_call_output")
+                && item.get("call_id").and_then(Value::as_str) == Some("call_tail")
+        }));
+
+        delete_conversation(&conversation_id).expect("cleanup");
     }
 }

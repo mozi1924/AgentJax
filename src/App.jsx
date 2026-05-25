@@ -17,17 +17,32 @@ import {
   shouldShowConversationInSidebar
 } from './features/conversations/conversationUtils';
 
-const DEFAULT_MODEL_PROFILE = 'gpt-5-mini';
+const DEFAULT_MODEL_PROFILE = 'openai/gpt-5-mini';
 const DEFAULT_REASONING_MODE = '__default__';
 
-const buildFallbackModelOption = (profileKey) => ({
-  profileKey,
-  providerKey: '',
-  modelId: profileKey,
-  supportsReasoning: false,
-  supportedReasoningLevels: [],
-  configuredReasoningEffort: null
-});
+const splitProfileKey = (value) => {
+  const raw = `${value || ''}`.trim();
+  if (!raw) return null;
+  const [providerKey, modelKey] = raw.split('/');
+  if (!providerKey || !modelKey) return null;
+  return {
+    providerKey: providerKey.trim(),
+    modelKey: modelKey.trim()
+  };
+};
+
+const buildFallbackModelOption = (profileKey) => {
+  const normalizedProfileKey = `${profileKey || ''}`.trim();
+  const split = splitProfileKey(normalizedProfileKey);
+  return {
+    profileKey: normalizedProfileKey,
+    providerKey: split?.providerKey || '',
+    modelId: split?.modelKey || normalizedProfileKey,
+    supportsReasoning: false,
+    supportedReasoningLevels: [],
+    configuredReasoningEffort: null
+  };
+};
 
 const normalizeModelOption = (option) => {
   const profileKey = (option?.profileKey || option?.modelId || '').trim();
@@ -35,11 +50,19 @@ const normalizeModelOption = (option) => {
     return null;
   }
 
+  const providerFromProfile = splitProfileKey(profileKey)?.providerKey || '';
+  const modelFromProfile = splitProfileKey(profileKey)?.modelKey || '';
+  const providedProviderKey = (option?.providerKey || '').trim();
+  const normalizedProviderKey = providedProviderKey || providerFromProfile;
+  const normalizedProfileKey = normalizedProviderKey && !profileKey.includes('/')
+    ? `${normalizedProviderKey}/${profileKey}`
+    : profileKey;
+
   const configuredReasoningEffort = (option?.configuredReasoningEffort || '').trim().toLowerCase();
   return {
-    profileKey,
-    providerKey: (option?.providerKey || '').trim(),
-    modelId: (option?.modelId || profileKey).trim(),
+    profileKey: normalizedProfileKey,
+    providerKey: normalizedProviderKey,
+    modelId: (option?.modelId || modelFromProfile || profileKey).trim(),
     supportsReasoning: !!option?.supportsReasoning,
     supportedReasoningLevels: Array.isArray(option?.supportedReasoningLevels)
       ? option.supportedReasoningLevels
@@ -48,6 +71,23 @@ const normalizeModelOption = (option) => {
       : [],
     configuredReasoningEffort: configuredReasoningEffort || null
   };
+};
+
+const resolveConfiguredDefaultOptionProfileKey = (configuredDefault, options) => {
+  const normalizedDefault = `${configuredDefault || ''}`.trim();
+  if (!normalizedDefault || !Array.isArray(options) || options.length === 0) {
+    return null;
+  }
+
+  const direct = options.find((option) => option.profileKey === normalizedDefault);
+  if (direct) return direct.profileKey;
+
+  const split = splitProfileKey(normalizedDefault);
+  if (!split) return null;
+  const byProviderAndModelId = options.find(
+    (option) => option.providerKey === split.providerKey && option.modelId === split.modelKey
+  );
+  return byProviderAndModelId?.profileKey || null;
 };
 
 function App() {
@@ -269,11 +309,12 @@ function App() {
               ? catalog.effectiveModels
               : [DEFAULT_MODEL_PROFILE]
           ).map(buildFallbackModelOption);
-        const availableProfileKeys = available.map((option) => option.profileKey);
         const configuredDefault = (catalog.defaultModel || '').trim();
-        const nextModel = configuredDefault && availableProfileKeys.includes(configuredDefault)
-          ? configuredDefault
-          : available[0]?.profileKey || DEFAULT_MODEL_PROFILE;
+        const configuredDefaultProfileKey = resolveConfiguredDefaultOptionProfileKey(
+          configuredDefault,
+          available
+        );
+        const nextModel = configuredDefaultProfileKey || available[0]?.profileKey || DEFAULT_MODEL_PROFILE;
 
         setModelOptions(available);
         setSelectedModel(nextModel);

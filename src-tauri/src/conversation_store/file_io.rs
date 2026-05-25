@@ -142,7 +142,10 @@ pub fn write_conversation_file(
     })
 }
 
-pub fn refresh_meta_derived_fields(meta: &mut ConversationMetaLine, entries: &[ConversationEntryLine]) {
+pub fn refresh_meta_derived_fields(
+    meta: &mut ConversationMetaLine,
+    entries: &[ConversationEntryLine],
+) {
     meta.version = LOG_VERSION;
     meta.record_type = "meta".to_string();
     meta.conversation_id = sanitize_conversation_id(&meta.conversation_id);

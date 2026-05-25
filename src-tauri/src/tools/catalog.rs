@@ -164,18 +164,18 @@ impl ToolCatalog {
             return server_config.clone();
         };
 
-        let workspace = match crate::conversation_store::conversation_workspace_path(conversation_id)
-        {
-            Ok(path) => path,
-            Err(err) => {
-                log::warn!(
-                    "Failed to resolve workspace for conversation '{}' as MCP cwd fallback: {}",
-                    conversation_id,
-                    err
-                );
-                return server_config.clone();
-            }
-        };
+        let workspace =
+            match crate::conversation_store::conversation_workspace_path(conversation_id) {
+                Ok(path) => path,
+                Err(err) => {
+                    log::warn!(
+                        "Failed to resolve workspace for conversation '{}' as MCP cwd fallback: {}",
+                        conversation_id,
+                        err
+                    );
+                    return server_config.clone();
+                }
+            };
 
         let mut next = server_config.clone();
         next.cwd = Some(workspace.to_string_lossy().to_string());

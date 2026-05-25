@@ -7,8 +7,8 @@ mod chat_utils;
 
 pub use chat_registry::ChatRequestRegistry;
 pub use chat_types::{
-    CancelChatRequest, ChatRequest, ChatResponse, DeleteConversationRequest, LoadConversationRequest,
-    RenameConversationRequest,
+    CancelChatRequest, ChatRequest, ChatResponse, DeleteConversationRequest,
+    LoadConversationRequest, RenameConversationRequest,
 };
 
 use crate::config;

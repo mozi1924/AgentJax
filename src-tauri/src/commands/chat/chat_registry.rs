@@ -23,7 +23,10 @@ pub struct ChatRequestRegistry {
 }
 
 impl ChatRequestRegistry {
-    pub fn has_active_request_for_conversation(&self, conversation_id: &str) -> Result<bool, String> {
+    pub fn has_active_request_for_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<bool, String> {
         let requests = self
             .requests
             .lock()
@@ -55,7 +58,10 @@ impl ChatRequestRegistry {
         Ok(())
     }
 
-    pub fn remove_chat_request(&self, request_id: &str) -> Result<Option<ActiveChatRequest>, String> {
+    pub fn remove_chat_request(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<ActiveChatRequest>, String> {
         let mut requests = self
             .requests
             .lock()
