@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, Sparkles, Loader2, RotateCcw, AlertTriangle, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
+import { MessageSquare, Sparkles, Loader2, RotateCcw, AlertTriangle, ChevronDown, ChevronUp, CheckCircle2, Copy } from 'lucide-react';
 import CodeBlock from './CodeBlock';
 
 function ToolCallWidget({ toolCall }) {
   const [expanded, setExpanded] = useState(false);
+  const [copiedArgs, setCopiedArgs] = useState(false);
+  const [copiedOutput, setCopiedOutput] = useState(false);
 
   const getStatusColor = () => {
     switch (toolCall.status) {
@@ -42,6 +44,28 @@ function ToolCallWidget({ toolCall }) {
       return JSON.stringify(parsed, null, 2);
     } catch (e) {
       return String(val);
+    }
+  };
+
+  const handleCopyArgs = async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(formatValue(toolCall.arguments));
+      setCopiedArgs(true);
+      setTimeout(() => setCopiedArgs(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy args: ', err);
+    }
+  };
+
+  const handleCopyOutput = async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(formatValue(toolCall.output));
+      setCopiedOutput(true);
+      setTimeout(() => setCopiedOutput(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy output: ', err);
     }
   };
 
@@ -96,15 +120,53 @@ function ToolCallWidget({ toolCall }) {
       {expanded && (
         <div className="mt-2.5 space-y-2 border-t border-slate-500/10 pt-2.5 transition-all">
           <div>
-            <span className="font-semibold opacity-70 block mb-1">输入参数 (Arguments):</span>
-            <pre className="bg-[#1e1f20]/60 p-2 rounded-lg text-[10px] text-cyan-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-40 scrollbar-thin">
+            <div className="flex justify-between items-center mb-1 select-none">
+              <span className="font-semibold opacity-70">输入参数 (Arguments):</span>
+              <button
+                onClick={handleCopyArgs}
+                className="flex items-center gap-1 opacity-60 hover:opacity-100 text-[10px] text-cyan-300 font-medium transition py-0.5 px-1.5 rounded hover:bg-slate-500/10 cursor-pointer"
+                title="复制输入参数"
+              >
+                {copiedArgs ? (
+                  <>
+                    <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                    <span className="text-emerald-400">已复制!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3 w-3" />
+                    <span>复制</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <pre className="bg-[#1e1f20]/60 p-2 rounded-lg text-[10px] text-cyan-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-40 scrollbar-thin select-text">
               {formatValue(toolCall.arguments) || '{}'}
             </pre>
           </div>
           {toolCall.output && (
             <div>
-              <span className="font-semibold opacity-70 block mb-1">输出结果 (Output):</span>
-              <pre className={`p-2 rounded-lg text-[10px] font-mono overflow-x-auto whitespace-pre-wrap max-h-40 scrollbar-thin ${isFailed ? 'bg-rose-950/20 text-rose-300' : 'bg-[#131314]/80 text-emerald-300'}`}>
+              <div className="flex justify-between items-center mb-1 select-none">
+                <span className="font-semibold opacity-70">输出结果 (Output):</span>
+                <button
+                  onClick={handleCopyOutput}
+                  className="flex items-center gap-1 opacity-60 hover:opacity-100 text-[10px] text-emerald-300 font-medium transition py-0.5 px-1.5 rounded hover:bg-slate-500/10 cursor-pointer"
+                  title="复制输出结果"
+                >
+                  {copiedOutput ? (
+                    <>
+                      <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                      <span className="text-emerald-400">已复制!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3 w-3" />
+                      <span>复制</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <pre className={`p-2 rounded-lg text-[10px] font-mono overflow-x-auto whitespace-pre-wrap max-h-40 scrollbar-thin select-text ${isFailed ? 'bg-rose-950/20 text-rose-300' : 'bg-[#131314]/80 text-emerald-300'}`}>
                 {formatValue(toolCall.output)}
               </pre>
             </div>
@@ -123,6 +185,28 @@ export default function ChatArea({
   activeChatTitle
 }) {
   const messagesEndRef = useRef(null);
+  const [copiedMessageId, setCopiedMessageId] = useState(null);
+  const [copiedErrorId, setCopiedErrorId] = useState(null);
+
+  const handleCopyMessage = async (msgId, text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedMessageId(msgId);
+      setTimeout(() => setCopiedMessageId(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy: ', err);
+    }
+  };
+
+  const handleCopyError = async (msgId, errorText) => {
+    try {
+      await navigator.clipboard.writeText(errorText);
+      setCopiedErrorId(msgId);
+      setTimeout(() => setCopiedErrorId(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy error: ', err);
+    }
+  };
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -393,7 +477,7 @@ export default function ChatArea({
         {messages.map((m) => (
           <div
             key={m.id}
-            className={`flex gap-4 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            className={`flex gap-4 group ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             {/* AI Avatar */}
             {m.role === 'assistant' && (
@@ -423,9 +507,9 @@ export default function ChatArea({
 
                 {/* Streaming indicator or response body */}
                 {m.status === 'failed' || m.status === 'interrupted' ? (
-                  <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 px-4 py-3">
+                  <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 px-4 py-3 select-text">
                     <div className="flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 mt-0.5 text-rose-300" />
+                      <AlertTriangle className="h-4 w-4 mt-0.5 text-rose-300 shrink-0" />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm text-rose-200">
                           {m.status === 'interrupted'
@@ -435,18 +519,36 @@ export default function ChatArea({
                         <p className="mt-1 text-xs text-rose-300/90 break-words">
                           {m.errorText || '请检查网络或配置后重试。'}
                         </p>
-                        <button
-                          onClick={() => onRetryMessage?.(m.id)}
-                          disabled={isGenerating}
-                          className={`mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                            isGenerating
-                              ? 'cursor-not-allowed border border-[#2d2f31] text-slate-500'
-                              : 'border border-rose-400/40 text-rose-200 hover:bg-rose-900/40'
-                          }`}
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                          重试这条消息
-                        </button>
+                        <div className="flex gap-2 mt-3 select-none">
+                          <button
+                            onClick={() => onRetryMessage?.(m.id)}
+                            disabled={isGenerating}
+                            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                              isGenerating
+                                ? 'cursor-not-allowed border border-[#2d2f31] text-slate-500'
+                                : 'border border-rose-400/40 text-rose-200 hover:bg-rose-900/40'
+                            }`}
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            重试这条消息
+                          </button>
+                          <button
+                            onClick={() => handleCopyError(m.id, m.errorText || '请检查网络或配置后重试。')}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/20 bg-rose-500/5 px-3 py-1.5 text-xs font-medium text-rose-200 transition hover:bg-rose-500/10 cursor-pointer"
+                          >
+                            {copiedErrorId === m.id ? (
+                              <>
+                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                                <span className="text-emerald-400">已复制错误!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3.5 w-3.5" />
+                                <span>复制错误信息</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -458,12 +560,35 @@ export default function ChatArea({
                     </div>
                   </div>
                 ) : (
-                  <div
-                    data-native-context-menu="true"
-                    className="prose prose-invert max-w-none text-slate-300 select-text"
-                  >
-                    {renderMarkdown(m.text)}
-                  </div>
+                  <>
+                    <div
+                      data-native-context-menu="true"
+                      className="prose prose-invert max-w-none text-slate-300 select-text"
+                    >
+                      {renderMarkdown(m.text)}
+                    </div>
+                    {m.role === 'assistant' && m.status !== 'streaming' && m.text && (
+                      <div className="mt-2.5 flex items-center gap-4 text-xs text-slate-500 opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity duration-200 select-none">
+                        <button
+                          onClick={() => handleCopyMessage(m.id, m.text)}
+                          className="flex items-center gap-1.5 hover:text-slate-300 transition duration-150 py-1 cursor-pointer"
+                          title="复制全文"
+                        >
+                          {copiedMessageId === m.id ? (
+                            <>
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                              <span className="text-emerald-400 font-medium">已复制全文</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5" />
+                              <span>复制全文</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}

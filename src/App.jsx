@@ -54,7 +54,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL_PROFILE);
   const [modelOptions, setModelOptions] = useState([]);
-  const [selectedReasoningModes, setSelectedReasoningModes] = useState({});
+  const [selectedReasoningMode, setSelectedReasoningMode] = useState(DEFAULT_REASONING_MODE);
   const [configPath, setConfigPath] = useState('');
   const [cachePath, setCachePath] = useState('');
   const [input, setInput] = useState('');
@@ -102,9 +102,7 @@ function App() {
       null,
     [modelOptions, selectedModel]
   );
-  const selectedReasoningMode = selectedModelOption
-    ? selectedReasoningModes[selectedModelOption.profileKey] ?? DEFAULT_REASONING_MODE
-    : DEFAULT_REASONING_MODE;
+
   const activeConversationIsGenerating =
     !!activeConversation?.conversationId &&
     generatingConversationIds.has(activeConversation.conversationId);
@@ -279,15 +277,8 @@ function App() {
 
         setModelOptions(available);
         setSelectedModel(nextModel);
-        setSelectedReasoningModes((prev) => {
-          const next = {};
-          available.forEach((option) => {
-            next[option.profileKey] = Object.prototype.hasOwnProperty.call(prev, option.profileKey)
-              ? prev[option.profileKey]
-              : option.configuredReasoningEffort || DEFAULT_REASONING_MODE;
-          });
-          return next;
-        });
+        const nextModelOption = available.find((option) => option.profileKey === nextModel);
+        setSelectedReasoningMode(nextModelOption?.configuredReasoningEffort || DEFAULT_REASONING_MODE);
         if (catalog.configPath) {
           setConfigPath(catalog.configPath);
         }
@@ -779,12 +770,8 @@ function App() {
     }
   };
 
-  const handleSelectReasoningMode = (profileKey, reasoningMode) => {
-    if (!profileKey) return;
-    setSelectedReasoningModes((prev) => ({
-      ...prev,
-      [profileKey]: reasoningMode || DEFAULT_REASONING_MODE
-    }));
+  const handleSelectReasoningMode = (reasoningMode) => {
+    setSelectedReasoningMode(reasoningMode || DEFAULT_REASONING_MODE);
   };
 
   const handleRetryMessage = (assistantMessageId) => {
