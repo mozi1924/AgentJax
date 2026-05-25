@@ -2,6 +2,7 @@
 mod tests {
     use crate::tools::{
         CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool, Tool, ToolRegistry,
+        ToolSchemaFormat,
     };
     use serde_json::json;
     use std::fs;
@@ -136,5 +137,28 @@ mod tests {
         let args = json!({ "expression": "100 * 2.5" });
         let res = registry.execute("calculator", &args).unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 250.0);
+    }
+
+    #[test]
+    fn test_tool_schema_formats() {
+        let registry = ToolRegistry::new_with_defaults();
+
+        let responses_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Responses);
+        let cc_schemas = registry.list_schemas_with_format(ToolSchemaFormat::ChatCompletions);
+
+        assert_eq!(responses_schemas.len(), 4);
+        assert_eq!(cc_schemas.len(), 4);
+
+        let first_responses = &responses_schemas[0];
+        assert_eq!(first_responses["type"], "function");
+        assert!(first_responses.get("name").is_some());
+        assert!(first_responses.get("function").is_none());
+
+        let first_cc = &cc_schemas[0];
+        assert_eq!(first_cc["type"], "function");
+        assert!(first_cc.get("name").is_none());
+        assert!(first_cc.get("function").is_some());
+        assert!(first_cc["function"].get("name").is_some());
+        assert!(first_cc["function"].get("parameters").is_some());
     }
 }

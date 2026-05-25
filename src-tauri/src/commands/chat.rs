@@ -564,21 +564,25 @@ async fn generate_title_and_emit(
     let job_id = registry.register_title_request(conversation_id, title_cancel_tx)?;
 
     let title_request = ResponseStreamRequest {
-        input_text: build_title_generation_prompt(&candidate),
+        input_items: vec![serde_json::json!({
+            "role": "user",
+            "content": [{
+                "type": "text",
+                "text": build_title_generation_prompt(&candidate)
+            }]
+        })],
         previous_response_id: None,
         model: Some(config.utility_small_model_key().to_string()),
         reasoning_effort: None,
-        context_items: Vec::new(),
         instructions_override: Some(TITLE_GENERATION_INSTRUCTIONS.to_string()),
         tools: None,
         tool_choice: None,
     };
 
-    let response =
-        providers::stream_response(&config, &title_request, None, &mut title_cancel_rx, |_| {
-            Ok(())
-        })
-        .await;
+    let response = providers::stream_response(&config, &title_request, &mut title_cancel_rx, |_| {
+        Ok(())
+    })
+    .await;
 
     let cancelled = *title_cancel_rx.borrow();
     registry.finish_title_request(conversation_id, &job_id)?;

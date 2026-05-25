@@ -9,6 +9,8 @@ pub mod tools;
 
 #[cfg(test)]
 mod tools_tests;
+#[cfg(test)]
+mod providers_tests;
 
 fn parse_rust_log_level() -> log::LevelFilter {
     let default_level = if cfg!(debug_assertions) {

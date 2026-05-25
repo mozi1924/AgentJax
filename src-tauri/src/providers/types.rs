@@ -47,16 +47,18 @@ pub enum ProviderStreamEvent {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct ResponseStreamRequest {
-    pub input_text: String,
+pub struct ProviderTurnRequest {
+    pub input_items: Vec<Value>,
     pub previous_response_id: Option<String>,
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
-    pub context_items: Vec<Value>,
     pub instructions_override: Option<String>,
     pub tools: Option<Vec<Value>>,
     pub tool_choice: Option<Value>,
 }
+
+pub type ResponseStreamRequest = ProviderTurnRequest;
+pub type ProviderEventSink<'a> = dyn FnMut(ProviderStreamEvent) -> Result<(), String> + Send + 'a;
 
 #[derive(Debug, Clone)]
 pub struct ResponseStreamResult {

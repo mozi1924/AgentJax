@@ -10,11 +10,10 @@ use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
 use super::capabilities::ProviderCapabilities;
 use super::types::{
-    ModelReasoningCapability, ProviderModelDescriptor, ProviderStreamEvent, ResponseStreamRequest,
-    ResponseStreamResult,
+    ModelReasoningCapability, ProviderEventSink, ProviderModelDescriptor, ProviderStreamEvent,
+    ResponseStreamRequest, ResponseStreamResult,
 };
 use crate::config::{ModelRequestConfig, ResolvedModelConfig};
-use crate::tools::ToolCatalog;
 
 #[derive(Debug, Clone, Deserialize)]
 struct RemoteModelsResponse {
@@ -91,30 +90,18 @@ pub async fn fetch_remote_models(
     Ok(models)
 }
 
-pub async fn stream_response<F>(
+pub async fn stream_response(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
-    tools_catalog: Option<&ToolCatalog>,
     cancel_rx: &mut watch::Receiver<bool>,
-    mut on_delta: F,
-) -> Result<ResponseStreamResult, String>
-where
-    F: FnMut(ProviderStreamEvent) -> Result<(), String>,
-{
+    on_delta: &mut ProviderEventSink<'_>,
+) -> Result<ResponseStreamResult, String> {
     let persistence = resolved.provider.store_responses;
     let use_sse = resolved.provider.stream_transport == "sse";
     let first_attempt = if use_sse {
-        create_response_streaming_sse(resolved, req, persistence, cancel_rx, &mut on_delta).await
+        create_response_streaming_sse(resolved, req, persistence, cancel_rx, on_delta).await
     } else {
-        create_response_streaming_websocket(
-            resolved,
-            req,
-            tools_catalog,
-            persistence,
-            cancel_rx,
-            &mut on_delta,
-        )
-        .await
+        create_response_streaming_websocket(resolved, req, persistence, cancel_rx, on_delta).await
     };
 
     if !use_sse && first_attempt.is_err() {
@@ -122,23 +109,15 @@ where
             "WebSocket transport failed for provider '{}', retrying with SSE transport",
             resolved.provider_key
         );
-        return create_response_streaming_sse(resolved, req, persistence, cancel_rx, &mut on_delta)
+        return create_response_streaming_sse(resolved, req, persistence, cancel_rx, on_delta)
             .await;
     }
 
     if should_retry_with_store_false(&first_attempt, persistence) {
         let store_false_attempt = if use_sse {
-            create_response_streaming_sse(resolved, req, false, cancel_rx, &mut on_delta).await
+            create_response_streaming_sse(resolved, req, false, cancel_rx, on_delta).await
         } else {
-            create_response_streaming_websocket(
-                resolved,
-                req,
-                tools_catalog,
-                false,
-                cancel_rx,
-                &mut on_delta,
-            )
-            .await
+            create_response_streaming_websocket(resolved, req, false, cancel_rx, on_delta).await
         };
 
         if !use_sse && store_false_attempt.is_err() {
@@ -146,7 +125,7 @@ where
                 "WebSocket store=false retry failed for provider '{}', retrying with SSE transport",
                 resolved.provider_key
             );
-            return create_response_streaming_sse(resolved, req, false, cancel_rx, &mut on_delta)
+            return create_response_streaming_sse(resolved, req, false, cancel_rx, on_delta)
                 .await;
         }
 
@@ -157,22 +136,11 @@ where
         let mut retry_req = req.clone();
         retry_req.previous_response_id = None;
         let retry_attempt = if use_sse {
-            create_response_streaming_sse(
-                resolved,
-                &retry_req,
-                persistence,
-                cancel_rx,
-                &mut on_delta,
-            )
-            .await
+            create_response_streaming_sse(resolved, &retry_req, persistence, cancel_rx, on_delta)
+                .await
         } else {
             create_response_streaming_websocket(
-                resolved,
-                &retry_req,
-                tools_catalog,
-                persistence,
-                cancel_rx,
-                &mut on_delta,
+                resolved, &retry_req, persistence, cancel_rx, on_delta,
             )
             .await
         };
@@ -187,7 +155,7 @@ where
                 &retry_req,
                 persistence,
                 cancel_rx,
-                &mut on_delta,
+                on_delta,
             )
             .await;
         }
@@ -242,24 +210,12 @@ fn build_streaming_request_payload(
     previous_response_id: Option<&str>,
     store: bool,
 ) -> Value {
-    let mut input_items = Vec::new();
-
     let previous_response_id = previous_response_id
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
 
-    if previous_response_id.is_none() {
-        input_items.extend(req.context_items.iter().cloned());
-    }
-
-    input_items.push(json!({
-      "role": "user",
-      "content": [{
-        "type": "input_text",
-        "text": req.input_text
-      }]
-    }));
+    let input_items = normalize_input_items_for_responses(&req.input_items);
 
     let mut payload = json!({
       "model": resolved.model_id,
@@ -339,33 +295,21 @@ fn apply_model_request_config(
     }
 }
 
-#[derive(Debug, Clone)]
-struct PendingToolCall {
-    item_id: String,
-    call_id: String,
-    name: String,
-    arguments: String,
-}
-
 // Struct to keep state during parser streaming
 struct ParserState {
     emitted_reasoning_started: bool,
     emitted_output_started: bool,
     active_tools_map: HashMap<String, String>, // item_id -> tool_name
     completed_tool_calls: Vec<String>,
-    pending_tool_calls: Vec<PendingToolCall>,
 }
 
-async fn create_response_streaming_sse<F>(
+async fn create_response_streaming_sse(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
     store: bool,
     cancel_rx: &mut watch::Receiver<bool>,
-    on_delta: &mut F,
-) -> Result<ResponseStreamResult, String>
-where
-    F: FnMut(ProviderStreamEvent) -> Result<(), String>,
-{
+    on_delta: &mut ProviderEventSink<'_>,
+) -> Result<ResponseStreamResult, String> {
     let credential = resolved.provider.resolved_credential().ok_or_else(|| {
         format!(
             "Provider '{}' credential is missing.",
@@ -417,7 +361,6 @@ where
         emitted_output_started: false,
         active_tools_map: HashMap::new(),
         completed_tool_calls: Vec::new(),
-        pending_tool_calls: Vec::new(),
     });
 
     loop {
@@ -488,17 +431,13 @@ where
     })
 }
 
-async fn create_response_streaming_websocket<F>(
+async fn create_response_streaming_websocket(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
-    tools_catalog: Option<&ToolCatalog>,
     store: bool,
     cancel_rx: &mut watch::Receiver<bool>,
-    on_delta: &mut F,
-) -> Result<ResponseStreamResult, String>
-where
-    F: FnMut(ProviderStreamEvent) -> Result<(), String>,
-{
+    on_delta: &mut ProviderEventSink<'_>,
+) -> Result<ResponseStreamResult, String> {
     let credential = resolved.provider.resolved_credential().ok_or_else(|| {
         format!(
             "Provider '{}' credential is missing.",
@@ -556,7 +495,6 @@ where
         emitted_output_started: false,
         active_tools_map: HashMap::new(),
         completed_tool_calls: Vec::new(),
-        pending_tool_calls: Vec::new(),
     });
 
     let stream_result = tokio::time::timeout(
@@ -600,72 +538,6 @@ where
                           maybe_type,
                           "response.completed" | "response.done"
                         ) {
-                  let pending_calls = {
-                      let mut p_state = state.lock().map_err(|_| "Failed to lock ParserState".to_string())?;
-                      std::mem::take(&mut p_state.pending_tool_calls)
-                  };
-                  
-                  if let Some(catalog) = tools_catalog {
-                      if !pending_calls.is_empty() {
-                          let mut tool_input_items = Vec::new();
-                          
-                          for tool_call in pending_calls {
-                              let call_id = tool_call.call_id.clone();
-                              let name = tool_call.name.clone();
-                              let arguments_str = tool_call.arguments.clone();
-                              
-                              let parsed_args: Value = serde_json::from_str(&arguments_str).unwrap_or(json!({}));
-                              
-                              let exec_result = catalog.execute(&name, &parsed_args).await;
-                              let (output_str, is_success) = match exec_result {
-                                  Ok(res) => (serde_json::to_string(&res).unwrap_or_default(), true),
-                                  Err(err) => (err, false),
-                              };
-
-                              on_delta(ProviderStreamEvent::ToolCallExecuted {
-                                  call_id: call_id.clone(),
-                                  output: output_str.clone(),
-                              })?;
-
-                              let tool_input_item = json!({
-                                  "role": "tool",
-                                  "tool_call_id": call_id.clone(),
-                                  "content": [
-                                      {
-                                          "type": "tool_output",
-                                          "text": output_str.clone()
-                                      }
-                                  ]
-                              });
-                              tool_input_items.push(tool_input_item);
-
-                              accumulated_output_items.push(json!({
-                                  "id": format!("item-tool-output-{}", call_id),
-                                  "type": "function_call_output",
-                                  "call_id": call_id,
-                                  "output": output_str,
-                                  "status": if is_success { "completed" } else { "failed" }
-                              }));
-                          }
-
-                          let continuation_payload = json!({
-                              "type": "response.create",
-                              "model": resolved.model_id,
-                              "instructions": req.instructions_override.as_deref().unwrap_or(&resolved.provider.system_prompt),
-                              "input": tool_input_items,
-                              "previous_response_id": response_id.clone(),
-                              "store": store,
-                              "stream": true
-                          });
-
-                          ws.send(Message::Text(continuation_payload.to_string().into()))
-                              .await
-                              .map_err(|e| format!("Failed to send tool output continuation: {e}"))?;
-                          
-                          continue;
-                      }
-                  }
-                  
                           break;
                         }
                       }
@@ -743,17 +615,14 @@ fn split_sse_event_block(buffer: &str) -> Option<(String, String)> {
     None
 }
 
-fn process_sse_event_block<F>(
+fn process_sse_event_block(
     block: &str,
     response_id: &mut String,
     output_text: &mut String,
     last_response_obj: &mut Option<Value>,
     state: &Mutex<ParserState>,
-    on_delta: &mut F,
-) -> Result<(), String>
-where
-    F: FnMut(ProviderStreamEvent) -> Result<(), String>,
-{
+    on_delta: &mut ProviderEventSink<'_>,
+) -> Result<(), String> {
     let mut data_lines = Vec::new();
 
     for line in block.lines() {
@@ -782,17 +651,14 @@ where
     )
 }
 
-fn handle_stream_event_json<F>(
+fn handle_stream_event_json(
     payload: &str,
     response_id: &mut String,
     output_text: &mut String,
     last_response_obj: &mut Option<Value>,
     state_mutex: &Mutex<ParserState>,
-    on_delta: &mut F,
-) -> Result<(), String>
-where
-    F: FnMut(ProviderStreamEvent) -> Result<(), String>,
-{
+    on_delta: &mut ProviderEventSink<'_>,
+) -> Result<(), String> {
     let value: Value = serde_json::from_str(payload).map_err(|e| {
         format!(
             "Failed to parse streaming event: {e}. body={}",
@@ -954,14 +820,6 @@ where
                 .unwrap_or_default();
             state.completed_tool_calls.push(call_id.clone());
 
-            let pending = PendingToolCall {
-                item_id: item_id.clone(),
-                call_id: call_id.clone(),
-                name: name.clone(),
-                arguments: arguments.clone(),
-            };
-            state.pending_tool_calls.push(pending);
-
             on_delta(ProviderStreamEvent::ToolCallCompleted {
                 item_id,
                 call_id,
@@ -1002,14 +860,6 @@ where
                 {
                     state.completed_tool_calls.push(call_id.clone());
 
-                    let pending = PendingToolCall {
-                        item_id: item_id.clone(),
-                        call_id: call_id.clone(),
-                        name: name.clone(),
-                        arguments: arguments.clone(),
-                    };
-                    state.pending_tool_calls.push(pending);
-
                     on_delta(ProviderStreamEvent::ToolCallCompleted {
                         item_id,
                         call_id,
@@ -1026,6 +876,43 @@ where
     }
 
     Ok(())
+}
+
+fn normalize_input_items_for_responses(items: &[Value]) -> Vec<Value> {
+    fn normalize_content_type(content: &mut Value, role: Option<&str>) {
+        if let Some(obj) = content.as_object_mut() {
+            if let Some(content_type) = obj.get("type").and_then(Value::as_str) {
+                if content_type == "text" {
+                    let mapped = if role == Some("assistant") {
+                        "output_text"
+                    } else {
+                        "input_text"
+                    };
+                    obj.insert(
+                        "type".to_string(),
+                        Value::String(mapped.to_string()),
+                    );
+                }
+            }
+        }
+    }
+
+    let mut normalized = Vec::with_capacity(items.len());
+    for item in items {
+        let mut cloned = item.clone();
+        let role = cloned
+            .get("role")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        if let Some(content) = cloned.get_mut("content").and_then(Value::as_array_mut) {
+            for part in content {
+                normalize_content_type(part, role.as_deref());
+            }
+        }
+        normalized.push(cloned);
+    }
+
+    normalized
 }
 
 fn value_to_text(value: &Value) -> Option<String> {

@@ -140,7 +140,7 @@ pub fn build_user_input_items(text: &str) -> Vec<Value> {
     vec![json!({
         "role": "user",
         "content": [{
-            "type": "input_text",
+            "type": "text",
             "text": trimmed
         }]
     })]
@@ -157,7 +157,7 @@ pub fn build_assistant_output_items(text: &str) -> Vec<Value> {
         "role": "assistant",
         "status": "completed",
         "content": [{
-            "type": "output_text",
+            "type": "text",
             "text": trimmed,
             "annotations": []
         }]

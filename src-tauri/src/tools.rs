@@ -5,19 +5,53 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolSchemaFormat {
+    Responses,
+    ChatCompletions,
+}
+
+fn format_tool_schema(
+    format: ToolSchemaFormat,
+    name: &str,
+    description: &str,
+    parameters: Value,
+) -> Value {
+    match format {
+        ToolSchemaFormat::Responses => json!({
+            "type": "function",
+            "name": name,
+            "description": description,
+            "parameters": parameters,
+        }),
+        ToolSchemaFormat::ChatCompletions => json!({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+            }
+        }),
+    }
+}
+
 pub trait Tool: Send + Sync {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn parameters_schema(&self) -> Value;
     fn execute(&self, arguments: &Value) -> Result<Value, String>;
 
+    fn to_schema_with_format(&self, format: ToolSchemaFormat) -> Value {
+        format_tool_schema(
+            format,
+            self.name(),
+            self.description(),
+            self.parameters_schema(),
+        )
+    }
+
     fn to_schema(&self) -> Value {
-        json!({
-            "type": "function",
-            "name": self.name(),
-            "description": self.description(),
-            "parameters": self.parameters_schema(),
-        })
+        self.to_schema_with_format(ToolSchemaFormat::Responses)
     }
 }
 
@@ -305,7 +339,14 @@ impl ToolRegistry {
     }
 
     pub fn list_schemas(&self) -> Vec<Value> {
-        self.tools.iter().map(|tool| tool.to_schema()).collect()
+        self.list_schemas_with_format(ToolSchemaFormat::Responses)
+    }
+
+    pub fn list_schemas_with_format(&self, format: ToolSchemaFormat) -> Vec<Value> {
+        self.tools
+            .iter()
+            .map(|tool| tool.to_schema_with_format(format))
+            .collect()
     }
 
     pub fn execute(&self, name: &str, arguments: &Value) -> Result<Value, String> {
@@ -347,11 +388,16 @@ impl ToolCatalog {
     }
 
     pub async fn list_schemas(&self) -> Vec<Value> {
+        self.list_schemas_with_format(ToolSchemaFormat::Responses)
+            .await
+    }
+
+    pub async fn list_schemas_with_format(&self, format: ToolSchemaFormat) -> Vec<Value> {
         let mut schemas = Vec::new();
 
         // 1. Native tools
         for tool in &self.native_tools {
-            schemas.push(tool.to_schema());
+            schemas.push(tool.to_schema_with_format(format));
         }
 
         // 2. MCP tools
@@ -388,12 +434,12 @@ impl ToolCatalog {
                                 "properties": {}
                             }));
 
-                        schemas.push(json!({
-                            "type": "function",
-                            "name": prefixed_name,
-                            "description": description,
-                            "parameters": input_schema,
-                        }));
+                        schemas.push(format_tool_schema(
+                            format,
+                            &prefixed_name,
+                            &description,
+                            input_schema,
+                        ));
                     }
                 }
                 Err(err) => {

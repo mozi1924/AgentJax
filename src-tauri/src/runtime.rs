@@ -21,15 +21,28 @@ impl AgentRuntime {
     where
         F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send + 'static,
     {
-        let mut active_prev_response_id = previous_response_id;
+        let resolved_model = config.resolve_model_profile(req.model.as_deref())?;
+        let provider_capabilities = crate::providers::get_capabilities(&resolved_model.provider.kind)?;
+        let tool_schema_format =
+            crate::providers::get_tool_schema_format(&resolved_model.provider.kind)?;
+
+        let mut active_prev_response_id = if provider_capabilities.supports_cross_socket_continuation
+        {
+            previous_response_id
+        } else {
+            None
+        };
         let mut final_output_text = String::new();
         let mut final_response_id = String::new();
         let mut final_output_items = Vec::new();
         let mut timeline_events = Vec::new();
-        let mut final_capabilities;
+        let final_capabilities = provider_capabilities;
+        let mut next_input_items: Option<Vec<Value>> = None;
 
-        // 1. Initial tools schema mapping
-        let tools_schemas = tools_catalog.list_schemas().await;
+        // 1. Initial tools schema mapping (provider-specific conversion)
+        let tools_schemas = tools_catalog
+            .list_schemas_with_format(tool_schema_format)
+            .await;
 
         let mut turn_idx = 0;
         let max_turns = 10;
@@ -40,13 +53,26 @@ impl AgentRuntime {
             }
             turn_idx += 1;
 
+            let input_items = if let Some(continuation_items) = next_input_items.take() {
+                continuation_items
+            } else {
+                let mut initial_items = context_items.clone();
+                initial_items.push(json!({
+                    "role": "user",
+                    "content": [{
+                        "type": "text",
+                        "text": req.input.trim()
+                    }]
+                }));
+                initial_items
+            };
+
             // Build response request
             let stream_request = ResponseStreamRequest {
-                input_text: req.input.trim().to_string(),
+                input_items,
                 previous_response_id: active_prev_response_id.clone(),
                 model: req.model.clone(),
                 reasoning_effort: req.reasoning_effort.clone(),
-                context_items: context_items.clone(),
                 instructions_override: None,
                 tools: Some(tools_schemas.clone()),
                 tool_choice: Some(serde_json::Value::String("auto".to_string())),
@@ -58,7 +84,6 @@ impl AgentRuntime {
             let provider_res = crate::providers::stream_response(
                 config,
                 &stream_request,
-                Some(tools_catalog),
                 cancel_rx,
                 |event| {
                     match &event {
@@ -109,8 +134,6 @@ impl AgentRuntime {
                 }
             };
 
-            final_capabilities = response_result.capabilities.clone();
-
             if response_result.response_id.is_empty() {
                 // Empty or closed response
             } else {
@@ -155,42 +178,6 @@ impl AgentRuntime {
                 }
             }
 
-            // Standard OpenAI format check
-            if let Some(choices) = response_result
-                .output_items
-                .first()
-                .and_then(|i| i.get("choices"))
-                .and_then(Value::as_array)
-            {
-                if let Some(first) = choices.first() {
-                    if let Some(message) = first.get("message") {
-                        if let Some(tool_calls) =
-                            message.get("tool_calls").and_then(Value::as_array)
-                        {
-                            for tc in tool_calls {
-                                if let (Some(call_id), Some(func)) =
-                                    (tc.get("id").and_then(Value::as_str), tc.get("function"))
-                                {
-                                    if let Some(name) = func.get("name").and_then(Value::as_str) {
-                                        let arguments_str = func
-                                            .get("arguments")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or("{}");
-                                        let args: Value =
-                                            serde_json::from_str(arguments_str).unwrap_or_default();
-                                        pending_tools.push((
-                                            call_id.to_string(),
-                                            name.to_string(),
-                                            args,
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             if pending_tools.is_empty() {
                 break;
             }
@@ -198,20 +185,6 @@ impl AgentRuntime {
             let mut tool_results_items = Vec::new();
 
             for (call_id, name, args) in pending_tools {
-                on_event(ProviderStreamEvent::ToolCallStarted {
-                    item_id: format!("item-{}", call_id),
-                    call_id: call_id.clone(),
-                    name: name.clone(),
-                })?;
-
-                let args_str = serde_json::to_string(&args).unwrap_or_default();
-                on_event(ProviderStreamEvent::ToolCallCompleted {
-                    item_id: format!("item-{}", call_id),
-                    call_id: call_id.clone(),
-                    name: name.clone(),
-                    arguments: args_str,
-                })?;
-
                 let start_time = Instant::now();
                 let exec_result = tools_catalog.execute(&name, &args).await;
                 let duration_ms = start_time.elapsed().as_millis() as u64;
@@ -255,18 +228,21 @@ impl AgentRuntime {
                 "role": "assistant",
                 "content": response_result.output_items
             });
-            context_items.push(assistant_item);
-
+            let mut continuation_input_items = vec![assistant_item];
             for result_item in tool_results_items {
-                context_items.push(result_item);
+                continuation_input_items.push(result_item);
+            }
+            context_items.extend(continuation_input_items.clone());
+            next_input_items = Some(continuation_input_items);
+
+            if !final_capabilities.supports_cross_socket_continuation {
+                active_prev_response_id = None;
             }
 
             if *cancel_rx.borrow() {
                 break;
             }
         }
-
-        let resolved_model = config.resolve_model_profile(req.model.as_deref())?;
 
         let final_res = ResponseStreamResult {
             response_id: final_response_id,
