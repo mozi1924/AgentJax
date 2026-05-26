@@ -130,6 +130,7 @@ where
 
         on_event(ProviderStreamEvent::ToolCallExecuted {
             call_id: call_id.clone(),
+            name: name.clone(),
             output: output_str.clone(),
         })?;
 

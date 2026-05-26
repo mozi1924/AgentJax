@@ -43,7 +43,14 @@ pub enum ProviderStreamEvent {
     },
     ToolCallExecuted {
         call_id: String,
+        name: String,
         output: String,
+    },
+    /// Emitted after each model-response hop completes.
+    /// `is_final` is true for the terminal hop (no tool calls follow).
+    HopAssistantText {
+        text: String,
+        is_final: bool,
     },
     ResponseCompleted,
 }

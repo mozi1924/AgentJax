@@ -672,10 +672,12 @@ export default function App() {
                 if (c.conversationId !== mapping.conversationId) return c;
                 const lines = c.lines.map((l) => {
                   if (l.kind === 'assistant' && l.id === `asst-${requestId}`) {
+                    const finalText = payload.delta && String(payload.delta).trim()
+                      ? String(payload.delta)
+                      : String((l as AssistantLine).text || '');
                     return {
                       ...l,
-                      text: typeof payload.delta === 'string' ? payload.delta : String((l as AssistantLine).text || ''),
-                      workingText: typeof payload.workingText === 'string' ? payload.workingText : (l as AssistantLine).workingText,
+                      text: finalText,
                       responseId: payload.responseId || (l as AssistantLine).responseId,
                       status: 'done' as const,
                     } satisfies AssistantLine;
@@ -695,8 +697,7 @@ export default function App() {
                         ts: Date.now(),
                         requestId: requestId || '',
                         responseId: payload.responseId || '',
-                        text: typeof payload.delta === 'string' ? payload.delta : '',
-                        workingText: typeof payload.workingText === 'string' ? payload.workingText : undefined,
+                        text: payload.delta && String(payload.delta).trim() ? String(payload.delta) : '',
                         status: 'done' as const,
                       } satisfies AssistantLine,
                     ];

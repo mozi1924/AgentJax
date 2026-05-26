@@ -38,8 +38,6 @@ export interface AssistantLine {
   requestId: string;
   responseId: string;
   text: string;
-  /** Commentary text spoken during tool-execution hops (collapsible working section). */
-  workingText?: string;
   status: 'draft' | 'done';
 }
 
@@ -148,8 +146,6 @@ export interface ChatStreamEventPayload {
   toolName?: string;
   toolArguments?: string;
   toolOutput?: string;
-  /** Commentary text from tool-execution hops (only present in 'done' event). */
-  workingText?: string;
   /** Phase hint for 'delta' events: 'working' | 'final'. */
   phase?: string;
 }

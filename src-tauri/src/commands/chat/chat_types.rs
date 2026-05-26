@@ -47,8 +47,6 @@ pub struct DeleteConversationRequest {
 pub struct ChatResponse {
     pub response_id: String,
     pub output_text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub working_text: Option<String>,
     pub conversation_id: String,
     pub conversation_title: Option<String>,
 }

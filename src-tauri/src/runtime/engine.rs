@@ -12,15 +12,12 @@ use std::collections::{HashMap, HashSet};
 use tokio::sync::watch;
 
 // ── Turn accumulator ──────────────────────────────────────────────────────
-// Collects output across all hops within a single turn (user message → final
-// assistant response).  Every hop's output items are preserved so the
-// frontend can reconstruct the full tool-call timeline.
+// Collects output items across all hops within a single turn so the
+// frontend can reconstruct the full tool-call timeline.  Per-hop assistant
+// text is emitted via `HopAssistantText` events as each hop completes;
+// the accumulator does NOT merge text across hops.
 
 struct TurnAccumulator {
-    /// Final answer text (from the terminal hop with no tool calls).
-    output_text: String,
-    /// Commentary text produced during intermediate tool-execution hops.
-    working_text: String,
     last_response_id: String,
     output_items: Vec<Value>,
     timeline_events: Vec<Value>,
@@ -29,43 +26,17 @@ struct TurnAccumulator {
 impl TurnAccumulator {
     fn new() -> Self {
         Self {
-            output_text: String::new(),
-            working_text: String::new(),
             last_response_id: String::new(),
             output_items: Vec::new(),
             timeline_events: Vec::new(),
         }
     }
 
-    /// Absorb text from a hop that **may** include tool calls.
-    /// Text accumulated here is classified later by the engine loop.
-    fn absorb_response(&mut self, response: &ResponseStreamResult) {
+    fn record_hop(&mut self, response: &ResponseStreamResult) {
         if !response.response_id.is_empty() {
             self.last_response_id = response.response_id.clone();
         }
-
-        // Raw text is stored temporarily in `output_text`; the engine loop
-        // will move it to `working_text` if this hop had pending tools.
-        if !response.output_text.is_empty() {
-            if !self.output_text.is_empty() {
-                self.output_text.push('\n');
-            }
-            self.output_text.push_str(&response.output_text);
-        }
-
         self.output_items.extend(response.output_items.clone());
-    }
-
-    /// Promote the text accumulated so far into working text.
-    /// Called when the engine detects this hop included tool calls.
-    fn promote_to_working(&mut self) {
-        if !self.output_text.is_empty() {
-            if !self.working_text.is_empty() {
-                self.working_text.push('\n');
-            }
-            self.working_text.push_str(&self.output_text);
-            self.output_text.clear();
-        }
     }
 
     /// Append all items from a continuation batch (reasoning, function_call,
@@ -247,20 +218,24 @@ impl AgentRuntime {
             )
             .await?;
 
-            accumulator.absorb_response(&collected.response_result);
+            accumulator.record_hop(&collected.response_result);
+
+            // ── Emit this hop's assistant text ───────────────────────────
+            let is_final_hop = collected.pending_tools.is_empty();
+            if !collected.response_result.output_text.is_empty() {
+                on_event(ProviderStreamEvent::HopAssistantText {
+                    text: collected.response_result.output_text.clone(),
+                    is_final: is_final_hop,
+                })?;
+            }
 
             // ── No tools → final response reached ─────────────────────────
-            if collected.pending_tools.is_empty() {
-                // Emit WorkingDone if we entered a work phase and are now done.
+            if is_final_hop {
                 if working_started {
                     on_event(ProviderStreamEvent::WorkingDone)?;
                 }
-                // Text from THIS final hop stays in output_text (final answer).
                 break;
             }
-
-            // ── This hop has tool calls → its text is working commentary ──
-            accumulator.promote_to_working();
 
             // ── Emit WorkingStarted on the first tool hop ─────────────────
             if !working_started {
@@ -326,10 +301,12 @@ impl AgentRuntime {
             }
         }
 
+        // Per-hop text was already emitted via HopAssistantText events.
+        // The final result carries only output_items for the caller.
         let final_res = ResponseStreamResult {
             response_id: accumulator.last_response_id,
-            output_text: accumulator.output_text,
-            working_text: accumulator.working_text,
+            output_text: String::new(),
+            working_text: String::new(),
             output_items: accumulator.output_items,
             provider_key: resolved_model.provider_key.clone(),
             model_profile: resolved_model.profile_key.clone(),
