@@ -10,7 +10,11 @@ import type {
   SettingsSnapshotEvent,
   SettingsUiSnapshot,
 } from '../features/settings/types';
-import { buildOptimisticSnapshot, findFirstSection } from '../features/settings/utils';
+import {
+  appendPathSegment,
+  buildOptimisticSnapshot,
+  findFirstSection,
+} from '../features/settings/utils';
 
 const getSectionIcon = (iconName?: string) => {
   if (!iconName) return Settings2;
@@ -247,7 +251,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 fieldErrors={fieldErrors}
                 onSaveField={(path, value) => applyPatch(path, value, 'set')}
                 onDeletePath={(path) => applyPatch(path, undefined, 'delete')}
-                onAddCollectionItem={(path, key, value) => applyPatch(`${path}.${key}`, value, 'set')}
+                onAddCollectionItem={(path, key, value) =>
+                  applyPatch(appendPathSegment(path, key), value, 'set')
+                }
               />
             )}
           </div>

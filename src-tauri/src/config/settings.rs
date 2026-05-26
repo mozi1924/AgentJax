@@ -203,11 +203,40 @@ fn parse_path(path: &str) -> Result<Vec<String>, String> {
         return Err("Patch path cannot be empty".to_string());
     }
 
-    let segments = trimmed
-        .split('.')
-        .map(str::trim)
-        .map(ToOwned::to_owned)
-        .collect::<Vec<_>>();
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut escaped = false;
+
+    for ch in trimmed.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' => escaped = true,
+            '.' => {
+                let segment = current.trim().to_string();
+                if segment.is_empty() {
+                    return Err(format!("Patch path '{}' contains an empty segment", path));
+                }
+                segments.push(segment);
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    if escaped {
+        current.push('\\');
+    }
+
+    let last_segment = current.trim().to_string();
+    if last_segment.is_empty() {
+        return Err(format!("Patch path '{}' contains an empty segment", path));
+    }
+    segments.push(last_segment);
 
     if segments.iter().any(|segment| segment.is_empty()) {
         return Err(format!("Patch path '{}' contains an empty segment", path));
@@ -303,17 +332,12 @@ fn validate_key(key: &str, label: &str) -> Result<(), String> {
     if trimmed.is_empty() {
         return Err(format!("{label} cannot be empty"));
     }
-    if trimmed.contains('.') {
-        return Err(format!(
-            "{label} cannot contain '.' because settings paths use dot notation"
-        ));
-    }
     if !trimmed
         .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '.')
     {
         return Err(format!(
-            "{label} '{}' contains unsupported characters. Use letters, digits, '-' or '_' only.",
+            "{label} '{}' contains unsupported characters. Use letters, digits, '-', '_' or '.' only.",
             trimmed
         ));
     }
@@ -489,7 +513,43 @@ mod tests {
             operation: SettingsPatchOperation::Set,
         })
         .expect_err("invalid key should fail");
-        assert!(error.contains("unsupported characters") || error.contains("cannot contain '.'"));
+        assert!(error.contains("unsupported characters"));
+
+        unsafe {
+            std::env::remove_var(AGENTJAX_HOME_ENV);
+        }
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home =
+            std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&home).expect("create home");
+        let path = write_test_config(&home);
+
+        unsafe {
+            std::env::set_var(AGENTJAX_HOME_ENV, &home);
+        }
+
+        let snapshot = get_settings_snapshot().expect("snapshot");
+        let updated = apply_settings_patch(SettingsPatch {
+            path: "providers.openai.models.GPT-5\\.4.model".to_string(),
+            value: Some(Value::from("gpt-5.4")),
+            expected_revision: snapshot.revision,
+            operation: SettingsPatchOperation::Set,
+        })
+        .expect("apply patch with escaped model profile key");
+
+        assert_eq!(
+            updated.values["providers"]["openai"]["models"]["GPT-5.4"]["model"],
+            Value::from("gpt-5.4")
+        );
+        let raw = fs::read_to_string(&path).expect("read config");
+        assert!(raw.contains("GPT-5.4:"));
 
         unsafe {
             std::env::remove_var(AGENTJAX_HOME_ENV);

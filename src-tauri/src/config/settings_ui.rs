@@ -233,7 +233,7 @@ pub fn build_settings_sections() -> Result<Vec<Value>, String> {
                   "addLabel": "Add model profile",
                   "keyLabel": "Profile key",
                   "itemLabel": "Model profile",
-                  "keyPattern": "^[A-Za-z0-9_-]+$",
+                  "keyPattern": "^[A-Za-z0-9_.-]+$",
                   "defaultItem": {
                     "model": "",
                     "enabled": true,
@@ -603,6 +603,10 @@ fn scoped_option_source(base_key: &str, context_path: &str) -> String {
     format!("{base_key}{OPTION_SCOPE_DELIMITER}{context_path}")
 }
 
+fn escape_path_segment(segment: &str) -> String {
+    segment.replace('\\', "\\\\").replace('.', "\\.")
+}
+
 pub fn build_dynamic_options(
     config: &AppConfig,
 ) -> Result<BTreeMap<String, Vec<SettingsOption>>, String> {
@@ -665,8 +669,8 @@ pub fn build_dynamic_options(
     for entry in reasoning_entries {
         let context_path = format!(
             "providers.{}.models.{}",
-            entry.provider_key,
-            profile_key_from_ref(&entry.profile_key)
+            escape_path_segment(&entry.provider_key),
+            escape_path_segment(&profile_key_from_ref(&entry.profile_key))
         );
         let options = reasoning_options_with_default(&entry.supported_reasoning_levels);
 

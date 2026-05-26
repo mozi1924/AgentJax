@@ -9,6 +9,54 @@ import type {
 
 export const deepClone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 
+export const escapePathSegment = (segment: string) =>
+  `${segment || ''}`.replace(/\\/g, '\\\\').replace(/\./g, '\\.');
+
+const splitPath = (path: string) => {
+  const trimmed = `${path || ''}`.trim();
+  if (!trimmed) return [];
+
+  const segments: string[] = [];
+  let current = '';
+  let escaped = false;
+
+  for (const char of trimmed) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '.') {
+      segments.push(current);
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (escaped) {
+    current += '\\';
+  }
+
+  segments.push(current);
+  return segments;
+};
+
+export const appendPathSegment = (basePath: string, segment: string) => {
+  const escapedSegment = escapePathSegment(segment);
+  if (!basePath.trim()) {
+    return escapedSegment;
+  }
+  return `${basePath}.${escapedSegment}`;
+};
+
 export const resolvePath = (path: string, contextPath?: string) => {
   const trimmed = `${path || ''}`.trim();
   if (!trimmed) return contextPath || '';
@@ -17,11 +65,10 @@ export const resolvePath = (path: string, contextPath?: string) => {
 };
 
 export const getValueAtPath = (root: unknown, path: string) => {
-  const trimmed = `${path || ''}`.trim();
-  if (!trimmed) return root;
+  const segments = splitPath(path).filter(Boolean);
+  if (segments.length === 0) return root;
 
-  return trimmed.split('.').reduce<unknown>((current, segment) => {
-    if (!segment) return current;
+  return segments.reduce<unknown>((current, segment) => {
     if (!current || typeof current !== 'object') return undefined;
     return (current as Record<string, unknown>)[segment];
   }, root);
@@ -29,7 +76,7 @@ export const getValueAtPath = (root: unknown, path: string) => {
 
 export const setValueAtPath = (root: unknown, path: string, value: unknown) => {
   const nextRoot = deepClone(root);
-  const segments = `${path || ''}`.split('.').filter(Boolean);
+  const segments = splitPath(path).filter(Boolean);
   if (segments.length === 0) {
     return value;
   }
@@ -53,7 +100,7 @@ export const setValueAtPath = (root: unknown, path: string, value: unknown) => {
 
 export const deleteValueAtPath = (root: unknown, path: string) => {
   const nextRoot = deepClone(root);
-  const segments = `${path || ''}`.split('.').filter(Boolean);
+  const segments = splitPath(path).filter(Boolean);
   if (segments.length === 0) {
     return nextRoot;
   }
