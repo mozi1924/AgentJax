@@ -132,7 +132,13 @@ pub struct AssistantLine {
     pub request_id: String,
     #[serde(rename = "responseId")]
     pub response_id: String,
+    /// Final answer text (the terminal assistant response).
     pub text: String,
+    /// Optional commentary / progress narration the assistant spoke
+    /// *during* tool-execution hops.  When present the UI can render
+    /// this inside the collapsible working section alongside tool cards.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub working_text: Option<String>,
     #[serde(default = "default_assistant_status")]
     pub status: AssistantStatus,
 }

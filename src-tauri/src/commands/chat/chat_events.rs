@@ -17,6 +17,15 @@ pub struct ChatStreamEvent {
     pub tool_name: Option<String>,
     pub tool_arguments: Option<String>,
     pub tool_output: Option<String>,
+    /// When `kind == "delta"`, signals whether this text belongs to the
+    /// working phase (`"working"`) or the final answer (`"final"`).
+    /// Absent for legacy or non-text events.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    /// When `kind == "done"`, carries the assistant's intermediate
+    /// commentary text (if any was spoken during tool-execution hops).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_text: Option<String>,
 }
 
 pub fn next_event_index(current: &mut u64) -> u64 {
@@ -44,6 +53,8 @@ pub fn emit_mapped_stream_event(
         tool_name: None,
         tool_arguments: None,
         tool_output: None,
+        phase: None,
+        working_text: None,
     };
 
     match event {

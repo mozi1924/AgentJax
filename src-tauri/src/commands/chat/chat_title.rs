@@ -125,6 +125,8 @@ async fn generate_title_and_emit(
                     tool_name: None,
                     tool_arguments: None,
                     tool_output: None,
+                    phase: None,
+                    working_text: None,
                 },
             )
             .map_err(|e| format!("Failed to emit title update event: {e}"))?;

@@ -206,6 +206,12 @@ pub async fn chat_stream(
                 tool_name: None,
                 tool_arguments: None,
                 tool_output: None,
+                phase: None,
+                working_text: if response.working_text.is_empty() {
+                    None
+                } else {
+                    Some(response.working_text.clone())
+                },
             },
         )
         .map_err(|e| format!("Failed to emit stream done event: {e}"))?;
@@ -213,6 +219,11 @@ pub async fn chat_stream(
     Ok(ChatResponse {
         response_id: response.response_id,
         output_text: response.output_text,
+        working_text: if response.working_text.is_empty() {
+            None
+        } else {
+            Some(response.working_text.clone())
+        },
         conversation_id,
         conversation_title,
     })

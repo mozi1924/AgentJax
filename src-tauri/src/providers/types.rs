@@ -83,7 +83,11 @@ pub struct ProviderPendingToolCall {
 #[derive(Debug, Clone)]
 pub struct ResponseStreamResult {
     pub response_id: String,
+    /// Final answer text (after all tool calls are complete).
     pub output_text: String,
+    /// Commentary / progress narration produced *during* tool-execution hops.
+    /// When empty the assistant produced no intermediate spoken text.
+    pub working_text: String,
     pub output_items: Vec<Value>,
     pub provider_key: String,
     pub model_profile: String,

@@ -17,7 +17,10 @@ use tokio::sync::watch;
 // frontend can reconstruct the full tool-call timeline.
 
 struct TurnAccumulator {
+    /// Final answer text (from the terminal hop with no tool calls).
     output_text: String,
+    /// Commentary text produced during intermediate tool-execution hops.
+    working_text: String,
     last_response_id: String,
     output_items: Vec<Value>,
     timeline_events: Vec<Value>,
@@ -27,17 +30,22 @@ impl TurnAccumulator {
     fn new() -> Self {
         Self {
             output_text: String::new(),
+            working_text: String::new(),
             last_response_id: String::new(),
             output_items: Vec::new(),
             timeline_events: Vec::new(),
         }
     }
 
+    /// Absorb text from a hop that **may** include tool calls.
+    /// Text accumulated here is classified later by the engine loop.
     fn absorb_response(&mut self, response: &ResponseStreamResult) {
         if !response.response_id.is_empty() {
             self.last_response_id = response.response_id.clone();
         }
 
+        // Raw text is stored temporarily in `output_text`; the engine loop
+        // will move it to `working_text` if this hop had pending tools.
         if !response.output_text.is_empty() {
             if !self.output_text.is_empty() {
                 self.output_text.push('\n');
@@ -46,6 +54,18 @@ impl TurnAccumulator {
         }
 
         self.output_items.extend(response.output_items.clone());
+    }
+
+    /// Promote the text accumulated so far into working text.
+    /// Called when the engine detects this hop included tool calls.
+    fn promote_to_working(&mut self) {
+        if !self.output_text.is_empty() {
+            if !self.working_text.is_empty() {
+                self.working_text.push('\n');
+            }
+            self.working_text.push_str(&self.output_text);
+            self.output_text.clear();
+        }
     }
 
     /// Append all items from a continuation batch (reasoning, function_call,
@@ -235,8 +255,12 @@ impl AgentRuntime {
                 if working_started {
                     on_event(ProviderStreamEvent::WorkingDone)?;
                 }
+                // Text from THIS final hop stays in output_text (final answer).
                 break;
             }
+
+            // ── This hop has tool calls → its text is working commentary ──
+            accumulator.promote_to_working();
 
             // ── Emit WorkingStarted on the first tool hop ─────────────────
             if !working_started {
@@ -305,6 +329,7 @@ impl AgentRuntime {
         let final_res = ResponseStreamResult {
             response_id: accumulator.last_response_id,
             output_text: accumulator.output_text,
+            working_text: accumulator.working_text,
             output_items: accumulator.output_items,
             provider_key: resolved_model.provider_key.clone(),
             model_profile: resolved_model.profile_key.clone(),

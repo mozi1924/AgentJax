@@ -675,6 +675,7 @@ export default function App() {
                     return {
                       ...l,
                       text: typeof payload.delta === 'string' ? payload.delta : String((l as AssistantLine).text || ''),
+                      workingText: typeof payload.workingText === 'string' ? payload.workingText : (l as AssistantLine).workingText,
                       responseId: payload.responseId || (l as AssistantLine).responseId,
                       status: 'done' as const,
                     } satisfies AssistantLine;
@@ -695,6 +696,7 @@ export default function App() {
                         requestId: requestId || '',
                         responseId: payload.responseId || '',
                         text: typeof payload.delta === 'string' ? payload.delta : '',
+                        workingText: typeof payload.workingText === 'string' ? payload.workingText : undefined,
                         status: 'done' as const,
                       } satisfies AssistantLine,
                     ];

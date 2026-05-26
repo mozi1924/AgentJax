@@ -24,7 +24,7 @@ fn u(id: &str, req: &str, text: &str) -> ConversationLine {
     ConversationLine::User(UserLine { id: id.into(), ts: now_unix_ms(), request_id: req.into(), text: text.into() })
 }
 fn a(id: &str, req: &str, resp: &str, text: &str, st: AssistantStatus) -> ConversationLine {
-    ConversationLine::Assistant(AssistantLine { id: id.into(), ts: now_unix_ms(), request_id: req.into(), response_id: resp.into(), text: text.into(), status: st })
+    ConversationLine::Assistant(AssistantLine { id: id.into(), ts: now_unix_ms(), request_id: req.into(), response_id: resp.into(), text: text.into(), working_text: None, status: st })
 }
 fn t(id: &str, req: &str, call: &str, name: &str, args: serde_json::Value, out: Option<serde_json::Value>, st: ToolStatus) -> ConversationLine {
     ConversationLine::Tool(ToolLine { id: id.into(), ts: now_unix_ms(), request_id: req.into(), call_id: call.into(), name: name.into(), args, output: out, status: st })

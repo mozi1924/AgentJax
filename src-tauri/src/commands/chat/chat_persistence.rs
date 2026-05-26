@@ -100,12 +100,19 @@ pub async fn persist_completed_exchange(
         response_id
     );
 
+    let working_text = if response.working_text.trim().is_empty() {
+        None
+    } else {
+        Some(response.working_text.trim().to_string())
+    };
+
     let line = ConversationLine::Assistant(AssistantLine {
         id: format!("asst-{request_id}"),
         ts,
         request_id: request_id.clone(),
         response_id,
         text,
+        working_text,
         status: AssistantStatus::Done,
     });
 
