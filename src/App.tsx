@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import AppHeader from './components/AppHeader';
@@ -41,6 +41,9 @@ import {
   resolveConfiguredDefaultOptionProfileKey,
 } from './features/models/modelCatalog';
 import type { SettingsSnapshotEvent } from './features/settings/types';
+import { useComposerMeasurements } from './hooks/useComposerMeasurements';
+import { useContextMenuGuard } from './hooks/useContextMenuGuard';
+import { useTitlebarDragging } from './hooks/useTitlebarDragging';
 
 interface ComposerAttachment {
   name: string;
@@ -76,8 +79,6 @@ export default function App() {
     () => new Set()
   );
   const [attachment, setAttachment] = useState<ComposerAttachment | null>(null);
-  const [composerHeight, setComposerHeight] = useState(0);
-  const [emptyComposerOffset, setEmptyComposerOffset] = useState(0);
   const [conversations, setConversations] = useState<Conversation[]>(() => [initialConversation]);
   const [conversationToDelete, setConversationToDelete] = useState<Conversation | null>(null);
   const [activeConversationId, setActiveConversationId] = useState(
@@ -133,6 +134,15 @@ export default function App() {
   const hasAnyGenerating = generatingConversationIds.size > 0;
   const isEmptyConversation = (activeConversation?.messages?.length ?? 0) === 0;
   const conversationViewKey = `${activeConversationId}-${isEmptyConversation ? 'empty' : 'messages'}`;
+
+  const { composerHeight, emptyComposerOffset } = useComposerMeasurements({
+    mainRef,
+    composerStageRef,
+    composerShellRef,
+    attachment,
+    input,
+    isEmptyConversation,
+  });
 
   useEffect(() => {
     selectedModelRef.current = selectedModel;
@@ -203,88 +213,8 @@ export default function App() {
     markConversationThinking(conversationId, false);
   };
 
-  useEffect(() => {
-    const titlebar = titlebarRef.current;
-    if (!titlebar) {
-      return undefined;
-    }
-
-    const appWindow = getCurrentWindow();
-    const handleMouseDown = async (event: MouseEvent) => {
-      if (event.buttons !== 1) return;
-      if ((event.target as HTMLElement | null)?.closest('[data-no-drag="true"]')) return;
-      await appWindow.startDragging();
-    };
-
-    titlebar.addEventListener('mousedown', handleMouseDown);
-    return () => {
-      titlebar.removeEventListener('mousedown', handleMouseDown);
-    };
-  }, []);
-
-  useLayoutEffect(() => {
-    const mainElement = mainRef.current;
-    const composerStageElement = composerStageRef.current;
-    const composerShellElement = composerShellRef.current;
-    if (!mainElement || !composerStageElement || !composerShellElement) {
-      return undefined;
-    }
-
-    const updateMeasurements = () => {
-      const mainBounds = mainElement.getBoundingClientRect();
-      const composerBounds = composerShellElement.getBoundingClientRect();
-      const stageBounds = composerStageElement.getBoundingClientRect();
-
-      const nextComposerHeight = composerBounds.height;
-      const centeredTop = Math.max(0, (mainBounds.height - stageBounds.height) / 2);
-      const dockedTop = Math.max(0, mainBounds.height - stageBounds.height);
-      const nextEmptyOffset = centeredTop - dockedTop;
-
-      setComposerHeight((previousHeight) =>
-        Math.abs(previousHeight - nextComposerHeight) > 0.5
-          ? nextComposerHeight
-          : previousHeight
-      );
-      setEmptyComposerOffset((previousOffset) =>
-        Math.abs(previousOffset - nextEmptyOffset) > 0.5
-          ? nextEmptyOffset
-          : previousOffset
-      );
-    };
-
-    updateMeasurements();
-
-    const resizeObserver = new ResizeObserver(() => {
-      updateMeasurements();
-    });
-
-    resizeObserver.observe(mainElement);
-    resizeObserver.observe(composerStageElement);
-    resizeObserver.observe(composerShellElement);
-
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [attachment, input, isEmptyConversation]);
-
-  useEffect(() => {
-    const handleContextMenu = (event: MouseEvent) => {
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      if (canUseNativeContextMenu(event.target)) {
-        return;
-      }
-
-      event.preventDefault();
-    };
-
-    document.addEventListener('contextmenu', handleContextMenu);
-    return () => {
-      document.removeEventListener('contextmenu', handleContextMenu);
-    };
-  }, []);
+  useTitlebarDragging(titlebarRef);
+  useContextMenuGuard(canUseNativeContextMenu);
 
   const refreshModelCatalog = useCallback(async () => {
     const catalog = await invoke<ModelCatalogResponse>('get_model_catalog');
