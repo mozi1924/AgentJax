@@ -80,9 +80,8 @@ pub fn persist_tool_progress_event(
     }
 }
 
-/// Persist a per-hop assistant text line.
-/// Called for every model-response hop — both commentary (working) and final.
-pub fn persist_hop_assistant_line(
+/// Persist a completed assistant message item in provider order.
+pub fn persist_assistant_line(
     conversation_id: &str,
     request_id: &str,
     response_id: &str,

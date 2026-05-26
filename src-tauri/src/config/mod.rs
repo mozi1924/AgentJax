@@ -109,6 +109,37 @@ mod tests {
     }
 
     #[test]
+    fn resolved_profile_uses_built_in_agent_prompt() {
+        let cfg = AppConfig::default().normalize();
+        let resolved = cfg.resolve_model_profile(None).expect("resolve");
+        assert!(resolved.system_prompt.contains("agentic coding assistant"));
+        assert!(resolved
+            .system_prompt
+            .contains("Commentary and final answers"));
+        assert_ne!(
+            resolved.system_prompt,
+            crate::config::constants::DEFAULT_SYSTEM_PROMPT
+        );
+    }
+
+    #[test]
+    fn resolved_profile_appends_custom_system_prompt_to_built_in_agent_prompt() {
+        let mut cfg = AppConfig::default();
+        cfg.system_prompt = "Always prefer concise diffs.".to_string();
+        let resolved = cfg
+            .normalize()
+            .resolve_model_profile(None)
+            .expect("resolve");
+        assert!(resolved.system_prompt.contains("agentic coding assistant"));
+        assert!(resolved
+            .system_prompt
+            .contains("Additional project instructions from config"));
+        assert!(resolved
+            .system_prompt
+            .contains("Always prefer concise diffs."));
+    }
+
+    #[test]
     fn load_config_does_not_rewrite_file_on_startup() {
         let _guard = test_env_lock()
             .lock()

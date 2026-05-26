@@ -48,6 +48,44 @@ impl TurnAccumulator {
     }
 }
 
+fn normalize_whitespace(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn strip_commentary_prefixes(final_text: &str, commentary_history: &[String]) -> String {
+    if commentary_history.is_empty() {
+        return final_text.trim().to_string();
+    }
+
+    let commentary_norms: Vec<String> = commentary_history
+        .iter()
+        .map(|text| normalize_whitespace(text))
+        .filter(|text| !text.is_empty())
+        .collect();
+    if commentary_norms.is_empty() {
+        return final_text.trim().to_string();
+    }
+
+    let mut remaining_lines: Vec<&str> = final_text.lines().collect();
+    loop {
+        let first_non_empty_idx = remaining_lines
+            .iter()
+            .position(|line| !line.trim().is_empty());
+        let Some(idx) = first_non_empty_idx else {
+            return final_text.trim().to_string();
+        };
+        let first_line = remaining_lines[idx].trim();
+        let first_line_norm = normalize_whitespace(first_line);
+        if commentary_norms.iter().any(|item| item == &first_line_norm) {
+            remaining_lines.drain(..=idx);
+            continue;
+        }
+        break;
+    }
+
+    remaining_lines.join("\n").trim().to_string()
+}
+
 fn extract_assistant_messages_from_items(items: &[Value]) -> Vec<(String, Option<AssistantPhase>)> {
     items
         .iter()
@@ -205,6 +243,7 @@ impl AgentRuntime {
         let mut accumulated_context: Vec<Value> = Vec::new();
         let mut repeated_failed_tool_signatures = std::collections::HashMap::new();
         let mut final_output_text = String::new();
+        let mut commentary_history: Vec<String> = Vec::new();
         let mut turn_idx = 0usize;
         let max_turns = 10usize;
 
@@ -262,13 +301,23 @@ impl AgentRuntime {
                 } else {
                     AssistantPhase::Commentary
                 };
+                let emitted_text = if phase == AssistantPhase::FinalAnswer {
+                    strip_commentary_prefixes(
+                        &collected.response_result.output_text,
+                        &commentary_history,
+                    )
+                } else {
+                    collected.response_result.output_text.clone()
+                };
                 on_event(ProviderStreamEvent::HopAssistantText {
-                    text: collected.response_result.output_text.clone(),
+                    text: emitted_text.clone(),
                     phase,
                     response_id: collected.response_result.response_id.clone(),
                 })?;
                 if phase == AssistantPhase::FinalAnswer {
-                    final_output_text = collected.response_result.output_text.clone();
+                    final_output_text = emitted_text;
+                } else {
+                    commentary_history.push(emitted_text);
                 }
             } else {
                 for (text, phase) in hop_messages {
@@ -279,13 +328,20 @@ impl AgentRuntime {
                             AssistantPhase::Commentary
                         }
                     });
+                    let emitted_text = if resolved_phase == AssistantPhase::FinalAnswer {
+                        strip_commentary_prefixes(&text, &commentary_history)
+                    } else {
+                        text.clone()
+                    };
                     on_event(ProviderStreamEvent::HopAssistantText {
-                        text: text.clone(),
+                        text: emitted_text.clone(),
                         phase: resolved_phase,
                         response_id: collected.response_result.response_id.clone(),
                     })?;
                     if resolved_phase == AssistantPhase::FinalAnswer {
-                        final_output_text = text;
+                        final_output_text = emitted_text;
+                    } else {
+                        commentary_history.push(text);
                     }
                 }
             }
@@ -372,7 +428,7 @@ impl AgentRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::ensure_tool_call_output_pairs;
+    use super::{ensure_tool_call_output_pairs, strip_commentary_prefixes};
     use serde_json::json;
 
     #[test]
@@ -399,5 +455,17 @@ mod tests {
             stitched[1].get("type").and_then(|v| v.as_str()),
             Some("function_call_output")
         );
+    }
+
+    #[test]
+    fn strips_leading_commentary_lines_from_final_answer() {
+        let cleaned = strip_commentary_prefixes(
+            "Checking files.\nNow I will run tests.\nApplied the fix.",
+            &[
+                "Checking files.".to_string(),
+                "Now I will run tests.".to_string(),
+            ],
+        );
+        assert_eq!(cleaned, "Applied the fix.");
     }
 }

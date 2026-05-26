@@ -102,6 +102,9 @@ pub fn emit_mapped_stream_event(
             chat_event.tool_name = Some(name);
             chat_event.tool_output = Some(output);
         }
+        ProviderStreamEvent::AssistantMessageCompleted { .. } => {
+            return Ok(());
+        }
         ProviderStreamEvent::HopAssistantText {
             text,
             phase,

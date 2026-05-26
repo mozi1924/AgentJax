@@ -48,6 +48,13 @@ pub enum ProviderStreamEvent {
         name: String,
         output: String,
     },
+    /// Emitted when the provider finishes an assistant message item.
+    /// This preserves the provider's original item ordering for persistence.
+    AssistantMessageCompleted {
+        text: String,
+        phase: AssistantPhase,
+        response_id: String,
+    },
     /// Emitted after each model-response hop completes.
     HopAssistantText {
         text: String,

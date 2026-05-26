@@ -125,7 +125,7 @@ pub struct AssistantLine {
     pub status: AssistantStatus,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum AssistantStatus {
     Draft,

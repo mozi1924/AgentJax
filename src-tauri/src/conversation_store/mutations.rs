@@ -4,8 +4,8 @@ use super::paths::{
     ensure_session_layout,
 };
 use super::types::{
-    AppendLineInput, ConversationData, ConversationMeta, ConversationSummary, UpdateLineInput,
-    DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
+    AppendLineInput, ConversationData, ConversationLine, ConversationMeta, ConversationSummary,
+    ToolStatus, UpdateLineInput, DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
 };
 use crate::conversation_store_utils::{normalize_title, now_unix_ms};
 use std::collections::BTreeMap;
@@ -90,7 +90,7 @@ pub fn update_line(input: UpdateLineInput) -> Result<(), String> {
     let mut data = load_or_create(&input.conversation_id, &metadata_path, &messages_path)?;
 
     if let Some(existing) = data.lines.iter_mut().find(|l| l.id() == input.line_id) {
-        *existing = input.line;
+        *existing = merge_updated_line(existing, input.line);
     }
 
     write_conversation_file(&metadata_path, &messages_path, &data)
@@ -164,4 +164,24 @@ fn load_or_create(
         meta,
         lines: Vec::new(),
     })
+}
+
+fn merge_updated_line(existing: &ConversationLine, next: ConversationLine) -> ConversationLine {
+    match (existing, next) {
+        (ConversationLine::Tool(current), ConversationLine::Tool(mut updated)) => {
+            if updated.args.is_null() {
+                updated.args = current.args.clone();
+            }
+            if updated.output.is_none() {
+                updated.output = current.output.clone();
+            }
+            if matches!(updated.status, ToolStatus::Pending)
+                && !matches!(current.status, ToolStatus::Pending)
+            {
+                updated.status = current.status.clone();
+            }
+            ConversationLine::Tool(updated)
+        }
+        (_, updated) => updated,
+    }
 }

@@ -1,7 +1,8 @@
 use super::file_io::read_conversation_file;
 use super::paths::{conversation_messages_path, conversation_metadata_path};
-use super::types::{ConversationContext, ConversationLine};
-use crate::message_phase::AssistantPhase;
+use super::types::{
+    AssistantLine, AssistantStatus, ConversationContext, ConversationLine, ToolLine,
+};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -30,33 +31,13 @@ pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationCon
                 }));
             }
             ConversationLine::Assistant(a) => {
-                if a.phase != AssistantPhase::FinalAnswer || a.text.trim().is_empty() {
+                if a.status != AssistantStatus::Done || a.text.trim().is_empty() {
                     continue;
                 }
-                input_items.push(json!({
-                    "type": "message",
-                    "role": "assistant",
-                    "status": "completed",
-                    "content": [{"type": "output_text", "text": a.text, "annotations": []}]
-                }));
+                input_items.push(build_assistant_input_item(a));
             }
             ConversationLine::Tool(t) => {
-                // function_call
-                let call_id = &t.call_id;
-                input_items.push(json!({
-                    "type": "function_call",
-                    "call_id": call_id,
-                    "name": t.name,
-                    "arguments": t.args,
-                }));
-                // function_call_output (if available)
-                if let Some(output) = &t.output {
-                    input_items.push(json!({
-                        "type": "function_call_output",
-                        "call_id": call_id,
-                        "output": serde_json::to_string(output).unwrap_or_else(|_| "{}".to_string()),
-                    }));
-                }
+                input_items.extend(build_tool_input_items(t));
             }
         }
     }
@@ -68,6 +49,47 @@ pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationCon
         truncate_context_items_preserving_tool_pairs(input_items, MAX_CONTEXT_ITEMS_PER_REQUEST);
 
     Ok(ConversationContext { input_items })
+}
+
+fn build_assistant_input_item(line: &AssistantLine) -> Value {
+    json!({
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "phase": line.phase.as_str(),
+        "content": [{
+            "type": "output_text",
+            "text": line.text,
+            "annotations": []
+        }]
+    })
+}
+
+fn build_tool_input_items(line: &ToolLine) -> Vec<Value> {
+    let mut items = Vec::with_capacity(2);
+    let call_id = &line.call_id;
+    let arguments = if let Some(args) = line.args.as_str() {
+        args.to_string()
+    } else {
+        serde_json::to_string(&line.args).unwrap_or_else(|_| "{}".to_string())
+    };
+
+    items.push(json!({
+        "type": "function_call",
+        "call_id": call_id,
+        "name": line.name,
+        "arguments": arguments,
+    }));
+
+    if let Some(output) = &line.output {
+        items.push(json!({
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": serde_json::to_string(output).unwrap_or_else(|_| "{}".to_string()),
+        }));
+    }
+
+    items
 }
 
 // ── Sanitisation helpers ──────────────────────────────────────────────────

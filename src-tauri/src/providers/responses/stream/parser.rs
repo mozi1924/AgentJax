@@ -300,15 +300,35 @@ pub(crate) fn handle_stream_event_json(
             if item_type == "message"
                 && item.get("role").and_then(Value::as_str) == Some("assistant")
             {
+                let phase = item
+                    .get("phase")
+                    .and_then(Value::as_str)
+                    .and_then(AssistantPhase::from_api_value);
                 if let Some(item_id) = item.get("id").and_then(Value::as_str) {
-                    if let Some(phase) = item
-                        .get("phase")
-                        .and_then(Value::as_str)
-                        .and_then(AssistantPhase::from_api_value)
-                    {
+                    if let Some(phase) = phase {
                         state
                             .assistant_message_phase_by_item
                             .insert(item_id.to_string(), phase);
+                    }
+                }
+                if let Some(phase) = phase {
+                    let text = item
+                        .get("content")
+                        .and_then(Value::as_array)
+                        .map(|content| {
+                            content
+                                .iter()
+                                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                                .collect::<Vec<_>>()
+                                .join("")
+                        })
+                        .unwrap_or_default();
+                    if !text.trim().is_empty() {
+                        on_delta(ProviderStreamEvent::AssistantMessageCompleted {
+                            text,
+                            phase,
+                            response_id: response_id.clone(),
+                        })?;
                     }
                 }
             }

@@ -119,10 +119,54 @@ fn load_context_merges_user_and_assistant() {
         .input_items
         .iter()
         .any(|i| i.get("role").and_then(|v| v.as_str()) == Some("user")));
-    assert!(ctx
+    assert!(ctx.input_items.iter().any(|i| {
+        i.get("role").and_then(|v| v.as_str()) == Some("assistant")
+            && i.get("phase").and_then(|v| v.as_str()) == Some("final_answer")
+    }));
+    delete_conversation(&cid).ok();
+}
+
+#[test]
+fn load_context_replays_commentary_and_final_with_phase() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("tphase-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: a(
+            "a1",
+            "r1",
+            "resp1",
+            AssistantPhase::Commentary,
+            "checking files",
+            AssistantStatus::Done,
+        ),
+    })
+    .expect("commentary");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: a(
+            "a2",
+            "r1",
+            "resp1",
+            AssistantPhase::FinalAnswer,
+            "done",
+            AssistantStatus::Done,
+        ),
+    })
+    .expect("final");
+
+    let ctx = load_context_for_request(&cid).expect("ctx");
+    let assistant_phases: Vec<&str> = ctx
         .input_items
         .iter()
-        .any(|i| i.get("role").and_then(|v| v.as_str()) == Some("assistant")));
+        .filter(|item| item.get("role").and_then(|v| v.as_str()) == Some("assistant"))
+        .filter_map(|item| item.get("phase").and_then(|v| v.as_str()))
+        .collect();
+    assert_eq!(assistant_phases, vec!["commentary", "final_answer"]);
     delete_conversation(&cid).ok();
 }
 
@@ -157,12 +201,63 @@ fn load_context_includes_tool_calls_with_outputs() {
         .input_items
         .iter()
         .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c1")
-            && i.get("type").and_then(|v| v.as_str()) == Some("function_call")));
+            && i.get("type").and_then(|v| v.as_str()) == Some("function_call")
+            && i.get("arguments").and_then(|v| v.as_str()) == Some("{\"e\":\"1+1\"}")));
     assert!(ctx
         .input_items
         .iter()
         .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c1")
             && i.get("type").and_then(|v| v.as_str()) == Some("function_call_output")));
+    delete_conversation(&cid).ok();
+}
+
+#[test]
+fn update_line_preserves_existing_tool_args_when_exec_event_omits_them() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("tmerge-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: t(
+            "t1",
+            "r1",
+            "call_1",
+            "calc",
+            json!({"expression":"2+2"}),
+            None,
+            ToolStatus::Pending,
+        ),
+    })
+    .expect("pending");
+    update_line(UpdateLineInput {
+        conversation_id: cid.clone(),
+        line_id: "t1".into(),
+        line: t(
+            "t1",
+            "r1",
+            "call_1",
+            "calc",
+            serde_json::Value::Null,
+            Some(json!({"ok":true,"result":4})),
+            ToolStatus::Done,
+        ),
+    })
+    .expect("done");
+
+    let ctx = load_context_for_request(&cid).expect("ctx");
+    let args = ctx
+        .input_items
+        .iter()
+        .find(|i| {
+            i.get("type").and_then(|v| v.as_str()) == Some("function_call")
+                && i.get("call_id").and_then(|v| v.as_str()) == Some("call_1")
+        })
+        .and_then(|item| item.get("arguments"))
+        .and_then(|v| v.as_str());
+    assert_eq!(args, Some("{\"expression\":\"2+2\"}"));
     delete_conversation(&cid).ok();
 }
 

@@ -202,6 +202,22 @@ async fn real_gateway_multihop_commentary_and_multi_tool_smoke_test_from_local_c
             _ => None,
         })
         .collect();
+    eprintln!("tool_names={:?}", tool_names);
+    eprintln!("commentary_messages={:?}", commentary_messages);
+
+    let final_messages: Vec<String> = stream_events
+        .iter()
+        .filter_map(|event| match event {
+            ProviderStreamEvent::HopAssistantText { text, phase, .. }
+                if *phase == AssistantPhase::FinalAnswer =>
+            {
+                Some(text.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    eprintln!("final_messages={:?}", final_messages);
+    eprintln!("final_output_text={}", response.output_text);
     assert!(
         commentary_messages.len() >= 2,
         "Expected at least two commentary hop messages. Actual: {:?}",
@@ -221,22 +237,6 @@ async fn real_gateway_multihop_commentary_and_multi_tool_smoke_test_from_local_c
         "Expected one commentary message to mention the calculator step. Actual: {:?}",
         commentary_messages
     );
-
-    let final_messages: Vec<String> = stream_events
-        .iter()
-        .filter_map(|event| match event {
-            ProviderStreamEvent::HopAssistantText { text, phase, .. }
-                if *phase == AssistantPhase::FinalAnswer =>
-            {
-                Some(text.clone())
-            }
-            _ => None,
-        })
-        .collect();
-    eprintln!("tool_names={:?}", tool_names);
-    eprintln!("commentary_messages={:?}", commentary_messages);
-    eprintln!("final_messages={:?}", final_messages);
-    eprintln!("final_output_text={}", response.output_text);
     assert!(
         !final_messages.is_empty(),
         "Expected at least one final-answer hop message"
