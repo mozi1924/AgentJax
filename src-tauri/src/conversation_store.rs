@@ -1201,4 +1201,122 @@ mod tests {
                 })
         }));
     }
+
+    #[test]
+    fn fault_injection_interrupted_tool_turn_can_recover_and_clear() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let conversation_id = format!("test-fault-injection-{}", Uuid::new_v4());
+        let utility_model = "gpt-5-mini";
+        ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
+
+        // Step 1: user message persisted, tool_call persisted, then crash before tool_output/assistant.
+        append_message(
+            AppendMessageInput {
+                conversation_id: conversation_id.clone(),
+                entry_id: "msg-user-fault".to_string(),
+                role: "user".to_string(),
+                text: "请调用工具然后继续".to_string(),
+                created_at_unix_ms: now_unix_ms(),
+                response_id: None,
+                provider: Some("codex".to_string()),
+                model_profile: Some("default".to_string()),
+                model_id: Some("gpt-5-mini".to_string()),
+                request_id: Some("req-fault".to_string()),
+                context_items: build_user_input_items("请调用工具然后继续"),
+                timeline_events: None,
+                metadata: BTreeMap::new(),
+            },
+            utility_model,
+        )
+        .expect("append user");
+
+        append_context_item(
+            AppendContextItemInput {
+                conversation_id: conversation_id.clone(),
+                entry_id: "ctx-call-fault".to_string(),
+                created_at_unix_ms: now_unix_ms(),
+                response_id: None,
+                provider: Some("codex".to_string()),
+                model_profile: Some("default".to_string()),
+                model_id: Some("gpt-5-mini".to_string()),
+                request_id: Some("req-fault".to_string()),
+                context_item: json!({
+                    "type":"function_call",
+                    "call_id":"call_fault_1",
+                    "name":"mcp__demo__search",
+                    "arguments":"{\"q\":\"agentjax\"}"
+                }),
+                metadata: BTreeMap::new(),
+            },
+            utility_model,
+        )
+        .expect("append function_call");
+
+        // Step 2: restart path should emit recovery note with unresolved tool call.
+        let note_before_resume = build_recovery_developer_note(&conversation_id)
+            .expect("build recovery note before resume")
+            .expect("expected recovery note before resume");
+        let note_text = note_before_resume
+            .get("content")
+            .and_then(Value::as_array)
+            .and_then(|arr| arr.first())
+            .and_then(|part| part.get("text"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(note_text.contains("RECOVERY_CONTEXT"));
+        assert!(note_text.contains("call_fault_1"));
+        assert!(note_text.contains("assistant_message_missing"));
+
+        // Step 3: resume execution completes tool_output and assistant.
+        append_context_item(
+            AppendContextItemInput {
+                conversation_id: conversation_id.clone(),
+                entry_id: "ctx-output-fault".to_string(),
+                created_at_unix_ms: now_unix_ms(),
+                response_id: Some("resp-fault-1".to_string()),
+                provider: Some("codex".to_string()),
+                model_profile: Some("default".to_string()),
+                model_id: Some("gpt-5-mini".to_string()),
+                request_id: Some("req-fault".to_string()),
+                context_item: json!({
+                    "type":"function_call_output",
+                    "call_id":"call_fault_1",
+                    "output":"{\"ok\":true,\"result\":{\"hits\":3}}"
+                }),
+                metadata: BTreeMap::new(),
+            },
+            utility_model,
+        )
+        .expect("append function_call_output");
+
+        append_message(
+            AppendMessageInput {
+                conversation_id: conversation_id.clone(),
+                entry_id: "msg-assistant-fault".to_string(),
+                role: "assistant".to_string(),
+                text: "工具执行完成，继续回答。".to_string(),
+                created_at_unix_ms: now_unix_ms(),
+                response_id: Some("resp-fault-1".to_string()),
+                provider: Some("codex".to_string()),
+                model_profile: Some("default".to_string()),
+                model_id: Some("gpt-5-mini".to_string()),
+                request_id: Some("req-fault".to_string()),
+                context_items: build_assistant_output_items("工具执行完成，继续回答。"),
+                timeline_events: None,
+                metadata: BTreeMap::new(),
+            },
+            utility_model,
+        )
+        .expect("append assistant");
+
+        let note_after_resume =
+            build_recovery_developer_note(&conversation_id).expect("build recovery after resume");
+        assert!(
+            note_after_resume.is_none(),
+            "recovery note should be cleared after tool output and assistant message are present"
+        );
+    }
 }
