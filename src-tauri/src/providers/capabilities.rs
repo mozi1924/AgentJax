@@ -17,7 +17,7 @@ pub struct ProviderCapabilities {
 }
 
 impl ProviderCapabilities {
-    pub fn codex() -> Self {
+    pub fn openai_responses() -> Self {
         Self {
             requires_instructions: true,
             requires_stream_true_in_websocket: true,
@@ -28,22 +28,6 @@ impl ProviderCapabilities {
             supports_json_schema: true,
             supports_parallel_tool_calls: true,
             supports_built_in_web_search: false,
-            emits_final_output_items: true,
-            emits_incremental_tool_call_arguments: true,
-        }
-    }
-
-    pub fn openai_standard() -> Self {
-        Self {
-            requires_instructions: false,
-            requires_stream_true_in_websocket: false,
-            supports_stored_responses: true,
-            supports_cross_socket_continuation: true,
-            supports_generate_false: false,
-            supports_json_mode: true,
-            supports_json_schema: true,
-            supports_parallel_tool_calls: true,
-            supports_built_in_web_search: true,
             emits_final_output_items: true,
             emits_incremental_tool_call_arguments: true,
         }

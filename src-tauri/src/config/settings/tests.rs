@@ -7,14 +7,14 @@ use std::path::Path;
 fn write_test_config(home: &Path) -> std::path::PathBuf {
     let path = home.join("config.yaml");
     let raw = [
-        "active_provider: \"openai\"",
-        "default_model: \"openai/gpt-5-mini\"",
-        "utility_small_model: \"openai/gpt-5-mini\"",
+        "active_provider: \"openai-responses\"",
+        "default_model: \"openai-responses/gpt-5-mini\"",
+        "utility_small_model: \"openai-responses/gpt-5-mini\"",
         "request_timeout_seconds: 120",
         "system_prompt: \"Assistant\"",
         "providers:",
-        "  openai:",
-        "    kind: \"openai\"",
+        "  openai-responses:",
+        "    kind: \"openai-responses\"",
         "    api_endpoint: \"https://api.openai.com/v1\"",
         "    realtime_endpoint: \"\"",
         "    stream_transport: \"websocket\"",
@@ -58,13 +58,13 @@ fn snapshot_redacts_secret_values() {
 
     let snapshot = get_settings_snapshot().expect("snapshot");
     assert_eq!(
-        snapshot.values["providers"]["openai"]["credential"],
+        snapshot.values["providers"]["openai-responses"]["credential"],
         Value::Null
     );
     assert_eq!(
         snapshot
             .secret_statuses
-            .get("providers.openai.credential")
+            .get("providers.openai-responses.credential")
             .expect("secret status")
             .source,
         "inline"
@@ -155,7 +155,7 @@ fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
 
     let snapshot = get_settings_snapshot().expect("snapshot");
     let updated = apply_settings_patch(SettingsPatch {
-        path: "providers.openai.models.GPT-5\\.4.model".to_string(),
+        path: "providers.openai-responses.models.GPT-5\\.4.model".to_string(),
         value: Some(Value::from("gpt-5.4")),
         expected_revision: snapshot.revision,
         operation: SettingsPatchOperation::Set,
@@ -163,7 +163,7 @@ fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
     .expect("apply patch with escaped model profile key");
 
     assert_eq!(
-        updated.values["providers"]["openai"]["models"]["GPT-5.4"]["model"],
+        updated.values["providers"]["openai-responses"]["models"]["GPT-5.4"]["model"],
         Value::from("gpt-5.4")
     );
     let raw = fs::read_to_string(&path).expect("read config");

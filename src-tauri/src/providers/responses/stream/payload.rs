@@ -54,10 +54,10 @@ mod tests {
     fn websocket_payload_can_omit_stream_field() {
         let resolved = ResolvedModelConfig {
             profile_key: "test".to_string(),
-            provider_key: "openai".to_string(),
+            provider_key: "openai-responses".to_string(),
             provider: ProviderConfig::default(),
             model_id: "gpt-5-mini".to_string(),
-            model_ref: "openai/gpt-5-mini".to_string(),
+            model_ref: "openai-responses/gpt-5-mini".to_string(),
             system_prompt: "test prompt".to_string(),
             request: ModelRequestConfig::default(),
             timeout_seconds: 60,
@@ -79,10 +79,10 @@ mod tests {
     fn sse_payload_includes_stream_field() {
         let resolved = ResolvedModelConfig {
             profile_key: "test".to_string(),
-            provider_key: "openai".to_string(),
+            provider_key: "openai-responses".to_string(),
             provider: ProviderConfig::default(),
             model_id: "gpt-5-mini".to_string(),
-            model_ref: "openai/gpt-5-mini".to_string(),
+            model_ref: "openai-responses/gpt-5-mini".to_string(),
             system_prompt: "test prompt".to_string(),
             request: ModelRequestConfig::default(),
             timeout_seconds: 60,

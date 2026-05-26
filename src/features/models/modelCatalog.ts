@@ -1,6 +1,6 @@
 import type { ModelOption } from '../conversations/types';
 
-export const DEFAULT_MODEL_PROFILE = 'openai/gpt-5-mini';
+export const DEFAULT_MODEL_PROFILE = 'openai-responses/gpt-5-mini';
 export const DEFAULT_REASONING_MODE = '__default__';
 
 interface ProfileSplit {

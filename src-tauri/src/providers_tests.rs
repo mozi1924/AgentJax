@@ -6,33 +6,22 @@ mod tests {
 
     #[test]
     fn test_provider_capability_lookup() {
-        let codex = providers::get_capabilities("codex").expect("codex adapter should exist");
-        assert!(!codex.supports_stored_responses);
-
-        let openai_default =
-            providers::get_capabilities("openai").expect("openai adapter should exist");
-        assert!(openai_default.supports_stored_responses);
-
-        let openai = providers::get_capabilities("openai-standard")
-            .expect("openai-standard adapter should exist");
-        assert!(openai.supports_stored_responses);
+        let openai_responses = providers::get_capabilities("openai-responses")
+            .expect("openai-responses adapter should exist");
+        assert!(!openai_responses.supports_stored_responses);
 
         let err = providers::get_capabilities("not-a-provider").unwrap_err();
         assert!(err.contains("Unsupported provider kind"));
+
+        let old_codex = providers::get_capabilities("codex").unwrap_err();
+        assert!(old_codex.contains("Unsupported provider kind"));
     }
 
     #[test]
     fn test_provider_tool_schema_format_lookup() {
-        let codex = providers::get_tool_schema_format("codex").expect("codex adapter should exist");
-        assert_eq!(codex, ToolSchemaFormat::Responses);
-
-        let openai_default =
-            providers::get_tool_schema_format("openai").expect("openai adapter should exist");
-        assert_eq!(openai_default, ToolSchemaFormat::Responses);
-
-        let openai = providers::get_tool_schema_format("openai-standard")
-            .expect("openai-standard adapter should exist");
-        assert_eq!(openai, ToolSchemaFormat::Responses);
+        let openai_responses = providers::get_tool_schema_format("openai-responses")
+            .expect("openai-responses adapter should exist");
+        assert_eq!(openai_responses, ToolSchemaFormat::Responses);
     }
 
     #[test]
@@ -57,8 +46,8 @@ mod tests {
             }),
         ];
 
-        let pending = providers::extract_pending_tool_calls("codex", &output_items)
-            .expect("codex adapter should extract pending calls");
+        let pending = providers::extract_pending_tool_calls("openai-responses", &output_items)
+            .expect("openai-responses adapter should extract pending calls");
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].call_id, "call_b");
         assert_eq!(pending[0].name, "tool_b");
@@ -66,15 +55,16 @@ mod tests {
 
     #[test]
     fn test_provider_builds_tool_result_and_continuation_input_items() {
-        let user_input_item = providers::build_user_input_item("codex", "hello")
-            .expect("codex adapter should build user input item");
+        let user_input_item = providers::build_user_input_item("openai-responses", "hello")
+            .expect("openai-responses adapter should build user input item");
         assert_eq!(
             user_input_item.get("role").and_then(|v| v.as_str()),
             Some("user")
         );
 
-        let tool_output_item = providers::build_tool_result_input_item("codex", "call_1", "ok")
-            .expect("codex adapter should build tool result item");
+        let tool_output_item =
+            providers::build_tool_result_input_item("openai-responses", "call_1", "ok")
+                .expect("openai-responses adapter should build tool result item");
         assert_eq!(
             tool_output_item.get("type").and_then(|v| v.as_str()),
             Some("function_call_output")
@@ -89,11 +79,11 @@ mod tests {
             json!({"type":"function_call","call_id":"call_1","name":"tool_a"}),
         ];
         let continuation_items = providers::compose_tool_continuation_input(
-            "codex",
+            "openai-responses",
             &output_items,
             vec![tool_output_item.clone()],
         )
-        .expect("codex adapter should build continuation input items");
+        .expect("openai-responses adapter should build continuation input items");
         assert_eq!(continuation_items.len(), 3);
         assert_eq!(
             continuation_items[0].get("id").and_then(|v| v.as_str()),

@@ -15,12 +15,6 @@ impl ProviderConfig {
             self.kind = provider_key.to_string();
         }
 
-        self.kind = match self.kind.as_str() {
-            "openai-standard" | "openai_standard" => "openai".to_string(),
-            "openai-codex" | "openai_codex" => "codex".to_string(),
-            other => other.to_string(),
-        };
-
         self.api_endpoint = self.api_endpoint.trim().trim_end_matches('/').to_string();
         if self.api_endpoint.is_empty() {
             self.api_endpoint = "https://api.openai.com/v1".to_string();
@@ -208,7 +202,7 @@ impl AppConfig {
         }
 
         if normalized_providers.is_empty() {
-            normalized_providers.insert("openai".to_string(), ProviderConfig::default());
+            normalized_providers.insert("openai-responses".to_string(), ProviderConfig::default());
         }
         self.providers = normalized_providers;
 
@@ -217,7 +211,7 @@ impl AppConfig {
                 .providers
                 .first_key_value()
                 .map(|(k, _)| k.clone())
-                .unwrap_or_else(|| "openai".to_string());
+                .unwrap_or_else(|| "openai-responses".to_string());
         }
 
         let has_any_model = self

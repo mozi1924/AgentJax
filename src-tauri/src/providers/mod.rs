@@ -1,6 +1,5 @@
 pub mod capabilities;
-mod codex;
-mod openai_standard;
+mod openai_responses;
 mod responses;
 pub mod types;
 
@@ -50,15 +49,15 @@ trait ProviderAdapter: Send + Sync {
     ) -> Vec<Value>;
 }
 
-struct CodexAdapter;
+struct OpenAIResponsesAdapter;
 
-impl ProviderAdapter for CodexAdapter {
+impl ProviderAdapter for OpenAIResponsesAdapter {
     fn matches_kind(&self, provider_kind: &str) -> bool {
-        matches!(provider_kind, "codex" | "openai-codex" | "openai_codex")
+        matches!(provider_kind, "openai-responses")
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::codex()
+        ProviderCapabilities::openai_responses()
     }
 
     fn tool_schema_format(&self) -> ToolSchemaFormat {
@@ -72,74 +71,13 @@ impl ProviderAdapter for CodexAdapter {
         cancel_rx: &'a mut watch::Receiver<bool>,
         on_delta: &'a mut ProviderEventSink<'a>,
     ) -> StreamFuture<'a> {
-        Box::pin(codex::stream_response(resolved, req, cancel_rx, on_delta))
-    }
-
-    fn fetch_remote_models<'a>(&'a self, resolved: &'a ResolvedModelConfig) -> ModelsFuture<'a> {
-        Box::pin(codex::fetch_remote_models(resolved))
-    }
-
-    fn reasoning_capability(
-        &self,
-        model_id: &str,
-        cached_levels: Option<&[String]>,
-    ) -> ModelReasoningCapability {
-        codex::get_reasoning_capability(model_id, cached_levels)
-    }
-
-    fn extract_pending_tool_calls(&self, output_items: &[Value]) -> Vec<ProviderPendingToolCall> {
-        responses::extract_pending_tool_calls_from_output(output_items)
-    }
-
-    fn build_tool_result_input_item(&self, call_id: &str, output: &str) -> Value {
-        responses::build_tool_result_input_item(call_id, output)
-    }
-
-    fn build_user_input_item(&self, text: &str) -> Value {
-        responses::build_user_input_item(text)
-    }
-
-    fn compose_tool_continuation_input(
-        &self,
-        output_items: &[Value],
-        tool_results_items: Vec<Value>,
-    ) -> Vec<Value> {
-        responses::compose_tool_continuation_input(output_items, tool_results_items)
-    }
-}
-
-struct OpenAIStandardAdapter;
-
-impl ProviderAdapter for OpenAIStandardAdapter {
-    fn matches_kind(&self, provider_kind: &str) -> bool {
-        matches!(
-            provider_kind,
-            "openai" | "openai-standard" | "openai_standard"
-        )
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::openai_standard()
-    }
-
-    fn tool_schema_format(&self) -> ToolSchemaFormat {
-        ToolSchemaFormat::Responses
-    }
-
-    fn stream_response<'a>(
-        &'a self,
-        resolved: &'a ResolvedModelConfig,
-        req: &'a ResponseStreamRequest,
-        cancel_rx: &'a mut watch::Receiver<bool>,
-        on_delta: &'a mut ProviderEventSink<'a>,
-    ) -> StreamFuture<'a> {
-        Box::pin(openai_standard::stream_response(
+        Box::pin(openai_responses::stream_response(
             resolved, req, cancel_rx, on_delta,
         ))
     }
 
     fn fetch_remote_models<'a>(&'a self, resolved: &'a ResolvedModelConfig) -> ModelsFuture<'a> {
-        Box::pin(openai_standard::fetch_remote_models(resolved))
+        Box::pin(openai_responses::fetch_remote_models(resolved))
     }
 
     fn reasoning_capability(
@@ -147,7 +85,7 @@ impl ProviderAdapter for OpenAIStandardAdapter {
         model_id: &str,
         cached_levels: Option<&[String]>,
     ) -> ModelReasoningCapability {
-        openai_standard::get_reasoning_capability(model_id, cached_levels)
+        openai_responses::get_reasoning_capability(model_id, cached_levels)
     }
 
     fn extract_pending_tool_calls(&self, output_items: &[Value]) -> Vec<ProviderPendingToolCall> {
@@ -171,12 +109,11 @@ impl ProviderAdapter for OpenAIStandardAdapter {
     }
 }
 
-static CODEX_ADAPTER: CodexAdapter = CodexAdapter;
-static OPENAI_STANDARD_ADAPTER: OpenAIStandardAdapter = OpenAIStandardAdapter;
+static OPENAI_RESPONSES_ADAPTER: OpenAIResponsesAdapter = OpenAIResponsesAdapter;
 
 fn adapter_for_kind(provider_kind: &str) -> Result<&'static dyn ProviderAdapter, String> {
     let normalized = provider_kind.trim().to_lowercase();
-    let adapters: [&dyn ProviderAdapter; 2] = [&CODEX_ADAPTER, &OPENAI_STANDARD_ADAPTER];
+    let adapters: [&dyn ProviderAdapter; 1] = [&OPENAI_RESPONSES_ADAPTER];
 
     for adapter in adapters {
         if adapter.matches_kind(&normalized) {

@@ -25,7 +25,7 @@
   - 发送 Responses 请求
   - 解析流式 event
   - 输出标准化后的 `message delta / tool_call delta / item done / response completed / error`
-- 把当前 `codex.rs` 和 `openai_standard.rs` 里的 `ToolRegistry.execute(...)`、continuation 拼接逻辑上提到 runtime。
+- 把当前 `openai_responses.rs` 里的 `ToolRegistry.execute(...)`、continuation 拼接逻辑上提到 runtime。
 - runtime 收到 `tool_call_done` 后统一执行本地工具，再构造下一跳 `function_call_output` input item，继续同一轮循环，直到得到最终 assistant message 或错误。
 
 关键约束：

@@ -123,10 +123,10 @@ pub struct ResolvedModelConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         let mut providers = BTreeMap::new();
-        providers.insert("openai".to_string(), ProviderConfig::default());
+        providers.insert("openai-responses".to_string(), ProviderConfig::default());
 
         Self {
-            active_provider: "openai".to_string(),
+            active_provider: "openai-responses".to_string(),
             providers,
             default_model: DEFAULT_DEFAULT_MODEL_REF.to_string(),
             utility_small_model: DEFAULT_UTILITY_SMALL_MODEL_REF.to_string(),
@@ -199,7 +199,7 @@ impl Default for ProviderConfig {
         );
 
         Self {
-            kind: "openai".to_string(),
+            kind: "openai-responses".to_string(),
             api_endpoint: "https://api.openai.com/v1".to_string(),
             models_endpoint_candidates: Vec::new(),
             realtime_endpoint: None,

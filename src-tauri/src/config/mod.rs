@@ -40,18 +40,18 @@ mod tests {
     fn resolves_model_with_provider_scoped_reference() {
         let cfg = AppConfig::default().normalize();
         let resolved = cfg
-            .resolve_model_profile(Some("openai/gpt-5"))
+            .resolve_model_profile(Some("openai-responses/gpt-5"))
             .expect("resolve model");
-        assert_eq!(resolved.provider_key, "openai");
+        assert_eq!(resolved.provider_key, "openai-responses");
         assert_eq!(resolved.model_id, "gpt-5");
-        assert_eq!(resolved.model_ref, "openai/gpt-5");
+        assert_eq!(resolved.model_ref, "openai-responses/gpt-5");
     }
 
     #[test]
     fn falls_back_to_default_when_requested_model_invalid() {
         let cfg = AppConfig::default().normalize();
         let resolved = cfg
-            .resolve_model_profile(Some("openai/not-exist"))
+            .resolve_model_profile(Some("openai-responses/not-exist"))
             .expect("fallback to default");
         assert_eq!(resolved.model_ref, cfg.default_model);
     }
@@ -88,8 +88,8 @@ mod tests {
     fn resolves_profile_when_default_uses_provider_model_id_instead_of_profile_key() {
         let mut cfg = AppConfig::default();
         cfg.providers
-            .get_mut("openai")
-            .expect("openai provider exists")
+            .get_mut("openai-responses")
+            .expect("openai-responses provider exists")
             .models
             .insert(
                 "custom_key".to_string(),
@@ -99,7 +99,7 @@ mod tests {
                     request: ModelRequestConfig::default(),
                 },
             );
-        cfg.default_model = "openai/gpt-5.4".to_string();
+        cfg.default_model = "openai-responses/gpt-5.4".to_string();
 
         let normalized = cfg.normalize();
         let resolved = normalized

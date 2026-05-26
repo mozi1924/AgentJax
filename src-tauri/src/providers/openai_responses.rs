@@ -10,9 +10,9 @@ use crate::config::ResolvedModelConfig;
 
 fn stream_behavior() -> responses::stream::ResponsesStreamBehavior {
     responses::stream::ResponsesStreamBehavior {
-        api_label: "Codex",
-        capabilities: ProviderCapabilities::codex(),
-        retry_store_false: false,
+        api_label: "OpenAI Responses",
+        capabilities: ProviderCapabilities::openai_responses(),
+        retry_store_false: true,
     }
 }
 

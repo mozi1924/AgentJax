@@ -17,7 +17,7 @@
       "itemLabel": "Provider",
       "keyPattern": "^[A-Za-z0-9_-]+$",
       "defaultItem": {
-        "kind": "openai",
+        "kind": "openai-responses",
         "api_endpoint": "https://api.openai.com/v1",
         "models_endpoint_candidates": [],
         "realtime_endpoint": null,

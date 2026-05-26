@@ -73,7 +73,7 @@ pub fn build_dynamic_options(
 
     dynamic_options.insert(
         "provider_kind".to_string(),
-        ["openai", "codex"]
+        ["openai-responses"]
             .into_iter()
             .map(|entry| SettingsOption {
                 label: entry.to_string(),

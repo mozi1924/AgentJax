@@ -68,7 +68,7 @@ Each entry under `providers.<provider>.models` is a reusable preset for that pro
 - `request`: model-specific request parameters.
 
 Model selection keys are globally referenced as `{provider}/{model_id}`.
-For example, `openai/gpt-5-mini`.
+For example, `openai-responses/gpt-5-mini`.
 
 Supported request fields:
 
