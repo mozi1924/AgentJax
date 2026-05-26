@@ -64,10 +64,8 @@ pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationCon
     // Deduplicate and pair tool calls
     input_items = sanitize_tool_call_pairs(input_items);
     // Truncate if too large, preserving tool-call pairs
-    input_items = truncate_context_items_preserving_tool_pairs(
-        input_items,
-        MAX_CONTEXT_ITEMS_PER_REQUEST,
-    );
+    input_items =
+        truncate_context_items_preserving_tool_pairs(input_items, MAX_CONTEXT_ITEMS_PER_REQUEST);
 
     Ok(ConversationContext { input_items })
 }
@@ -112,10 +110,7 @@ pub(super) fn sanitize_tool_call_pairs(items: Vec<Value>) -> Vec<Value> {
         .collect()
 }
 
-fn truncate_context_items_preserving_tool_pairs(
-    items: Vec<Value>,
-    max: usize,
-) -> Vec<Value> {
+fn truncate_context_items_preserving_tool_pairs(items: Vec<Value>, max: usize) -> Vec<Value> {
     if items.len() <= max {
         return items;
     }

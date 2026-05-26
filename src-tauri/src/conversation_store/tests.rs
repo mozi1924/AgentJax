@@ -12,19 +12,28 @@ struct TestHomeGuard {
 }
 impl Drop for TestHomeGuard {
     fn drop(&mut self) {
-        unsafe { std::env::remove_var(AGENTJAX_HOME_ENV); }
+        unsafe {
+            std::env::remove_var(AGENTJAX_HOME_ENV);
+        }
         let _ = std::fs::remove_dir_all(&self.home);
     }
 }
 fn setup_test_home() -> TestHomeGuard {
     let home = std::env::temp_dir().join(format!("agentjax-cs-test-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&home).expect("create test home");
-    unsafe { std::env::set_var(AGENTJAX_HOME_ENV, &home); }
+    unsafe {
+        std::env::set_var(AGENTJAX_HOME_ENV, &home);
+    }
     TestHomeGuard { home }
 }
 
 fn u(id: &str, req: &str, text: &str) -> ConversationLine {
-    ConversationLine::User(UserLine { id: id.into(), ts: now_unix_ms(), request_id: req.into(), text: text.into() })
+    ConversationLine::User(UserLine {
+        id: id.into(),
+        ts: now_unix_ms(),
+        request_id: req.into(),
+        text: text.into(),
+    })
 }
 fn a(
     id: &str,
@@ -44,13 +53,32 @@ fn a(
         status: st,
     })
 }
-fn t(id: &str, req: &str, call: &str, name: &str, args: serde_json::Value, out: Option<serde_json::Value>, st: ToolStatus) -> ConversationLine {
-    ConversationLine::Tool(ToolLine { id: id.into(), ts: now_unix_ms(), request_id: req.into(), call_id: call.into(), name: name.into(), args, output: out, status: st })
+fn t(
+    id: &str,
+    req: &str,
+    call: &str,
+    name: &str,
+    args: serde_json::Value,
+    out: Option<serde_json::Value>,
+    st: ToolStatus,
+) -> ConversationLine {
+    ConversationLine::Tool(ToolLine {
+        id: id.into(),
+        ts: now_unix_ms(),
+        request_id: req.into(),
+        call_id: call.into(),
+        name: name.into(),
+        args,
+        output: out,
+        status: st,
+    })
 }
 
 #[test]
 fn delete_conversation_removes_session_directory() {
-    let _g = crate::config::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     let _h = setup_test_home();
     let cid = format!("td-{}", Uuid::new_v4());
     let p = conversation_dir_path(&cid).expect("path");
@@ -62,73 +90,201 @@ fn delete_conversation_removes_session_directory() {
 
 #[test]
 fn load_context_merges_user_and_assistant() {
-    let _g = crate::config::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     let _h = setup_test_home();
     let cid = format!("tc-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: u("u1","r1","hi") }).expect("u");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: a("a1","r1","resp1",AssistantPhase::FinalAnswer,"hey",AssistantStatus::Done) }).expect("a");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: u("u1", "r1", "hi"),
+    })
+    .expect("u");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: a(
+            "a1",
+            "r1",
+            "resp1",
+            AssistantPhase::FinalAnswer,
+            "hey",
+            AssistantStatus::Done,
+        ),
+    })
+    .expect("a");
     let ctx = load_context_for_request(&cid).expect("ctx");
     assert!(ctx.input_items.len() >= 2);
-    assert!(ctx.input_items.iter().any(|i| i.get("role").and_then(|v| v.as_str()) == Some("user")));
-    assert!(ctx.input_items.iter().any(|i| i.get("role").and_then(|v| v.as_str()) == Some("assistant")));
+    assert!(ctx
+        .input_items
+        .iter()
+        .any(|i| i.get("role").and_then(|v| v.as_str()) == Some("user")));
+    assert!(ctx
+        .input_items
+        .iter()
+        .any(|i| i.get("role").and_then(|v| v.as_str()) == Some("assistant")));
     delete_conversation(&cid).ok();
 }
 
 #[test]
 fn load_context_includes_tool_calls_with_outputs() {
-    let _g = crate::config::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     let _h = setup_test_home();
     let cid = format!("tt-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: u("u1","r1","calc") }).expect("u");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: t("t1","r1","c1","calc",json!({"e":"1+1"}),Some(json!({"ok":true})),ToolStatus::Done) }).expect("t");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: u("u1", "r1", "calc"),
+    })
+    .expect("u");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: t(
+            "t1",
+            "r1",
+            "c1",
+            "calc",
+            json!({"e":"1+1"}),
+            Some(json!({"ok":true})),
+            ToolStatus::Done,
+        ),
+    })
+    .expect("t");
     let ctx = load_context_for_request(&cid).expect("ctx");
-    assert!(ctx.input_items.iter().any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c1") && i.get("type").and_then(|v| v.as_str()) == Some("function_call")));
-    assert!(ctx.input_items.iter().any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c1") && i.get("type").and_then(|v| v.as_str()) == Some("function_call_output")));
+    assert!(ctx
+        .input_items
+        .iter()
+        .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c1")
+            && i.get("type").and_then(|v| v.as_str()) == Some("function_call")));
+    assert!(ctx
+        .input_items
+        .iter()
+        .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c1")
+            && i.get("type").and_then(|v| v.as_str()) == Some("function_call_output")));
     delete_conversation(&cid).ok();
 }
 
 #[test]
 fn load_context_filters_orphan_tool_calls() {
-    let _g = crate::config::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     let _h = setup_test_home();
     let cid = format!("to-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: t("t1","r1","c_ok","a",json!({}),Some(json!({"ok":true})),ToolStatus::Done) }).expect("ok");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: t("t2","r1","c_orphan","b",json!({}),None,ToolStatus::Pending) }).expect("orphan");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: t(
+            "t1",
+            "r1",
+            "c_ok",
+            "a",
+            json!({}),
+            Some(json!({"ok":true})),
+            ToolStatus::Done,
+        ),
+    })
+    .expect("ok");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: t(
+            "t2",
+            "r1",
+            "c_orphan",
+            "b",
+            json!({}),
+            None,
+            ToolStatus::Pending,
+        ),
+    })
+    .expect("orphan");
     let ctx = load_context_for_request(&cid).expect("ctx");
-    assert!(ctx.input_items.iter().any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c_ok")));
-    assert!(!ctx.input_items.iter().any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c_orphan")));
+    assert!(ctx
+        .input_items
+        .iter()
+        .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c_ok")));
+    assert!(!ctx
+        .input_items
+        .iter()
+        .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c_orphan")));
     delete_conversation(&cid).ok();
 }
 
 #[test]
 fn load_context_truncates_without_splitting_tool_pairs() {
-    let _g = crate::config::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     let _h = setup_test_home();
     let cid = format!("ttrunc-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
     for i in 0..260 {
-        append_line(AppendLineInput { conversation_id: cid.clone(), line: u(&format!("u{i}"),"r1",&format!("m{i}")) }).expect("u");
+        append_line(AppendLineInput {
+            conversation_id: cid.clone(),
+            line: u(&format!("u{i}"), "r1", &format!("m{i}")),
+        })
+        .expect("u");
     }
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: t("ttail","r1","call_tail","x",json!({}),Some(json!({"ok":true})),ToolStatus::Done) }).expect("t");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: t(
+            "ttail",
+            "r1",
+            "call_tail",
+            "x",
+            json!({}),
+            Some(json!({"ok":true})),
+            ToolStatus::Done,
+        ),
+    })
+    .expect("t");
     let ctx = load_context_for_request(&cid).expect("ctx");
     assert!(ctx.input_items.len() <= TEST_MAX_CONTEXT_ITEMS_PER_REQUEST);
-    assert!(ctx.input_items.iter().any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("call_tail")));
+    assert!(ctx
+        .input_items
+        .iter()
+        .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("call_tail")));
     delete_conversation(&cid).ok();
 }
 
 #[test]
 fn build_recovery_note_for_unfinished_turn() {
-    let _g = crate::config::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     let _h = setup_test_home();
     let cid = format!("trec-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: u("u1","req-rec","go") }).expect("u");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: t("t1","req-rec","call_rec_1","demo",json!({"x":1}),None,ToolStatus::Pending) }).expect("t");
-    let note = build_recovery_developer_note(&cid).expect("note").expect("some");
-    let txt = note.get("content").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|p| p.get("text")).and_then(|v| v.as_str()).unwrap_or("");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: u("u1", "req-rec", "go"),
+    })
+    .expect("u");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: t(
+            "t1",
+            "req-rec",
+            "call_rec_1",
+            "demo",
+            json!({"x":1}),
+            None,
+            ToolStatus::Pending,
+        ),
+    })
+    .expect("t");
+    let note = build_recovery_developer_note(&cid)
+        .expect("note")
+        .expect("some");
+    let txt = note
+        .get("content")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|p| p.get("text"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     assert!(txt.contains("RECOVERY_CONTEXT"));
     assert!(txt.contains("req-rec"));
     assert!(txt.contains("call_rec_1"));
@@ -137,41 +293,126 @@ fn build_recovery_note_for_unfinished_turn() {
 
 #[test]
 fn load_conversation_returns_all_lines() {
-    let _g = crate::config::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     let _h = setup_test_home();
     let cid = format!("tld-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: u("u1","r1","hi") }).expect("u");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: t("t1","r1","c1","s",json!({"q":"x"}),Some(json!({"ok":true})),ToolStatus::Done) }).expect("t");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: a("a1","r1","resp1",AssistantPhase::FinalAnswer,"done",AssistantStatus::Done) }).expect("a");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: u("u1", "r1", "hi"),
+    })
+    .expect("u");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: t(
+            "t1",
+            "r1",
+            "c1",
+            "s",
+            json!({"q":"x"}),
+            Some(json!({"ok":true})),
+            ToolStatus::Done,
+        ),
+    })
+    .expect("t");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: a(
+            "a1",
+            "r1",
+            "resp1",
+            AssistantPhase::FinalAnswer,
+            "done",
+            AssistantStatus::Done,
+        ),
+    })
+    .expect("a");
     let d = load_conversation(&cid).expect("load").expect("detail");
     assert_eq!(d.lines.len(), 3);
-    assert!(d.lines.iter().any(|l| matches!(l, ConversationLine::Tool(tl) if tl.call_id == "c1")));
+    assert!(d
+        .lines
+        .iter()
+        .any(|l| matches!(l, ConversationLine::Tool(tl) if tl.call_id == "c1")));
     delete_conversation(&cid).ok();
 }
 
 #[test]
 fn fault_injection_recovery_clears_after_completion() {
-    let _g = crate::config::test_env_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     let _h = setup_test_home();
     let cid = format!("tfault-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
 
     // crash mid-turn: user + pending tool
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: u("u1","req-f","call tool") }).expect("u");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: t("t1","req-f","call_f_1","s",json!({"q":"x"}),None,ToolStatus::Pending) }).expect("t");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: u("u1", "req-f", "call tool"),
+    })
+    .expect("u");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: t(
+            "t1",
+            "req-f",
+            "call_f_1",
+            "s",
+            json!({"q":"x"}),
+            None,
+            ToolStatus::Pending,
+        ),
+    })
+    .expect("t");
 
-    let note = build_recovery_developer_note(&cid).expect("note").expect("some");
-    let txt = note.get("content").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|p| p.get("text")).and_then(|v| v.as_str()).unwrap_or("");
+    let note = build_recovery_developer_note(&cid)
+        .expect("note")
+        .expect("some");
+    let txt = note
+        .get("content")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|p| p.get("text"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     assert!(txt.contains("call_f_1"));
     assert!(txt.contains("unresolved"));
 
     // resume: update tool → done, then assistant
-    update_line(UpdateLineInput { conversation_id: cid.clone(), line_id: "t1".into(), line: t("t1","req-f","call_f_1","s",json!({"q":"x"}),Some(json!({"ok":true})),ToolStatus::Done) }).expect("upd");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: a("a1","req-f","resp-f",AssistantPhase::FinalAnswer,"found",AssistantStatus::Done) }).expect("a");
+    update_line(UpdateLineInput {
+        conversation_id: cid.clone(),
+        line_id: "t1".into(),
+        line: t(
+            "t1",
+            "req-f",
+            "call_f_1",
+            "s",
+            json!({"q":"x"}),
+            Some(json!({"ok":true})),
+            ToolStatus::Done,
+        ),
+    })
+    .expect("upd");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: a(
+            "a1",
+            "req-f",
+            "resp-f",
+            AssistantPhase::FinalAnswer,
+            "found",
+            AssistantStatus::Done,
+        ),
+    })
+    .expect("a");
 
     let note2 = build_recovery_developer_note(&cid).expect("note2");
-    assert!(note2.is_none(), "recovery note should be None after completion");
+    assert!(
+        note2.is_none(),
+        "recovery note should be None after completion"
+    );
 
     delete_conversation(&cid).ok();
 }

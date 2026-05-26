@@ -92,7 +92,11 @@ pub fn emit_mapped_stream_event(
             chat_event.tool_name = Some(name);
             chat_event.tool_arguments = Some(arguments);
         }
-        ProviderStreamEvent::ToolCallExecuted { call_id, name, output } => {
+        ProviderStreamEvent::ToolCallExecuted {
+            call_id,
+            name,
+            output,
+        } => {
             chat_event.kind = "tool_call_exec".to_string();
             chat_event.tool_call_id = Some(call_id);
             chat_event.tool_name = Some(name);

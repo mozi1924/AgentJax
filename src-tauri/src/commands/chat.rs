@@ -94,14 +94,12 @@ pub async fn chat_stream(
         run_blocking(move || {
             conversation_store::append_line(conversation_store::AppendLineInput {
                 conversation_id,
-                line: conversation_store::ConversationLine::User(
-                    conversation_store::UserLine {
-                        id: format!("msg-user-{request_id}"),
-                        ts: now_unix_ms(),
-                        request_id,
-                        text: input_text,
-                    },
-                ),
+                line: conversation_store::ConversationLine::User(conversation_store::UserLine {
+                    id: format!("msg-user-{request_id}"),
+                    ts: now_unix_ms(),
+                    request_id,
+                    text: input_text,
+                }),
             })
         })
         .await?;
@@ -253,10 +251,7 @@ pub fn rename_conversation(
 ) -> Result<conversation_store::ConversationSummary, String> {
     let _ = registry.cancel_title_request(&req.conversation_id)?;
 
-    conversation_store::rename_conversation(
-        &req.conversation_id,
-        &req.title,
-    )
+    conversation_store::rename_conversation(&req.conversation_id, &req.title)
 }
 
 #[tauri::command]

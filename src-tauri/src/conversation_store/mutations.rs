@@ -4,8 +4,8 @@ use super::paths::{
     ensure_session_layout,
 };
 use super::types::{
-    AppendLineInput, ConversationData, ConversationMeta, ConversationSummary,
-    UpdateLineInput, DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
+    AppendLineInput, ConversationData, ConversationMeta, ConversationSummary, UpdateLineInput,
+    DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
 };
 use crate::conversation_store_utils::{normalize_title, now_unix_ms};
 use std::collections::BTreeMap;
@@ -89,11 +89,7 @@ pub fn update_line(input: UpdateLineInput) -> Result<(), String> {
     let messages_path = conversation_messages_path(&input.conversation_id)?;
     let mut data = load_or_create(&input.conversation_id, &metadata_path, &messages_path)?;
 
-    if let Some(existing) = data
-        .lines
-        .iter_mut()
-        .find(|l| l.id() == input.line_id)
-    {
+    if let Some(existing) = data.lines.iter_mut().find(|l| l.id() == input.line_id) {
         *existing = input.line;
     }
 
@@ -119,7 +115,10 @@ pub fn rename_conversation(
 
 // ── Auto-title update ─────────────────────────────────────────────────────
 
-pub fn update_auto_title(conversation_id: &str, title: &str) -> Result<Option<ConversationSummary>, String> {
+pub fn update_auto_title(
+    conversation_id: &str,
+    title: &str,
+) -> Result<Option<ConversationSummary>, String> {
     let metadata_path = conversation_metadata_path(conversation_id)?;
     let messages_path = conversation_messages_path(conversation_id)?;
     let Some(mut data) = read_conversation_file(&metadata_path, &messages_path)? else {

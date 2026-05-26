@@ -3,21 +3,41 @@ use super::{
     tool_parsing::extract_active_tool_names, AgentRuntime,
 };
 use crate::commands::chat::ChatRequest;
+use crate::message_phase::AssistantPhase;
 use crate::providers::types::ProviderStreamEvent;
 use crate::tools::ToolCatalog;
 use serde_json::json;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 use tokio::sync::watch;
 use uuid::Uuid;
 
-#[tokio::test]
-#[ignore = "requires a real provider credential and network access"]
-async fn real_gateway_tool_loop_smoke_test_from_local_config() {
+static RUSTLS_CRYPTO_PROVIDER: Once = Once::new();
+
+fn ensure_rustls_crypto_provider() {
+    RUSTLS_CRYPTO_PROVIDER.call_once(|| {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .expect("Failed to install rustls ring crypto provider for tests");
+    });
+}
+
+fn real_gateway_test_enabled() -> bool {
     if std::env::var("AGENTJAX_REAL_GATEWAY_TEST").ok().as_deref() != Some("1") {
         eprintln!("Skip real gateway smoke test. Set AGENTJAX_REAL_GATEWAY_TEST=1 to enable.");
-        return;
+        return false;
     }
+    true
+}
+
+async fn run_real_gateway_turn(
+    input: &str,
+) -> (
+    crate::providers::types::ResponseStreamResult,
+    Vec<serde_json::Value>,
+    Vec<ProviderStreamEvent>,
+) {
+    ensure_rustls_crypto_provider();
 
     let config = crate::config::load_config().expect("load local config");
     let resolved_model = config
@@ -34,7 +54,7 @@ async fn real_gateway_tool_loop_smoke_test_from_local_config() {
 
     let tools_catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
     let req = ChatRequest {
-        input: "请先调用 get_system_time 工具获取系统时间，然后用中文给出一句简短结论，并包含“链路测试通过”这六个字。".to_string(),
+        input: input.to_string(),
         conversation_id: Some(conversation_id.clone()),
         model: Some(config.default_model.clone()),
         reasoning_effort: None,
@@ -74,6 +94,25 @@ async fn real_gateway_tool_loop_smoke_test_from_local_config() {
     .expect("run_turn failed");
 
     let (response, timeline_events) = run_result;
+    let stream_events = stream_events
+        .lock()
+        .expect("lock stream events after run")
+        .clone();
+
+    (response, timeline_events, stream_events)
+}
+
+#[tokio::test]
+#[ignore = "requires a real provider credential and network access"]
+async fn real_gateway_tool_loop_smoke_test_from_local_config() {
+    if !real_gateway_test_enabled() {
+        return;
+    }
+
+    let (response, timeline_events, stream_events) = run_real_gateway_turn(
+        "请先调用 get_system_time 工具获取系统时间，然后用中文给出一句简短结论，并包含“链路测试通过”这六个字。",
+    )
+    .await;
     assert!(
         !response.output_text.trim().is_empty(),
         "Assistant output should not be empty"
@@ -89,8 +128,6 @@ async fn real_gateway_tool_loop_smoke_test_from_local_config() {
     );
 
     let has_tool_executed_event = stream_events
-        .lock()
-        .expect("lock stream events for assert")
         .iter()
         .any(|event| matches!(event, ProviderStreamEvent::ToolCallExecuted { .. }));
     assert!(
@@ -101,6 +138,127 @@ async fn real_gateway_tool_loop_smoke_test_from_local_config() {
     assert!(
         response.output_text.contains("链路测试通过"),
         "Assistant output should include verification phrase. Actual: {}",
+        response.output_text
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires a real provider credential and network access"]
+async fn real_gateway_multihop_commentary_and_multi_tool_smoke_test_from_local_config() {
+    if !real_gateway_test_enabled() {
+        return;
+    }
+
+    let prompt = concat!(
+        "请严格按顺序完成下面任务，并全程使用中文：",
+        "第一步，先输出一句简短旁白，明确说明你现在要获取系统时间。",
+        "第二步，调用 get_system_time。",
+        "第三步，拿到结果后，再输出一句新的简短旁白，明确说明你现在要计算 12*(3+4)。",
+        "第四步，调用 calculator，且 expression 必须精确等于 \"12*(3+4)\"。",
+        "第五步，最后输出一句最终回答，必须同时包含“多段旁白验证通过”和“84”，并且不要调用任何其他工具。"
+    );
+
+    let (response, timeline_events, stream_events) = run_real_gateway_turn(prompt).await;
+    assert!(
+        !response.output_text.trim().is_empty(),
+        "Assistant output should not be empty"
+    );
+
+    let tool_names: Vec<&str> = timeline_events
+        .iter()
+        .filter(|event| event.get("type").and_then(|v| v.as_str()) == Some("toolCall"))
+        .filter_map(|event| event.get("name").and_then(|v| v.as_str()))
+        .collect();
+    assert_eq!(
+        tool_names,
+        vec!["get_system_time", "calculator"],
+        "Expected exactly two tool calls in order. Actual: {:?}",
+        tool_names
+    );
+
+    let calculator_arguments = timeline_events
+        .iter()
+        .find(|event| event.get("name").and_then(|v| v.as_str()) == Some("calculator"))
+        .and_then(|event| event.get("arguments"))
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        calculator_arguments
+            .get("expression")
+            .and_then(|v| v.as_str()),
+        Some("12*(3+4)"),
+        "Calculator should be called with the expected expression. Actual: {}",
+        calculator_arguments
+    );
+
+    let commentary_messages: Vec<String> = stream_events
+        .iter()
+        .filter_map(|event| match event {
+            ProviderStreamEvent::HopAssistantText { text, phase, .. }
+                if *phase == AssistantPhase::Commentary =>
+            {
+                Some(text.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        commentary_messages.len() >= 2,
+        "Expected at least two commentary hop messages. Actual: {:?}",
+        commentary_messages
+    );
+    assert!(
+        commentary_messages
+            .iter()
+            .any(|text| text.contains("系统时间")),
+        "Expected one commentary message to mention system time. Actual: {:?}",
+        commentary_messages
+    );
+    assert!(
+        commentary_messages
+            .iter()
+            .any(|text| text.contains("12*(3+4)") || text.contains("84")),
+        "Expected one commentary message to mention the calculator step. Actual: {:?}",
+        commentary_messages
+    );
+
+    let final_messages: Vec<String> = stream_events
+        .iter()
+        .filter_map(|event| match event {
+            ProviderStreamEvent::HopAssistantText { text, phase, .. }
+                if *phase == AssistantPhase::FinalAnswer =>
+            {
+                Some(text.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    eprintln!("tool_names={:?}", tool_names);
+    eprintln!("commentary_messages={:?}", commentary_messages);
+    eprintln!("final_messages={:?}", final_messages);
+    eprintln!("final_output_text={}", response.output_text);
+    assert!(
+        !final_messages.is_empty(),
+        "Expected at least one final-answer hop message"
+    );
+
+    let executed_tool_names: Vec<&str> = stream_events
+        .iter()
+        .filter_map(|event| match event {
+            ProviderStreamEvent::ToolCallExecuted { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        executed_tool_names,
+        vec!["get_system_time", "calculator"],
+        "Expected both tools to execute in order. Actual: {:?}",
+        executed_tool_names
+    );
+
+    assert!(
+        response.output_text.contains("多段旁白验证通过") && response.output_text.contains("84"),
+        "Final answer should contain the expected verification text. Actual: {}",
         response.output_text
     );
 }

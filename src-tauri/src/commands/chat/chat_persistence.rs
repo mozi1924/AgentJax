@@ -1,5 +1,7 @@
 use super::chat_utils::now_unix_ms;
-use crate::conversation_store::{self, AssistantLine, AssistantStatus, ConversationLine, ToolLine, ToolStatus};
+use crate::conversation_store::{
+    self, AssistantLine, AssistantStatus, ConversationLine, ToolLine, ToolStatus,
+};
 use crate::message_phase::AssistantPhase;
 use serde_json::Value;
 

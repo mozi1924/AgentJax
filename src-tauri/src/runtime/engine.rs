@@ -49,7 +49,8 @@ impl TurnAccumulator {
 }
 
 fn extract_assistant_messages_from_items(items: &[Value]) -> Vec<(String, Option<AssistantPhase>)> {
-    items.iter()
+    items
+        .iter()
         .filter(|item| {
             item.get("type").and_then(Value::as_str) == Some("message")
                 && item.get("role").and_then(Value::as_str) == Some("assistant")
@@ -253,7 +254,8 @@ impl AgentRuntime {
             accumulator.record_hop(&collected.response_result);
 
             let is_final_hop = collected.pending_tools.is_empty();
-            let hop_messages = extract_assistant_messages_from_items(&collected.response_result.output_items);
+            let hop_messages =
+                extract_assistant_messages_from_items(&collected.response_result.output_items);
             if hop_messages.is_empty() && !collected.response_result.output_text.is_empty() {
                 let phase = if is_final_hop {
                     AssistantPhase::FinalAnswer
@@ -317,10 +319,8 @@ impl AgentRuntime {
                 &collected.response_result.output_items,
                 executed_batch.tool_results_items,
             )?;
-            let hop_delta = ensure_tool_call_output_pairs(
-                hop_delta,
-                &executed_batch.executed_tool_call_items,
-            );
+            let hop_delta =
+                ensure_tool_call_output_pairs(hop_delta, &executed_batch.executed_tool_call_items);
 
             let delta_shape: Vec<String> = hop_delta.iter().map(describe_item_shape).collect();
             log::debug!(

@@ -1,7 +1,7 @@
+use crate::message_phase::AssistantPhase;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use crate::message_phase::AssistantPhase;
 
 pub const LOG_VERSION: u32 = 6;
 pub const DEFAULT_CONVERSATION_TITLE: &str = "新对话";
@@ -67,7 +67,10 @@ impl ConversationLine {
     /// Does this line represent a "message" for the purpose of
     /// counting and preview generation?
     pub fn is_message(&self) -> bool {
-        matches!(self, ConversationLine::User(_) | ConversationLine::Assistant(_))
+        matches!(
+            self,
+            ConversationLine::User(_) | ConversationLine::Assistant(_)
+        )
     }
 }
 
