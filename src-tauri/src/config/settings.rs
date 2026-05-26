@@ -1,11 +1,10 @@
+use crate::config::settings_ui;
 use crate::config::{self, AppConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-const REASONING_OPTIONS: &[&str] = &["none", "minimal", "low", "medium", "high", "xhigh"];
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -61,6 +60,14 @@ pub fn get_settings_snapshot() -> Result<SettingsSnapshot, String> {
     snapshot_from_config(&config, &config_path, &raw)
 }
 
+pub fn get_settings_ui_snapshot() -> Result<settings_ui::SettingsUiSnapshot, String> {
+    let snapshot = get_settings_snapshot()?;
+    Ok(settings_ui::SettingsUiSnapshot {
+        snapshot,
+        sections: settings_ui::build_settings_sections()?,
+    })
+}
+
 pub fn apply_settings_patch(patch: SettingsPatch) -> Result<SettingsSnapshot, String> {
     let config_path = config::init_config_if_missing()?;
     let raw = fs::read_to_string(&config_path)
@@ -68,7 +75,9 @@ pub fn apply_settings_patch(patch: SettingsPatch) -> Result<SettingsSnapshot, St
     let current_revision = compute_revision(&raw);
 
     if current_revision != patch.expected_revision {
-        return Err("Configuration changed on disk. Please reload settings and try again.".to_string());
+        return Err(
+            "Configuration changed on disk. Please reload settings and try again.".to_string(),
+        );
     }
 
     let config = config::load_config()?;
@@ -114,7 +123,7 @@ pub fn snapshot_from_config(
         config_path: config_path.display().to_string(),
         revision: compute_revision(raw),
         values,
-        dynamic_options: build_dynamic_options(config),
+        dynamic_options: settings_ui::build_dynamic_options(config)?,
         secret_statuses,
     })
 }
@@ -186,73 +195,6 @@ fn redact_secret_values(
     }
 
     Ok(())
-}
-
-fn build_dynamic_options(config: &AppConfig) -> BTreeMap<String, Vec<SettingsOption>> {
-    let mut dynamic_options = BTreeMap::new();
-
-    let provider_options = config
-        .provider_keys()
-        .into_iter()
-        .map(|provider_key| SettingsOption {
-            label: provider_key.clone(),
-            value: provider_key,
-        })
-        .collect::<Vec<_>>();
-    dynamic_options.insert("provider_keys".to_string(), provider_options);
-
-    let model_options = config
-        .configured_models()
-        .into_iter()
-        .map(|model_ref| SettingsOption {
-            label: model_ref.clone(),
-            value: model_ref,
-        })
-        .collect::<Vec<_>>();
-    dynamic_options.insert("model_refs".to_string(), model_options);
-
-    dynamic_options.insert(
-        "provider_kind".to_string(),
-        ["openai", "codex"]
-            .into_iter()
-            .map(|entry| SettingsOption {
-                label: entry.to_string(),
-                value: entry.to_string(),
-            })
-            .collect(),
-    );
-    dynamic_options.insert(
-        "stream_transport".to_string(),
-        ["websocket", "sse"]
-            .into_iter()
-            .map(|entry| SettingsOption {
-                label: entry.to_string(),
-                value: entry.to_string(),
-            })
-            .collect(),
-    );
-    dynamic_options.insert(
-        "mcp_transport".to_string(),
-        ["stdio", "streamable_http"]
-            .into_iter()
-            .map(|entry| SettingsOption {
-                label: entry.to_string(),
-                value: entry.to_string(),
-            })
-            .collect(),
-    );
-    dynamic_options.insert(
-        "reasoning_effort".to_string(),
-        REASONING_OPTIONS
-            .iter()
-            .map(|entry| SettingsOption {
-                label: (*entry).to_string(),
-                value: (*entry).to_string(),
-            })
-            .collect(),
-    );
-
-    dynamic_options
 }
 
 fn parse_path(path: &str) -> Result<Vec<String>, String> {
@@ -362,7 +304,9 @@ fn validate_key(key: &str, label: &str) -> Result<(), String> {
         return Err(format!("{label} cannot be empty"));
     }
     if trimmed.contains('.') {
-        return Err(format!("{label} cannot contain '.' because settings paths use dot notation"));
+        return Err(format!(
+            "{label} cannot contain '.' because settings paths use dot notation"
+        ));
     }
     if !trimmed
         .chars()
@@ -461,7 +405,8 @@ mod tests {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let home = std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
+        let home =
+            std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&home).expect("create home");
         let _path = write_test_config(&home);
 
@@ -494,7 +439,8 @@ mod tests {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let home = std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
+        let home =
+            std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&home).expect("create home");
         let path = write_test_config(&home);
 
@@ -526,7 +472,8 @@ mod tests {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let home = std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
+        let home =
+            std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&home).expect("create home");
         let _path = write_test_config(&home);
 

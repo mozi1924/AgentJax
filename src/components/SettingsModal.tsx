@@ -1,29 +1,24 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import {
-  Bot,
-  Cpu,
-  LoaderCircle,
-  PlugZap,
-  ServerCog,
-  Settings2,
-  X,
-} from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
+import { LoaderCircle, Settings2, X } from 'lucide-react';
 import SettingsRenderer from './settings/SettingsRenderer';
-import { createSettingsRegistry } from '../features/settings/registry';
-import type { SettingsSnapshot, SettingsSnapshotEvent } from '../features/settings/types';
+import type {
+  SettingsSectionSchema,
+  SettingsSnapshot,
+  SettingsSnapshotEvent,
+  SettingsUiSnapshot,
+} from '../features/settings/types';
 import { buildOptimisticSnapshot, findFirstSection } from '../features/settings/utils';
 
-const SECTION_ICONS = {
-  Settings2,
-  PlugZap,
-  Bot,
-  Cpu,
-  ServerCog,
-} as const;
-
-type SectionIconName = keyof typeof SECTION_ICONS;
+const getSectionIcon = (iconName?: string) => {
+  if (!iconName) return Settings2;
+  const candidate = (LucideIcons as Record<string, unknown>)[iconName];
+  return candidate && (typeof candidate === 'function' || typeof candidate === 'object')
+    ? (candidate as typeof Settings2)
+    : Settings2;
+};
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -31,9 +26,9 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const registry = useMemo(() => createSettingsRegistry(), []);
+  const [sections, setSections] = useState<SettingsSectionSchema[]>([]);
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
-  const [activeSectionId, setActiveSectionId] = useState(findFirstSection(registry.sections));
+  const [activeSectionId, setActiveSectionId] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingError, setLoadingError] = useState('');
   const [savingPath, setSavingPath] = useState<string | null>(null);
@@ -41,8 +36,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [statusMessage, setStatusMessage] = useState('');
 
   useEffect(() => {
-    setActiveSectionId((current) => current || findFirstSection(registry.sections));
-  }, [registry.sections]);
+    setActiveSectionId((current) => {
+      if (current && sections.some((section) => section.id === current)) {
+        return current;
+      }
+      return findFirstSection(sections);
+    });
+  }, [sections]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -69,14 +69,16 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setLoadingError('');
     setStatusMessage('');
 
-    invoke<SettingsSnapshot>('get_settings_snapshot')
-      .then((nextSnapshot) => {
+    invoke<SettingsUiSnapshot>('get_settings_ui_snapshot')
+      .then((payload) => {
         if (disposed) return;
-        setSnapshot(nextSnapshot);
+        setSections(Array.isArray(payload.sections) ? payload.sections : []);
+        setSnapshot(payload.snapshot);
+        setActiveSectionId((current) => current || findFirstSection(payload.sections));
       })
       .catch((error) => {
         if (disposed) return;
-        setLoadingError(typeof error === 'string' ? error : '无法加载设置快照。');
+        setLoadingError(typeof error === 'string' ? error : '无法加载设置。');
       })
       .finally(() => {
         if (!disposed) {
@@ -113,7 +115,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   }, [isOpen]);
 
   const activeSection =
-    registry.sections.find((section) => section.id === activeSectionId) || registry.sections[0];
+    sections.find((section) => section.id === activeSectionId) || sections[0];
 
   const applyPatch = async (
     path: string,
@@ -180,8 +182,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
 
           <div className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-3 pb-4 pt-1">
-            {registry.sections.map((section) => {
-              const Icon = SECTION_ICONS[section.icon as SectionIconName] || Settings2;
+            {sections.map((section) => {
+              const Icon = getSectionIcon(section.icon);
               const isActive = section.id === activeSection?.id;
               return (
                 <button

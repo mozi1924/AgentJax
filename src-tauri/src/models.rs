@@ -108,6 +108,13 @@ pub async fn get_model_catalog(sync_if_stale: bool) -> Result<ModelCatalog, Stri
     })
 }
 
+pub fn get_model_catalog_entries_from_config(
+    cfg: &AppConfig,
+) -> Result<Vec<ModelCatalogEntry>, String> {
+    let cache = load_model_cache().ok().flatten();
+    build_model_catalog_entries(cfg, cache.as_ref())
+}
+
 pub async fn sync_remote_model_cache() -> Result<ModelCache, String> {
     let cfg = config::load_config()?;
     sync_remote_model_cache_with_config(&cfg).await

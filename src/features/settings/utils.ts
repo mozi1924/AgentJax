@@ -128,9 +128,18 @@ export const isNodeEnabled = (
 
 export const getFieldOptions = (
   field: SettingsFieldSchema,
-  snapshot: SettingsSnapshot
+  snapshot: SettingsSnapshot,
+  contextPath?: string
 ) => {
   if (field.optionSourceKey) {
+    if (contextPath) {
+      const scopedKey = `${field.optionSourceKey}@${contextPath}`;
+      const scoped = snapshot.dynamicOptions[scopedKey];
+      if (Array.isArray(scoped) && scoped.length > 0) {
+        return scoped;
+      }
+    }
+
     return snapshot.dynamicOptions[field.optionSourceKey] || [];
   }
   return field.options || [];

@@ -2,23 +2,26 @@ mod app_config;
 mod constants;
 mod io;
 mod model_ref;
-mod settings;
 mod schema;
+mod settings;
+mod settings_ui;
 
 pub use io::{
     config_dir_path, get_config_info, init_config_if_missing, load_config, upgrade_config_file,
     ConfigInfo, ConfigUpgradeResult,
 };
 #[allow(unused_imports)]
-pub use settings::{
-    apply_settings_patch, get_settings_snapshot, SecretStatus, SettingsOption,
-    SettingsPatch, SettingsPatchOperation, SettingsSnapshot,
-};
-#[allow(unused_imports)]
 pub use schema::{
     AppConfig, McpRuntimeConfig, McpServerConfig, McpTransportKind, ModelRequestConfig,
     ProviderConfig, ResolvedModelConfig,
 };
+#[allow(unused_imports)]
+pub use settings::{
+    apply_settings_patch, get_settings_snapshot, get_settings_ui_snapshot, SecretStatus,
+    SettingsOption, SettingsPatch, SettingsPatchOperation, SettingsSnapshot,
+};
+#[allow(unused_imports)]
+pub use settings_ui::{build_dynamic_options, build_settings_sections, SettingsUiSnapshot};
 
 #[cfg(test)]
 pub(crate) fn test_env_lock() -> &'static std::sync::Mutex<()> {
@@ -110,7 +113,8 @@ mod tests {
         let _guard = test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let home = std::env::temp_dir().join(format!("agentjax-config-test-{}", uuid::Uuid::new_v4()));
+        let home =
+            std::env::temp_dir().join(format!("agentjax-config-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&home).expect("create temp home");
         let path = home.join("config.yaml");
         let raw = [

@@ -121,7 +121,7 @@ function FieldRow({
   const [localError, setLocalError] = useState<string | null>(null);
   const isSaving = savingPath === resolvedPath;
   const disabled = !isNodeEnabled(field, snapshot, contextPath) || isSaving;
-  const options = getFieldOptions(field, snapshot);
+  const options = getFieldOptions(field, snapshot, contextPath);
 
   useEffect(() => {
     setDraft(normalizeFieldValueForDraft(field, value, secretStatus));

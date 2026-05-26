@@ -40,6 +40,11 @@ export interface SettingsSnapshot {
   secretStatuses: Record<string, SecretStatus>;
 }
 
+export interface SettingsUiSnapshot {
+  snapshot: SettingsSnapshot;
+  sections: SettingsSectionSchema[];
+}
+
 export interface SettingsSnapshotEvent extends SettingsSnapshot {
   origin: 'internal' | 'external' | string;
 }

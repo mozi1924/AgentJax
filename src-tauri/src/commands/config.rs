@@ -1,5 +1,5 @@
 use crate::config::{
-    self, ConfigInfo, ConfigUpgradeResult, SettingsPatch, SettingsSnapshot,
+    self, ConfigInfo, ConfigUpgradeResult, SettingsPatch, SettingsSnapshot, SettingsUiSnapshot,
 };
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::{Arc, Mutex};
@@ -53,6 +53,15 @@ pub fn get_settings_snapshot(
 }
 
 #[tauri::command]
+pub fn get_settings_ui_snapshot(
+    event_state: State<'_, Arc<ConfigEventState>>,
+) -> Result<SettingsUiSnapshot, String> {
+    let payload = config::get_settings_ui_snapshot()?;
+    event_state.remember_revision(&payload.snapshot.revision);
+    Ok(payload)
+}
+
+#[tauri::command]
 pub fn apply_settings_patch(
     app_handle: AppHandle,
     event_state: State<'_, Arc<ConfigEventState>>,
@@ -98,19 +107,21 @@ pub fn start_config_watcher(
     let config_path = config::init_config_if_missing()?;
     let (tx, rx) = std::sync::mpsc::channel::<()>();
 
-    let mut watcher = notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
-        match result {
+    let mut watcher =
+        notify::recommended_watcher(move |result: notify::Result<notify::Event>| match result {
             Ok(event) => {
-                if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)) {
+                if matches!(
+                    event.kind,
+                    EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+                ) {
                     let _ = tx.send(());
                 }
             }
             Err(err) => {
                 log::warn!("Config watcher error: {err}");
             }
-        }
-    })
-    .map_err(|e| format!("Failed to create config watcher: {e}"))?;
+        })
+        .map_err(|e| format!("Failed to create config watcher: {e}"))?;
 
     watcher
         .watch(&config_path, RecursiveMode::NonRecursive)
