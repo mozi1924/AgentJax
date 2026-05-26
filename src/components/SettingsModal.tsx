@@ -166,24 +166,20 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className="animate-modal-content flex h-[min(86vh,820px)] w-[min(1080px,100%)] overflow-hidden rounded-[28px] border border-[#2b2b2d] bg-[#1a1b1d] shadow-2xl shadow-black/70"
+        className="animate-modal-content flex h-[min(80vh,600px)] w-[min(760px,100%)] overflow-hidden rounded-[20px] border border-[#2b2b2d] bg-[#171717] shadow-2xl shadow-black/80"
       >
-        <aside className="flex w-[240px] shrink-0 flex-col border-r border-[#2b2b2d] bg-[#202123]">
-          <div className="flex items-center justify-between px-4 py-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Settings</p>
-              <h2 className="mt-1 font-sans text-xl font-semibold text-slate-100">AgentJax</h2>
-            </div>
+        <aside className="flex w-[210px] shrink-0 flex-col border-r border-[#242426]/50 bg-[#171717]">
+          <div className="px-4.5 pt-4 pb-2 flex items-center justify-start">
             <button
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 transition hover:bg-[#2b2b2d] hover:text-slate-200"
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#2e2e30] text-[#e3e3e3] hover:bg-[#3e3e40] transition"
               title="Close"
             >
-              <X className="h-4.5 w-4.5" />
+              <X className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-3 pb-4">
+          <div className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-3 pb-4 pt-1">
             {registry.sections.map((section) => {
               const Icon = SECTION_ICONS[section.icon as SectionIconName] || Settings2;
               const isActive = section.id === activeSection?.id;
@@ -191,38 +187,30 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <button
                   key={section.id}
                   onClick={() => setActiveSectionId(section.id)}
-                  className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${
+                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition ${
                     isActive
-                      ? 'bg-[#323335] text-white'
-                      : 'text-slate-300 hover:bg-[#2a2b2e] hover:text-white'
+                      ? 'bg-[#2a2a2c] text-white'
+                      : 'text-neutral-400 hover:bg-[#202022] hover:text-white'
                   }`}
                 >
-                  <Icon className="h-4.5 w-4.5 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{section.title}</span>
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-normal">{section.title}</span>
                 </button>
               );
             })}
           </div>
         </aside>
 
-        <section className="flex min-w-0 flex-1 flex-col bg-[#1d1e20]">
-          <div className="border-b border-[#2b2b2d] px-8 py-6">
-            <div className="flex items-start justify-between gap-6">
-              <div className="min-w-0">
-                <h3 className="font-sans text-2xl font-semibold tracking-tight text-slate-100">
-                  {activeSection?.title}
-                </h3>
-                {activeSection?.description && (
-                  <p className="mt-2 text-sm leading-6 text-slate-400">{activeSection.description}</p>
-                )}
-                {snapshot?.configPath && (
-                  <p className="mt-3 text-xs text-slate-500">Config: {snapshot.configPath}</p>
-                )}
-              </div>
-              <div className="min-w-[150px] text-right text-xs text-slate-500">
+        <section className="flex min-w-0 flex-1 flex-col bg-[#171717]">
+          <div className="border-b border-[#242426]/50 px-6 pt-5 pb-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-sans text-[17px] font-bold text-white">
+                {activeSection?.title}
+              </h3>
+              <div className="text-right text-xs text-slate-500">
                 {savingPath && (
-                  <span className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-cyan-200">
-                    <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-cyan-200">
+                    <LoaderCircle className="h-3 w-3 animate-spin" />
                     Saving
                   </span>
                 )}
@@ -230,7 +218,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </div>
             {(statusMessage || loadingError) && (
               <div
-                className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
+                className={`mt-2.5 rounded-xl border px-3 py-2 text-xs ${
                   loadingError || Object.keys(fieldErrors).length > 0
                     ? 'border-rose-500/20 bg-rose-500/10 text-rose-200'
                     : 'border-cyan-400/15 bg-cyan-400/10 text-cyan-100'
@@ -241,10 +229,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             )}
           </div>
 
-          <div className="scrollbar-thin flex-1 overflow-y-auto px-8 py-6">
+          <div className="scrollbar-thin flex-1 overflow-y-auto px-6 py-4">
             {loading && (
               <div className="flex h-full items-center justify-center text-slate-400">
-                <LoaderCircle className="mr-3 h-5 w-5 animate-spin" />
+                <LoaderCircle className="mr-3 h-4 w-4 animate-spin" />
                 Loading settings…
               </div>
             )}

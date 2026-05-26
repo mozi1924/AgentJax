@@ -94,6 +94,10 @@ const normalizeFieldValueForDraft = (
   return formatPrimitive(value);
 };
 
+const isFullWidthControl = (control: string) => {
+  return ['textarea', 'tags', 'key_value', 'json'].includes(control);
+};
+
 function FieldRow({
   field,
   snapshot,
@@ -145,73 +149,91 @@ function FieldRow({
   };
 
   const helperText = fieldErrors[resolvedPath] || localError || field.helpText;
+  const fullWidth = isFullWidthControl(field.control);
 
   return (
-    <div className="border-b border-[#2b2b2d] py-4 first:pt-0">
-      <div className="flex items-start justify-between gap-6">
+    <div className="border-b border-[#242426]/30 py-3 first:pt-0 last:border-b-0">
+      <div className={`flex ${fullWidth ? 'flex-col gap-2' : 'flex-row items-center justify-between gap-4'}`}>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h4 className="font-medium text-slate-100">{field.title}</h4>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <h4 className="text-[13.5px] font-medium text-neutral-200">{field.title}</h4>
             {field.advanced && (
-              <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-slate-500">
+              <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold bg-[#2e2e30] text-neutral-400 uppercase tracking-wider">
                 Advanced
               </span>
             )}
           </div>
-          {field.description && <p className="mt-1 text-sm leading-6 text-slate-400">{field.description}</p>}
+          {field.description && (
+            <p className="mt-0.5 text-[11.5px] leading-relaxed text-neutral-400/80 max-w-[95%]">
+              {field.description}
+            </p>
+          )}
           {field.control === 'secret' && secretStatus && (
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-1 text-[11px] text-neutral-500">
               {secretStatus.configured
                 ? `Current secret stored via ${secretStatus.source}. Leave blank to keep it unchanged.`
                 : 'No secret configured yet.'}
             </p>
           )}
-          {field.warningText && <p className="mt-2 text-xs text-amber-300/90">{field.warningText}</p>}
+          {field.warningText && <p className="mt-1 text-[11px] text-amber-500/80">{field.warningText}</p>}
           {helperText && (
-            <p className={`mt-2 text-xs ${fieldErrors[resolvedPath] || localError ? 'text-rose-300' : 'text-slate-500'}`}>
+            <p className={`mt-1 text-[11px] ${fieldErrors[resolvedPath] || localError ? 'text-rose-400' : 'text-neutral-500'}`}>
               {helperText}
             </p>
           )}
         </div>
 
-        <div className="w-[320px] max-w-[45%] shrink-0">
+        <div className={fullWidth ? 'w-full mt-1.5' : 'shrink-0 flex items-center justify-end'}>
           {field.control === 'switch' && (
-            <label className="inline-flex cursor-pointer items-center justify-end gap-3">
-              <span className="text-xs text-slate-500">{value ? 'On' : 'Off'}</span>
-              <span className="relative inline-flex h-7 w-12 items-center">
-                <input
-                  type="checkbox"
-                  checked={!!value}
-                  disabled={disabled}
-                  onChange={(event) => {
-                    void onSaveField(resolvedPath, event.target.checked);
-                  }}
-                  className="peer sr-only"
-                />
-                <span className="absolute inset-0 rounded-full bg-[#3b3b3f] transition peer-checked:bg-cyan-500 peer-disabled:opacity-50" />
-                <span className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
-              </span>
-            </label>
+            <span className="relative inline-flex h-5 w-9 items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!value}
+                disabled={disabled}
+                onChange={(event) => {
+                  void onSaveField(resolvedPath, event.target.checked);
+                }}
+                className="peer sr-only"
+              />
+              <span className="absolute inset-0 rounded-full bg-[#3e3e42] transition peer-checked:bg-[#007aff] peer-disabled:opacity-50" />
+              <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform duration-200 peer-checked:translate-x-4" />
+            </span>
           )}
 
           {field.control === 'select' && (
-            <select
-              value={draft}
-              disabled={disabled}
-              onChange={(event) => {
-                const rawValue = event.target.value;
-                setDraft(rawValue);
-                setIsDirty(true);
-                void onSaveField(resolvedPath, coerceSelectValue(field, rawValue));
-              }}
-              className="w-full rounded-xl border border-[#343437] bg-[#191a1c] px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-cyan-400/60 disabled:opacity-50"
-            >
-              {options.map((option) => (
-                <option key={`${field.id}-${option.value}`} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <div className="relative inline-flex items-center">
+              {field.id === 'accent-color' && (
+                <span 
+                  className="w-2.5 h-2.5 rounded-full mr-1 transition-colors shrink-0"
+                  style={{
+                    backgroundColor: 
+                      draft === 'green' ? '#10a37f' :
+                      draft === 'blue' ? '#007aff' :
+                      draft === 'purple' ? '#a855f7' :
+                      draft === 'orange' ? '#f97316' :
+                      '#737373'
+                  }}
+                />
+              )}
+              <select
+                value={draft}
+                disabled={disabled}
+                onChange={(event) => {
+                  const rawValue = event.target.value;
+                  setDraft(rawValue);
+                  setIsDirty(true);
+                  void onSaveField(resolvedPath, coerceSelectValue(field, rawValue));
+                }}
+                className="appearance-none bg-transparent hover:bg-neutral-800/40 text-neutral-200 text-[13px] font-normal pr-5 pl-2 py-0.5 rounded-md cursor-pointer outline-none transition text-right disabled:opacity-50"
+              >
+                {options.map((option) => (
+                  <option key={`${field.id}-${option.value}`} value={option.value} className="bg-[#171717] text-neutral-200 text-left">
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-0.5 h-3.5 w-3.5 pointer-events-none text-neutral-400" />
+            </div>
           )}
 
           {(field.control === 'text' || field.control === 'secret') && (
@@ -233,13 +255,13 @@ function FieldRow({
                   (event.target as HTMLInputElement).blur();
                 }
               }}
-              className="w-full rounded-xl border border-[#343437] bg-[#191a1c] px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-cyan-400/60 disabled:opacity-50"
+              className="w-[180px] text-right rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-2.5 py-1 text-xs text-neutral-200 outline-none transition focus:border-neutral-500 focus:bg-[#222326]/40 disabled:opacity-50"
             />
           )}
 
           {field.control === 'textarea' && (
             <textarea
-              rows={field.rows || 4}
+              rows={field.rows || 3}
               value={draft}
               placeholder={field.placeholder}
               disabled={disabled}
@@ -250,7 +272,7 @@ function FieldRow({
               onBlur={() => {
                 void commit(draft);
               }}
-              className="w-full rounded-2xl border border-[#343437] bg-[#191a1c] px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-cyan-400/60 disabled:opacity-50"
+              className="w-full rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-2.5 py-2 text-xs text-neutral-200 outline-none transition focus:border-neutral-500 focus:bg-[#222326]/40 disabled:opacity-50"
             />
           )}
 
@@ -272,13 +294,13 @@ function FieldRow({
                   draft === '' ? null : field.valueType === 'integer' ? Number.parseInt(draft, 10) : Number(draft);
                 void commit(nextValue);
               }}
-              className="w-full rounded-xl border border-[#343437] bg-[#191a1c] px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-cyan-400/60 disabled:opacity-50"
+              className="w-[100px] text-right rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-2.5 py-1 text-xs text-neutral-200 outline-none transition focus:border-neutral-500 focus:bg-[#222326]/40 disabled:opacity-50"
             />
           )}
 
           {field.control === 'tags' && (
             <textarea
-              rows={3}
+              rows={2}
               value={draft}
               placeholder="Use commas to separate items"
               disabled={disabled}
@@ -293,13 +315,13 @@ function FieldRow({
                   .filter(Boolean);
                 void commit(nextValue);
               }}
-              className="w-full rounded-2xl border border-[#343437] bg-[#191a1c] px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-cyan-400/60 disabled:opacity-50"
+              className="w-full rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-2.5 py-2 text-xs text-neutral-200 outline-none transition focus:border-neutral-500 focus:bg-[#222326]/40 disabled:opacity-50"
             />
           )}
 
           {field.control === 'key_value' && (
             <textarea
-              rows={5}
+              rows={4}
               value={draft}
               placeholder={"{\n  \"KEY\": \"value\"\n}"}
               disabled={disabled}
@@ -319,13 +341,13 @@ function FieldRow({
                   setLocalError('请输入合法的 JSON 对象');
                 }
               }}
-              className="w-full rounded-2xl border border-[#343437] bg-[#191a1c] px-3 py-2.5 font-mono text-sm text-slate-100 outline-none transition focus:border-cyan-400/60 disabled:opacity-50"
+              className="w-full rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-2.5 py-2 font-mono text-xs text-neutral-200 outline-none transition focus:border-neutral-500 focus:bg-[#222326]/40 disabled:opacity-50"
             />
           )}
 
           {field.control === 'json' && (
             <textarea
-              rows={6}
+              rows={5}
               value={draft}
               placeholder={"{\n  \"custom\": true\n}"}
               disabled={disabled}
@@ -345,7 +367,7 @@ function FieldRow({
                   setLocalError('请输入合法的 JSON 对象');
                 }
               }}
-              className="w-full rounded-2xl border border-[#343437] bg-[#191a1c] px-3 py-2.5 font-mono text-sm text-slate-100 outline-none transition focus:border-cyan-400/60 disabled:opacity-50"
+              className="w-full rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-2.5 py-2 font-mono text-xs text-neutral-200 outline-none transition focus:border-neutral-500 focus:bg-[#222326]/40 disabled:opacity-50"
             />
           )}
         </div>
@@ -396,23 +418,23 @@ function CollectionEditor({
   }, [items]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3.5">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h4 className="font-medium text-slate-100">{collection.title}</h4>
-          {collection.description && <p className="mt-1 text-sm text-slate-400">{collection.description}</p>}
+          <h4 className="text-[13px] font-semibold text-neutral-200">{collection.title}</h4>
+          {collection.description && <p className="mt-0.5 text-[11px] text-neutral-500">{collection.description}</p>}
         </div>
         <button
           onClick={() => setAdding((current) => !current)}
-          className="inline-flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-400/15"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#2b2b2d] bg-[#2e2e30]/80 px-2.5 py-1 text-xs text-[#e3e3e3] hover:bg-[#3e3e40] transition"
         >
-          <Plus className="h-4 w-4" />
+          <Plus className="h-3.5 w-3.5" />
           {collection.addLabel}
         </button>
       </div>
 
       {adding && (
-        <div className="rounded-2xl border border-[#2d2f31] bg-[#17181a] p-4">
+        <div className="rounded-xl border border-[#242426] bg-[#1a1b1d]/40 p-3">
           <div className="flex items-center gap-3">
             <input
               value={newKey}
@@ -421,7 +443,7 @@ function CollectionEditor({
                 setNewKeyError('');
               }}
               placeholder={collection.keyLabel}
-              className="flex-1 rounded-xl border border-[#343437] bg-[#191a1c] px-3 py-2.5 text-sm text-slate-100 outline-none transition focus:border-cyan-400/60"
+              className="flex-1 rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-2.5 py-1.5 text-xs text-neutral-200 outline-none transition focus:border-neutral-500"
             />
             <button
               onClick={() => {
@@ -445,18 +467,18 @@ function CollectionEditor({
                   setNewKey('');
                 });
               }}
-              className="rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-900 transition hover:bg-white"
+              className="rounded-lg bg-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-900 transition hover:bg-white"
             >
               Create
             </button>
           </div>
-          {newKeyError && <p className="mt-2 text-xs text-rose-300">{newKeyError}</p>}
+          {newKeyError && <p className="mt-1.5 text-xs text-rose-300">{newKeyError}</p>}
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {items.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-[#2d2f31] px-4 py-8 text-center text-sm text-slate-500">
+          <div className="rounded-xl border border-dashed border-[#242426] px-4 py-6 text-center text-xs text-neutral-500">
             No items configured yet.
           </div>
         )}
@@ -475,33 +497,33 @@ function CollectionEditor({
           const isExpanded = !!expandedKeys[itemKey];
 
           return (
-            <div key={itemPath} className="overflow-hidden rounded-[24px] border border-[#2d2f31] bg-[#17181a]">
-              <div className="flex items-center justify-between gap-3 px-4 py-3.5">
+            <div key={itemPath} className="overflow-hidden rounded-xl border border-[#242426]/50 bg-[#1c1c1e]/40">
+              <div className="flex items-center justify-between gap-2 px-3 py-2">
                 <button
                   onClick={() => setExpandedKeys((current) => ({ ...current, [itemKey]: !current[itemKey] }))}
-                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
                 >
-                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#232427] text-slate-300">
-                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#2e2e30]/30 text-neutral-300">
+                    {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-slate-100">{itemKey}</span>
-                    {subtitle && <span className="mt-0.5 block truncate text-xs text-slate-500">{subtitle}</span>}
+                    <span className="block truncate text-xs font-semibold text-neutral-200">{itemKey}</span>
+                    {subtitle && <span className="mt-0.5 block truncate text-[10px] text-neutral-500">{subtitle}</span>}
                   </span>
                 </button>
                 <button
                   onClick={() => {
                     void onDeletePath(itemPath);
                   }}
-                  className="rounded-xl p-2 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-300"
+                  className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-rose-500/10 hover:text-rose-300"
                   title={`Delete ${collection.itemLabel}`}
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
 
               {isExpanded && (
-                <div className="border-t border-[#26272a] px-4 py-4">
+                <div className="border-t border-[#242426]/50 px-3 py-3 bg-[#171717]/30">
                   <NodeList
                     nodes={collection.children}
                     snapshot={snapshot}
@@ -538,7 +560,7 @@ function NodeList({
   );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {visibleNodes.map((node) => {
         if (node.kind === 'field') {
           return (
@@ -556,27 +578,29 @@ function NodeList({
 
         if (node.kind === 'group') {
           return (
-            <section key={`${contextPath || 'root'}:${node.id}`} className="rounded-[24px] border border-[#2d2f31] bg-[#17181a] px-4 py-4">
-              <div className="mb-3">
-                <h3 className="font-medium text-slate-100">{node.title}</h3>
-                {node.description && <p className="mt-1 text-sm text-slate-400">{node.description}</p>}
+            <section key={`${contextPath || 'root'}:${node.id}`} className="space-y-2.5 pt-2">
+              <div className="mt-3 mb-1 first:mt-0">
+                <h5 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wider">{node.title}</h5>
+                {node.description && <p className="mt-0.5 text-[11px] text-neutral-400/70">{node.description}</p>}
               </div>
-              <NodeList
-                nodes={node.children}
-                snapshot={snapshot}
-                savingPath={savingPath}
-                fieldErrors={fieldErrors}
-                contextPath={contextPath}
-                onSaveField={onSaveField}
-                onDeletePath={onDeletePath}
-                onAddCollectionItem={onAddCollectionItem}
-              />
+              <div className="border-t border-[#242426]/30 pt-1">
+                <NodeList
+                  nodes={node.children}
+                  snapshot={snapshot}
+                  savingPath={savingPath}
+                  fieldErrors={fieldErrors}
+                  contextPath={contextPath}
+                  onSaveField={onSaveField}
+                  onDeletePath={onDeletePath}
+                  onAddCollectionItem={onAddCollectionItem}
+                />
+              </div>
             </section>
           );
         }
 
         return (
-          <section key={`${contextPath || 'root'}:${node.id}`} className="rounded-[24px] border border-[#2d2f31] bg-[#17181a] px-4 py-4">
+          <section key={`${contextPath || 'root'}:${node.id}`} className="pt-2">
             <CollectionEditor
               collection={node}
               snapshot={snapshot}
