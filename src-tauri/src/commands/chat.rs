@@ -60,7 +60,7 @@ pub async fn chat_stream(
 
     registry.clear_conversation_deleted(&conversation_id)?;
 
-    let context = match {
+    let mut context = match {
         let conversation_id = conversation_id.clone();
         let utility_model = utility_model.clone();
         run_blocking(move || {
@@ -76,6 +76,17 @@ pub async fn chat_stream(
         }
     };
 
+    let recovery_note = {
+        let conversation_id = conversation_id.clone();
+        run_blocking(move || conversation_store::build_recovery_developer_note(&conversation_id))
+            .await
+            .ok()
+            .flatten()
+    };
+    if let Some(note_item) = recovery_note {
+        context.input_items.push(note_item);
+    }
+
     let tools_catalog = ToolCatalog::new(mcp_manager.inner().clone(), &config);
 
     {
@@ -83,7 +94,7 @@ pub async fn chat_stream(
         let request_id = request_id.clone();
         let input_text = input_text.clone();
         let utility_model = utility_model.clone();
-        let _ = run_blocking(move || {
+        run_blocking(move || {
             conversation_store::append_message(
                 conversation_store::AppendMessageInput {
                     conversation_id,
@@ -103,7 +114,7 @@ pub async fn chat_stream(
                 &utility_model,
             )
         })
-        .await;
+        .await?;
     }
 
     let closure_window = window.clone();
@@ -171,14 +182,8 @@ pub async fn chat_stream(
 
     let conversation_title: Option<String> = None;
     if !registry.is_conversation_deleted(&conversation_id)? {
-        persist_completed_exchange(
-            &conversation_id,
-            &request_id,
-            &input_text,
-            &response,
-            &utility_model,
-        )
-        .await?;
+        persist_completed_exchange(&conversation_id, &request_id, &response, &utility_model)
+            .await?;
 
         schedule_title_generation(
             window.clone(),
