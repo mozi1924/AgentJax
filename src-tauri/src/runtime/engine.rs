@@ -11,9 +11,14 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::watch;
 
+// ── Turn accumulator ──────────────────────────────────────────────────────
+// Collects output across all hops within a single turn (user message → final
+// assistant response).  Every hop's output items are preserved so the
+// frontend can reconstruct the full tool-call timeline.
+
 struct TurnAccumulator {
     output_text: String,
-    response_id: String,
+    last_response_id: String,
     output_items: Vec<Value>,
     timeline_events: Vec<Value>,
 }
@@ -22,7 +27,7 @@ impl TurnAccumulator {
     fn new() -> Self {
         Self {
             output_text: String::new(),
-            response_id: String::new(),
+            last_response_id: String::new(),
             output_items: Vec::new(),
             timeline_events: Vec::new(),
         }
@@ -30,7 +35,7 @@ impl TurnAccumulator {
 
     fn absorb_response(&mut self, response: &ResponseStreamResult) {
         if !response.response_id.is_empty() {
-            self.response_id = response.response_id.clone();
+            self.last_response_id = response.response_id.clone();
         }
 
         if !response.output_text.is_empty() {
@@ -42,12 +47,22 @@ impl TurnAccumulator {
 
         self.output_items.extend(response.output_items.clone());
     }
+
+    /// Append all items from a continuation batch (reasoning, function_call,
+    /// function_call_output, etc.) so the final result contains the complete
+    /// tool-call timeline, not just text output.
+    fn absorb_continuation_batch(&mut self, items: &[Value]) {
+        self.output_items.extend(items.iter().cloned());
+    }
 }
+
+// ── Request builder ───────────────────────────────────────────────────────
 
 fn build_request(
     req: &ChatRequest,
     input_items: Vec<Value>,
     tools_schemas: Vec<Value>,
+    previous_response_id: Option<&str>,
 ) -> ResponseStreamRequest {
     ResponseStreamRequest {
         input_items,
@@ -62,8 +77,15 @@ fn build_request(
         generate: req.generate,
         tools: Some(tools_schemas),
         tool_choice: Some(serde_json::Value::String("auto".to_string())),
+        previous_response_id: previous_response_id.map(ToOwned::to_owned),
     }
 }
+
+// ── Tool-call / output pairing ────────────────────────────────────────────
+// The provider may omit paired function_call items when only
+// function_call_output items appear in continuation.  This helper
+// re-inserts the missing call items so the API always sees complete
+// call→output pairs.
 
 fn ensure_tool_call_output_pairs(
     items: Vec<Value>,
@@ -141,6 +163,7 @@ impl AgentRuntime {
             crate::providers::get_capabilities(&resolved_model.provider.kind)?;
         let tool_schema_format =
             crate::providers::get_tool_schema_format(&resolved_model.provider.kind)?;
+        let provider_kind = &resolved_model.provider.kind;
 
         let tools_schemas = tools_catalog
             .list_schemas_with_format(
@@ -155,10 +178,20 @@ impl AgentRuntime {
             archive_unavailable_historical_tool_calls(context_items, &active_tool_names);
 
         let mut accumulator = TurnAccumulator::new();
-        let mut next_input_items: Option<Vec<Value>> = None;
+        let mut accumulated_context: Vec<Value> = Vec::new();
         let mut repeated_failed_tool_signatures = std::collections::HashMap::new();
         let mut turn_idx = 0usize;
         let max_turns = 10usize;
+
+        // ── Build the initial input (history + current user message) ──────
+        // This is the *base* context that every subsequent continuation
+        // will carry forward so the model never loses sight of the original
+        // question or prior conversation.
+        let mut base_context = context_items;
+        base_context.push(crate::providers::build_user_input_item(
+            provider_kind,
+            req.input.trim(),
+        )?);
 
         'turn_loop: loop {
             if turn_idx >= max_turns {
@@ -166,22 +199,26 @@ impl AgentRuntime {
             }
             turn_idx += 1;
 
-            let input_items = if let Some(continuation_items) = next_input_items.take() {
-                continuation_items
+            // ── Determine input for this hop ──────────────────────────────
+            // Hop 1: base context (history + user message).
+            // Hop N: full accumulated context (base + all prior hop deltas).
+            let input_items = if turn_idx == 1 {
+                base_context.clone()
             } else {
-                let mut initial_items = context_items.clone();
-                initial_items.push(crate::providers::build_user_input_item(
-                    &resolved_model.provider.kind,
-                    req.input.trim(),
-                )?);
-                initial_items
+                accumulated_context.clone()
             };
-            context_items = input_items.clone();
 
-            let stream_request = build_request(req, input_items, tools_schemas.clone());
+            let prev_response_id = if accumulator.last_response_id.is_empty() {
+                None
+            } else {
+                Some(accumulator.last_response_id.as_str())
+            };
+
+            let stream_request =
+                build_request(req, input_items, tools_schemas.clone(), prev_response_id);
             let collected = collect_provider_turn(
                 config,
-                &resolved_model.provider.kind,
+                provider_kind,
                 &resolved_model.provider_key,
                 &stream_request,
                 cancel_rx,
@@ -191,12 +228,14 @@ impl AgentRuntime {
 
             accumulator.absorb_response(&collected.response_result);
 
+            // ── No tools → final response reached ─────────────────────────
             if collected.pending_tools.is_empty() {
                 break;
             }
 
+            // ── Execute pending tools locally ─────────────────────────────
             let executed_batch = execute_pending_tools(
-                &resolved_model.provider.kind,
+                provider_kind,
                 conversation_id,
                 tools_catalog,
                 collected.pending_tools,
@@ -209,43 +248,43 @@ impl AgentRuntime {
                 .timeline_events
                 .extend(executed_batch.timeline_events);
 
-            let continuation_delta_items = crate::providers::compose_tool_continuation_input(
-                &resolved_model.provider.kind,
+            // ── Build this hop's delta items ──────────────────────────────
+            let hop_delta = crate::providers::compose_tool_continuation_input(
+                provider_kind,
                 &collected.response_result.output_items,
                 executed_batch.tool_results_items,
             )?;
-            let continuation_delta_items = ensure_tool_call_output_pairs(
-                continuation_delta_items,
+            let hop_delta = ensure_tool_call_output_pairs(
+                hop_delta,
                 &executed_batch.executed_tool_call_items,
             );
 
-            // Keep tool output items in persistent context so later turns preserve tool-call pairing.
-            accumulator.output_items.extend(
-                continuation_delta_items
-                    .iter()
-                    .filter(|item| {
-                        matches!(
-                            item.get("type").and_then(Value::as_str),
-                            Some("function_call_output") | Some("custom_tool_call_output")
-                        )
-                    })
-                    .cloned(),
-            );
-
-            let continuation_shape: Vec<String> = continuation_delta_items
-                .iter()
-                .map(describe_item_shape)
-                .collect();
+            let delta_shape: Vec<String> = hop_delta.iter().map(describe_item_shape).collect();
             log::debug!(
-                "Tool continuation items for provider '{}': {}",
+                "Tool hop {} for provider '{}': delta={} total_context_items={}",
+                turn_idx,
                 resolved_model.provider_key,
-                continuation_shape.join(", ")
+                delta_shape.join(", "),
+                accumulated_context.len() + hop_delta.len(),
             );
 
-            context_items.extend(continuation_delta_items.clone());
-            // New runtime architecture: tool-loop continuation submits only
-            // model output items from this hop + tool outputs from local execution.
-            next_input_items = Some(continuation_delta_items);
+            // ── Accumulate for the next continuation ──────────────────────
+            // Critical fix: the next hop MUST include the FULL accumulated
+            // context (base + all prior deltas), not just this hop's delta.
+            // Without this the model loses all prior context after a tool
+            // call, which was the root cause of "forgetting what it was
+            // doing."
+            if turn_idx == 1 {
+                // First accumulation: seed with base context.
+                accumulated_context = base_context.clone();
+            }
+            accumulated_context.extend(hop_delta.clone());
+
+            // ── Collect output items for the final result ─────────────────
+            // Include the full hop delta (reasoning, function_call,
+            // function_call_output) so the frontend can reconstruct the
+            // complete tool-call timeline.
+            accumulator.absorb_continuation_batch(&hop_delta);
 
             if *cancel_rx.borrow() {
                 break 'turn_loop;
@@ -253,7 +292,7 @@ impl AgentRuntime {
         }
 
         let final_res = ResponseStreamResult {
-            response_id: accumulator.response_id,
+            response_id: accumulator.last_response_id,
             output_text: accumulator.output_text,
             output_items: accumulator.output_items,
             provider_key: resolved_model.provider_key.clone(),

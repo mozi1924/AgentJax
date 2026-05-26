@@ -74,6 +74,7 @@ async fn generate_title_and_emit(
         generate: None,
         tools: None,
         tool_choice: None,
+        previous_response_id: None,
     };
 
     let response =

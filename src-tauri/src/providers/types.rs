@@ -60,6 +60,12 @@ pub struct ProviderTurnRequest {
     pub generate: Option<bool>,
     pub tools: Option<Vec<Value>>,
     pub tool_choice: Option<Value>,
+    /// Hint to the Responses API that this request continues a previous
+    /// response.  The API may use this to optimise internal state (e.g.
+    /// reuse cached key-value lookups) but the agent **never** relies on
+    /// server-side context — `store` is always `false` and the full
+    /// accumulated input items are always replayed locally.
+    pub previous_response_id: Option<String>,
 }
 
 pub type ResponseStreamRequest = ProviderTurnRequest;

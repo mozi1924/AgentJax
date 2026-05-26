@@ -71,6 +71,14 @@ pub(crate) fn build_streaming_request_payload(
     if let Some(generate) = req.generate {
         payload["generate"] = Value::Bool(generate);
     }
+    if let Some(prev_id) = req
+        .previous_response_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        payload["previous_response_id"] = Value::String(prev_id.to_string());
+    }
 
     payload
 }
@@ -106,6 +114,7 @@ mod tests {
             generate: None,
             tools: None,
             tool_choice: None,
+            previous_response_id: None,
         };
 
         let payload = build_streaming_request_payload(&resolved, &req, false);
@@ -138,6 +147,7 @@ mod tests {
             generate: None,
             tools: None,
             tool_choice: None,
+            previous_response_id: None,
         };
 
         let payload = build_streaming_request_payload(&resolved, &req, true);
@@ -171,6 +181,7 @@ mod tests {
             generate: Some(false),
             tools: None,
             tool_choice: None,
+            previous_response_id: None,
         };
 
         let payload = build_streaming_request_payload(&resolved, &req, false);
@@ -241,6 +252,7 @@ mod tests {
             generate: None,
             tools: None,
             tool_choice: None,
+            previous_response_id: None,
         };
 
         let payload = build_streaming_request_payload(&resolved, &req, false);
