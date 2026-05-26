@@ -1,0 +1,238 @@
+{
+  "id": "mcp-servers",
+  "title": "MCP Servers",
+  "icon": "ServerCog",
+  "order": 50,
+  "description": "配置本地 stdio 或远程 streamable HTTP MCP 服务。",
+  "children": [
+    {
+      "kind": "collection",
+      "id": "mcp-servers-collection",
+      "title": "Servers",
+      "path": "mcp_servers",
+      "valueType": "object_collection",
+      "addLabel": "Add MCP server",
+      "keyLabel": "Server key",
+      "itemLabel": "Server",
+      "keyPattern": "^[A-Za-z0-9_-]+$",
+      "defaultItem": {
+        "transport": "stdio",
+        "command": "",
+        "args": [],
+        "env": {},
+        "cwd": null,
+        "use_global_stdio_env": true,
+        "inherit_parent_env": null,
+        "uri": null,
+        "auth_header": null,
+        "headers": {},
+        "allow_stateless": true,
+        "channel_buffer_capacity": null,
+        "reinit_on_expired_session": true,
+        "enabled": true
+      },
+      "children": [
+        {
+          "kind": "field",
+          "id": "mcp-server-enabled",
+          "title": "Enabled",
+          "path": "enabled",
+          "valueType": "boolean",
+          "control": "switch"
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-transport",
+          "title": "Transport",
+          "path": "transport",
+          "valueType": "enum",
+          "control": "select",
+          "optionSourceKey": "mcp_transport"
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-command",
+          "title": "Command",
+          "path": "command",
+          "valueType": "string",
+          "control": "text",
+          "visibleWhen": [
+            {
+              "path": "transport",
+              "equals": "stdio"
+            }
+          ]
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-args",
+          "title": "Args",
+          "path": "args",
+          "valueType": "string_list",
+          "control": "tags",
+          "visibleWhen": [
+            {
+              "path": "transport",
+              "equals": "stdio"
+            }
+          ]
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-env",
+          "title": "Env",
+          "path": "env",
+          "valueType": "string_map",
+          "control": "key_value"
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-cwd",
+          "title": "Working directory",
+          "path": "cwd",
+          "valueType": "string",
+          "control": "text",
+          "visibleWhen": [
+            {
+              "path": "transport",
+              "equals": "stdio"
+            }
+          ]
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-use-global-env",
+          "title": "Use global stdio env",
+          "path": "use_global_stdio_env",
+          "valueType": "boolean",
+          "control": "switch",
+          "visibleWhen": [
+            {
+              "path": "transport",
+              "equals": "stdio"
+            }
+          ]
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-inherit-parent-env",
+          "title": "Inherit parent env",
+          "description": "留空时跟随共享 runtime 配置。",
+          "path": "inherit_parent_env",
+          "valueType": "enum",
+          "control": "select",
+          "options": [
+            {
+              "label": "Follow runtime",
+              "value": ""
+            },
+            {
+              "label": "true",
+              "value": "true"
+            },
+            {
+              "label": "false",
+              "value": "false"
+            }
+          ],
+          "visibleWhen": [
+            {
+              "path": "transport",
+              "equals": "stdio"
+            }
+          ]
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-uri",
+          "title": "URI",
+          "path": "uri",
+          "valueType": "string",
+          "control": "text",
+          "visibleWhen": [
+            {
+              "path": "transport",
+              "equals": "streamable_http"
+            }
+          ]
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-auth-header",
+          "title": "Auth header",
+          "description": "如需 Bearer token，可直接填写完整 header 值。",
+          "path": "auth_header",
+          "valueType": "secret",
+          "control": "secret",
+          "visibleWhen": [
+            {
+              "path": "transport",
+              "equals": "streamable_http"
+            }
+          ],
+          "placeholder": "Bearer ..."
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-headers",
+          "title": "HTTP headers",
+          "path": "headers",
+          "valueType": "string_map",
+          "control": "key_value",
+          "visibleWhen": [
+            {
+              "path": "transport",
+              "equals": "streamable_http"
+            }
+          ]
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-allow-stateless",
+          "title": "Allow stateless",
+          "path": "allow_stateless",
+          "valueType": "boolean",
+          "control": "switch",
+          "visibleWhen": [
+            {
+              "path": "transport",
+              "equals": "streamable_http"
+            }
+          ]
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-channel-buffer",
+          "title": "Channel buffer capacity",
+          "description": "留空表示使用默认值。",
+          "path": "channel_buffer_capacity",
+          "valueType": "integer",
+          "control": "number",
+          "min": 1,
+          "max": 100000,
+          "step": 1,
+          "visibleWhen": [
+            {
+              "path": "transport",
+              "equals": "streamable_http"
+            }
+          ]
+        },
+        {
+          "kind": "field",
+          "id": "mcp-server-reinit",
+          "title": "Reinit on expired session",
+          "path": "reinit_on_expired_session",
+          "valueType": "boolean",
+          "control": "switch",
+          "visibleWhen": [
+            {
+              "path": "transport",
+              "equals": "streamable_http"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
