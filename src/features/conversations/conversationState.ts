@@ -1,12 +1,9 @@
-import { createLocalConversation, isConversationEmpty } from './conversationUtils';
+import { countUserAndDoneAssistant, createLocalConversation, isConversationEmpty } from './conversationUtils';
 import type {
   Conversation,
-  ConversationMessage,
+  ConversationLine,
   ConversationSummary,
 } from './types';
-
-export const countVisibleMessages = (messages: ConversationMessage[]): number =>
-  messages.filter((message) => message.role === 'user' || Boolean(message.text)).length;
 
 export const restoreConversationPreview = (
   conversation: ConversationSummary
@@ -14,8 +11,7 @@ export const restoreConversationPreview = (
   conversationId: conversation.conversationId,
   title: conversation.title || '',
   titleSource: conversation.titleSource || 'stored',
-  messages: [],
-  lastResponseId: null,
+  lines: [],
   lastMessagePreview: conversation.lastMessagePreview || '',
   messageCount: conversation.messageCount || 0,
   isLoaded: false,
@@ -25,18 +21,17 @@ export const mergeWithLocalDrafts = (
   currentConversations: Conversation[],
   storedConversations: ConversationSummary[]
 ): Conversation[] => {
-  const localDrafts = currentConversations.filter((conversation) =>
-    isConversationEmpty(conversation)
-  );
-  const restoredConversations = storedConversations.map(restoreConversationPreview);
-  return [...localDrafts, ...restoredConversations];
+  const localDrafts = currentConversations.filter((c) => isConversationEmpty(c));
+  const restored = storedConversations.map(restoreConversationPreview);
+  return [...localDrafts, ...restored];
 };
 
 export const ensureAtLeastOneConversation = (
   conversations: Conversation[]
 ): Conversation[] => {
-  if (conversations.length > 0) {
-    return conversations;
-  }
+  if (conversations.length > 0) return conversations;
   return [createLocalConversation()];
 };
+
+export const countVisibleMessages = (lines: ConversationLine[]): number =>
+  countUserAndDoneAssistant(lines);

@@ -13,7 +13,7 @@ import {
   canUseNativeContextMenu,
   createLocalConversation,
   getConversationDisplayTitle,
-  hydrateConversationMessages,
+  hydrateConversationLines,
   isConversationEmpty,
   shouldShowConversationInSidebar,
 } from './features/conversations/conversationUtils';
@@ -24,15 +24,18 @@ import {
   restoreConversationPreview,
 } from './features/conversations/conversationState';
 import type {
+  AssistantLine,
   ChatRequestOptions,
   ChatStreamEventPayload,
   ChatStreamResponse,
   Conversation,
   ConversationDetail,
+  ConversationLine,
   ConversationSummary,
   ModelCatalogResponse,
   ModelOption,
-  ToolCall,
+  ToolLine,
+  UserLine,
 } from './features/conversations/types';
 import {
   buildFallbackModelOption,
@@ -53,7 +56,6 @@ interface ComposerAttachment {
 
 interface StreamRequestMapping {
   conversationId: string;
-  assistantMessageId: string;
   lastEventIndex: number;
 }
 
@@ -210,7 +212,7 @@ export default function App() {
     !!activeConversation?.conversationId &&
     thinkingConversationIds.has(activeConversation.conversationId);
   const hasAnyGenerating = generatingConversationIds.size > 0;
-  const isEmptyConversation = (activeConversation?.messages?.length ?? 0) === 0;
+  const isEmptyConversation = (activeConversation?.lines?.length ?? 0) === 0;
   const conversationViewKey = `${activeConversationId}-${isEmptyConversation ? 'empty' : 'messages'}`;
 
   const { composerHeight, emptyComposerOffset } = useComposerMeasurements({
@@ -419,23 +421,28 @@ export default function App() {
               return conversation;
             }
 
-            const hydratedMessages = hydrateConversationMessages(
-              detail.messages || [],
-              conversation.conversationId
+            const hydratedLines = hydrateConversationLines(
+              detail.lines || []
             );
 
             return {
               ...conversation,
               title: detail.title || conversation.title,
               titleSource: detail.titleSource || conversation.titleSource,
-              lastResponseId: detail.lastResponseId || null,
               lastMessagePreview:
-                hydratedMessages[hydratedMessages.length - 1]?.text ||
-                conversation.lastMessagePreview,
-              messageCount:
-                detail.messages?.length || countVisibleMessages(hydratedMessages),
+                hydratedLines.length > 0
+                  ? (() => {
+                      const last = hydratedLines[hydratedLines.length - 1];
+                      return last.kind === 'assistant'
+                        ? (last as AssistantLine).text
+                        : last.kind === 'user'
+                          ? (last as UserLine).text
+                          : conversation.lastMessagePreview;
+                    })()
+                  : conversation.lastMessagePreview,
+              messageCount: detail.lines?.length || countVisibleMessages(hydratedLines),
               isLoaded: true,
-              messages: hydratedMessages,
+              lines: hydratedLines,
             };
           })
         );
@@ -493,146 +500,197 @@ export default function App() {
             return;
           }
 
+          // ── Working markers ───────────────────────────────────────
+          if (payload.kind === 'working_started') {
+            markConversationThinking(mapping.conversationId, false);
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.conversationId !== mapping.conversationId) return c;
+                return {
+                  ...c,
+                  lines: [
+                    ...c.lines,
+                    {
+                      kind: 'working_start' as const,
+                      id: `ws-${requestId}`,
+                      ts: Date.now(),
+                      requestId: requestId || '',
+                    },
+                  ],
+                };
+              })
+            );
+            return;
+          }
+
+          if (payload.kind === 'working_done') {
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.conversationId !== mapping.conversationId) return c;
+                return {
+                  ...c,
+                  lines: [
+                    ...c.lines,
+                    {
+                      kind: 'working_done' as const,
+                      id: `wd-${requestId}`,
+                      ts: Date.now(),
+                      requestId: requestId || '',
+                    },
+                  ],
+                };
+              })
+            );
+            return;
+          }
+
+          // ── Text streaming ────────────────────────────────────────
           if (payload.kind === 'delta' && payload.delta) {
             markConversationThinking(mapping.conversationId, false);
-            setConversations((prevConversations) =>
-              prevConversations.map((conversation) => {
-                if (conversation.conversationId !== mapping.conversationId) return conversation;
-                const nextMessages = conversation.messages.map((message) =>
-                  message.id === mapping.assistantMessageId
-                    ? { ...message, text: `${message.text || ''}${payload.delta}` }
-                    : message
-                );
-                return { ...conversation, messages: nextMessages };
-              })
-            );
-          }
-
-          if (payload.kind === 'tool_call_started') {
-            markConversationThinking(mapping.conversationId, false);
-            setConversations((prevConversations) =>
-              prevConversations.map((conversation) => {
-                if (conversation.conversationId !== mapping.conversationId) return conversation;
-                const nextMessages = conversation.messages.map((message) => {
-                  if (message.id !== mapping.assistantMessageId) return message;
-                  const toolCalls: ToolCall[] = Array.isArray(message.toolCalls)
-                    ? [...message.toolCalls]
-                    : [];
-                  if (!toolCalls.some((tool) => tool.id === payload.toolCallId)) {
-                    toolCalls.push({
-                      id: payload.toolCallId || '',
-                      name: payload.toolName || '',
-                      arguments: '',
-                      output: '',
-                      status: 'started',
-                    });
-                  }
-                  return { ...message, toolCalls };
-                });
-                return { ...conversation, messages: nextMessages };
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.conversationId !== mapping.conversationId) return c;
+                const lines = [...c.lines];
+                const last = lines[lines.length - 1];
+                if (last && last.kind === 'assistant' && (last as AssistantLine).status === 'draft') {
+                  lines[lines.length - 1] = {
+                    ...last,
+                    text: last.text + payload.delta,
+                  } as AssistantLine;
+                } else {
+                  lines.push({
+                    kind: 'assistant' as const,
+                    id: `asst-${requestId}`,
+                    ts: Date.now(),
+                    requestId: requestId || '',
+                    responseId: '',
+                    text: payload.delta || '',
+                    status: 'draft' as const,
+                  });
+                }
+                return { ...c, lines };
               })
             );
             return;
           }
 
-          if (payload.kind === 'tool_call_delta') {
-            markConversationThinking(mapping.conversationId, false);
-            setConversations((prevConversations) =>
-              prevConversations.map((conversation) => {
-                if (conversation.conversationId !== mapping.conversationId) return conversation;
-                const nextMessages = conversation.messages.map((message) => {
-                  if (message.id !== mapping.assistantMessageId) return message;
-                  const toolCalls = Array.isArray(message.toolCalls)
-                    ? message.toolCalls.map((tool) =>
-                        tool.id === payload.toolCallId
-                          ? { ...tool, arguments: `${tool.arguments || ''}${payload.delta || ''}` }
-                          : tool
-                      )
-                    : [];
-                  return { ...message, toolCalls };
-                });
-                return { ...conversation, messages: nextMessages };
-              })
-            );
-            return;
-          }
-
+          // ── Tool call events ──────────────────────────────────────
           if (payload.kind === 'tool_call_done') {
-            setConversations((prevConversations) =>
-              prevConversations.map((conversation) => {
-                if (conversation.conversationId !== mapping.conversationId) return conversation;
-                const nextMessages = conversation.messages.map((message) => {
-                  if (message.id !== mapping.assistantMessageId) return message;
-                  const toolCalls: ToolCall[] = Array.isArray(message.toolCalls)
-                    ? message.toolCalls.map((tool) =>
-                        tool.id === payload.toolCallId
-                          ? {
-                              ...tool,
-                              status: 'arguments_done' as const,
-                              arguments: payload.toolArguments || tool.arguments,
-                            }
-                          : tool
-                      )
-                    : [];
-                  return { ...message, toolCalls };
-                });
-                return { ...conversation, messages: nextMessages };
+            markConversationThinking(mapping.conversationId, false);
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.conversationId !== mapping.conversationId) return c;
+                return {
+                  ...c,
+                  lines: [
+                    ...c.lines,
+                    {
+                      kind: 'tool' as const,
+                      id: `tool-${requestId}-${payload.toolCallId || ''}`,
+                      ts: Date.now(),
+                      requestId: requestId || '',
+                      callId: payload.toolCallId || '',
+                      name: payload.toolName || '',
+                      args: payload.toolArguments
+                        ? (() => { try { return JSON.parse(payload.toolArguments); } catch { return payload.toolArguments; } })()
+                        : undefined,
+                      status: 'pending' as const,
+                    },
+                  ],
+                };
               })
             );
             return;
           }
 
           if (payload.kind === 'tool_call_exec') {
-            setConversations((prevConversations) =>
-              prevConversations.map((conversation) => {
-                if (conversation.conversationId !== mapping.conversationId) return conversation;
-                const nextMessages = conversation.messages.map((message) => {
-                  if (message.id !== mapping.assistantMessageId) return message;
-                  const toolCalls: ToolCall[] = Array.isArray(message.toolCalls)
-                    ? message.toolCalls.map((tool) =>
-                        tool.id === payload.toolCallId
-                          ? {
-                              ...tool,
-                              status: 'executed' as const,
-                              output: payload.toolOutput || '',
-                            }
-                          : tool
-                      )
-                    : [];
-                  return { ...message, toolCalls };
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.conversationId !== mapping.conversationId) return c;
+                const lines = c.lines.map((l) => {
+                  if (l.kind === 'tool' && (l as ToolLine).callId === payload.toolCallId) {
+                    const t = l as ToolLine;
+                    return {
+                      ...t,
+                      output: payload.toolOutput
+                        ? (() => { try { return JSON.parse(payload.toolOutput); } catch { return payload.toolOutput; } })()
+                        : undefined,
+                      status: 'done' as const,
+                    } satisfies ToolLine;
+                  }
+                  return l;
                 });
-                return { ...conversation, messages: nextMessages };
+                return { ...c, lines };
               })
             );
             return;
           }
 
+          if (payload.kind === 'tool_call_delta') {
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.conversationId !== mapping.conversationId) return c;
+                const lines = c.lines.map((l) => {
+                  if (l.kind === 'tool' && (l as ToolLine).callId === payload.toolCallId) {
+                    const t = l as ToolLine;
+                    return {
+                      ...t,
+                      args: typeof t.args === 'string'
+                        ? t.args + (payload.delta || '')
+                        : t.args,
+                    } satisfies ToolLine;
+                  }
+                  return l;
+                });
+                return { ...c, lines };
+              })
+            );
+            return;
+          }
+
+          // ── Done ──────────────────────────────────────────────────
           if (payload.kind === 'done') {
             markConversationGenerating(mapping.conversationId, false);
             markConversationStopping(mapping.conversationId, false);
             markConversationThinking(mapping.conversationId, false);
 
-            setConversations((prevConversations) =>
-              prevConversations.map((conversation) => {
-                if (conversation.conversationId !== mapping.conversationId) return conversation;
-                const nextMessages = conversation.messages.map((message) =>
-                  message.id === mapping.assistantMessageId && typeof payload.delta === 'string'
-                    ? {
-                        ...message,
-                        text: payload.delta,
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.conversationId !== mapping.conversationId) return c;
+                const lines = c.lines.map((l) => {
+                  if (l.kind === 'assistant' && l.id === `asst-${requestId}`) {
+                    return {
+                      ...l,
+                      text: typeof payload.delta === 'string' ? payload.delta : (l as AssistantLine).text,
+                      responseId: payload.responseId || (l as AssistantLine).responseId,
+                      status: 'done' as const,
+                    } satisfies AssistantLine;
+                  }
+                  return l;
+                });
+                // If no assistant line exists yet (e.g. simple reply with no text),
+                // create one with the final text.
+                const hasAssistant = lines.some((l) => l.kind === 'assistant' && l.requestId === requestId);
+                const finalLines = hasAssistant
+                  ? lines
+                  : [
+                      ...lines,
+                      {
+                        kind: 'assistant' as const,
+                        id: `asst-${requestId}`,
+                        ts: Date.now(),
+                        requestId: requestId || '',
+                        responseId: payload.responseId || '',
+                        text: typeof payload.delta === 'string' ? payload.delta : '',
                         status: 'done' as const,
-                        errorText: '',
-                        retryable: false,
-                      }
-                    : message
-                );
+                      } satisfies AssistantLine,
+                    ];
                 return applyConversationTitle(
                   {
-                    ...conversation,
-                    messages: nextMessages,
-                    lastResponseId: payload.responseId || conversation.lastResponseId,
-                    lastMessagePreview: payload.delta || conversation.lastMessagePreview,
-                    messageCount: countVisibleMessages(nextMessages),
+                    ...c,
+                    lines: finalLines,
+                    lastMessagePreview: typeof payload.delta === 'string' ? payload.delta : c.lastMessagePreview,
+                    messageCount: countVisibleMessages(finalLines),
                     isLoaded: true,
                   },
                   payload.conversationTitle
@@ -759,7 +817,7 @@ export default function App() {
     markConversationStopping(currentConversationId, false);
     markConversationThinking(currentConversationId, false);
 
-    const assistantMessageId = targetAssistantMessageId || `m-a-${Date.now()}`;
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setConversations((prevConversations) =>
       prevConversations.map((conversation) => {
         if (conversation.conversationId !== currentConversationId) {
@@ -767,56 +825,35 @@ export default function App() {
         }
 
         const wasEmptyConversation = isConversationEmpty(conversation);
-        let nextMessages = [...conversation.messages];
+        let nextLines = [...conversation.lines];
         let nextTitle = conversation.title;
 
-        if (appendUserMessage && userMessage) {
+        if (appendUserMessage) {
           if (wasEmptyConversation) {
             nextTitle = buildDraftConversationTitle(text);
           }
-          nextMessages.push(userMessage);
-        }
-
-        const nextAssistantMessage = {
-          id: assistantMessageId,
-          role: 'assistant' as const,
-          text: '',
-          status: 'streaming' as const,
-          errorText: '',
-          retryable: false,
-          retryInput: text,
-          retryConversationId: currentConversationId,
-        };
-
-        const hasTarget =
-          targetAssistantMessageId &&
-          nextMessages.some((message) => message.id === targetAssistantMessageId);
-
-        if (hasTarget) {
-          nextMessages = nextMessages.map((message) =>
-            message.id === targetAssistantMessageId
-              ? { ...message, ...nextAssistantMessage }
-              : message
-          );
-        } else {
-          nextMessages.push(nextAssistantMessage);
+          nextLines.push({
+            kind: 'user' as const,
+            id: `u-${requestId}`,
+            ts: Date.now(),
+            requestId,
+            text,
+          });
         }
 
         return {
           ...conversation,
           title: nextTitle,
           lastMessagePreview: text,
-          messageCount: countVisibleMessages(nextMessages),
-          messages: nextMessages,
+          messageCount: countVisibleMessages(nextLines),
+          lines: nextLines,
           isLoaded: true,
         };
       })
     );
 
-    const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     streamRequestMapRef.current[requestId] = {
       conversationId: currentConversationId,
-      assistantMessageId,
       lastEventIndex: 0,
     };
     activeConversationRequestRef.current[currentConversationId] = requestId;
@@ -850,24 +887,23 @@ export default function App() {
           if (conversation.conversationId !== currentConversationId) {
             return conversation;
           }
-          const messages = conversation.messages.map((message) =>
-            message.id === assistantMessageId
-              ? {
-                  ...message,
-                  text: response.outputText || message.text || (wasStopped ? '已停止' : ''),
-                  status: 'done' as const,
-                  errorText: '',
-                  retryable: false,
-                }
-              : message
-          );
+          const lines = conversation.lines.map((l) => {
+            if (l.kind === 'assistant' && l.requestId === requestId && (l as AssistantLine).status === 'draft') {
+              return {
+                ...l,
+                text: response.outputText || (l as AssistantLine).text || (wasStopped ? '已停止' : ''),
+                responseId: response.responseId || (l as AssistantLine).responseId,
+                status: 'done' as const,
+              } satisfies AssistantLine;
+            }
+            return l;
+          });
           return applyConversationTitle(
             {
               ...conversation,
-              messages,
-              lastResponseId: response.responseId || null,
+              lines,
               lastMessagePreview: response.outputText || text,
-              messageCount: countVisibleMessages(messages),
+              messageCount: countVisibleMessages(lines),
               isLoaded: true,
             },
             response.conversationTitle
@@ -885,22 +921,21 @@ export default function App() {
           if (conversation.conversationId !== currentConversationId) {
             return conversation;
           }
-          const messages = conversation.messages.map((message) =>
-            message.id === assistantMessageId
-              ? {
-                  ...message,
-                  text: '',
-                  status: 'failed' as const,
-                  errorText,
-                  retryable: true,
-                }
-              : message
-          );
+          const lines = conversation.lines.map((l) => {
+            if (l.kind === 'assistant' && l.requestId === requestId) {
+              return {
+                ...l,
+                text: '',
+                status: 'done' as const,
+              } satisfies AssistantLine;
+            }
+            return l;
+          });
           return {
             ...conversation,
-            messages,
+            lines,
             lastMessagePreview: text,
-            messageCount: countVisibleMessages(messages),
+            messageCount: countVisibleMessages(lines),
           };
         })
       );
@@ -923,16 +958,13 @@ export default function App() {
   const handleRetryMessage = (assistantMessageId: string) => {
     if (!activeConversation) return;
     if (generatingConversationIds.has(activeConversation.conversationId)) return;
-    const failedMessage = (activeConversation.messages || []).find(
-      (message) => message.id === assistantMessageId
-    );
-    if (!failedMessage?.retryable || !failedMessage?.retryInput) return;
+    const lastUserLine = [...(activeConversation.lines || [])].reverse().find((l) => l.kind === 'user');
+    if (!lastUserLine) return;
 
-    void handleSend(failedMessage.retryInput, {
+    void handleSend((lastUserLine as { text: string }).text, {
       appendUserMessage: false,
       targetAssistantMessageId: assistantMessageId,
-      conversationIdOverride:
-        failedMessage.retryConversationId ?? activeConversation.conversationId,
+      conversationIdOverride: activeConversation.conversationId,
     });
   };
 
@@ -1138,14 +1170,14 @@ export default function App() {
         />
         <div
           className={`absolute left-1/2 top-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 animate-pulse-slow rounded-full bg-gradient-to-tr from-blue-600/20 via-indigo-500/25 to-purple-600/20 filter blur-[80px] transition-opacity duration-1000 ease-in-out md:blur-[120px] ${
-            activeConversation?.messages?.length === 0 && !activeConversationIsGenerating
+            activeConversation?.lines?.length === 0 && !activeConversationIsGenerating
               ? 'opacity-100'
               : 'pointer-events-none opacity-0'
           }`}
         />
         <div
           className={`absolute left-1/2 top-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-tr from-indigo-950/25 to-purple-950/25 filter blur-[100px] transition-opacity duration-1000 ease-in-out ${
-            activeConversation?.messages?.length > 0 && !activeConversationIsGenerating
+            activeConversation?.lines?.length > 0 && !activeConversationIsGenerating
               ? 'opacity-100'
               : 'pointer-events-none opacity-0'
           }`}
@@ -1193,10 +1225,9 @@ export default function App() {
           >
             <div key={conversationViewKey} className="flex min-h-0 flex-1 animate-conversation-content-in">
               <ChatArea
-                messages={activeConversation?.messages || []}
+                lines={activeConversation?.lines || []}
                 isGenerating={activeConversationIsGenerating}
                 isThinking={activeConversationIsThinking}
-                onRetryMessage={handleRetryMessage}
                 activeChatTitle={activeChatTitle}
               />
             </div>

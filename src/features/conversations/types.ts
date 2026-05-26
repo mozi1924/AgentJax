@@ -1,19 +1,76 @@
 export type ConversationTitleSource = 'pending' | 'manual' | 'stored';
 
-export type ToolCallStatus =
-  | 'started'
-  | 'arguments_done'
-  | 'executed'
-  | 'failed';
+// ── Conversation lines (matches backend tagged union) ─────────────────────
 
-export interface ToolCall {
+export type ConversationLine = UserLine | WorkingMarkerLine | ToolLine | AssistantLine;
+
+export interface UserLine {
+  kind: 'user';
   id: string;
-  name: string;
-  arguments: string;
-  output: string;
-  status: ToolCallStatus;
-  durationMs?: number | null;
+  ts: number;
+  requestId: string;
+  text: string;
 }
+
+export interface WorkingMarkerLine {
+  kind: 'working_start' | 'working_done';
+  id: string;
+  ts: number;
+  requestId: string;
+}
+
+export interface ToolLine {
+  kind: 'tool';
+  id: string;
+  ts: number;
+  requestId: string;
+  callId: string;
+  name: string;
+  args: unknown;
+  output?: unknown;
+  status: 'pending' | 'done' | 'failed';
+}
+
+export interface AssistantLine {
+  kind: 'assistant';
+  id: string;
+  ts: number;
+  requestId: string;
+  responseId: string;
+  text: string;
+  status: 'draft' | 'done';
+}
+
+// ── Conversation model ────────────────────────────────────────────────────
+
+export interface Conversation {
+  conversationId: string;
+  title: string;
+  titleSource: ConversationTitleSource;
+  lines: ConversationLine[];
+  lastMessagePreview: string;
+  messageCount: number;
+  isLoaded: boolean;
+}
+
+// ── Backend DTOs ──────────────────────────────────────────────────────────
+
+export interface ConversationSummary {
+  conversationId: string;
+  title?: string;
+  titleSource?: ConversationTitleSource;
+  lastMessagePreview?: string;
+  messageCount?: number;
+}
+
+export interface ConversationDetail {
+  conversationId: string;
+  title?: string;
+  titleSource?: ConversationTitleSource;
+  lines: ConversationLine[];
+}
+
+// ── Legacy (kept for compat during migration) ─────────────────────────────
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 export type MessageStatus = 'streaming' | 'done' | 'failed' | 'interrupted';
@@ -29,36 +86,21 @@ export interface ConversationMessage {
   retryConversationId?: string | null;
   createdAtUnixMs?: number;
   responseId?: string | null;
-  timelineEvents?: unknown[] | null;
   toolCalls?: ToolCall[];
 }
 
-export interface Conversation {
-  conversationId: string;
-  title: string;
-  titleSource: ConversationTitleSource;
-  messages: ConversationMessage[];
-  lastResponseId: string | null;
-  lastMessagePreview: string;
-  messageCount: number;
-  isLoaded: boolean;
+export type ToolCallStatus = 'started' | 'arguments_done' | 'executed' | 'failed';
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+  output: string;
+  status: ToolCallStatus;
+  durationMs?: number | null;
 }
 
-export interface ConversationSummary {
-  conversationId: string;
-  title?: string;
-  titleSource?: ConversationTitleSource;
-  lastMessagePreview?: string;
-  messageCount?: number;
-}
-
-export interface ConversationDetail {
-  conversationId: string;
-  title?: string;
-  titleSource?: ConversationTitleSource;
-  messages: RawConversationMessage[];
-  lastResponseId?: string | null;
-}
+// ── Model / stream types ──────────────────────────────────────────────────
 
 export interface ModelOption {
   profileKey: string;

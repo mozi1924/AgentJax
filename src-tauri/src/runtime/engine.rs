@@ -182,6 +182,7 @@ impl AgentRuntime {
         let mut repeated_failed_tool_signatures = std::collections::HashMap::new();
         let mut turn_idx = 0usize;
         let max_turns = 10usize;
+        let mut working_started = false;
 
         // ── Build the initial input (history + current user message) ──────
         // This is the *base* context that every subsequent continuation
@@ -230,7 +231,17 @@ impl AgentRuntime {
 
             // ── No tools → final response reached ─────────────────────────
             if collected.pending_tools.is_empty() {
+                // Emit WorkingDone if we entered a work phase and are now done.
+                if working_started {
+                    on_event(ProviderStreamEvent::WorkingDone)?;
+                }
                 break;
+            }
+
+            // ── Emit WorkingStarted on the first tool hop ─────────────────
+            if !working_started {
+                working_started = true;
+                on_event(ProviderStreamEvent::WorkingStarted)?;
             }
 
             // ── Execute pending tools locally ─────────────────────────────

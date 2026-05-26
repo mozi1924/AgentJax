@@ -57,6 +57,12 @@ pub fn emit_mapped_stream_event(
             chat_event.kind = "delta".to_string();
             chat_event.delta = Some(delta);
         }
+        ProviderStreamEvent::WorkingStarted => {
+            chat_event.kind = "working_started".to_string();
+        }
+        ProviderStreamEvent::WorkingDone => {
+            chat_event.kind = "working_done".to_string();
+        }
         ProviderStreamEvent::ToolCallStarted {
             item_id: _,
             call_id,

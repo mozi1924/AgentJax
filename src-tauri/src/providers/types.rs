@@ -23,6 +23,8 @@ pub enum ProviderStreamEvent {
     ReasoningStarted,
     OutputTextStarted,
     OutputTextDelta(String),
+    WorkingStarted,
+    WorkingDone,
     ToolCallStarted {
         item_id: String,
         call_id: String,
