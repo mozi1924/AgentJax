@@ -2,83 +2,161 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-pub const LOG_VERSION: u32 = 4;
+pub const LOG_VERSION: u32 = 5;
 pub const DEFAULT_CONVERSATION_TITLE: &str = "新对话";
+
+// ── Metadata (metadata.json) ──────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ConversationMetaLine {
+pub struct ConversationMeta {
     pub version: u32,
-    pub record_type: String,
     pub conversation_id: String,
     pub created_at_unix_ms: i64,
     pub updated_at_unix_ms: i64,
     pub title: String,
     pub title_source: String,
-    pub utility_model: String,
     pub message_count: usize,
-    pub last_message_at_unix_ms: i64,
     pub last_message_preview: String,
     #[serde(default)]
+    pub conversation_type: String,
+    #[serde(default)]
     pub metadata: BTreeMap<String, Value>,
+}
+
+// ── Conversation lines (messages.jsonl) ───────────────────────────────────
+// Tagged-union: each line is self-describing via `kind`.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum ConversationLine {
+    #[serde(rename = "user")]
+    User(UserLine),
+    #[serde(rename = "working_start")]
+    WorkingStart(WorkingMarkerLine),
+    #[serde(rename = "working_done")]
+    WorkingDone(WorkingMarkerLine),
+    #[serde(rename = "tool")]
+    Tool(ToolLine),
+    #[serde(rename = "assistant")]
+    Assistant(AssistantLine),
+}
+
+impl ConversationLine {
+    pub fn request_id(&self) -> Option<&str> {
+        match self {
+            ConversationLine::User(l) => Some(&l.request_id),
+            ConversationLine::WorkingStart(l) => Some(&l.request_id),
+            ConversationLine::WorkingDone(l) => Some(&l.request_id),
+            ConversationLine::Tool(l) => Some(&l.request_id),
+            ConversationLine::Assistant(l) => Some(&l.request_id),
+        }
+    }
+
+    pub fn ts(&self) -> i64 {
+        match self {
+            ConversationLine::User(l) => l.ts,
+            ConversationLine::WorkingStart(l) => l.ts,
+            ConversationLine::WorkingDone(l) => l.ts,
+            ConversationLine::Tool(l) => l.ts,
+            ConversationLine::Assistant(l) => l.ts,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        match self {
+            ConversationLine::User(l) => &l.id,
+            ConversationLine::WorkingStart(l) => &l.id,
+            ConversationLine::WorkingDone(l) => &l.id,
+            ConversationLine::Tool(l) => &l.id,
+            ConversationLine::Assistant(l) => &l.id,
+        }
+    }
+
+    /// Does this line represent a "message" for the purpose of
+    /// counting and preview generation?
+    pub fn is_message(&self) -> bool {
+        matches!(self, ConversationLine::User(_) | ConversationLine::Assistant(_))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ConversationEntryLine {
-    pub version: u32,
-    pub record_type: String,
-    pub entry_id: String,
-    pub created_at_unix_ms: i64,
-    pub role: Option<String>,
-    pub text: Option<String>,
-    pub response_id: Option<String>,
-    pub provider: Option<String>,
-    pub model_profile: Option<String>,
-    pub model_id: Option<String>,
-    pub request_id: Option<String>,
-    #[serde(default)]
-    pub context_items: Vec<Value>,
-    pub tool_name: Option<String>,
-    pub tool_call_id: Option<String>,
-    pub tool_arguments: Option<Value>,
-    pub tool_output: Option<Value>,
-    #[serde(default)]
-    pub timeline_events: Option<Vec<Value>>,
-    #[serde(default)]
-    pub metadata: BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AppendMessageInput {
-    pub conversation_id: String,
-    pub entry_id: String,
-    pub role: String,
+pub struct UserLine {
+    pub id: String,
+    pub ts: i64,
+    pub request_id: String,
     pub text: String,
-    pub created_at_unix_ms: i64,
-    pub response_id: Option<String>,
-    pub provider: Option<String>,
-    pub model_profile: Option<String>,
-    pub model_id: Option<String>,
-    pub request_id: Option<String>,
-    pub context_items: Vec<Value>,
-    pub timeline_events: Option<Vec<Value>>,
-    pub metadata: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone)]
-pub struct AppendContextItemInput {
-    pub conversation_id: String,
-    pub entry_id: String,
-    pub created_at_unix_ms: i64,
-    pub response_id: Option<String>,
-    pub provider: Option<String>,
-    pub model_profile: Option<String>,
-    pub model_id: Option<String>,
-    pub request_id: Option<String>,
-    pub context_item: Value,
-    pub metadata: BTreeMap<String, Value>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkingMarkerLine {
+    pub id: String,
+    pub ts: i64,
+    pub request_id: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolLine {
+    pub id: String,
+    pub ts: i64,
+    pub request_id: String,
+    pub call_id: String,
+    pub name: String,
+    pub args: Value,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub output: Option<Value>,
+    #[serde(default = "default_tool_status")]
+    pub status: ToolStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ToolStatus {
+    Pending,
+    Done,
+    Failed,
+}
+
+fn default_tool_status() -> ToolStatus {
+    ToolStatus::Pending
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantLine {
+    pub id: String,
+    pub ts: i64,
+    pub request_id: String,
+    #[serde(rename = "responseId")]
+    pub response_id: String,
+    pub text: String,
+    #[serde(default = "default_assistant_status")]
+    pub status: AssistantStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AssistantStatus {
+    Draft,
+    Done,
+}
+
+fn default_assistant_status() -> AssistantStatus {
+    AssistantStatus::Draft
+}
+
+// ── In-memory file representation ─────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub(crate) struct ConversationData {
+    pub meta: ConversationMeta,
+    pub lines: Vec<ConversationLine>,
+}
+
+// ── Frontend-facing DTOs ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,21 +166,9 @@ pub struct ConversationSummary {
     pub title_source: String,
     pub message_count: usize,
     pub last_message_preview: String,
-    pub last_message_at_unix_ms: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConversationMessage {
-    pub id: String,
-    pub role: String,
-    pub text: String,
-    pub created_at_unix_ms: i64,
-    pub response_id: Option<String>,
+    pub updated_at_unix_ms: i64,
     #[serde(default)]
-    pub context_items: Vec<Value>,
-    #[serde(default)]
-    pub timeline_events: Option<Vec<Value>>,
+    pub conversation_type: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -111,8 +177,7 @@ pub struct ConversationDetail {
     pub conversation_id: String,
     pub title: String,
     pub title_source: String,
-    pub last_response_id: Option<String>,
-    pub messages: Vec<ConversationMessage>,
+    pub lines: Vec<ConversationLine>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -126,8 +191,17 @@ pub struct TitleGenerationCandidate {
     pub assistant_text: String,
 }
 
+// ── Input types for mutations ─────────────────────────────────────────────
+
 #[derive(Debug, Clone)]
-pub(crate) struct ConversationFileData {
-    pub meta: ConversationMetaLine,
-    pub entries: Vec<ConversationEntryLine>,
+pub struct AppendLineInput {
+    pub conversation_id: String,
+    pub line: ConversationLine,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateLineInput {
+    pub conversation_id: String,
+    pub line_id: String,
+    pub line: ConversationLine,
 }

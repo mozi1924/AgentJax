@@ -126,12 +126,11 @@ mod tests {
         let _home = setup_test_home();
         let reader = FileReaderTool;
         let writer = FileWriterTool;
-        let utility_model = "gpt-5-mini";
         let conversation_a = format!("test-workspace-a-{}", uuid::Uuid::new_v4());
         let conversation_b = format!("test-workspace-b-{}", uuid::Uuid::new_v4());
 
-        conversation_store::ensure_conversation(&conversation_a, utility_model).unwrap();
-        conversation_store::ensure_conversation(&conversation_b, utility_model).unwrap();
+        conversation_store::ensure_conversation(&conversation_a).unwrap();
+        conversation_store::ensure_conversation(&conversation_b).unwrap();
 
         let ctx_a = ToolExecutionContext {
             conversation_id: Some(conversation_a.clone()),

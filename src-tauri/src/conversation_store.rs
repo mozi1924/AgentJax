@@ -1,6 +1,5 @@
 mod context;
 mod file_io;
-mod items;
 mod mutations;
 mod paths;
 mod queries;
@@ -15,21 +14,27 @@ const MAX_CONTEXT_ITEMS_PER_REQUEST: usize = 200;
 use std::path::PathBuf;
 
 pub use context::load_context_for_request;
-#[allow(unused_imports)]
-pub use items::{build_assistant_output_items, build_user_input_items, new_conversation_id};
 pub use mutations::{
-    append_context_item, append_message, delete_conversation, ensure_conversation,
-    rename_conversation, update_auto_title,
+    append_line, delete_conversation, ensure_conversation, rename_conversation,
+    update_auto_title, update_line,
 };
-#[allow(unused_imports)]
-pub use paths::{conversation_dir_path, conversation_workspace_path};
+pub use paths::conversation_workspace_path;
+#[cfg(test)]
+pub use paths::conversation_dir_path;
 pub use queries::{list_conversations, load_conversation, load_title_generation_candidate};
 pub use recovery::build_recovery_developer_note;
-#[allow(unused_imports)]
 pub use types::{
-    AppendContextItemInput, AppendMessageInput, ConversationContext, ConversationDetail,
-    ConversationMessage, ConversationMetaLine, ConversationSummary, TitleGenerationCandidate,
+    AppendLineInput, AssistantLine, AssistantStatus, ConversationContext, ConversationDetail,
+    ConversationLine, ConversationMeta, ConversationSummary, TitleGenerationCandidate, ToolLine,
+    ToolStatus, UpdateLineInput, UserLine, WorkingMarkerLine,
 };
+
+/// Generate a new unique conversation id.
+pub fn new_conversation_id() -> String {
+    use crate::conversation_store_utils::today_utc_yyyy_mm_dd;
+    use uuid::Uuid;
+    format!("{}-{}", today_utc_yyyy_mm_dd(), Uuid::new_v4())
+}
 
 #[allow(dead_code)]
 pub fn conversations_dir_path() -> Result<PathBuf, String> {

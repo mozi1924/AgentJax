@@ -1,45 +1,19 @@
 use super::chat_utils::{now_unix_ms, run_blocking};
-use crate::conversation_store;
+use crate::conversation_store::{self, AssistantLine, AssistantStatus, ConversationLine, ToolLine, ToolStatus};
 use crate::providers::types::ResponseStreamResult;
-use serde_json::{json, Value};
+use serde_json::Value;
 
-fn extract_assistant_message_chunks(output_items: &[Value]) -> Vec<String> {
-    let mut chunks = Vec::new();
-
-    for item in output_items {
-        if item.get("type").and_then(Value::as_str) != Some("message") {
-            continue;
-        }
-        if item.get("role").and_then(Value::as_str) != Some("assistant") {
-            continue;
-        }
-
-        let Some(content_parts) = item.get("content").and_then(Value::as_array) else {
-            continue;
-        };
-
-        let mut text = String::new();
-        for part in content_parts {
-            if part.get("type").and_then(Value::as_str) == Some("output_text") {
-                if let Some(t) = part.get("text").and_then(Value::as_str) {
-                    text.push_str(t);
-                }
-            }
-        }
-
-        let trimmed = text.trim();
-        if !trimmed.is_empty() {
-            chunks.push(trimmed.to_string());
-        }
-    }
-
-    chunks
-}
+/// Persist a tool-call event during streaming.  Called from the provider
+/// stream callback so that tool state survives crashes.
+///
+/// - `event_kind == "tool_call_done"` → append a `ToolLine` with
+///   `status: Pending` (no output yet).
+/// - `event_kind == "tool_call_exec"` → update the matching `ToolLine`
+///   with the output and set `status: Done`.
 
 pub fn persist_tool_progress_event(
     conversation_id: &str,
     request_id: &str,
-    utility_model: &str,
     event_kind: &str,
     tool_call_id: &str,
     tool_name: Option<&str>,
@@ -49,111 +23,89 @@ pub fn persist_tool_progress_event(
         return Ok(());
     }
 
-    let (entry_id, context_item) = match event_kind {
+    let ts = now_unix_ms();
+    let line_id = format!("tool-{request_id}-{tool_call_id}");
+
+    match event_kind {
         "tool_call_done" => {
             let name = tool_name
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .unwrap_or("unknown_tool");
-            let args = payload.unwrap_or("{}");
-            (
-                format!("ctx-tool-call-{request_id}-{tool_call_id}"),
-                json!({
-                    "type": "function_call",
-                    "call_id": tool_call_id,
-                    "name": name,
-                    "arguments": args,
+            let args: Value = payload
+                .and_then(|p| serde_json::from_str(p).ok())
+                .unwrap_or(Value::Null);
+
+            conversation_store::append_line(conversation_store::AppendLineInput {
+                conversation_id: conversation_id.to_string(),
+                line: ConversationLine::Tool(ToolLine {
+                    id: line_id.clone(),
+                    ts,
+                    request_id: request_id.to_string(),
+                    call_id: tool_call_id.to_string(),
+                    name: name.to_string(),
+                    args,
+                    output: None,
+                    status: ToolStatus::Pending,
                 }),
-            )
+            })
         }
         "tool_call_exec" => {
-            let output = payload.unwrap_or("{}");
-            (
-                format!("ctx-tool-output-{request_id}-{tool_call_id}"),
-                json!({
-                    "type": "function_call_output",
-                    "call_id": tool_call_id,
-                    "output": output,
-                }),
-            )
-        }
-        _ => return Ok(()),
-    };
+            let output: Value = payload
+                .and_then(|p| serde_json::from_str(p).ok())
+                .unwrap_or(Value::Null);
 
-    conversation_store::append_context_item(
-        conversation_store::AppendContextItemInput {
-            conversation_id: conversation_id.to_string(),
-            entry_id,
-            created_at_unix_ms: now_unix_ms(),
-            response_id: None,
-            provider: None,
-            model_profile: None,
-            model_id: None,
-            request_id: Some(request_id.to_string()),
-            context_item,
-            metadata: Default::default(),
-        },
-        utility_model,
-    )
+            conversation_store::update_line(conversation_store::UpdateLineInput {
+                conversation_id: conversation_id.to_string(),
+                line_id,
+                line: ConversationLine::Tool(ToolLine {
+                    id: format!("tool-{request_id}-{tool_call_id}"),
+                    ts,
+                    request_id: request_id.to_string(),
+                    call_id: tool_call_id.to_string(),
+                    name: tool_name
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("unknown_tool")
+                        .to_string(),
+                    args: Value::Null, // preserved from the Pending entry; not overwritten
+                    output: Some(output),
+                    status: ToolStatus::Done,
+                }),
+            })
+        }
+        _ => Ok(()),
+    }
 }
+
+/// Persist the final assistant response after a turn completes.
+/// Writes a single `AssistantLine` with the accumulated text.
 
 pub async fn persist_completed_exchange(
     conversation_id: &str,
     request_id: &str,
     response: &ResponseStreamResult,
-    utility_model: &str,
 ) -> Result<(), String> {
     let conversation_id = conversation_id.to_string();
     let request_id = request_id.to_string();
-    let response = response.clone();
-    let utility_model = utility_model.to_string();
+    let text = response.output_text.trim().to_string();
+    let response_id = response.response_id.clone();
+    let ts = now_unix_ms();
+
+    let line = ConversationLine::Assistant(AssistantLine {
+        id: format!("asst-{request_id}"),
+        ts,
+        request_id: request_id.clone(),
+        response_id,
+        text,
+        status: AssistantStatus::Done,
+    });
 
     run_blocking(move || {
-        for (idx, item) in response.output_items.iter().enumerate() {
-            conversation_store::append_context_item(
-                conversation_store::AppendContextItemInput {
-                    conversation_id: conversation_id.clone(),
-                    entry_id: format!("ctx-output-item-{request_id}-{idx}"),
-                    created_at_unix_ms: now_unix_ms(),
-                    response_id: Some(response.response_id.clone()),
-                    provider: Some(response.provider_key.clone()),
-                    model_profile: Some(response.model_profile.clone()),
-                    model_id: Some(response.model_id.clone()),
-                    request_id: Some(request_id.clone()),
-                    context_item: item.clone(),
-                    metadata: Default::default(),
-                },
-                &utility_model,
-            )?;
-        }
-
-        let mut chunks = extract_assistant_message_chunks(&response.output_items);
-        if chunks.is_empty() && !response.output_text.trim().is_empty() {
-            chunks.push(response.output_text.trim().to_string());
-        }
-
-        for (idx, chunk) in chunks.iter().enumerate() {
-            conversation_store::append_message(
-                conversation_store::AppendMessageInput {
-                    conversation_id: conversation_id.clone(),
-                    entry_id: format!("msg-assistant-{request_id}-{idx}"),
-                    role: "assistant".to_string(),
-                    text: chunk.clone(),
-                    created_at_unix_ms: now_unix_ms(),
-                    response_id: Some(response.response_id.clone()),
-                    provider: Some(response.provider_key.clone()),
-                    model_profile: Some(response.model_profile.clone()),
-                    model_id: Some(response.model_id.clone()),
-                    request_id: Some(request_id.clone()),
-                    context_items: Vec::new(),
-                    timeline_events: None,
-                    metadata: Default::default(),
-                },
-                &utility_model,
-            )?;
-        }
-
-        Ok(())
+        conversation_store::append_line(conversation_store::AppendLineInput {
+            conversation_id,
+            line,
+        })
     })
     .await
 }

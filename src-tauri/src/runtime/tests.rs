@@ -29,11 +29,8 @@ async fn real_gateway_tool_loop_smoke_test_from_local_config() {
     );
 
     let conversation_id = format!("test-real-gateway-{}", Uuid::new_v4());
-    crate::conversation_store::ensure_conversation(
-        &conversation_id,
-        config.utility_small_model_key(),
-    )
-    .expect("ensure conversation workspace");
+    crate::conversation_store::ensure_conversation(&conversation_id)
+        .expect("ensure conversation workspace");
 
     let tools_catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
     let req = ChatRequest {

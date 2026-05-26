@@ -1,32 +1,33 @@
-use crate::conversation_store::types::{
-    ConversationEntryLine, ConversationFileData, ConversationMetaLine, ConversationSummary,
+use super::types::{
+    ConversationData, ConversationLine, ConversationMeta, ConversationSummary,
     DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
 };
 use crate::conversation_store_utils::{
     compact_preview, normalize_title_source, sanitize_conversation_id,
 };
-use serde_json::Value;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
+// ── Read ──────────────────────────────────────────────────────────────────
+
 pub fn read_conversation_file(
     metadata_path: &Path,
     messages_path: &Path,
-) -> Result<Option<ConversationFileData>, String> {
+) -> Result<Option<ConversationData>, String> {
     if !metadata_path.exists() || !messages_path.exists() {
         return Ok(None);
     }
 
     let raw_meta = fs::read_to_string(metadata_path).map_err(|e| {
         format!(
-            "Failed to open session metadata file {}: {e}",
+            "Failed to read metadata file {}: {e}",
             metadata_path.display()
         )
     })?;
-    let mut meta: ConversationMetaLine = serde_json::from_str(&raw_meta).map_err(|e| {
+    let mut meta: ConversationMeta = serde_json::from_str(&raw_meta).map_err(|e| {
         format!(
-            "Failed to parse session metadata file {}: {e}",
+            "Failed to parse metadata file {}: {e}",
             metadata_path.display()
         )
     })?;
@@ -34,55 +35,35 @@ pub fn read_conversation_file(
     if meta.conversation_id.is_empty() {
         return Ok(None);
     }
+    sanitize_meta_basics(&mut meta);
 
     let file = fs::File::open(messages_path).map_err(|e| {
         format!(
-            "Failed to open session messages file {}: {e}",
+            "Failed to open messages file {}: {e}",
             messages_path.display()
         )
     })?;
     let reader = BufReader::new(file);
-    let mut entries = Vec::new();
+    let mut lines = Vec::new();
 
     for (idx, raw) in reader.lines().enumerate() {
         let raw = raw.map_err(|e| {
             format!(
-                "Failed to read line {} from session messages file {}: {e}",
+                "Failed to read line {} from {}: {e}",
                 idx + 1,
                 messages_path.display()
             )
         })?;
-        if raw.trim().is_empty() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
             continue;
         }
 
-        let value = match serde_json::from_str::<Value>(&raw) {
-            Ok(value) => value,
+        match serde_json::from_str::<ConversationLine>(trimmed) {
+            Ok(line) => lines.push(line),
             Err(err) => {
                 log::warn!(
-                    "Skipping malformed conversation line {} in {}: {}",
-                    idx + 1,
-                    messages_path.display(),
-                    err
-                );
-                continue;
-            }
-        };
-
-        let record_type = value
-            .get("recordType")
-            .or_else(|| value.get("record_type"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if record_type.is_empty() {
-            continue;
-        }
-
-        match serde_json::from_value::<ConversationEntryLine>(value) {
-            Ok(entry) => entries.push(entry),
-            Err(err) => {
-                log::warn!(
-                    "Skipping malformed conversation entry line {} in {}: {}",
+                    "Skipping malformed line {} in {}: {}",
                     idx + 1,
                     messages_path.display(),
                     err
@@ -91,14 +72,16 @@ pub fn read_conversation_file(
         }
     }
 
-    refresh_meta_derived_fields(&mut meta, &entries);
-    Ok(Some(ConversationFileData { meta, entries }))
+    refresh_meta_from_lines(&mut meta, &lines);
+    Ok(Some(ConversationData { meta, lines }))
 }
+
+// ── Write (full file rewrite — conversation files are small) ──────────────
 
 pub fn write_conversation_file(
     metadata_path: &Path,
     messages_path: &Path,
-    data: &ConversationFileData,
+    data: &ConversationData,
 ) -> Result<(), String> {
     if let Some(parent) = metadata_path.parent() {
         if !parent.exists() {
@@ -111,92 +94,90 @@ pub fn write_conversation_file(
         }
     }
 
-    let mut messages_lines = Vec::with_capacity(data.entries.len());
-    for entry in &data.entries {
-        messages_lines.push(
-            serde_json::to_string(entry)
-                .map_err(|e| format!("Failed to serialize conversation entry: {e}"))?,
-        );
-    }
-
-    fs::write(
-        metadata_path,
+    // metadata.json — pretty-printed
+    let meta_json = serde_json::to_string_pretty(&data.meta)
+        .map_err(|e| format!("Failed to serialize metadata: {e}"))?;
+    fs::write(metadata_path, format!("{meta_json}\n")).map_err(|e| {
         format!(
-            "{}\n",
-            serde_json::to_string_pretty(&data.meta)
-                .map_err(|e| format!("Failed to serialize conversation metadata: {e}"))?
-        ),
-    )
-    .map_err(|e| {
-        format!(
-            "Failed to write session metadata file {}: {e}",
+            "Failed to write metadata file {}: {e}",
             metadata_path.display()
         )
     })?;
 
-    fs::write(messages_path, format!("{}\n", messages_lines.join("\n"))).map_err(|e| {
+    // messages.jsonl — one compact JSON line per item
+    let mut buf = String::with_capacity(data.lines.len() * 256);
+    for line in &data.lines {
+        let json = serde_json::to_string(line)
+            .map_err(|e| format!("Failed to serialize conversation line: {e}"))?;
+        buf.push_str(&json);
+        buf.push('\n');
+    }
+    fs::write(messages_path, buf.as_bytes()).map_err(|e| {
         format!(
-            "Failed to write session messages file {}: {e}",
+            "Failed to write messages file {}: {e}",
             messages_path.display()
         )
     })
 }
 
-pub fn refresh_meta_derived_fields(
-    meta: &mut ConversationMetaLine,
-    entries: &[ConversationEntryLine],
-) {
-    meta.version = LOG_VERSION;
-    meta.record_type = "meta".to_string();
+// ── Metadata helpers ──────────────────────────────────────────────────────
+
+fn sanitize_meta_basics(meta: &mut ConversationMeta) {
     meta.conversation_id = sanitize_conversation_id(&meta.conversation_id);
-    meta.title = normalized_meta_title(meta);
+    meta.title = normalized_title(meta);
     meta.title_source = normalize_title_source(&meta.title_source);
+    meta.version = LOG_VERSION;
+}
 
+fn refresh_meta_from_lines(meta: &mut ConversationMeta, lines: &[ConversationLine]) {
     let mut message_count = 0usize;
-    let mut last_message_at = 0i64;
-    let mut last_message_preview = String::new();
+    let mut last_preview = String::new();
+    let mut last_ts = meta.created_at_unix_ms;
 
-    for entry in entries {
-        if entry.record_type != "message" {
+    for line in lines {
+        if !line.is_message() {
             continue;
         }
-
-        let role = entry.role.as_deref().unwrap_or("");
-        if role != "user" && role != "assistant" {
-            continue;
-        }
-
         message_count += 1;
-        if entry.created_at_unix_ms >= last_message_at {
-            last_message_at = entry.created_at_unix_ms;
-            last_message_preview = compact_preview(entry.text.as_deref().unwrap_or(""));
+        last_ts = last_ts.max(line.ts());
+
+        match line {
+            ConversationLine::User(u) => {
+                last_preview = compact_preview(&u.text);
+            }
+            ConversationLine::Assistant(a) => {
+                if !a.text.trim().is_empty() {
+                    last_preview = compact_preview(&a.text);
+                }
+            }
+            _ => {}
         }
     }
 
     meta.message_count = message_count;
-    meta.last_message_at_unix_ms = last_message_at;
-    meta.last_message_preview = last_message_preview;
-    if last_message_at > 0 {
-        meta.updated_at_unix_ms = meta.updated_at_unix_ms.max(last_message_at);
-    }
+    meta.updated_at_unix_ms = meta.updated_at_unix_ms.max(last_ts);
+    meta.last_message_preview = last_preview;
 }
 
-pub fn summary_from_meta(meta: &ConversationMetaLine) -> ConversationSummary {
-    ConversationSummary {
-        conversation_id: meta.conversation_id.clone(),
-        title: normalized_meta_title(meta),
-        title_source: normalize_title_source(&meta.title_source),
-        message_count: meta.message_count,
-        last_message_preview: meta.last_message_preview.clone(),
-        last_message_at_unix_ms: meta.updated_at_unix_ms.max(meta.last_message_at_unix_ms),
-    }
-}
-
-pub fn normalized_meta_title(meta: &ConversationMetaLine) -> String {
+fn normalized_title(meta: &ConversationMeta) -> String {
     let trimmed = meta.title.trim();
     if trimmed.is_empty() {
         DEFAULT_CONVERSATION_TITLE.to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+// ── Summary extraction ────────────────────────────────────────────────────
+
+pub fn summary_from_meta(meta: &ConversationMeta) -> ConversationSummary {
+    ConversationSummary {
+        conversation_id: meta.conversation_id.clone(),
+        title: normalized_title(meta),
+        title_source: normalize_title_source(&meta.title_source),
+        message_count: meta.message_count,
+        last_message_preview: meta.last_message_preview.clone(),
+        updated_at_unix_ms: meta.updated_at_unix_ms,
+        conversation_type: meta.conversation_type.clone(),
     }
 }

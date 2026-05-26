@@ -29,7 +29,6 @@ pub async fn chat_stream(
     req: ChatRequest,
 ) -> Result<ChatResponse, String> {
     let config = config::load_config()?;
-    let utility_model = config.utility_small_model_key().to_string();
     let request_id = req
         .request_id
         .clone()
@@ -62,9 +61,8 @@ pub async fn chat_stream(
 
     let mut context = match {
         let conversation_id = conversation_id.clone();
-        let utility_model = utility_model.clone();
         run_blocking(move || {
-            conversation_store::ensure_conversation(&conversation_id, &utility_model)?;
+            conversation_store::ensure_conversation(&conversation_id)?;
             conversation_store::load_context_for_request(&conversation_id)
         })
         .await
@@ -93,26 +91,18 @@ pub async fn chat_stream(
         let conversation_id = conversation_id.clone();
         let request_id = request_id.clone();
         let input_text = input_text.clone();
-        let utility_model = utility_model.clone();
         run_blocking(move || {
-            conversation_store::append_message(
-                conversation_store::AppendMessageInput {
-                    conversation_id,
-                    entry_id: format!("msg-user-{request_id}"),
-                    role: "user".to_string(),
-                    text: input_text.clone(),
-                    created_at_unix_ms: now_unix_ms(),
-                    response_id: None,
-                    provider: None,
-                    model_profile: None,
-                    model_id: None,
-                    request_id: Some(request_id),
-                    context_items: conversation_store::build_user_input_items(&input_text),
-                    timeline_events: None,
-                    metadata: Default::default(),
-                },
-                &utility_model,
-            )
+            conversation_store::append_line(conversation_store::AppendLineInput {
+                conversation_id,
+                line: conversation_store::ConversationLine::User(
+                    conversation_store::UserLine {
+                        id: format!("msg-user-{request_id}"),
+                        ts: now_unix_ms(),
+                        request_id,
+                        text: input_text,
+                    },
+                ),
+            })
         })
         .await?;
     }
@@ -121,7 +111,6 @@ pub async fn chat_stream(
     let closure_request_id = request_id.clone();
     let closure_conversation_id = conversation_id.clone();
 
-    let callback_utility_model = utility_model.clone();
     let callback_request_id = request_id.clone();
     let callback_conversation_id = conversation_id.clone();
     let result = crate::runtime::AgentRuntime::run_turn(
@@ -142,7 +131,6 @@ pub async fn chat_stream(
                     let _ = persist_tool_progress_event(
                         &callback_conversation_id,
                         &callback_request_id,
-                        &callback_utility_model,
                         "tool_call_done",
                         call_id,
                         Some(name),
@@ -156,7 +144,6 @@ pub async fn chat_stream(
                     let _ = persist_tool_progress_event(
                         &callback_conversation_id,
                         &callback_request_id,
-                        &callback_utility_model,
                         "tool_call_exec",
                         call_id,
                         None,
@@ -182,7 +169,7 @@ pub async fn chat_stream(
 
     let conversation_title: Option<String> = None;
     if !registry.is_conversation_deleted(&conversation_id)? {
-        persist_completed_exchange(&conversation_id, &request_id, &response, &utility_model)
+        persist_completed_exchange(&conversation_id, &request_id, &response)
             .await?;
 
         schedule_title_generation(
@@ -239,13 +226,11 @@ pub fn rename_conversation(
     registry: State<'_, ChatRequestRegistry>,
     req: RenameConversationRequest,
 ) -> Result<conversation_store::ConversationSummary, String> {
-    let config = config::load_config()?;
     let _ = registry.cancel_title_request(&req.conversation_id)?;
 
     conversation_store::rename_conversation(
         &req.conversation_id,
         &req.title,
-        config.utility_small_model_key(),
     )
 }
 
