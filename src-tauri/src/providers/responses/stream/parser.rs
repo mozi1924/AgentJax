@@ -61,6 +61,38 @@ pub(crate) fn process_sse_event_block(
     )
 }
 
+pub(crate) fn collect_output_item_from_sse_event_block(
+    block: &str,
+    accumulated_output_items: &mut Vec<Value>,
+) {
+    let mut data_lines = Vec::new();
+    for line in block.lines() {
+        let line = line.trim_end_matches('\r');
+        if let Some(data) = line.strip_prefix("data:") {
+            data_lines.push(data.trim_start().to_string());
+        }
+    }
+
+    if data_lines.is_empty() {
+        return;
+    }
+
+    let payload = data_lines.join("\n");
+    if payload == "[DONE]" || payload.trim().is_empty() {
+        return;
+    }
+
+    let Ok(value) = serde_json::from_str::<Value>(&payload) else {
+        return;
+    };
+
+    if value.get("type").and_then(Value::as_str) == Some("response.output_item.done") {
+        if let Some(item) = value.get("item") {
+            accumulated_output_items.push(item.clone());
+        }
+    }
+}
+
 pub(crate) fn handle_stream_event_json(
     payload: &str,
     response_id: &mut String,
@@ -374,5 +406,31 @@ fn preview(raw: &str) -> String {
         raw.to_string()
     } else {
         format!("{}...[truncated]", &raw[..MAX])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_output_item_from_sse_event_block;
+    use serde_json::Value;
+
+    #[test]
+    fn collects_output_item_done_from_sse_block() {
+        let block = r#"event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_1","name":"tool_a","arguments":"{}"}}
+
+"#;
+
+        let mut items: Vec<Value> = Vec::new();
+        collect_output_item_from_sse_event_block(block, &mut items);
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0].get("type").and_then(Value::as_str),
+            Some("function_call")
+        );
+        assert_eq!(
+            items[0].get("call_id").and_then(Value::as_str),
+            Some("call_1")
+        );
     }
 }

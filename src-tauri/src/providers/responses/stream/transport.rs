@@ -14,8 +14,8 @@ use crate::providers::types::{
 };
 
 use super::parser::{
-    extract_output_items, extract_output_text, handle_stream_event_json, process_sse_event_block,
-    split_sse_event_block, ParserState,
+    collect_output_item_from_sse_event_block, extract_output_items, extract_output_text,
+    handle_stream_event_json, process_sse_event_block, split_sse_event_block, ParserState,
 };
 use super::{payload::build_streaming_request_payload, ResponsesStreamBehavior};
 use crate::providers::responses::http;
@@ -52,7 +52,6 @@ pub(crate) async fn create_response_streaming_sse(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
     behavior: ResponsesStreamBehavior,
-    store: bool,
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<ResponseStreamResult, String> {
@@ -73,7 +72,7 @@ pub(crate) async fn create_response_streaming_sse(
     let endpoint = http::apply_query_params_to_url(&endpoint, &resolved.provider.query_params)
         .map_err(|e| format!("Failed to build SSE endpoint URL: {e}"))?;
 
-    let body = build_streaming_request_payload(resolved, req, store, true);
+    let body = build_streaming_request_payload(resolved, req, true);
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(resolved.timeout_seconds))
@@ -132,6 +131,7 @@ pub(crate) async fn create_response_streaming_sse(
     let mut response_id = String::new();
     let mut output_text = String::new();
     let mut last_response_obj: Option<Value> = None;
+    let mut accumulated_output_items: Vec<Value> = Vec::new();
 
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
@@ -171,6 +171,7 @@ pub(crate) async fn create_response_streaming_sse(
 
             while let Some((event_block, rest)) = split_sse_event_block(&buffer) {
               buffer = rest;
+              collect_output_item_from_sse_event_block(&event_block, &mut accumulated_output_items);
               process_sse_event_block(
                 &event_block,
                 &mut response_id,
@@ -185,6 +186,7 @@ pub(crate) async fn create_response_streaming_sse(
     }
 
     if !buffer.trim().is_empty() {
+        collect_output_item_from_sse_event_block(&buffer, &mut accumulated_output_items);
         process_sse_event_block(
             &buffer,
             &mut response_id,
@@ -205,10 +207,14 @@ pub(crate) async fn create_response_streaming_sse(
         response_id = String::new();
     }
 
-    let output_items = last_response_obj
-        .as_ref()
-        .map(extract_output_items)
-        .unwrap_or_default();
+    let output_items = if accumulated_output_items.is_empty() {
+        last_response_obj
+            .as_ref()
+            .map(extract_output_items)
+            .unwrap_or_default()
+    } else {
+        accumulated_output_items
+    };
 
     Ok(ResponseStreamResult {
         response_id,
@@ -225,7 +231,6 @@ pub(crate) async fn create_response_streaming_websocket(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
     behavior: ResponsesStreamBehavior,
-    store: bool,
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<ResponseStreamResult, String> {
@@ -265,7 +270,6 @@ pub(crate) async fn create_response_streaming_websocket(
     let mut create_event = build_streaming_request_payload(
         resolved,
         req,
-        store,
         behavior.capabilities.requires_stream_true_in_websocket,
     );
     create_event["type"] = Value::String("response.create".to_string());

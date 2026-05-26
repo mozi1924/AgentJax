@@ -15,7 +15,6 @@ use crate::providers::types::{ProviderEventSink, ResponseStreamRequest, Response
 pub struct ResponsesStreamBehavior {
     pub api_label: &'static str,
     pub capabilities: ProviderCapabilities,
-    pub retry_store_false: bool,
 }
 
 static WEBSOCKET_DOWNGRADED_PROVIDERS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -108,7 +107,6 @@ async fn stream_response_attempt_with_behavior(
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<ResponseStreamResult, String> {
-    let persistence = behavior.retry_store_false;
     let websocket_key = websocket_fallback_key(resolved);
     let use_sse =
         resolved.provider.stream_transport == "sse" || websocket_is_downgraded(&websocket_key);
@@ -118,7 +116,6 @@ async fn stream_response_attempt_with_behavior(
             resolved,
             req,
             behavior,
-            persistence,
             cancel_rx,
             on_delta,
         )
@@ -128,7 +125,6 @@ async fn stream_response_attempt_with_behavior(
             resolved,
             req,
             behavior,
-            persistence,
             cancel_rx,
             on_delta,
         )
@@ -143,42 +139,10 @@ async fn stream_response_attempt_with_behavior(
             resolved,
             req,
             behavior,
-            persistence,
             cancel_rx,
             on_delta,
         )
         .await;
-    }
-
-    if behavior.retry_store_false && should_retry_with_store_false(&first_attempt, persistence) {
-        let store_false_attempt = if use_sse {
-            transport::create_response_streaming_sse(
-                resolved, req, behavior, false, cancel_rx, on_delta,
-            )
-            .await
-        } else {
-            transport::create_response_streaming_websocket(
-                resolved, req, behavior, false, cancel_rx, on_delta,
-            )
-            .await
-        };
-
-        if !use_sse && store_false_attempt.is_err() {
-            if let Err(err) = &store_false_attempt {
-                log_websocket_fallback(
-                    resolved,
-                    &websocket_key,
-                    "WebSocket store=false retry failed",
-                    err,
-                );
-            }
-            return transport::create_response_streaming_sse(
-                resolved, req, behavior, false, cancel_rx, on_delta,
-            )
-            .await;
-        }
-
-        return store_false_attempt;
     }
 
     first_attempt
@@ -201,21 +165,4 @@ fn should_retry_stream_error(err: &str) -> bool {
         || text.contains("api error (502")
         || text.contains("api error (503")
         || text.contains("api error (504")
-}
-
-fn should_retry_with_store_false(
-    result: &Result<ResponseStreamResult, String>,
-    store_value: bool,
-) -> bool {
-    if !store_value {
-        return false;
-    }
-
-    let Err(err) = result else {
-        return false;
-    };
-
-    err.contains("Store must be set to false")
-        || err.contains("store must be set to false")
-        || err.contains("\"Store must be set to false\"")
 }

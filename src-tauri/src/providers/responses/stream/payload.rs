@@ -6,7 +6,6 @@ use crate::providers::types::ResponseStreamRequest;
 pub(crate) fn build_streaming_request_payload(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
-    store: bool,
     include_stream_field: bool,
 ) -> Value {
     let input_items = normalize_input_items_for_responses(&req.input_items);
@@ -19,7 +18,7 @@ pub(crate) fn build_streaming_request_payload(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(&resolved.system_prompt),
       "input": input_items,
-      "store": store
+      "store": false
     });
 
     if include_stream_field {
@@ -109,8 +108,9 @@ mod tests {
             tool_choice: None,
         };
 
-        let payload = build_streaming_request_payload(&resolved, &req, false, false);
+        let payload = build_streaming_request_payload(&resolved, &req, false);
         assert!(payload.get("stream").is_none());
+        assert_eq!(payload.get("store").and_then(|v| v.as_bool()), Some(false));
     }
 
     #[test]
@@ -140,8 +140,9 @@ mod tests {
             tool_choice: None,
         };
 
-        let payload = build_streaming_request_payload(&resolved, &req, false, true);
+        let payload = build_streaming_request_payload(&resolved, &req, true);
         assert_eq!(payload.get("stream").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(payload.get("store").and_then(|v| v.as_bool()), Some(false));
         assert!(payload.get("previous_response_id").is_none());
     }
 
@@ -172,7 +173,8 @@ mod tests {
             tool_choice: None,
         };
 
-        let payload = build_streaming_request_payload(&resolved, &req, false, false);
+        let payload = build_streaming_request_payload(&resolved, &req, false);
+        assert_eq!(payload.get("store").and_then(|v| v.as_bool()), Some(false));
         assert!(payload.get("text").is_some());
         assert_eq!(
             payload
@@ -200,6 +202,51 @@ mod tests {
             payload.get("generate").and_then(|v| v.as_bool()),
             Some(false)
         );
+    }
+
+    #[test]
+    fn payload_ignores_context_managed_extra_body_keys() {
+        let mut request_config = ModelRequestConfig::default();
+        request_config
+            .extra_body
+            .insert("store".to_string(), serde_json::json!(true));
+        request_config.extra_body.insert(
+            "previous_response_id".to_string(),
+            serde_json::json!("resp_123"),
+        );
+        request_config
+            .extra_body
+            .insert("custom_flag".to_string(), serde_json::json!(true));
+
+        let resolved = ResolvedModelConfig {
+            profile_key: "test".to_string(),
+            provider_key: "openai-responses".to_string(),
+            provider: ProviderConfig::default(),
+            model_id: "gpt-5-mini".to_string(),
+            model_ref: "openai-responses/gpt-5-mini".to_string(),
+            system_prompt: "test prompt".to_string(),
+            request: request_config,
+            timeout_seconds: 60,
+        };
+        let req = ResponseStreamRequest {
+            input_items: Vec::new(),
+            model: Some("gpt-5-mini".to_string()),
+            reasoning_effort: None,
+            instructions_override: None,
+            text: None,
+            include: None,
+            service_tier: None,
+            prompt_cache_key: None,
+            client_metadata: None,
+            generate: None,
+            tools: None,
+            tool_choice: None,
+        };
+
+        let payload = build_streaming_request_payload(&resolved, &req, false);
+        assert_eq!(payload.get("store").and_then(|v| v.as_bool()), Some(false));
+        assert!(payload.get("previous_response_id").is_none());
+        assert_eq!(payload.get("custom_flag").and_then(|v| v.as_bool()), Some(true));
     }
 }
 
@@ -241,9 +288,17 @@ fn apply_model_request_config(
     }
 
     for (key, value) in &request.extra_body {
-        if !key.trim().is_empty() {
-            payload[key] = value.clone();
+        let normalized = key.trim().to_ascii_lowercase();
+        if normalized.is_empty() {
+            continue;
         }
+        // Keep context management local-only: never allow extra_body to re-enable
+        // server-side conversation state or implicit response chaining.
+        if matches!(normalized.as_str(), "store" | "previous_response_id") {
+            continue;
+        }
+
+        payload[key] = value.clone();
     }
 }
 

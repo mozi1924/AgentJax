@@ -9,6 +9,7 @@ use tokio::sync::watch;
 
 pub(super) struct ExecutedToolBatch {
     pub tool_results_items: Vec<Value>,
+    pub executed_tool_call_items: Vec<Value>,
     pub timeline_events: Vec<Value>,
 }
 
@@ -25,6 +26,7 @@ where
     F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
 {
     let mut tool_results_items = Vec::new();
+    let mut executed_tool_call_items = Vec::new();
     let mut timeline_events = Vec::new();
 
     for pending in pending_tools {
@@ -154,10 +156,18 @@ where
         let tool_input_item =
             crate::providers::build_tool_result_input_item(provider_kind, &call_id, &output_str)?;
         tool_results_items.push(tool_input_item);
+
+        executed_tool_call_items.push(json!({
+            "type": "function_call",
+            "call_id": call_id,
+            "name": name,
+            "arguments": serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string()),
+        }));
     }
 
     Ok(ExecutedToolBatch {
         tool_results_items,
+        executed_tool_call_items,
         timeline_events,
     })
 }
