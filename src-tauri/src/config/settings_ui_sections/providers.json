@@ -20,11 +20,19 @@
         "kind": "openai-responses",
         "api_endpoint": "https://api.openai.com/v1",
         "models_endpoint_candidates": [],
+        "query_params": {},
+        "http_headers": {},
+        "env_http_headers": {},
         "realtime_endpoint": null,
+        "supports_websockets": true,
         "stream_transport": "websocket",
         "credential": null,
         "credential_env": "OPENAI_API_KEY",
         "request_timeout_seconds": null,
+        "request_max_retries": null,
+        "stream_max_retries": null,
+        "stream_idle_timeout_ms": null,
+        "websocket_connect_timeout_ms": null,
         "models": {}
       },
       "children": [
@@ -57,6 +65,33 @@
         },
         {
           "kind": "field",
+          "id": "provider-query-params",
+          "title": "Default query params",
+          "description": "附加到 provider 请求 URL 的 query 参数。",
+          "path": "query_params",
+          "valueType": "json_map",
+          "control": "json"
+        },
+        {
+          "kind": "field",
+          "id": "provider-http-headers",
+          "title": "Default HTTP headers",
+          "description": "所有请求都附带的静态 Header。",
+          "path": "http_headers",
+          "valueType": "json_map",
+          "control": "json"
+        },
+        {
+          "kind": "field",
+          "id": "provider-env-http-headers",
+          "title": "Env HTTP headers",
+          "description": "Header 名到环境变量名的映射（运行时读取变量值）。",
+          "path": "env_http_headers",
+          "valueType": "json_map",
+          "control": "json"
+        },
+        {
+          "kind": "field",
           "id": "provider-realtime-endpoint",
           "title": "Realtime endpoint",
           "description": "留空时会根据 API endpoint 自动推导。",
@@ -64,6 +99,15 @@
           "valueType": "string",
           "control": "text",
           "placeholder": "wss://api.example.com/v1/realtime"
+        },
+        {
+          "kind": "field",
+          "id": "provider-supports-websockets",
+          "title": "Supports WebSocket",
+          "description": "关闭后会强制使用 SSE。",
+          "path": "supports_websockets",
+          "valueType": "boolean",
+          "control": "switch"
         },
         {
           "kind": "field",
@@ -104,6 +148,54 @@
           "min": 1,
           "max": 3600,
           "step": 1
+        },
+        {
+          "kind": "field",
+          "id": "provider-request-max-retries",
+          "title": "Request max retries",
+          "description": "普通 HTTP 请求的最大重试次数。",
+          "path": "request_max_retries",
+          "valueType": "integer",
+          "control": "number",
+          "min": 0,
+          "max": 20,
+          "step": 1
+        },
+        {
+          "kind": "field",
+          "id": "provider-stream-max-retries",
+          "title": "Stream max retries",
+          "description": "流式请求的最大重试次数。",
+          "path": "stream_max_retries",
+          "valueType": "integer",
+          "control": "number",
+          "min": 0,
+          "max": 20,
+          "step": 1
+        },
+        {
+          "kind": "field",
+          "id": "provider-stream-idle-timeout-ms",
+          "title": "Stream idle timeout (ms)",
+          "description": "流式连接空闲超时，留空使用运行时默认值。",
+          "path": "stream_idle_timeout_ms",
+          "valueType": "integer",
+          "control": "number",
+          "min": 1000,
+          "max": 3600000,
+          "step": 1000
+        },
+        {
+          "kind": "field",
+          "id": "provider-websocket-connect-timeout-ms",
+          "title": "WebSocket connect timeout (ms)",
+          "description": "WebSocket 连接超时，留空使用运行时默认值。",
+          "path": "websocket_connect_timeout_ms",
+          "valueType": "integer",
+          "control": "number",
+          "min": 1000,
+          "max": 3600000,
+          "step": 1000
         }
       ]
     }

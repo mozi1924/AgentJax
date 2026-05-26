@@ -29,7 +29,8 @@ pub fn build_recovery_developer_note(conversation_id: &str) -> Result<Option<Val
     let Some(mut data) = read_conversation_file(&metadata_path, &messages_path)? else {
         return Ok(None);
     };
-    data.entries.sort_by_key(|entry: &ConversationEntryLine| entry.created_at_unix_ms);
+    data.entries
+        .sort_by_key(|entry: &ConversationEntryLine| entry.created_at_unix_ms);
 
     let mut states: HashMap<String, RequestRecoveryState> = HashMap::new();
 
@@ -155,4 +156,3 @@ pub fn build_recovery_developer_note(conversation_id: &str) -> Result<Option<Val
         }]
     })))
 }
-

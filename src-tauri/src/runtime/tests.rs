@@ -1,7 +1,6 @@
 use super::{
     tool_archiving::archive_unavailable_historical_tool_calls,
-    tool_parsing::extract_active_tool_names,
-    AgentRuntime,
+    tool_parsing::extract_active_tool_names, AgentRuntime,
 };
 use crate::commands::chat::ChatRequest;
 use crate::providers::types::ProviderStreamEvent;

@@ -47,4 +47,3 @@ pub struct SettingsPatch {
     #[serde(default = "default_patch_operation")]
     pub operation: SettingsPatchOperation,
 }
-

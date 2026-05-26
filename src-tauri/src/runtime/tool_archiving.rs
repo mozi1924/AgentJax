@@ -137,7 +137,9 @@ pub(super) fn archive_unavailable_historical_tool_calls(
                 && !emitted_call_ids.contains(call_id)
             {
                 let outputs = outputs_by_call_id.get(call_id).cloned().unwrap_or_default();
-                output.push(build_archived_tool_note(call_id, tool_name, arguments, &outputs));
+                output.push(build_archived_tool_note(
+                    call_id, tool_name, arguments, &outputs,
+                ));
                 emitted_call_ids.insert(call_id.to_string());
             }
             continue;
@@ -148,4 +150,3 @@ pub(super) fn archive_unavailable_historical_tool_calls(
 
     output
 }
-

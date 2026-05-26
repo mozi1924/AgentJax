@@ -1,7 +1,7 @@
 use super::tool_archiving::archive_unavailable_historical_tool_calls;
 use super::tool_parsing::{
-    describe_item_shape, extract_active_tool_names, is_valid_pending_tool_call, parse_tool_arguments,
-    push_or_update_pending_tool_call,
+    describe_item_shape, extract_active_tool_names, is_valid_pending_tool_call,
+    parse_tool_arguments, push_or_update_pending_tool_call,
 };
 use super::{AgentRuntime, MAX_REPEATED_FAILED_SIGNATURES, MAX_TOOL_EXEC_RETRIES};
 use crate::config::AppConfig;

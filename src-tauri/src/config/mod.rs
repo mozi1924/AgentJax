@@ -162,4 +162,61 @@ mod tests {
         }
         let _ = fs::remove_dir_all(home);
     }
+
+    #[test]
+    fn provider_normalize_forces_sse_when_websocket_not_supported() {
+        let mut cfg = AppConfig::default();
+        let provider = cfg
+            .providers
+            .get_mut("openai-responses")
+            .expect("openai-responses provider exists");
+        provider.supports_websockets = false;
+        provider.stream_transport = "websocket".to_string();
+
+        let normalized = cfg.normalize();
+        let provider = normalized
+            .providers
+            .get("openai-responses")
+            .expect("normalized provider exists");
+        assert_eq!(provider.stream_transport, "sse");
+    }
+
+    #[test]
+    fn provider_resolved_http_headers_merges_env_values() {
+        let _guard = test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut provider = ProviderConfig::default();
+        provider
+            .http_headers
+            .insert("X-Feature".to_string(), "static".to_string());
+        provider.env_http_headers.insert(
+            "Authorization".to_string(),
+            "TEST_AGENTJAX_AUTH".to_string(),
+        );
+        provider.env_http_headers.insert(
+            "X-Feature".to_string(),
+            "TEST_AGENTJAX_X_FEATURE".to_string(),
+        );
+
+        unsafe {
+            std::env::set_var("TEST_AGENTJAX_AUTH", "Bearer token-from-env");
+            std::env::set_var("TEST_AGENTJAX_X_FEATURE", "env-value");
+        }
+
+        let headers = provider.resolved_http_headers();
+        assert_eq!(
+            headers.get("Authorization").map(String::as_str),
+            Some("Bearer token-from-env")
+        );
+        assert_eq!(
+            headers.get("X-Feature").map(String::as_str),
+            Some("env-value")
+        );
+
+        unsafe {
+            std::env::remove_var("TEST_AGENTJAX_AUTH");
+            std::env::remove_var("TEST_AGENTJAX_X_FEATURE");
+        }
+    }
 }

@@ -4,7 +4,8 @@ use super::file_io::{
 };
 use super::items::{build_assistant_output_items, build_user_input_items};
 use super::paths::{
-    conversation_dir_path, conversation_messages_path, conversation_metadata_path, ensure_session_layout,
+    conversation_dir_path, conversation_messages_path, conversation_metadata_path,
+    ensure_session_layout,
 };
 use super::types::{
     AppendContextItemInput, AppendMessageInput, ConversationEntryLine, ConversationFileData,
@@ -107,7 +108,10 @@ pub fn append_message(input: AppendMessageInput, utility_model: &str) -> Result<
     )
 }
 
-pub fn append_context_item(input: AppendContextItemInput, utility_model: &str) -> Result<(), String> {
+pub fn append_context_item(
+    input: AppendContextItemInput,
+    utility_model: &str,
+) -> Result<(), String> {
     append_entry_line(
         &input.conversation_id,
         utility_model,
@@ -221,4 +225,3 @@ pub fn delete_conversation(conversation_id: &str) -> Result<bool, String> {
         .map_err(|e| format!("Failed to delete session dir {}: {e}", dir.display()))?;
     Ok(true)
 }
-

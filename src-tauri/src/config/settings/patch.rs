@@ -36,11 +36,11 @@ pub fn apply_settings_patch(patch: SettingsPatch) -> Result<SettingsSnapshot, St
 
     validate_path_semantics(&path_segments, &root)?;
 
-    let patched: AppConfig =
-        serde_json::from_value(root).map_err(|e| format!("Patched configuration is invalid: {e}"))?;
+    let patched: AppConfig = serde_json::from_value(root)
+        .map_err(|e| format!("Patched configuration is invalid: {e}"))?;
     let normalized = patched.normalize();
-    let normalized_yaml =
-        serde_yaml::to_string(&normalized).map_err(|e| format!("Failed to serialize normalized config: {e}"))?;
+    let normalized_yaml = serde_yaml::to_string(&normalized)
+        .map_err(|e| format!("Failed to serialize normalized config: {e}"))?;
 
     atomic_write(&config_path, &normalized_yaml)?;
     snapshot_from_config(&normalized, &config_path, &normalized_yaml)
@@ -192,4 +192,3 @@ fn validate_key(key: &str, label: &str) -> Result<(), String> {
     }
     Ok(())
 }
-

@@ -38,4 +38,3 @@ pub fn build_assistant_output_items(text: &str) -> Vec<Value> {
         }]
     })]
 }
-

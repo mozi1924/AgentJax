@@ -189,9 +189,8 @@ fn load_context_truncates_without_splitting_tool_pairs() {
             "content":[{"type":"input_text","text": format!("u-{i}")}]
         }));
     }
-    context_items.push(
-        json!({"type":"function_call","call_id":"call_tail","name":"tool_x","arguments":{}}),
-    );
+    context_items
+        .push(json!({"type":"function_call","call_id":"call_tail","name":"tool_x","arguments":{}}));
     context_items.push(
         json!({"type":"function_call_output","call_id":"call_tail","output":"{\"ok\":true}"}),
     );

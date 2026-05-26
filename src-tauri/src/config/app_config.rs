@@ -25,10 +25,16 @@ impl ProviderConfig {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .collect();
+        self.query_params = normalize_string_map(std::mem::take(&mut self.query_params));
+        self.http_headers = normalize_string_map(std::mem::take(&mut self.http_headers));
+        self.env_http_headers = normalize_string_map(std::mem::take(&mut self.env_http_headers));
 
         self.stream_transport = self.stream_transport.trim().to_lowercase();
         if self.stream_transport != "websocket" && self.stream_transport != "sse" {
             self.stream_transport = "websocket".to_string();
+        }
+        if !self.supports_websockets && self.stream_transport == "websocket" {
+            self.stream_transport = "sse".to_string();
         }
 
         self.realtime_endpoint = self
@@ -52,6 +58,12 @@ impl ProviderConfig {
 
         if matches!(self.request_timeout_seconds, Some(0)) {
             self.request_timeout_seconds = None;
+        }
+        if matches!(self.stream_idle_timeout_ms, Some(0)) {
+            self.stream_idle_timeout_ms = None;
+        }
+        if matches!(self.websocket_connect_timeout_ms, Some(0)) {
+            self.websocket_connect_timeout_ms = None;
         }
 
         let mut normalized_models = BTreeMap::new();
@@ -105,6 +117,26 @@ impl ProviderConfig {
 
     pub fn resolved_timeout_seconds(&self, global_default: u64) -> u64 {
         self.request_timeout_seconds.unwrap_or(global_default)
+    }
+
+    pub fn resolved_http_headers(&self) -> BTreeMap<String, String> {
+        let mut headers = self.http_headers.clone();
+
+        for (header_name, env_key) in &self.env_http_headers {
+            let env_key = env_key.trim();
+            if env_key.is_empty() {
+                continue;
+            }
+
+            if let Ok(value) = std::env::var(env_key) {
+                let value = value.trim();
+                if !value.is_empty() {
+                    headers.insert(header_name.clone(), value.to_string());
+                }
+            }
+        }
+
+        headers
     }
 }
 

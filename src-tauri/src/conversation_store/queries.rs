@@ -1,8 +1,8 @@
 use super::file_io::{normalized_meta_title, read_conversation_file, summary_from_meta};
-use super::paths::{
-    conversation_messages_path, conversation_metadata_path, list_conversation_ids,
+use super::paths::{conversation_messages_path, conversation_metadata_path, list_conversation_ids};
+use super::types::{
+    ConversationDetail, ConversationMessage, ConversationSummary, TitleGenerationCandidate,
 };
-use super::types::{ConversationDetail, ConversationMessage, ConversationSummary, TitleGenerationCandidate};
 use crate::conversation_store_utils::normalize_title_source;
 use serde_json::Value;
 
@@ -161,4 +161,3 @@ pub fn load_title_generation_candidate(
         assistant_text,
     }))
 }
-

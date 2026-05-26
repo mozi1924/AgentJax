@@ -38,4 +38,3 @@ pub(super) fn compute_revision(raw: &str) -> String {
     }
     format!("{:016x}", hash)
 }
-

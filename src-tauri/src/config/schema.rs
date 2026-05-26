@@ -77,11 +77,23 @@ pub struct ProviderConfig {
     pub api_endpoint: String,
     #[serde(default)]
     pub models_endpoint_candidates: Vec<String>,
+    #[serde(default)]
+    pub query_params: BTreeMap<String, String>,
+    #[serde(default)]
+    pub http_headers: BTreeMap<String, String>,
+    #[serde(default)]
+    pub env_http_headers: BTreeMap<String, String>,
     pub realtime_endpoint: Option<String>,
+    #[serde(default = "default_true")]
+    pub supports_websockets: bool,
     pub stream_transport: String,
     pub credential: Option<String>,
     pub credential_env: String,
     pub request_timeout_seconds: Option<u64>,
+    pub request_max_retries: Option<u32>,
+    pub stream_max_retries: Option<u32>,
+    pub stream_idle_timeout_ms: Option<u64>,
+    pub websocket_connect_timeout_ms: Option<u64>,
     #[serde(default)]
     pub models: BTreeMap<String, ProviderModelConfig>,
 }
@@ -202,11 +214,19 @@ impl Default for ProviderConfig {
             kind: "openai-responses".to_string(),
             api_endpoint: "https://api.openai.com/v1".to_string(),
             models_endpoint_candidates: Vec::new(),
+            query_params: BTreeMap::new(),
+            http_headers: BTreeMap::new(),
+            env_http_headers: BTreeMap::new(),
             realtime_endpoint: None,
+            supports_websockets: true,
             stream_transport: "websocket".to_string(),
             credential: None,
             credential_env: "OPENAI_API_KEY".to_string(),
             request_timeout_seconds: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            websocket_connect_timeout_ms: None,
             models,
         }
     }

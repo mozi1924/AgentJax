@@ -79,4 +79,3 @@ pub(super) fn extract_active_tool_names(tools_schemas: &[Value]) -> HashSet<Stri
     }
     names
 }
-
