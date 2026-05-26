@@ -166,7 +166,7 @@
                   "description": "Provider 特有字段透传。",
                   "path": "request.extra_body",
                   "valueType": "json_map",
-                  "control": "json"
+                  "control": "key_value"
                 }
               ]
             }

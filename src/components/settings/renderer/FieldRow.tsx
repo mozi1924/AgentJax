@@ -19,6 +19,64 @@ import {
   parseDotenvText,
 } from './utils';
 
+const resolveKeyValueMeta = (field: SettingsFieldSchema) => {
+  const id = field.id.toLowerCase();
+  const path = field.path.toLowerCase();
+
+  if (path.includes('env_http_headers') || id.includes('env-http-headers')) {
+    return {
+      emptyState: 'No header mappings yet.',
+      addLabel: 'Add header mapping',
+      removeTitle: 'Remove mapping',
+      keyPlaceholder: 'Header-Name',
+      valuePlaceholder: 'ENV_VAR',
+      allowDotenvImport: false,
+    };
+  }
+
+  if (path.includes('header') || id.includes('header')) {
+    return {
+      emptyState: 'No HTTP headers yet.',
+      addLabel: 'Add header',
+      removeTitle: 'Remove header',
+      keyPlaceholder: 'Header-Name',
+      valuePlaceholder: 'value',
+      allowDotenvImport: false,
+    };
+  }
+
+  if (path.endsWith('.env') || path === 'env' || id.includes('-env')) {
+    return {
+      emptyState: 'No environment variables yet.',
+      addLabel: 'Add variable',
+      removeTitle: 'Remove variable',
+      keyPlaceholder: 'KEY',
+      valuePlaceholder: 'value',
+      allowDotenvImport: true,
+    };
+  }
+
+  if (path.includes('query_params') || id.includes('query-params')) {
+    return {
+      emptyState: 'No query params yet.',
+      addLabel: 'Add query param',
+      removeTitle: 'Remove query param',
+      keyPlaceholder: 'param',
+      valuePlaceholder: 'value',
+      allowDotenvImport: false,
+    };
+  }
+
+  return {
+    emptyState: 'No entries yet.',
+    addLabel: 'Add entry',
+    removeTitle: 'Remove entry',
+    keyPlaceholder: 'key',
+    valuePlaceholder: 'value',
+    allowDotenvImport: false,
+  };
+};
+
 export function FieldRow({
   field,
   snapshot,
@@ -47,21 +105,24 @@ export function FieldRow({
   const isSaving = savingPath === resolvedPath;
   const disabled = !isNodeEnabled(field, snapshot, contextPath) || isSaving;
   const options = getFieldOptions(field, snapshot, contextPath);
+  const parseJsonValues = field.valueType === 'json_map';
+  const keyValueMeta = resolveKeyValueMeta(field);
+  const allowDotenvImport = field.control === 'key_value' && keyValueMeta.allowDotenvImport;
 
   useEffect(() => {
     setDraft(normalizeFieldValueForDraft(field, value, secretStatus));
     if (field.control === 'key_value') {
-      setKeyValueEntries(mapToKeyValueEntries(value));
+      setKeyValueEntries(mapToKeyValueEntries(value, { stringifyJsonValues: parseJsonValues }));
       setDotenvImportOpen(false);
       setDotenvDraft('');
       setDotenvErrors([]);
     }
     setIsDirty(false);
     setLocalError(null);
-  }, [field, value, secretStatus, snapshot.revision]);
+  }, [field, value, secretStatus, snapshot.revision, parseJsonValues]);
 
   const persistKeyValueEntries = async (entries: KeyValueEntry[]) => {
-    const { map, error } = buildMapFromEntries(entries);
+    const { map, error } = buildMapFromEntries(entries, { parseJsonValues });
     if (error) {
       setLocalError(error);
       return;
@@ -96,7 +157,7 @@ export function FieldRow({
     const nextEntries = Object.entries(merged).map(([key, value]) => ({
       id: nextKeyValueEntryId(),
       key,
-      value,
+      value: typeof value === 'string' ? value : JSON.stringify(value),
     }));
 
     setDotenvErrors([]);
@@ -344,7 +405,7 @@ export function FieldRow({
             <div className="w-full space-y-2 rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 p-2">
               {keyValueEntries.length === 0 && (
                 <p className="px-1 py-1 text-[11px] text-neutral-500">
-                  No environment variables yet.
+                  {keyValueMeta.emptyState}
                 </p>
               )}
 
@@ -352,7 +413,7 @@ export function FieldRow({
                 <div key={entry.id} className="flex items-center gap-2">
                   <input
                     value={entry.key}
-                    placeholder="KEY"
+                    placeholder={keyValueMeta.keyPlaceholder}
                     disabled={disabled}
                     onChange={(event) => {
                       const next = keyValueEntries.map((item) =>
@@ -368,7 +429,7 @@ export function FieldRow({
                   />
                   <input
                     value={entry.value}
-                    placeholder="value"
+                    placeholder={keyValueMeta.valuePlaceholder}
                     disabled={disabled}
                     onChange={(event) => {
                       const next = keyValueEntries.map((item) =>
@@ -392,42 +453,46 @@ export function FieldRow({
                       void persistKeyValueEntries(next);
                     }}
                     className="rounded-md p-1 text-neutral-500 transition hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-50"
-                    title="Remove variable"
+                    title={keyValueMeta.removeTitle}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
               ))}
 
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => {
-                  setKeyValueEntries((current) => [
-                    ...current,
-                    { id: nextKeyValueEntryId(), key: '', value: '' },
-                  ]);
-                  setIsDirty(true);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[#2b2b2d] bg-[#2e2e30]/80 px-2 py-1 text-[11px] text-[#e3e3e3] transition hover:bg-[#3e3e40] disabled:opacity-50"
-              >
-                <Plus className="h-3 w-3" />
-                Add variable
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => {
+                    setKeyValueEntries((current) => [
+                      ...current,
+                      { id: nextKeyValueEntryId(), key: '', value: '' },
+                    ]);
+                    setIsDirty(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-[#2b2b2d] bg-[#2e2e30]/80 px-2 py-1 text-[11px] text-[#e3e3e3] transition hover:bg-[#3e3e40] disabled:opacity-50"
+                >
+                  <Plus className="h-3 w-3" />
+                  {keyValueMeta.addLabel}
+                </button>
 
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => {
-                  setDotenvImportOpen((current) => !current);
-                  setDotenvErrors([]);
-                }}
-                className="ml-2 inline-flex items-center gap-1.5 rounded-md border border-[#2b2b2d] bg-[#2e2e30]/80 px-2 py-1 text-[11px] text-[#e3e3e3] transition hover:bg-[#3e3e40] disabled:opacity-50"
-              >
-                Paste .env
-              </button>
+                {allowDotenvImport && (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      setDotenvImportOpen((current) => !current);
+                      setDotenvErrors([]);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-[#2b2b2d] bg-[#2e2e30]/80 px-2 py-1 text-[11px] text-[#e3e3e3] transition hover:bg-[#3e3e40] disabled:opacity-50"
+                  >
+                    Paste .env
+                  </button>
+                )}
+              </div>
 
-              {dotenvImportOpen && (
+              {allowDotenvImport && dotenvImportOpen && (
                 <div className="mt-2 rounded-md border border-[#2b2b2d] bg-[#171717]/50 p-2">
                   <textarea
                     rows={6}

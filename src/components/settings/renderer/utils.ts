@@ -76,17 +76,27 @@ export const isFullWidthControl = (control: string) => {
   return ['textarea', 'tags', 'key_value', 'json'].includes(control);
 };
 
-export const mapToKeyValueEntries = (value: unknown): KeyValueEntry[] => {
+export const mapToKeyValueEntries = (
+  value: unknown,
+  options?: { stringifyJsonValues?: boolean }
+): KeyValueEntry[] => {
   const record = asRecord(value);
   return Object.entries(record).map(([key, entryValue]) => ({
     id: nextKeyValueEntryId(),
     key,
-    value: `${entryValue ?? ''}`,
+    value: options?.stringifyJsonValues
+      ? typeof entryValue === 'string'
+        ? entryValue
+        : JSON.stringify(entryValue)
+      : `${entryValue ?? ''}`,
   }));
 };
 
-export const buildMapFromEntries = (entries: KeyValueEntry[]) => {
-  const result: Record<string, string> = {};
+export const buildMapFromEntries = (
+  entries: KeyValueEntry[],
+  options?: { parseJsonValues?: boolean }
+) => {
+  const result: Record<string, unknown> = {};
   const seen = new Set<string>();
 
   for (const entry of entries) {
@@ -106,7 +116,23 @@ export const buildMapFromEntries = (entries: KeyValueEntry[]) => {
     }
 
     seen.add(key);
-    result[key] = value;
+    if (!options?.parseJsonValues) {
+      result[key] = value;
+      continue;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      result[key] = '';
+      continue;
+    }
+
+    try {
+      result[key] = JSON.parse(trimmed);
+    } catch {
+      // Keep non-JSON literals as plain strings for convenience.
+      result[key] = value;
+    }
   }
 
   return { map: result };
