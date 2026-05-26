@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use crate::message_phase::AssistantPhase;
 
-pub const LOG_VERSION: u32 = 5;
+pub const LOG_VERSION: u32 = 6;
 pub const DEFAULT_CONVERSATION_TITLE: &str = "新对话";
 
 // ── Metadata (metadata.json) ──────────────────────────────────────────────
@@ -32,10 +33,6 @@ pub struct ConversationMeta {
 pub enum ConversationLine {
     #[serde(rename = "user")]
     User(UserLine),
-    #[serde(rename = "working_start")]
-    WorkingStart(WorkingMarkerLine),
-    #[serde(rename = "working_done")]
-    WorkingDone(WorkingMarkerLine),
     #[serde(rename = "tool")]
     Tool(ToolLine),
     #[serde(rename = "assistant")]
@@ -46,8 +43,6 @@ impl ConversationLine {
     pub fn request_id(&self) -> Option<&str> {
         match self {
             ConversationLine::User(l) => Some(&l.request_id),
-            ConversationLine::WorkingStart(l) => Some(&l.request_id),
-            ConversationLine::WorkingDone(l) => Some(&l.request_id),
             ConversationLine::Tool(l) => Some(&l.request_id),
             ConversationLine::Assistant(l) => Some(&l.request_id),
         }
@@ -56,8 +51,6 @@ impl ConversationLine {
     pub fn ts(&self) -> i64 {
         match self {
             ConversationLine::User(l) => l.ts,
-            ConversationLine::WorkingStart(l) => l.ts,
-            ConversationLine::WorkingDone(l) => l.ts,
             ConversationLine::Tool(l) => l.ts,
             ConversationLine::Assistant(l) => l.ts,
         }
@@ -66,8 +59,6 @@ impl ConversationLine {
     pub fn id(&self) -> &str {
         match self {
             ConversationLine::User(l) => &l.id,
-            ConversationLine::WorkingStart(l) => &l.id,
-            ConversationLine::WorkingDone(l) => &l.id,
             ConversationLine::Tool(l) => &l.id,
             ConversationLine::Assistant(l) => &l.id,
         }
@@ -87,14 +78,6 @@ pub struct UserLine {
     pub ts: i64,
     pub request_id: String,
     pub text: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkingMarkerLine {
-    pub id: String,
-    pub ts: i64,
-    pub request_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,6 +115,7 @@ pub struct AssistantLine {
     pub request_id: String,
     #[serde(rename = "responseId")]
     pub response_id: String,
+    pub phase: AssistantPhase,
     /// The assistant's text for this line.
     pub text: String,
     #[serde(default = "default_assistant_status")]

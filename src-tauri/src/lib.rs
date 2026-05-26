@@ -5,6 +5,7 @@ mod commands;
 mod config;
 mod conversation_store;
 mod conversation_store_utils;
+mod message_phase;
 pub mod mcp;
 mod models;
 mod providers;

@@ -5,7 +5,6 @@ import {
   Loader2,
   MessageSquare,
   Sparkles,
-  Wrench,
 } from 'lucide-react';
 import { renderMarkdown } from './chat/markdownRenderer';
 import type {
@@ -13,7 +12,6 @@ import type {
   AssistantLine,
   ToolLine,
   UserLine,
-  WorkingMarkerLine,
 } from '../features/conversations/types';
 
 interface ChatAreaProps {
@@ -72,10 +70,6 @@ export default function ChatArea({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [lines, isGenerating, isThinking]);
 
-  // ── Track whether we are inside a working_start…working_done bracket ──
-  let inWorking = false;
-  let workingRequestId = '';
-
   if (lines.length === 0) return null;
 
   return (
@@ -87,35 +81,6 @@ export default function ChatArea({
         </div>
 
         {lines.map((line) => {
-          // ── working_start marker ──────────────────────────────────
-          if (line.kind === 'working_start') {
-            inWorking = true;
-            workingRequestId = (line as WorkingMarkerLine).requestId;
-            return (
-              <div key={line.id} className="flex items-center gap-2 pl-2 py-0.5">
-                <div className="w-0.5 self-stretch bg-amber-500/30 rounded-full" />
-                <Wrench className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                <span className="text-[11px] font-medium text-amber-400">
-                  {'\u6B63\u5728\u6267\u884C\u4EFB\u52A1...'}
-                </span>
-              </div>
-            );
-          }
-
-          // ── working_done marker ───────────────────────────────────
-          if (line.kind === 'working_done') {
-            inWorking = false;
-            return (
-              <div key={line.id} className="flex items-center gap-2 pl-2 py-0.5">
-                <div className="w-0.5 self-stretch bg-emerald-500/30 rounded-full" />
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                <span className="text-[11px] font-medium text-emerald-400">
-                  {'\u4EFB\u52A1\u5B8C\u6210'}
-                </span>
-              </div>
-            );
-          }
-
           // ── user message ──────────────────────────────────────────
           if (line.kind === 'user') {
             return (
@@ -143,7 +108,7 @@ export default function ChatArea({
                   : 'border-amber-500/20 bg-amber-500/5';
 
             return (
-              <div key={line.id} className={`flex justify-start ${inWorking ? 'pl-6' : ''}`}>
+              <div key={line.id} className="flex justify-start">
                 <div className={`max-w-xl rounded-xl border px-4 py-2.5 text-xs ${statusColor}`}>
                   <button
                     className="flex w-full items-center gap-2 text-left"
@@ -193,18 +158,24 @@ export default function ChatArea({
             const a = line as AssistantLine;
             const isDraft = a.status === 'draft';
             const isEmpty = !a.text || (typeof a.text === 'string' && !a.text.trim());
+            const isCommentary = a.phase === 'commentary';
             if (isEmpty && !isDraft) return null;
 
             return (
-              <div key={line.id} className={`flex gap-4 justify-start ${inWorking ? 'pl-6' : ''}`}>
-                {!inWorking && (
+              <div key={line.id} className={`flex gap-4 justify-start ${isCommentary ? 'pl-6' : ''}`}>
+                {!isCommentary && (
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 text-white shadow-md shadow-purple-500/20">
                     <Sparkles className={`h-4.5 w-4.5 ${isDraft ? 'animate-pulse' : ''}`} />
                   </div>
                 )}
+                {isCommentary && (
+                  <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 text-amber-300">
+                    <Loader2 className={`h-3.5 w-3.5 ${isDraft ? 'animate-spin' : ''}`} />
+                  </div>
+                )}
                 <div className="flex-1 space-y-1.5 overflow-hidden">
                   <div className="group flex items-start gap-2">
-                    <div className={`flex-1 leading-relaxed text-slate-200 select-text prose prose-invert max-w-none [&_pre]:!bg-[#0d0d0e] [&_pre]:!border [&_pre]:!border-[#2d2f31]/30 [&_pre]:!rounded-xl [&_code]:!bg-[#0d0d0e] [&_code]:!text-pink-300 [&_code]:!px-1.5 [&_code]:!py-0.5 [&_code]:!rounded-md [&_code]:!text-xs ${inWorking ? 'text-xs prose-sm' : 'text-sm'}`}>
+                    <div className={`flex-1 leading-relaxed select-text prose prose-invert max-w-none [&_pre]:!bg-[#0d0d0e] [&_pre]:!border [&_pre]:!border-[#2d2f31]/30 [&_pre]:!rounded-xl [&_code]:!bg-[#0d0d0e] [&_code]:!text-pink-300 [&_code]:!px-1.5 [&_code]:!py-0.5 [&_code]:!rounded-md [&_code]:!text-xs ${isCommentary ? 'text-xs prose-sm text-amber-100/90' : 'text-sm text-slate-200'}`}>
                       {isEmpty ? (
                         <span className="inline-flex items-center gap-1.5 text-slate-500 text-xs">
                           <Loader2 className="h-3 w-3 animate-spin" />
@@ -217,7 +188,7 @@ export default function ChatArea({
                         <span className="inline-block ml-1 w-1.5 h-4 bg-cyan-400 animate-pulse rounded-sm align-middle" />
                       )}
                     </div>
-                    {!isEmpty && !inWorking && (
+                    {!isEmpty && !isCommentary && (
                       <button
                         className="mt-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition p-1 rounded hover:bg-white/5"
                         onClick={() => handleCopy(a.id, a.text)}

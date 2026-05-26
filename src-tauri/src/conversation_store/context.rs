@@ -1,6 +1,7 @@
 use super::file_io::read_conversation_file;
 use super::paths::{conversation_messages_path, conversation_metadata_path};
 use super::types::{ConversationContext, ConversationLine};
+use crate::message_phase::AssistantPhase;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -29,7 +30,7 @@ pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationCon
                 }));
             }
             ConversationLine::Assistant(a) => {
-                if a.text.trim().is_empty() {
+                if a.phase != AssistantPhase::FinalAnswer || a.text.trim().is_empty() {
                     continue;
                 }
                 input_items.push(json!({
@@ -57,9 +58,6 @@ pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationCon
                     }));
                 }
             }
-            // working_start / working_done are UI markers — they don't
-            // produce input items for the API.
-            ConversationLine::WorkingStart(_) | ConversationLine::WorkingDone(_) => {}
         }
     }
 

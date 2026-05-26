@@ -1,4 +1,5 @@
 use super::capabilities::ProviderCapabilities;
+use crate::message_phase::AssistantPhase;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -22,9 +23,10 @@ pub struct ModelReasoningCapability {
 pub enum ProviderStreamEvent {
     ReasoningStarted,
     OutputTextStarted,
-    OutputTextDelta(String),
-    WorkingStarted,
-    WorkingDone,
+    OutputTextDelta {
+        delta: String,
+        phase: Option<AssistantPhase>,
+    },
     ToolCallStarted {
         item_id: String,
         call_id: String,
@@ -47,10 +49,10 @@ pub enum ProviderStreamEvent {
         output: String,
     },
     /// Emitted after each model-response hop completes.
-    /// `is_final` is true for the terminal hop (no tool calls follow).
     HopAssistantText {
         text: String,
-        is_final: bool,
+        phase: AssistantPhase,
+        response_id: String,
     },
     ResponseCompleted,
 }
@@ -92,9 +94,6 @@ pub struct ResponseStreamResult {
     pub response_id: String,
     /// Final answer text (after all tool calls are complete).
     pub output_text: String,
-    /// Commentary / progress narration produced *during* tool-execution hops.
-    /// When empty the assistant produced no intermediate spoken text.
-    pub working_text: String,
     pub output_items: Vec<Value>,
     pub provider_key: String,
     pub model_profile: String,

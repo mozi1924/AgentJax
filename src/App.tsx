@@ -62,6 +62,15 @@ interface StreamRequestMapping {
 const isModelOption = (option: ModelOption | null): option is ModelOption =>
   option !== null;
 
+const normalizeAssistantPhase = (
+  phase: ChatStreamEventPayload['phase'] | undefined
+): AssistantLine['phase'] => {
+  if (phase === 'commentary' || phase === 'final_answer') {
+    return phase;
+  }
+  return null;
+};
+
 const parseAdvancedRequestOptions = (raw: string): ChatRequestOptions => {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -452,7 +461,7 @@ export default function App() {
                           : conversation.lastMessagePreview;
                     })()
                   : conversation.lastMessagePreview,
-              messageCount: detail.lines?.length || countVisibleMessages(hydratedLines),
+              messageCount: countVisibleMessages(hydratedLines),
               isLoaded: true,
               lines: hydratedLines,
             };
@@ -512,76 +521,91 @@ export default function App() {
             return;
           }
 
-          // ── Text streaming ────────────────────────────────────────
-          if (payload.kind === 'working_started') {
-            markConversationThinking(mapping.conversationId, false);
-            setConversations((prev) =>
-              prev.map((c) => {
-                if (c.conversationId !== mapping.conversationId) return c;
-                return {
-                  ...c,
-                  lines: [
-                    ...c.lines,
-                    {
-                      kind: 'working_start' as const,
-                      id: `ws-${requestId}`,
-                      ts: Date.now(),
-                      requestId: requestId || '',
-                    },
-                  ],
-                };
-              })
-            );
-            return;
-          }
-
-          if (payload.kind === 'working_done') {
-            setConversations((prev) =>
-              prev.map((c) => {
-                if (c.conversationId !== mapping.conversationId) return c;
-                return {
-                  ...c,
-                  lines: [
-                    ...c.lines,
-                    {
-                      kind: 'working_done' as const,
-                      id: `wd-${requestId}`,
-                      ts: Date.now(),
-                      requestId: requestId || '',
-                    },
-                  ],
-                };
-              })
-            );
-            return;
-          }
-
-          // ── Text streaming ────────────────────────────────────────
           if (payload.kind === 'delta' && payload.delta) {
             markConversationThinking(mapping.conversationId, false);
             const deltaText = String(payload.delta);
+            const phase = normalizeAssistantPhase(payload.phase);
             setConversations((prev) =>
               prev.map((c) => {
                 if (c.conversationId !== mapping.conversationId) return c;
                 const lines = [...c.lines];
                 const last = lines[lines.length - 1];
-                if (last && last.kind === 'assistant' && (last as AssistantLine).status === 'draft') {
+                if (
+                  last &&
+                  last.kind === 'assistant' &&
+                  (last as AssistantLine).status === 'draft' &&
+                  (last as AssistantLine).requestId === requestId
+                ) {
                   lines[lines.length - 1] = {
                     ...last,
+                    phase: phase ?? (last as AssistantLine).phase,
                     text: String((last as AssistantLine).text) + deltaText,
                   } as AssistantLine;
                 } else {
                   lines.push({
                     kind: 'assistant' as const,
-                    id: `asst-${requestId}`,
+                    id: `asst-${requestId}-${payload.eventIndex || Date.now()}`,
                     ts: Date.now(),
                     requestId: requestId || '',
                     responseId: '',
+                    phase,
                     text: deltaText,
                     status: 'draft' as const,
                   });
                 }
                 return { ...c, lines };
+              })
+            );
+            return;
+          }
+
+          if (payload.kind === 'assistant_message') {
+            markConversationThinking(mapping.conversationId, false);
+            const messageText = String(payload.delta || '');
+            const phase = normalizeAssistantPhase(payload.phase);
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.conversationId !== mapping.conversationId) return c;
+                const lines = [...c.lines];
+                let updated = false;
+
+                for (let i = lines.length - 1; i >= 0; i -= 1) {
+                  const line = lines[i];
+                  if (line.kind !== 'assistant') continue;
+                  const assistant = line as AssistantLine;
+                  if (assistant.requestId !== requestId || assistant.status !== 'draft') continue;
+                  if (phase && assistant.phase && assistant.phase !== phase) continue;
+                  lines[i] = {
+                    ...assistant,
+                    text: messageText || assistant.text,
+                    responseId: payload.responseId || assistant.responseId,
+                    phase: phase ?? assistant.phase,
+                    status: 'done' as const,
+                  };
+                  updated = true;
+                  break;
+                }
+
+                if (!updated) {
+                  lines.push({
+                    kind: 'assistant' as const,
+                    id: `asst-${requestId}-${payload.eventIndex || Date.now()}`,
+                    ts: Date.now(),
+                    requestId: requestId || '',
+                    responseId: payload.responseId || '',
+                    phase,
+                    text: messageText,
+                    status: 'done' as const,
+                  });
+                }
+
+                return {
+                  ...c,
+                  lines,
+                  lastMessagePreview: messageText || c.lastMessagePreview,
+                  messageCount: countVisibleMessages(lines),
+                  isLoaded: true,
+                };
               })
             );
             return;
@@ -671,13 +695,13 @@ export default function App() {
               prev.map((c) => {
                 if (c.conversationId !== mapping.conversationId) return c;
                 const lines = c.lines.map((l) => {
-                  if (l.kind === 'assistant' && l.id === `asst-${requestId}`) {
-                    const finalText = payload.delta && String(payload.delta).trim()
-                      ? String(payload.delta)
-                      : String((l as AssistantLine).text || '');
+                  if (
+                    l.kind === 'assistant' &&
+                    l.requestId === requestId &&
+                    (l as AssistantLine).phase === 'final_answer'
+                  ) {
                     return {
                       ...l,
-                      text: finalText,
                       responseId: payload.responseId || (l as AssistantLine).responseId,
                       status: 'done' as const,
                     } satisfies AssistantLine;
@@ -686,18 +710,28 @@ export default function App() {
                 });
                 // If no assistant line exists yet (e.g. simple reply with no text),
                 // create one with the final text.
-                const hasAssistant = lines.some((l) => l.kind === 'assistant' && l.requestId === requestId);
+                const finalText =
+                  payload.delta && String(payload.delta).trim() ? String(payload.delta) : '';
+                const hasAssistant = lines.some(
+                  (l) =>
+                    l.kind === 'assistant' &&
+                    l.requestId === requestId &&
+                    (l as AssistantLine).phase === 'final_answer'
+                );
                 const finalLines = hasAssistant
                   ? lines
+                  : !finalText
+                    ? lines
                   : [
                       ...lines,
                       {
                         kind: 'assistant' as const,
-                        id: `asst-${requestId}`,
+                        id: `asst-${requestId}-final`,
                         ts: Date.now(),
                         requestId: requestId || '',
                         responseId: payload.responseId || '',
-                        text: payload.delta && String(payload.delta).trim() ? String(payload.delta) : '',
+                        phase: 'final_answer' as const,
+                        text: finalText,
                         status: 'done' as const,
                       } satisfies AssistantLine,
                     ];
@@ -705,7 +739,7 @@ export default function App() {
                   {
                     ...c,
                     lines: finalLines,
-                    lastMessagePreview: typeof payload.delta === 'string' ? payload.delta : c.lastMessagePreview,
+                    lastMessagePreview: finalText || c.lastMessagePreview,
                     messageCount: countVisibleMessages(finalLines),
                     isLoaded: true,
                   },
@@ -909,6 +943,7 @@ export default function App() {
                 ...l,
                 text: response.outputText || (l as AssistantLine).text || (wasStopped ? '已停止' : ''),
                 responseId: response.responseId || (l as AssistantLine).responseId,
+                phase: (l as AssistantLine).phase ?? 'final_answer',
                 status: 'done' as const,
               } satisfies AssistantLine;
             }
@@ -942,6 +977,7 @@ export default function App() {
               return {
                 ...l,
                 text: '',
+                phase: (l as AssistantLine).phase,
                 status: 'done' as const,
               } satisfies AssistantLine;
             }

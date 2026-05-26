@@ -3,6 +3,7 @@ use super::paths::{conversation_messages_path, conversation_metadata_path, list_
 use super::types::{
     ConversationDetail, ConversationLine, ConversationSummary, TitleGenerationCandidate,
 };
+use crate::message_phase::AssistantPhase;
 
 // ── List all conversations ────────────────────────────────────────────────
 
@@ -64,7 +65,9 @@ pub fn load_title_generation_candidate(
                     user_text = Some(text.to_string());
                 }
             }
-            ConversationLine::Assistant(a) if assistant_text.is_none() => {
+            ConversationLine::Assistant(a)
+                if assistant_text.is_none() && a.phase == AssistantPhase::FinalAnswer =>
+            {
                 let text = a.text.trim();
                 if !text.is_empty() {
                     assistant_text = Some(text.to_string());

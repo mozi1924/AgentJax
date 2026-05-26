@@ -5,6 +5,7 @@ use super::tool_parsing::{describe_item_shape, extract_active_tool_names};
 use super::AgentRuntime;
 use crate::commands::chat::ChatRequest;
 use crate::config::AppConfig;
+use crate::message_phase::AssistantPhase;
 use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
 use crate::tools::{ToolCatalog, ToolExecutionContext};
 use serde_json::Value;
@@ -45,6 +46,37 @@ impl TurnAccumulator {
     fn absorb_continuation_batch(&mut self, items: &[Value]) {
         self.output_items.extend(items.iter().cloned());
     }
+}
+
+fn extract_assistant_messages_from_items(items: &[Value]) -> Vec<(String, Option<AssistantPhase>)> {
+    items.iter()
+        .filter(|item| {
+            item.get("type").and_then(Value::as_str) == Some("message")
+                && item.get("role").and_then(Value::as_str) == Some("assistant")
+        })
+        .filter_map(|item| {
+            let text = item
+                .get("content")
+                .and_then(Value::as_array)
+                .map(|content| {
+                    content
+                        .iter()
+                        .filter_map(|part| part.get("text").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                        .join("")
+                })
+                .unwrap_or_default();
+            if text.trim().is_empty() {
+                return None;
+            }
+            Some((
+                text,
+                item.get("phase")
+                    .and_then(Value::as_str)
+                    .and_then(AssistantPhase::from_api_value),
+            ))
+        })
+        .collect()
 }
 
 // ── Request builder ───────────────────────────────────────────────────────
@@ -171,9 +203,9 @@ impl AgentRuntime {
         let mut accumulator = TurnAccumulator::new();
         let mut accumulated_context: Vec<Value> = Vec::new();
         let mut repeated_failed_tool_signatures = std::collections::HashMap::new();
+        let mut final_output_text = String::new();
         let mut turn_idx = 0usize;
         let max_turns = 10usize;
-        let mut working_started = false;
 
         // ── Build the initial input (history + current user message) ──────
         // This is the *base* context that every subsequent continuation
@@ -220,27 +252,48 @@ impl AgentRuntime {
 
             accumulator.record_hop(&collected.response_result);
 
-            // ── Emit this hop's assistant text ───────────────────────────
             let is_final_hop = collected.pending_tools.is_empty();
-            if !collected.response_result.output_text.is_empty() {
+            let hop_messages = extract_assistant_messages_from_items(&collected.response_result.output_items);
+            if hop_messages.is_empty() && !collected.response_result.output_text.is_empty() {
+                let phase = if is_final_hop {
+                    AssistantPhase::FinalAnswer
+                } else {
+                    AssistantPhase::Commentary
+                };
                 on_event(ProviderStreamEvent::HopAssistantText {
                     text: collected.response_result.output_text.clone(),
-                    is_final: is_final_hop,
+                    phase,
+                    response_id: collected.response_result.response_id.clone(),
                 })?;
+                if phase == AssistantPhase::FinalAnswer {
+                    final_output_text = collected.response_result.output_text.clone();
+                }
+            } else {
+                for (text, phase) in hop_messages {
+                    let resolved_phase = phase.unwrap_or_else(|| {
+                        if is_final_hop {
+                            AssistantPhase::FinalAnswer
+                        } else {
+                            AssistantPhase::Commentary
+                        }
+                    });
+                    on_event(ProviderStreamEvent::HopAssistantText {
+                        text: text.clone(),
+                        phase: resolved_phase,
+                        response_id: collected.response_result.response_id.clone(),
+                    })?;
+                    if resolved_phase == AssistantPhase::FinalAnswer {
+                        final_output_text = text;
+                    }
+                }
             }
 
             // ── No tools → final response reached ─────────────────────────
             if is_final_hop {
-                if working_started {
-                    on_event(ProviderStreamEvent::WorkingDone)?;
+                if final_output_text.is_empty() {
+                    final_output_text = collected.response_result.output_text.clone();
                 }
                 break;
-            }
-
-            // ── Emit WorkingStarted on the first tool hop ─────────────────
-            if !working_started {
-                working_started = true;
-                on_event(ProviderStreamEvent::WorkingStarted)?;
             }
 
             // ── Execute pending tools locally ─────────────────────────────
@@ -305,8 +358,7 @@ impl AgentRuntime {
         // The final result carries only output_items for the caller.
         let final_res = ResponseStreamResult {
             response_id: accumulator.last_response_id,
-            output_text: String::new(),
-            working_text: String::new(),
+            output_text: final_output_text,
             output_items: accumulator.output_items,
             provider_key: resolved_model.provider_key.clone(),
             model_profile: resolved_model.profile_key.clone(),

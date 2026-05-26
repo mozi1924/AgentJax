@@ -9,8 +9,6 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-const MAX_CONTEXT_ITEMS_PER_REQUEST: usize = 200;
-
 use std::path::PathBuf;
 
 pub use context::load_context_for_request;
@@ -24,9 +22,9 @@ pub use paths::conversation_dir_path;
 pub use queries::{list_conversations, load_conversation, load_title_generation_candidate};
 pub use recovery::build_recovery_developer_note;
 pub use types::{
-    AppendLineInput, AssistantLine, AssistantStatus, ConversationContext, ConversationDetail,
-    ConversationLine, ConversationMeta, ConversationSummary, TitleGenerationCandidate, ToolLine,
-    ToolStatus, UpdateLineInput, UserLine, WorkingMarkerLine,
+    AppendLineInput, AssistantLine, AssistantStatus, ConversationDetail, ConversationLine,
+    ConversationSummary, TitleGenerationCandidate, ToolLine, ToolStatus, UpdateLineInput,
+    UserLine,
 };
 
 /// Generate a new unique conversation id.

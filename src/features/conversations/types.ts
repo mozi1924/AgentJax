@@ -1,8 +1,9 @@
 export type ConversationTitleSource = 'pending' | 'manual' | 'stored';
+export type AssistantPhase = 'commentary' | 'final_answer';
 
 // ── Conversation lines (matches backend tagged union) ─────────────────────
 
-export type ConversationLine = UserLine | WorkingMarkerLine | ToolLine | AssistantLine;
+export type ConversationLine = UserLine | ToolLine | AssistantLine;
 
 export interface UserLine {
   kind: 'user';
@@ -10,13 +11,6 @@ export interface UserLine {
   ts: number;
   requestId: string;
   text: string;
-}
-
-export interface WorkingMarkerLine {
-  kind: 'working_start' | 'working_done';
-  id: string;
-  ts: number;
-  requestId: string;
 }
 
 export interface ToolLine {
@@ -37,6 +31,7 @@ export interface AssistantLine {
   ts: number;
   requestId: string;
   responseId: string;
+  phase: AssistantPhase | null;
   text: string;
   status: 'draft' | 'done';
 }
@@ -146,8 +141,8 @@ export interface ChatStreamEventPayload {
   toolName?: string;
   toolArguments?: string;
   toolOutput?: string;
-  /** Phase hint for 'delta' events: 'working' | 'final'. */
-  phase?: string;
+  /** Phase hint for assistant text events. */
+  phase?: AssistantPhase | null;
 }
 
 interface RawToolCallTimelineEvent {

@@ -15,7 +15,7 @@ use crate::config;
 use crate::conversation_store;
 use crate::tools::ToolCatalog;
 use chat_events::{emit_mapped_stream_event, next_event_index, ChatStreamEvent};
-use chat_persistence::{persist_hop_assistant_line, persist_tool_progress_event, persist_working_marker};
+use chat_persistence::{persist_hop_assistant_line, persist_tool_progress_event};
 use chat_title::schedule_title_generation;
 use chat_utils::{chrono_like_now_id, now_unix_ms, run_blocking};
 use tauri::{Emitter, Manager, State};
@@ -151,24 +151,16 @@ pub async fn chat_stream(
                         Some(output),
                     );
                 }
-                crate::providers::types::ProviderStreamEvent::WorkingStarted => {
-                    let _ = persist_working_marker(
-                        &callback_conversation_id,
-                        &callback_request_id,
-                        "working_start",
-                    );
-                }
-                crate::providers::types::ProviderStreamEvent::WorkingDone => {
-                    let _ = persist_working_marker(
-                        &callback_conversation_id,
-                        &callback_request_id,
-                        "working_done",
-                    );
-                }
-                crate::providers::types::ProviderStreamEvent::HopAssistantText { text, is_final: _ } => {
+                crate::providers::types::ProviderStreamEvent::HopAssistantText {
+                    text,
+                    phase,
+                    response_id,
+                } => {
                     let _ = persist_hop_assistant_line(
                         &callback_conversation_id,
                         &callback_request_id,
+                        response_id,
+                        *phase,
                         text,
                     );
                 }
@@ -200,8 +192,8 @@ pub async fn chat_stream(
 
     let conversation_title: Option<String> = None;
     if !registry.is_conversation_deleted(&conversation_id)? {
-        // Per-hop assistant lines and working markers were already persisted
-        // during streaming via HopAssistantText / WorkingStarted / WorkingDone.
+        // Per-hop assistant lines were already persisted during streaming via
+        // phase-aware HopAssistantText events.
         // No separate final persist needed.
 
         schedule_title_generation(
@@ -230,7 +222,6 @@ pub async fn chat_stream(
                 tool_arguments: None,
                 tool_output: None,
                 phase: None,
-                working_text: None,
             },
         )
         .map_err(|e| format!("Failed to emit stream done event: {e}"))?;

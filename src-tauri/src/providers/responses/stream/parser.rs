@@ -2,12 +2,14 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use crate::message_phase::AssistantPhase;
 use crate::providers::types::{ProviderEventSink, ProviderStreamEvent};
 
 pub(crate) struct ParserState {
     pub emitted_reasoning_started: bool,
     pub emitted_output_started: bool,
     pub active_tools_map: HashMap<String, String>,
+    pub assistant_message_phase_by_item: HashMap<String, AssistantPhase>,
     pub completed_tool_calls: Vec<String>,
 }
 
@@ -160,8 +162,15 @@ pub(crate) fn handle_stream_event_json(
                 state.emitted_output_started = true;
                 on_delta(ProviderStreamEvent::OutputTextStarted)?;
             }
+            let phase = value
+                .get("item_id")
+                .and_then(Value::as_str)
+                .and_then(|item_id| state.assistant_message_phase_by_item.get(item_id).copied());
             output_text.push_str(delta);
-            on_delta(ProviderStreamEvent::OutputTextDelta(delta.to_string()))?;
+            on_delta(ProviderStreamEvent::OutputTextDelta {
+                delta: delta.to_string(),
+                phase,
+            })?;
         }
     }
 
@@ -178,6 +187,21 @@ pub(crate) fn handle_stream_event_json(
     if event_type == "response.output_item.added" {
         if let Some(item) = value.get("item") {
             let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+            if item_type == "message"
+                && item.get("role").and_then(Value::as_str) == Some("assistant")
+            {
+                if let Some(item_id) = item.get("id").and_then(Value::as_str) {
+                    if let Some(phase) = item
+                        .get("phase")
+                        .and_then(Value::as_str)
+                        .and_then(AssistantPhase::from_api_value)
+                    {
+                        state
+                            .assistant_message_phase_by_item
+                            .insert(item_id.to_string(), phase);
+                    }
+                }
+            }
             if item_type == "function_call" {
                 let item_id = item
                     .get("id")
@@ -273,6 +297,21 @@ pub(crate) fn handle_stream_event_json(
     if event_type == "response.output_item.done" {
         if let Some(item) = value.get("item") {
             let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+            if item_type == "message"
+                && item.get("role").and_then(Value::as_str) == Some("assistant")
+            {
+                if let Some(item_id) = item.get("id").and_then(Value::as_str) {
+                    if let Some(phase) = item
+                        .get("phase")
+                        .and_then(Value::as_str)
+                        .and_then(AssistantPhase::from_api_value)
+                    {
+                        state
+                            .assistant_message_phase_by_item
+                            .insert(item_id.to_string(), phase);
+                    }
+                }
+            }
             if item_type == "function_call" {
                 let item_id = item
                     .get("id")
@@ -326,38 +365,70 @@ pub(crate) fn extract_output_items(root: &Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-pub(crate) fn extract_output_text(root: &Value) -> String {
-    if let Some(s) = root.get("output_text").and_then(Value::as_str) {
-        return s.to_string();
-    }
+#[derive(Debug, Clone)]
+pub(crate) struct AssistantMessageChunk {
+    pub text: String,
+    pub phase: Option<AssistantPhase>,
+}
 
-    if let Some(arr) = root.get("output_text").and_then(Value::as_array) {
-        let joined = arr
-            .iter()
-            .filter_map(value_to_text)
-            .collect::<Vec<_>>()
-            .join("");
-        if !joined.is_empty() {
-            return joined;
-        }
-    }
+pub(crate) fn extract_assistant_messages(root: &Value) -> Vec<AssistantMessageChunk> {
+    let Some(output) = root.get("output").and_then(Value::as_array) else {
+        return Vec::new();
+    };
 
-    if let Some(output) = root.get("output").and_then(Value::as_array) {
-        let mut chunks = Vec::new();
-        for item in output {
-            if let Some(content) = item.get("content").and_then(Value::as_array) {
-                for c in content {
-                    if let Some(text) = c.get("text").and_then(Value::as_str) {
-                        chunks.push(text.to_string());
-                    }
-                }
-            } else if let Some(text) = item.get("text").and_then(Value::as_str) {
-                chunks.push(text.to_string());
+    output
+        .iter()
+        .filter(|item| {
+            item.get("type").and_then(Value::as_str) == Some("message")
+                && item.get("role").and_then(Value::as_str) == Some("assistant")
+        })
+        .filter_map(|item| {
+            let text = item
+                .get("content")
+                .and_then(Value::as_array)
+                .map(|content| {
+                    content
+                        .iter()
+                        .filter_map(|part| part.get("text").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                        .join("")
+                })
+                .unwrap_or_default();
+            if text.trim().is_empty() {
+                return None;
             }
-        }
-        if !chunks.is_empty() {
-            return chunks.join("");
-        }
+            Some(AssistantMessageChunk {
+                text,
+                phase: item
+                    .get("phase")
+                    .and_then(Value::as_str)
+                    .and_then(AssistantPhase::from_api_value),
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn extract_final_output_text(root: &Value) -> String {
+    let assistant_messages = extract_assistant_messages(root);
+    if let Some(final_text) = assistant_messages
+        .iter()
+        .rev()
+        .find(|message| message.phase == Some(AssistantPhase::FinalAnswer))
+        .map(|message| message.text.clone())
+    {
+        return final_text;
+    }
+
+    assistant_messages
+        .last()
+        .map(|message| message.text.clone())
+        .unwrap_or_default()
+}
+
+pub(crate) fn extract_output_text(root: &Value) -> String {
+    let final_output_text = extract_final_output_text(root);
+    if !final_output_text.is_empty() {
+        return final_output_text;
     }
 
     if let Some(choices) = root.get("choices").and_then(Value::as_array) {

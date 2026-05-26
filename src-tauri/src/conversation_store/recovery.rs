@@ -1,6 +1,7 @@
 use super::file_io::read_conversation_file;
 use super::paths::{conversation_messages_path, conversation_metadata_path};
 use super::types::{AssistantStatus, ConversationLine, ToolStatus};
+use crate::message_phase::AssistantPhase;
 use serde_json::{json, Value};
 
 /// Check whether the most recent request in this conversation completed
@@ -31,7 +32,7 @@ pub fn build_recovery_developer_note(conversation_id: &str) -> Result<Option<Val
     let mut has_user = false;
     let mut unresolved: Vec<Value> = Vec::new();
     let mut completed: Vec<Value> = Vec::new();
-    let mut has_assistant_done = false;
+    let mut has_final_answer_done = false;
     let mut has_assistant_draft = false;
 
     for line in &data.lines {
@@ -57,11 +58,15 @@ pub fn build_recovery_developer_note(conversation_id: &str) -> Result<Option<Val
                     }));
                 }
             },
-            ConversationLine::Assistant(a) => match a.status {
-                AssistantStatus::Draft => has_assistant_draft = true,
-                AssistantStatus::Done => has_assistant_done = true,
-            },
-            _ => {}
+            ConversationLine::Assistant(a) => {
+                if a.phase != AssistantPhase::FinalAnswer {
+                    continue;
+                }
+                match a.status {
+                    AssistantStatus::Draft => has_assistant_draft = true,
+                    AssistantStatus::Done => has_final_answer_done = true,
+                }
+            }
         }
     }
 
@@ -70,7 +75,7 @@ pub fn build_recovery_developer_note(conversation_id: &str) -> Result<Option<Val
     }
 
     // Already done — nothing to recover.
-    if has_assistant_done && unresolved.is_empty() {
+    if has_final_answer_done && unresolved.is_empty() {
         return Ok(None);
     }
 
@@ -90,7 +95,7 @@ pub fn build_recovery_developer_note(conversation_id: &str) -> Result<Option<Val
         "recovery_type": "unfinished_turn",
         "request_id": last_request_id,
         "interruption_reason": interruption_reason,
-        "assistant_message_missing": !has_assistant_done,
+        "assistant_message_missing": !has_final_answer_done,
         "completed_tool_calls": completed,
         "unresolved_tool_calls": unresolved,
     });
@@ -114,7 +119,7 @@ pub fn build_recovery_developer_note(conversation_id: &str) -> Result<Option<Val
             unresolved.len()
         ));
     }
-    if !has_assistant_done {
+    if !has_final_answer_done {
         note_parts.push(
             "No final assistant response was saved. Continue from the current state and produce a complete answer. "
                 .to_string(),

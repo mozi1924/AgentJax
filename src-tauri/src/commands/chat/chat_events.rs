@@ -18,14 +18,9 @@ pub struct ChatStreamEvent {
     pub tool_arguments: Option<String>,
     pub tool_output: Option<String>,
     /// When `kind == "delta"`, signals whether this text belongs to the
-    /// working phase (`"working"`) or the final answer (`"final"`).
-    /// Absent for legacy or non-text events.
+    /// commentary phase or the final answer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phase: Option<String>,
-    /// When `kind == "done"`, carries the assistant's intermediate
-    /// commentary text (if any was spoken during tool-execution hops).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub working_text: Option<String>,
 }
 
 pub fn next_event_index(current: &mut u64) -> u64 {
@@ -54,7 +49,6 @@ pub fn emit_mapped_stream_event(
         tool_arguments: None,
         tool_output: None,
         phase: None,
-        working_text: None,
     };
 
     match event {
@@ -64,15 +58,10 @@ pub fn emit_mapped_stream_event(
         ProviderStreamEvent::OutputTextStarted => {
             chat_event.kind = "output_started".to_string();
         }
-        ProviderStreamEvent::OutputTextDelta(delta) => {
+        ProviderStreamEvent::OutputTextDelta { delta, phase } => {
             chat_event.kind = "delta".to_string();
             chat_event.delta = Some(delta);
-        }
-        ProviderStreamEvent::WorkingStarted => {
-            chat_event.kind = "working_started".to_string();
-        }
-        ProviderStreamEvent::WorkingDone => {
-            chat_event.kind = "working_done".to_string();
+            chat_event.phase = phase.map(|phase| phase.as_str().to_string());
         }
         ProviderStreamEvent::ToolCallStarted {
             item_id: _,
@@ -109,10 +98,17 @@ pub fn emit_mapped_stream_event(
             chat_event.tool_name = Some(name);
             chat_event.tool_output = Some(output);
         }
-        ProviderStreamEvent::HopAssistantText { .. } => {
-            // Per-hop text is persisted by chat.rs callback; no separate
-            // frontend event needed — the text already arrived via OutputTextDelta.
-            return Ok(());
+        ProviderStreamEvent::HopAssistantText {
+            text,
+            phase,
+            response_id,
+        } => {
+            chat_event.kind = "assistant_message".to_string();
+            chat_event.delta = Some(text);
+            chat_event.phase = Some(phase.as_str().to_string());
+            if !response_id.trim().is_empty() {
+                chat_event.response_id = Some(response_id);
+            }
         }
         ProviderStreamEvent::ResponseCompleted => {
             return Ok(());

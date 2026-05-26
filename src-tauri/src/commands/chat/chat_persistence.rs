@@ -1,6 +1,6 @@
-use super::chat_utils::{now_unix_ms, run_blocking};
-use crate::conversation_store::{self, AssistantLine, AssistantStatus, ConversationLine, ToolLine, ToolStatus, WorkingMarkerLine};
-use crate::providers::types::ResponseStreamResult;
+use super::chat_utils::now_unix_ms;
+use crate::conversation_store::{self, AssistantLine, AssistantStatus, ConversationLine, ToolLine, ToolStatus};
+use crate::message_phase::AssistantPhase;
 use serde_json::Value;
 
 /// Persist a tool-call event during streaming.  Called from the provider
@@ -78,39 +78,13 @@ pub fn persist_tool_progress_event(
     }
 }
 
-/// Persist a `working_start` or `working_done` marker line.
-pub fn persist_working_marker(
-    conversation_id: &str,
-    request_id: &str,
-    marker_kind: &str,
-) -> Result<(), String> {
-    let ts = now_unix_ms();
-    match marker_kind {
-        "working_start" => conversation_store::append_line(conversation_store::AppendLineInput {
-            conversation_id: conversation_id.to_string(),
-            line: ConversationLine::WorkingStart(WorkingMarkerLine {
-                id: format!("ws-{request_id}"),
-                ts,
-                request_id: request_id.to_string(),
-            }),
-        }),
-        "working_done" => conversation_store::append_line(conversation_store::AppendLineInput {
-            conversation_id: conversation_id.to_string(),
-            line: ConversationLine::WorkingDone(WorkingMarkerLine {
-                id: format!("wd-{request_id}"),
-                ts,
-                request_id: request_id.to_string(),
-            }),
-        }),
-        _ => Ok(()),
-    }
-}
-
 /// Persist a per-hop assistant text line.
 /// Called for every model-response hop — both commentary (working) and final.
 pub fn persist_hop_assistant_line(
     conversation_id: &str,
     request_id: &str,
+    response_id: &str,
+    phase: AssistantPhase,
     text: &str,
 ) -> Result<(), String> {
     let text = text.trim().to_string();
@@ -122,7 +96,8 @@ pub fn persist_hop_assistant_line(
         id: format!("asst-{request_id}-{}", ts),
         ts,
         request_id: request_id.to_string(),
-        response_id: String::new(), // filled by final persist if needed
+        response_id: response_id.to_string(),
+        phase,
         text,
         status: AssistantStatus::Done,
     });
@@ -130,44 +105,4 @@ pub fn persist_hop_assistant_line(
         conversation_id: conversation_id.to_string(),
         line,
     })
-}
-
-/// Persist the final assistant response after a turn completes.
-/// Writes a single `AssistantLine` with the accumulated text.
-
-pub async fn persist_completed_exchange(
-    conversation_id: &str,
-    request_id: &str,
-    response: &ResponseStreamResult,
-) -> Result<(), String> {
-    let conversation_id = conversation_id.to_string();
-    let request_id = request_id.to_string();
-    let text = response.output_text.trim().to_string();
-    let response_id = response.response_id.clone();
-    let ts = now_unix_ms();
-
-    log::info!(
-        "persist_completed_exchange: conv={} req={} text_len={} resp_id={}",
-        conversation_id,
-        request_id,
-        text.len(),
-        response_id
-    );
-
-    let line = ConversationLine::Assistant(AssistantLine {
-        id: format!("asst-{request_id}"),
-        ts,
-        request_id: request_id.clone(),
-        response_id,
-        text,
-        status: AssistantStatus::Done,
-    });
-
-    run_blocking(move || {
-        conversation_store::append_line(conversation_store::AppendLineInput {
-            conversation_id,
-            line,
-        })
-    })
-    .await
 }

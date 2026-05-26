@@ -1,8 +1,11 @@
 use super::*;
 use crate::agentjax_home::AGENTJAX_HOME_ENV;
 use crate::conversation_store_utils::now_unix_ms;
+use crate::message_phase::AssistantPhase;
 use serde_json::json;
 use uuid::Uuid;
+
+const TEST_MAX_CONTEXT_ITEMS_PER_REQUEST: usize = 200;
 
 struct TestHomeGuard {
     home: std::path::PathBuf,
@@ -23,8 +26,23 @@ fn setup_test_home() -> TestHomeGuard {
 fn u(id: &str, req: &str, text: &str) -> ConversationLine {
     ConversationLine::User(UserLine { id: id.into(), ts: now_unix_ms(), request_id: req.into(), text: text.into() })
 }
-fn a(id: &str, req: &str, resp: &str, text: &str, st: AssistantStatus) -> ConversationLine {
-    ConversationLine::Assistant(AssistantLine { id: id.into(), ts: now_unix_ms(), request_id: req.into(), response_id: resp.into(), text: text.into(), status: st })
+fn a(
+    id: &str,
+    req: &str,
+    resp: &str,
+    phase: AssistantPhase,
+    text: &str,
+    st: AssistantStatus,
+) -> ConversationLine {
+    ConversationLine::Assistant(AssistantLine {
+        id: id.into(),
+        ts: now_unix_ms(),
+        request_id: req.into(),
+        response_id: resp.into(),
+        phase,
+        text: text.into(),
+        status: st,
+    })
 }
 fn t(id: &str, req: &str, call: &str, name: &str, args: serde_json::Value, out: Option<serde_json::Value>, st: ToolStatus) -> ConversationLine {
     ConversationLine::Tool(ToolLine { id: id.into(), ts: now_unix_ms(), request_id: req.into(), call_id: call.into(), name: name.into(), args, output: out, status: st })
@@ -49,7 +67,7 @@ fn load_context_merges_user_and_assistant() {
     let cid = format!("tc-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
     append_line(AppendLineInput { conversation_id: cid.clone(), line: u("u1","r1","hi") }).expect("u");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: a("a1","r1","resp1","hey",AssistantStatus::Done) }).expect("a");
+    append_line(AppendLineInput { conversation_id: cid.clone(), line: a("a1","r1","resp1",AssistantPhase::FinalAnswer,"hey",AssistantStatus::Done) }).expect("a");
     let ctx = load_context_for_request(&cid).expect("ctx");
     assert!(ctx.input_items.len() >= 2);
     assert!(ctx.input_items.iter().any(|i| i.get("role").and_then(|v| v.as_str()) == Some("user")));
@@ -96,7 +114,7 @@ fn load_context_truncates_without_splitting_tool_pairs() {
     }
     append_line(AppendLineInput { conversation_id: cid.clone(), line: t("ttail","r1","call_tail","x",json!({}),Some(json!({"ok":true})),ToolStatus::Done) }).expect("t");
     let ctx = load_context_for_request(&cid).expect("ctx");
-    assert!(ctx.input_items.len() <= MAX_CONTEXT_ITEMS_PER_REQUEST);
+    assert!(ctx.input_items.len() <= TEST_MAX_CONTEXT_ITEMS_PER_REQUEST);
     assert!(ctx.input_items.iter().any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("call_tail")));
     delete_conversation(&cid).ok();
 }
@@ -125,7 +143,7 @@ fn load_conversation_returns_all_lines() {
     ensure_conversation(&cid).expect("ensure");
     append_line(AppendLineInput { conversation_id: cid.clone(), line: u("u1","r1","hi") }).expect("u");
     append_line(AppendLineInput { conversation_id: cid.clone(), line: t("t1","r1","c1","s",json!({"q":"x"}),Some(json!({"ok":true})),ToolStatus::Done) }).expect("t");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: a("a1","r1","resp1","done",AssistantStatus::Done) }).expect("a");
+    append_line(AppendLineInput { conversation_id: cid.clone(), line: a("a1","r1","resp1",AssistantPhase::FinalAnswer,"done",AssistantStatus::Done) }).expect("a");
     let d = load_conversation(&cid).expect("load").expect("detail");
     assert_eq!(d.lines.len(), 3);
     assert!(d.lines.iter().any(|l| matches!(l, ConversationLine::Tool(tl) if tl.call_id == "c1")));
@@ -150,7 +168,7 @@ fn fault_injection_recovery_clears_after_completion() {
 
     // resume: update tool → done, then assistant
     update_line(UpdateLineInput { conversation_id: cid.clone(), line_id: "t1".into(), line: t("t1","req-f","call_f_1","s",json!({"q":"x"}),Some(json!({"ok":true})),ToolStatus::Done) }).expect("upd");
-    append_line(AppendLineInput { conversation_id: cid.clone(), line: a("a1","req-f","resp-f","found",AssistantStatus::Done) }).expect("a");
+    append_line(AppendLineInput { conversation_id: cid.clone(), line: a("a1","req-f","resp-f",AssistantPhase::FinalAnswer,"found",AssistantStatus::Done) }).expect("a");
 
     let note2 = build_recovery_developer_note(&cid).expect("note2");
     assert!(note2.is_none(), "recovery note should be None after completion");
