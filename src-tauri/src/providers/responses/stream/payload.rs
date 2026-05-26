@@ -71,14 +71,10 @@ pub(crate) fn build_streaming_request_payload(
     if let Some(generate) = req.generate {
         payload["generate"] = Value::Bool(generate);
     }
-    if let Some(prev_id) = req
-        .previous_response_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        payload["previous_response_id"] = Value::String(prev_id.to_string());
-    }
+    // previous_response_id is intentionally NOT sent because store=false:
+    // the API cannot resolve prior response items when nothing is persisted,
+    // and would return an error like "Item with id 'rs_xxx' not found".
+    // The full accumulated input items are always replayed locally instead.
 
     payload
 }
@@ -263,6 +259,35 @@ mod tests {
             Some(true)
         );
     }
+
+    #[test]
+    fn payload_never_sends_previous_response_id() {
+        // previous_response_id must NEVER appear in the payload because
+        // store=false means the API cannot resolve prior response items.
+        // Sending it would cause "Item with id 'rs_xxx' not found" errors.
+        let resolved = ResolvedModelConfig {
+            profile_key: "test".to_string(),
+            provider_key: "openai-responses".to_string(),
+            provider: ProviderConfig::default(),
+            model_id: "gpt-5-mini".to_string(),
+            model_ref: "openai-responses/gpt-5-mini".to_string(),
+            system_prompt: "test prompt".to_string(),
+            request: ModelRequestConfig::default(),
+            timeout_seconds: 60,
+        };
+        let req = ResponseStreamRequest {
+            input_items: Vec::new(),
+            model: Some("gpt-5-mini".to_string()),
+            previous_response_id: Some("resp_should_be_ignored".to_string()),
+            ..Default::default()
+        };
+
+        let payload = build_streaming_request_payload(&resolved, &req, false);
+        assert!(
+            payload.get("previous_response_id").is_none(),
+            "previous_response_id must not appear in payload when store=false"
+        );
+    }
 }
 
 fn apply_model_request_config(
@@ -345,9 +370,21 @@ fn normalize_input_items_for_responses(items: &[Value]) -> Vec<Value> {
         }
     }
 
+    /// Strip the API-assigned `id` field from items that originated from a
+    /// previous `store=false` response.  When these items are replayed as
+    /// input the API must treat them as fresh inline items — not as
+    /// references to stored items that no longer exist.
+    fn strip_server_item_id(item: &mut Value) {
+        if let Some(obj) = item.as_object_mut() {
+            obj.remove("id");
+        }
+    }
+
     let mut normalized = Vec::with_capacity(items.len());
     for item in items {
         let mut cloned = item.clone();
+        strip_server_item_id(&mut cloned);
+
         let role = cloned
             .get("role")
             .and_then(Value::as_str)
@@ -363,6 +400,7 @@ fn normalize_input_items_for_responses(items: &[Value]) -> Vec<Value> {
                 // Backward-compat: older runtime versions wrapped output items as assistant message
                 // content. Responses input expects these as top-level items.
                 if role.as_deref() == Some("assistant") && is_legacy_output_item_type(part_type) {
+                    strip_server_item_id(&mut part);
                     extracted_output_items.push(part);
                     continue;
                 }
@@ -424,6 +462,35 @@ mod normalization_tests {
         assert_eq!(
             normalized[0].get("call_id").and_then(|v| v.as_str()),
             Some("call_1")
+        );
+        // API-assigned `id` must be stripped so the item is treated as a
+        // fresh inline item — not a reference to a stored item that no
+        // longer exists (store=false).
+        assert!(
+            normalized[0].get("id").is_none(),
+            "server-assigned id should be stripped from input items"
+        );
+    }
+
+    #[test]
+    fn strips_server_id_from_top_level_output_items() {
+        let input = vec![json!({
+            "type": "function_call",
+            "id": "rs_abc123",
+            "call_id": "call_2",
+            "name": "search",
+            "arguments": "{\"q\":\"test\"}"
+        })];
+
+        let normalized = normalize_input_items_for_responses(&input);
+        assert_eq!(normalized.len(), 1);
+        assert!(
+            normalized[0].get("id").is_none(),
+            "top-level output item id should be stripped"
+        );
+        assert_eq!(
+            normalized[0].get("call_id").and_then(|v| v.as_str()),
+            Some("call_2")
         );
     }
 }
