@@ -41,7 +41,7 @@ import {
   normalizeModelOption,
   resolveConfiguredDefaultOptionProfileKey,
 } from './features/models/modelCatalog';
-import type { SettingsSnapshotEvent } from './features/settings/types';
+import type { SettingsSnapshot, SettingsSnapshotEvent } from './features/settings/types';
 import { useComposerMeasurements } from './hooks/useComposerMeasurements';
 import { useContextMenuGuard } from './hooks/useContextMenuGuard';
 import { useTitlebarDragging } from './hooks/useTitlebarDragging';
@@ -128,6 +128,10 @@ const parseAdvancedRequestOptions = (raw: string): ChatRequestOptions => {
   return out;
 };
 
+const resolveShowAdvancedRequestOptionsButton = (
+  values: Record<string, unknown> | undefined
+): boolean => values?.show_advanced_request_options === true;
+
 export default function App() {
   const initialConversation = useMemo(() => createLocalConversation(), []);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -138,6 +142,7 @@ export default function App() {
   const [configPath, setConfigPath] = useState('');
   const [cachePath, setCachePath] = useState('');
   const [input, setInput] = useState('');
+  const [showAdvancedRequestOptionsButton, setShowAdvancedRequestOptionsButton] = useState(false);
   const [advancedRequestOptionsInput, setAdvancedRequestOptionsInput] = useState('');
   const [advancedRequestOptionsError, setAdvancedRequestOptionsError] = useState<string | null>(
     null
@@ -351,6 +356,25 @@ export default function App() {
       mounted = false;
     };
   }, [refreshModelCatalog]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    invoke<SettingsSnapshot>('get_settings_snapshot')
+      .then((snapshot) => {
+        if (!mounted) {
+          return;
+        }
+        setShowAdvancedRequestOptionsButton(
+          resolveShowAdvancedRequestOptionsButton(snapshot.values)
+        );
+      })
+      .catch(() => {});
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -649,8 +673,11 @@ export default function App() {
       const currentWindow = getCurrentWindow();
       unlisten = await currentWindow.listen<SettingsSnapshotEvent>(
         'config_snapshot_changed',
-        () => {
+        (event) => {
           if (disposed) return;
+          setShowAdvancedRequestOptionsButton(
+            resolveShowAdvancedRequestOptionsButton(event.payload.values)
+          );
           void refreshModelCatalog().catch(() => {});
         }
       );
@@ -690,16 +717,20 @@ export default function App() {
     if (!text || !activeConversation) return;
 
     let advancedRequestOptions: ChatRequestOptions = {};
-    try {
-      advancedRequestOptions = parseAdvancedRequestOptions(advancedRequestOptionsInput);
-      if (advancedRequestOptionsError) {
-        setAdvancedRequestOptionsError(null);
+    if (showAdvancedRequestOptionsButton) {
+      try {
+        advancedRequestOptions = parseAdvancedRequestOptions(advancedRequestOptionsInput);
+        if (advancedRequestOptionsError) {
+          setAdvancedRequestOptionsError(null);
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : '高级请求参数解析失败，请检查 JSON 格式。';
+        setAdvancedRequestOptionsError(message);
+        return;
       }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '高级请求参数解析失败，请检查 JSON 格式。';
-      setAdvancedRequestOptionsError(message);
-      return;
+    } else if (advancedRequestOptionsError) {
+      setAdvancedRequestOptionsError(null);
     }
 
     if (appendUserMessage) {
@@ -1208,6 +1239,7 @@ export default function App() {
                 <ChatComposer
                   input={input}
                   onInputChange={setInput}
+                  showAdvancedRequestOptionsButton={showAdvancedRequestOptionsButton}
                   advancedRequestOptionsInput={advancedRequestOptionsInput}
                   onAdvancedRequestOptionsInputChange={(value) => {
                     setAdvancedRequestOptionsInput(value);

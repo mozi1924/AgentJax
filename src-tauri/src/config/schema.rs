@@ -16,6 +16,7 @@ pub struct AppConfig {
     pub utility_small_model: String,
     pub system_prompt: String,
     pub request_timeout_seconds: u64,
+    pub show_advanced_request_options: bool,
     #[serde(default)]
     pub mcp_runtime: McpRuntimeConfig,
     #[serde(default)]
@@ -144,6 +145,7 @@ impl Default for AppConfig {
             utility_small_model: DEFAULT_UTILITY_SMALL_MODEL_REF.to_string(),
             system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
             request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
+            show_advanced_request_options: false,
             mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
         }

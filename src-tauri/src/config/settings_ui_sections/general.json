@@ -54,6 +54,15 @@
         },
         {
           "kind": "field",
+          "id": "show-advanced-request-options",
+          "title": "Show advanced request options",
+          "description": "启用后在消息输入框旁显示高级请求参数按钮。",
+          "path": "show_advanced_request_options",
+          "valueType": "boolean",
+          "control": "switch"
+        },
+        {
+          "kind": "field",
           "id": "system-prompt",
           "title": "System prompt",
           "description": "应用的全局默认系统提示词。",

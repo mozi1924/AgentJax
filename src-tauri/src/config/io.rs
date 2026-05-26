@@ -101,6 +101,7 @@ fn default_config_yaml() -> String {
             DEFAULT_UTILITY_SMALL_MODEL_REF
         ),
         &format!("request_timeout_seconds: {}", DEFAULT_TIMEOUT_SECONDS),
+        "show_advanced_request_options: false",
         &format!("system_prompt: \"{}\"", DEFAULT_SYSTEM_PROMPT),
         "",
         "providers:",

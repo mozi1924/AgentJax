@@ -9,6 +9,7 @@ interface ComposerAttachment {
 interface ChatComposerProps {
   input: string;
   onInputChange: (value: string) => void;
+  showAdvancedRequestOptionsButton: boolean;
   advancedRequestOptionsInput: string;
   onAdvancedRequestOptionsInputChange: (value: string) => void;
   advancedRequestOptionsError?: string | null;
@@ -24,6 +25,7 @@ interface ChatComposerProps {
 export default function ChatComposer({
   input,
   onInputChange,
+  showAdvancedRequestOptionsButton,
   advancedRequestOptionsInput,
   onAdvancedRequestOptionsInputChange,
   advancedRequestOptionsError,
@@ -38,6 +40,13 @@ export default function ChatComposer({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const advancedTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [advancedPanelOpen, setAdvancedPanelOpen] = useState(false);
+
+  useEffect(() => {
+    if (showAdvancedRequestOptionsButton) {
+      return;
+    }
+    setAdvancedPanelOpen(false);
+  }, [showAdvancedRequestOptionsButton]);
 
   useEffect(() => {
     if (!textareaRef.current) return;
@@ -79,7 +88,7 @@ export default function ChatComposer({
             </div>
           )}
 
-          {advancedPanelOpen && (
+          {showAdvancedRequestOptionsButton && advancedPanelOpen && (
             <div className="mb-2 rounded-2xl border border-[#2d2f31] bg-[#171819] p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="text-xs font-medium text-slate-300">高级请求参数 (JSON)</span>
@@ -135,17 +144,19 @@ export default function ChatComposer({
             />
 
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setAdvancedPanelOpen((open) => !open)}
-                className={`rounded-full p-2 transition ${
-                  advancedPanelOpen
-                    ? 'bg-cyan-400/10 text-cyan-200'
-                    : 'text-slate-400 hover:bg-[#2d2f31] hover:text-slate-200'
-                }`}
-                title="高级请求参数"
-              >
-                <SlidersHorizontal className="h-5 w-5" />
-              </button>
+              {showAdvancedRequestOptionsButton && (
+                <button
+                  onClick={() => setAdvancedPanelOpen((open) => !open)}
+                  className={`rounded-full p-2 transition ${
+                    advancedPanelOpen
+                      ? 'bg-cyan-400/10 text-cyan-200'
+                      : 'text-slate-400 hover:bg-[#2d2f31] hover:text-slate-200'
+                  }`}
+                  title="高级请求参数"
+                >
+                  <SlidersHorizontal className="h-5 w-5" />
+                </button>
+              )}
 
               <button
                 className="rounded-full p-2 text-slate-400 transition hover:bg-[#2d2f31] hover:text-slate-200"
