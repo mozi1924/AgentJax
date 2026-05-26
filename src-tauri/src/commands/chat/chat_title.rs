@@ -66,6 +66,12 @@ async fn generate_title_and_emit(
         model: Some(config.utility_small_model_key().to_string()),
         reasoning_effort: None,
         instructions_override: Some(TITLE_GENERATION_INSTRUCTIONS.to_string()),
+        text: None,
+        include: None,
+        service_tier: None,
+        prompt_cache_key: None,
+        client_metadata: None,
+        generate: None,
         tools: None,
         tool_choice: None,
     };

@@ -78,7 +78,15 @@ pub fn run() {
 
             let config_path =
                 config::init_config_if_missing().map_err(|e| std::io::Error::other(e))?;
+            let upgrade_result =
+                config::upgrade_config_file().map_err(|e| std::io::Error::other(e))?;
             log::info!("Config file ready at {}", config_path.display());
+            if upgrade_result.upgraded {
+                log::info!(
+                    "Config file normalized and missing fields were filled at {}",
+                    upgrade_result.config_path
+                );
+            }
             let config_event_state =
                 app.state::<std::sync::Arc<commands::config::ConfigEventState>>();
             commands::config::start_config_watcher(

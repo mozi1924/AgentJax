@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { Image, Mic, Paperclip, Send, Square, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AlertCircle, Image, Mic, Paperclip, Send, SlidersHorizontal, Square, X } from 'lucide-react';
 
 interface ComposerAttachment {
   name: string;
@@ -9,6 +9,9 @@ interface ComposerAttachment {
 interface ChatComposerProps {
   input: string;
   onInputChange: (value: string) => void;
+  advancedRequestOptionsInput: string;
+  onAdvancedRequestOptionsInputChange: (value: string) => void;
+  advancedRequestOptionsError?: string | null;
   attachment: ComposerAttachment | null;
   onRemoveAttachment: () => void;
   onAttachFile: () => void;
@@ -21,6 +24,9 @@ interface ChatComposerProps {
 export default function ChatComposer({
   input,
   onInputChange,
+  advancedRequestOptionsInput,
+  onAdvancedRequestOptionsInputChange,
+  advancedRequestOptionsError,
   attachment,
   onRemoveAttachment,
   onAttachFile,
@@ -30,12 +36,20 @@ export default function ChatComposer({
   onStop,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const advancedTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [advancedPanelOpen, setAdvancedPanelOpen] = useState(false);
 
   useEffect(() => {
     if (!textareaRef.current) return;
     textareaRef.current.style.height = 'auto';
     textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
   }, [input]);
+
+  useEffect(() => {
+    if (!advancedTextareaRef.current) return;
+    advancedTextareaRef.current.style.height = 'auto';
+    advancedTextareaRef.current.style.height = `${Math.min(advancedTextareaRef.current.scrollHeight, 220)}px`;
+  }, [advancedRequestOptionsInput, advancedPanelOpen]);
 
   const handleSubmit = () => {
     if (isGenerating) {
@@ -65,6 +79,36 @@ export default function ChatComposer({
             </div>
           )}
 
+          {advancedPanelOpen && (
+            <div className="mb-2 rounded-2xl border border-[#2d2f31] bg-[#171819] p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-slate-300">高级请求参数 (JSON)</span>
+                <button
+                  onClick={() => setAdvancedPanelOpen(false)}
+                  className="rounded-full p-1 text-slate-500 transition hover:bg-[#2d2f31] hover:text-slate-200"
+                  title="收起高级参数"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <textarea
+                ref={advancedTextareaRef}
+                value={advancedRequestOptionsInput}
+                onChange={(event) => onAdvancedRequestOptionsInputChange(event.target.value)}
+                rows={4}
+                data-native-context-menu="true"
+                placeholder='{"serviceTier":"flex","include":["reasoning.encrypted_content"]}'
+                className="scrollbar-thin max-h-[220px] w-full resize-none rounded-xl border border-[#2d2f31] bg-[#111214] px-2.5 py-2 font-mono text-xs leading-relaxed text-slate-200 placeholder-slate-600 outline-none transition focus:border-[#3c4043] focus:bg-[#15171a] select-text"
+              />
+              {advancedRequestOptionsError && (
+                <div className="mt-2 inline-flex items-start gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-200">
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{advancedRequestOptionsError}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-3">
             <button
               onClick={onAttachFile}
@@ -91,6 +135,18 @@ export default function ChatComposer({
             />
 
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setAdvancedPanelOpen((open) => !open)}
+                className={`rounded-full p-2 transition ${
+                  advancedPanelOpen
+                    ? 'bg-cyan-400/10 text-cyan-200'
+                    : 'text-slate-400 hover:bg-[#2d2f31] hover:text-slate-200'
+                }`}
+                title="高级请求参数"
+              >
+                <SlidersHorizontal className="h-5 w-5" />
+              </button>
+
               <button
                 className="rounded-full p-2 text-slate-400 transition hover:bg-[#2d2f31] hover:text-slate-200"
                 title="语音输入"

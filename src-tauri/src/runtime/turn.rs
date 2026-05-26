@@ -81,6 +81,12 @@ impl AgentRuntime {
                 model: req.model.clone(),
                 reasoning_effort: req.reasoning_effort.clone(),
                 instructions_override: None,
+                text: req.text.clone(),
+                include: req.include.clone(),
+                service_tier: req.service_tier.clone(),
+                prompt_cache_key: req.prompt_cache_key.clone(),
+                client_metadata: req.client_metadata.clone(),
+                generate: req.generate,
                 tools: Some(tools_schemas.clone()),
                 tool_choice: Some(serde_json::Value::String("auto".to_string())),
             };

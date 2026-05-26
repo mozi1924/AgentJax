@@ -40,6 +40,38 @@ pub(crate) fn build_streaming_request_payload(
     if let Some(tool_choice) = &req.tool_choice {
         payload["tool_choice"] = tool_choice.clone();
     }
+    if let Some(text) = &req.text {
+        payload["text"] = text.clone();
+    }
+    if let Some(include) = req.include.as_ref().filter(|items| !items.is_empty()) {
+        payload["include"] = json!(include);
+    }
+    if let Some(service_tier) = req
+        .service_tier
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        payload["service_tier"] = Value::String(service_tier.to_string());
+    }
+    if let Some(prompt_cache_key) = req
+        .prompt_cache_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        payload["prompt_cache_key"] = Value::String(prompt_cache_key.to_string());
+    }
+    if let Some(client_metadata) = req
+        .client_metadata
+        .as_ref()
+        .filter(|value| value.is_object())
+    {
+        payload["client_metadata"] = client_metadata.clone();
+    }
+    if let Some(generate) = req.generate {
+        payload["generate"] = Value::Bool(generate);
+    }
 
     payload
 }
@@ -67,6 +99,12 @@ mod tests {
             model: Some("gpt-5-mini".to_string()),
             reasoning_effort: None,
             instructions_override: None,
+            text: None,
+            include: None,
+            service_tier: None,
+            prompt_cache_key: None,
+            client_metadata: None,
+            generate: None,
             tools: None,
             tool_choice: None,
         };
@@ -92,6 +130,12 @@ mod tests {
             model: Some("gpt-5-mini".to_string()),
             reasoning_effort: None,
             instructions_override: None,
+            text: None,
+            include: None,
+            service_tier: None,
+            prompt_cache_key: None,
+            client_metadata: None,
+            generate: None,
             tools: None,
             tool_choice: None,
         };
@@ -99,6 +143,63 @@ mod tests {
         let payload = build_streaming_request_payload(&resolved, &req, false, true);
         assert_eq!(payload.get("stream").and_then(|v| v.as_bool()), Some(true));
         assert!(payload.get("previous_response_id").is_none());
+    }
+
+    #[test]
+    fn payload_includes_optional_compatibility_fields() {
+        let resolved = ResolvedModelConfig {
+            profile_key: "test".to_string(),
+            provider_key: "openai-responses".to_string(),
+            provider: ProviderConfig::default(),
+            model_id: "gpt-5-mini".to_string(),
+            model_ref: "openai-responses/gpt-5-mini".to_string(),
+            system_prompt: "test prompt".to_string(),
+            request: ModelRequestConfig::default(),
+            timeout_seconds: 60,
+        };
+        let req = ResponseStreamRequest {
+            input_items: Vec::new(),
+            model: Some("gpt-5-mini".to_string()),
+            reasoning_effort: None,
+            instructions_override: None,
+            text: Some(serde_json::json!({ "format": { "type": "text" } })),
+            include: Some(vec!["reasoning.encrypted_content".to_string()]),
+            service_tier: Some("flex".to_string()),
+            prompt_cache_key: Some("conversation-1".to_string()),
+            client_metadata: Some(serde_json::json!({ "app": "agentjax" })),
+            generate: Some(false),
+            tools: None,
+            tool_choice: None,
+        };
+
+        let payload = build_streaming_request_payload(&resolved, &req, false, false);
+        assert!(payload.get("text").is_some());
+        assert_eq!(
+            payload
+                .get("include")
+                .and_then(|v| v.as_array())
+                .map(std::vec::Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            payload.get("service_tier").and_then(|v| v.as_str()),
+            Some("flex")
+        );
+        assert_eq!(
+            payload.get("prompt_cache_key").and_then(|v| v.as_str()),
+            Some("conversation-1")
+        );
+        assert_eq!(
+            payload
+                .get("client_metadata")
+                .and_then(|v| v.get("app"))
+                .and_then(|v| v.as_str()),
+            Some("agentjax")
+        );
+        assert_eq!(
+            payload.get("generate").and_then(|v| v.as_bool()),
+            Some(false)
+        );
     }
 }
 

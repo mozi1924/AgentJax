@@ -259,6 +259,23 @@ export function FieldRow({
             />
           )}
 
+          {field.control === 'secret' && (
+            <input
+              type="password"
+              value={draft}
+              placeholder={field.placeholder}
+              disabled={disabled}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setIsDirty(true);
+              }}
+              onBlur={() => {
+                void commit(draft);
+              }}
+              className="w-[240px] rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-2.5 py-1 text-xs text-neutral-200 outline-none transition focus:border-neutral-500 focus:bg-[#222326]/40 disabled:opacity-50"
+            />
+          )}
+
           {field.control === 'textarea' && (
             <textarea
               rows={field.rows || 3}
@@ -489,4 +506,3 @@ export function FieldRow({
     </div>
   );
 }
-

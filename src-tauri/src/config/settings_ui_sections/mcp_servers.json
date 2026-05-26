@@ -83,7 +83,13 @@
           "title": "Env",
           "path": "env",
           "valueType": "string_map",
-          "control": "key_value"
+          "control": "key_value",
+          "visibleWhen": [
+            {
+              "path": "transport",
+              "equals": "stdio"
+            }
+          ]
         },
         {
           "kind": "field",

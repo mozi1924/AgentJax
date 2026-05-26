@@ -24,6 +24,7 @@ import {
   restoreConversationPreview,
 } from './features/conversations/conversationState';
 import type {
+  ChatRequestOptions,
   ChatStreamEventPayload,
   ChatStreamResponse,
   Conversation,
@@ -59,6 +60,74 @@ interface StreamRequestMapping {
 const isModelOption = (option: ModelOption | null): option is ModelOption =>
   option !== null;
 
+const parseAdvancedRequestOptions = (raw: string): ChatRequestOptions => {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return {};
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error('高级请求参数不是合法 JSON。');
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('高级请求参数必须是 JSON 对象。');
+  }
+
+  const source = parsed as Record<string, unknown>;
+  const out: ChatRequestOptions = {};
+
+  if (source.text !== undefined) {
+    out.text = source.text;
+  }
+
+  if (source.include !== undefined) {
+    if (!Array.isArray(source.include)) {
+      throw new Error('`include` 必须是字符串数组。');
+    }
+    out.include = source.include
+      .map((item) => `${item ?? ''}`.trim())
+      .filter((item) => item.length > 0);
+  }
+
+  if (source.serviceTier !== undefined) {
+    const value = `${source.serviceTier ?? ''}`.trim();
+    if (value) {
+      out.serviceTier = value;
+    }
+  }
+
+  if (source.promptCacheKey !== undefined) {
+    const value = `${source.promptCacheKey ?? ''}`.trim();
+    if (value) {
+      out.promptCacheKey = value;
+    }
+  }
+
+  if (source.clientMetadata !== undefined) {
+    if (
+      !source.clientMetadata ||
+      typeof source.clientMetadata !== 'object' ||
+      Array.isArray(source.clientMetadata)
+    ) {
+      throw new Error('`clientMetadata` 必须是 JSON 对象。');
+    }
+    out.clientMetadata = source.clientMetadata as Record<string, unknown>;
+  }
+
+  if (source.generate !== undefined) {
+    if (typeof source.generate !== 'boolean') {
+      throw new Error('`generate` 必须是布尔值。');
+    }
+    out.generate = source.generate;
+  }
+
+  return out;
+};
+
 export default function App() {
   const initialConversation = useMemo(() => createLocalConversation(), []);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -69,6 +138,10 @@ export default function App() {
   const [configPath, setConfigPath] = useState('');
   const [cachePath, setCachePath] = useState('');
   const [input, setInput] = useState('');
+  const [advancedRequestOptionsInput, setAdvancedRequestOptionsInput] = useState('');
+  const [advancedRequestOptionsError, setAdvancedRequestOptionsError] = useState<string | null>(
+    null
+  );
   const [generatingConversationIds, setGeneratingConversationIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -616,6 +689,19 @@ export default function App() {
     const text = (textToSend ?? input).trim();
     if (!text || !activeConversation) return;
 
+    let advancedRequestOptions: ChatRequestOptions = {};
+    try {
+      advancedRequestOptions = parseAdvancedRequestOptions(advancedRequestOptionsInput);
+      if (advancedRequestOptionsError) {
+        setAdvancedRequestOptionsError(null);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '高级请求参数解析失败，请检查 JSON 格式。';
+      setAdvancedRequestOptionsError(message);
+      return;
+    }
+
     if (appendUserMessage) {
       setInput('');
       setAttachment(null);
@@ -717,6 +803,12 @@ export default function App() {
           conversationId: currentConversationId,
           model: selectedModel,
           reasoningEffort: selectedReasoningEffort,
+          text: advancedRequestOptions.text,
+          include: advancedRequestOptions.include,
+          serviceTier: advancedRequestOptions.serviceTier,
+          promptCacheKey: advancedRequestOptions.promptCacheKey,
+          clientMetadata: advancedRequestOptions.clientMetadata,
+          generate: advancedRequestOptions.generate,
           requestId,
         },
       });
@@ -1116,6 +1208,14 @@ export default function App() {
                 <ChatComposer
                   input={input}
                   onInputChange={setInput}
+                  advancedRequestOptionsInput={advancedRequestOptionsInput}
+                  onAdvancedRequestOptionsInputChange={(value) => {
+                    setAdvancedRequestOptionsInput(value);
+                    if (advancedRequestOptionsError) {
+                      setAdvancedRequestOptionsError(null);
+                    }
+                  }}
+                  advancedRequestOptionsError={advancedRequestOptionsError}
                   attachment={attachment}
                   onRemoveAttachment={() => setAttachment(null)}
                   onAttachFile={handleAttachFile}

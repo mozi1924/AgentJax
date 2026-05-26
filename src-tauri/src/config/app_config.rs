@@ -3,8 +3,8 @@ use crate::config::constants::{
 };
 use crate::config::model_ref::{model_ref, parse_model_ref};
 use crate::config::schema::{
-    AppConfig, McpRuntimeConfig, McpServerConfig, ModelRequestConfig, ProviderConfig,
-    ProviderModelConfig, ResolvedModelConfig,
+    AppConfig, McpRuntimeConfig, McpServerConfig, McpTransportKind, ModelRequestConfig,
+    ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
 };
 use std::collections::BTreeMap;
 
@@ -191,6 +191,25 @@ impl McpServerConfig {
             .map(ToOwned::to_owned);
         if matches!(self.channel_buffer_capacity, Some(0)) {
             self.channel_buffer_capacity = None;
+        }
+
+        match self.transport {
+            McpTransportKind::Stdio => {
+                self.uri = None;
+                self.auth_header = None;
+                self.headers.clear();
+                self.allow_stateless = true;
+                self.channel_buffer_capacity = None;
+                self.reinit_on_expired_session = true;
+            }
+            McpTransportKind::StreamableHttp => {
+                self.command.clear();
+                self.args.clear();
+                self.env.clear();
+                self.cwd = None;
+                self.use_global_stdio_env = true;
+                self.inherit_parent_env = None;
+            }
         }
 
         self

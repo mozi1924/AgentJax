@@ -52,6 +52,12 @@ pub struct ProviderTurnRequest {
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
     pub instructions_override: Option<String>,
+    pub text: Option<Value>,
+    pub include: Option<Vec<String>>,
+    pub service_tier: Option<String>,
+    pub prompt_cache_key: Option<String>,
+    pub client_metadata: Option<Value>,
+    pub generate: Option<bool>,
     pub tools: Option<Vec<Value>>,
     pub tool_choice: Option<Value>,
 }

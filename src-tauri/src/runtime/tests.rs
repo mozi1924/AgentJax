@@ -41,6 +41,12 @@ async fn real_gateway_tool_loop_smoke_test_from_local_config() {
         conversation_id: Some(conversation_id.clone()),
         model: Some(config.default_model.clone()),
         reasoning_effort: None,
+        text: None,
+        include: None,
+        service_tier: None,
+        prompt_cache_key: None,
+        client_metadata: None,
+        generate: None,
         request_id: Some(format!("req-real-gateway-{}", Uuid::new_v4())),
     };
 

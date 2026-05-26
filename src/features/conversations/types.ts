@@ -83,6 +83,15 @@ export interface ChatStreamResponse {
   conversationTitle?: string;
 }
 
+export interface ChatRequestOptions {
+  text?: unknown;
+  include?: string[];
+  serviceTier?: string;
+  promptCacheKey?: string;
+  clientMetadata?: Record<string, unknown>;
+  generate?: boolean;
+}
+
 export interface ChatStreamEventPayload {
   kind?: string;
   requestId?: string;

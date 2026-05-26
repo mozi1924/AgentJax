@@ -219,4 +219,71 @@ mod tests {
             std::env::remove_var("TEST_AGENTJAX_X_FEATURE");
         }
     }
+
+    #[test]
+    fn mcp_server_normalize_clears_stdio_fields_for_streamable_http() {
+        let mut cfg = AppConfig::default();
+        cfg.mcp_servers.insert(
+            "remote-demo".to_string(),
+            McpServerConfig {
+                transport: McpTransportKind::StreamableHttp,
+                command: "npx".to_string(),
+                args: vec!["-y".to_string(), "demo".to_string()],
+                env: [("A".to_string(), "B".to_string())].into_iter().collect(),
+                cwd: Some("/tmp/demo".to_string()),
+                use_global_stdio_env: false,
+                inherit_parent_env: Some(true),
+                uri: Some("https://example.com/mcp".to_string()),
+                ..McpServerConfig::default()
+            },
+        );
+
+        let normalized = cfg.normalize();
+        let server = normalized
+            .mcp_servers
+            .get("remote-demo")
+            .expect("normalized mcp server exists");
+
+        assert_eq!(server.command, "");
+        assert!(server.args.is_empty());
+        assert!(server.env.is_empty());
+        assert_eq!(server.cwd, None);
+        assert!(server.use_global_stdio_env);
+        assert_eq!(server.inherit_parent_env, None);
+    }
+
+    #[test]
+    fn mcp_server_normalize_clears_streamable_http_fields_for_stdio() {
+        let mut cfg = AppConfig::default();
+        cfg.mcp_servers.insert(
+            "local-demo".to_string(),
+            McpServerConfig {
+                transport: McpTransportKind::Stdio,
+                command: "node".to_string(),
+                args: vec!["server.js".to_string()],
+                uri: Some("https://example.com/mcp".to_string()),
+                auth_header: Some("Bearer token".to_string()),
+                headers: [("X-Test".to_string(), "1".to_string())]
+                    .into_iter()
+                    .collect(),
+                allow_stateless: false,
+                channel_buffer_capacity: Some(256),
+                reinit_on_expired_session: false,
+                ..McpServerConfig::default()
+            },
+        );
+
+        let normalized = cfg.normalize();
+        let server = normalized
+            .mcp_servers
+            .get("local-demo")
+            .expect("normalized mcp server exists");
+
+        assert_eq!(server.uri, None);
+        assert_eq!(server.auth_header, None);
+        assert!(server.headers.is_empty());
+        assert!(server.allow_stateless);
+        assert_eq!(server.channel_buffer_capacity, None);
+        assert!(server.reinit_on_expired_session);
+    }
 }
