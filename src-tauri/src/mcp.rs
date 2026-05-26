@@ -16,13 +16,23 @@ struct ManagedService {
 
 pub struct McpManager {
     services: Arc<Mutex<BTreeMap<String, ManagedService>>>,
+    server_locks: Arc<Mutex<BTreeMap<String, Arc<Mutex<()>>>>>,
 }
 
 impl McpManager {
     pub fn new() -> Self {
         Self {
             services: Arc::new(Mutex::new(BTreeMap::new())),
+            server_locks: Arc::new(Mutex::new(BTreeMap::new())),
         }
+    }
+
+    async fn server_lock(&self, server_id: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.server_locks.lock().await;
+        locks
+            .entry(server_id.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
     }
 
     pub async fn get_peer(
@@ -36,13 +46,18 @@ impl McpManager {
             return Err(format!("MCP server '{}' is disabled", server_id));
         }
 
-        let mut services = self.services.lock().await;
-        if let Some(entry) = services.get(server_id) {
-            if entry.fingerprint == resolved.fingerprint {
-                return Ok(entry.service.peer().clone());
-            }
+        let server_lock = self.server_lock(server_id).await;
+        let _guard = server_lock.lock().await;
 
-            services.remove(server_id);
+        {
+            let mut services = self.services.lock().await;
+            if let Some(entry) = services.get(server_id) {
+                if entry.fingerprint == resolved.fingerprint {
+                    return Ok(entry.service.peer().clone());
+                }
+
+                services.remove(server_id);
+            }
         }
 
         let service = tokio::time::timeout(
@@ -57,6 +72,7 @@ impl McpManager {
             )
         })??;
         let peer = service.peer().clone();
+        let mut services = self.services.lock().await;
         services.insert(
             server_id.to_string(),
             ManagedService {

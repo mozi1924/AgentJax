@@ -50,23 +50,31 @@ pub async fn chat_stream(
         .map(ToOwned::to_owned)
         .unwrap_or_else(conversation_store::new_conversation_id);
 
-    if registry.has_active_request_for_conversation(&conversation_id)? {
+    if !registry.try_register_chat_request(
+        request_id.clone(),
+        conversation_id.clone(),
+        cancel_tx.clone(),
+    )? {
         return Err("This conversation already has an active request. Stop it or wait for completion before sending another message.".to_string());
     }
 
     registry.clear_conversation_deleted(&conversation_id)?;
 
-    let context = {
+    let context = match {
         let conversation_id = conversation_id.clone();
         let utility_model = utility_model.clone();
         run_blocking(move || {
             conversation_store::ensure_conversation(&conversation_id, &utility_model)?;
             conversation_store::load_context_for_request(&conversation_id)
         })
-        .await?
+        .await
+    } {
+        Ok(context) => context,
+        Err(err) => {
+            let _ = registry.remove_chat_request(&request_id)?;
+            return Err(err);
+        }
     };
-
-    registry.register_chat_request(request_id.clone(), conversation_id.clone(), cancel_tx)?;
 
     let tools_catalog = ToolCatalog::new(mcp_manager.inner().clone(), &config);
 

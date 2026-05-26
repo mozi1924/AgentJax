@@ -23,30 +23,29 @@ pub struct ChatRequestRegistry {
 }
 
 impl ChatRequestRegistry {
-    pub fn has_active_request_for_conversation(
-        &self,
-        conversation_id: &str,
-    ) -> Result<bool, String> {
-        let requests = self
-            .requests
-            .lock()
-            .map_err(|_| "Failed to lock chat request registry".to_string())?;
-
-        Ok(requests
-            .values()
-            .any(|request| request.conversation_id == conversation_id))
-    }
-
-    pub fn register_chat_request(
+    pub fn try_register_chat_request(
         &self,
         request_id: String,
         conversation_id: String,
         cancel_tx: watch::Sender<bool>,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let mut requests = self
             .requests
             .lock()
             .map_err(|_| "Failed to lock chat request registry".to_string())?;
+
+        if requests
+            .values()
+            .any(|request| request.conversation_id == conversation_id)
+        {
+            return Ok(false);
+        }
+        if requests.contains_key(&request_id) {
+            return Err(format!(
+                "Request id '{}' already exists in chat request registry",
+                request_id
+            ));
+        }
 
         requests.insert(
             request_id,
@@ -55,7 +54,7 @@ impl ChatRequestRegistry {
                 cancel_tx,
             },
         );
-        Ok(())
+        Ok(true)
     }
 
     pub fn remove_chat_request(
@@ -213,5 +212,68 @@ impl ChatRequestRegistry {
 
         let _ = self.cancel_title_request(conversation_id)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ChatRequestRegistry;
+    use std::sync::Arc;
+    use std::thread;
+    use tokio::sync::watch;
+
+    #[test]
+    fn try_register_is_atomic_for_same_conversation() {
+        let registry = Arc::new(ChatRequestRegistry::default());
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+
+        let mut handles = Vec::new();
+        for idx in 0..8usize {
+            let registry = registry.clone();
+            let barrier = barrier.clone();
+            handles.push(thread::spawn(move || {
+                let (cancel_tx, _rx) = watch::channel(false);
+                barrier.wait();
+                registry
+                    .try_register_chat_request(
+                        format!("req-{idx}"),
+                        "conv-shared".to_string(),
+                        cancel_tx,
+                    )
+                    .expect("register should not error")
+            }));
+        }
+
+        let mut success_count = 0usize;
+        for handle in handles {
+            if handle.join().expect("thread should join") {
+                success_count += 1;
+            }
+        }
+        assert_eq!(success_count, 1, "only one request can own a conversation");
+    }
+
+    #[test]
+    fn allows_parallel_registration_for_different_conversations() {
+        let registry = Arc::new(ChatRequestRegistry::default());
+        let mut handles = Vec::new();
+
+        for idx in 0..8usize {
+            let registry = registry.clone();
+            handles.push(thread::spawn(move || {
+                let (cancel_tx, _rx) = watch::channel(false);
+                registry
+                    .try_register_chat_request(
+                        format!("req-{idx}"),
+                        format!("conv-{idx}"),
+                        cancel_tx,
+                    )
+                    .expect("register should succeed")
+            }));
+        }
+
+        for handle in handles {
+            assert!(handle.join().expect("thread should join"));
+        }
     }
 }
