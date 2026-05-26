@@ -124,7 +124,7 @@ fn ensure_tool_call_output_pairs(
 }
 
 impl AgentRuntime {
-    pub(super) async fn run_turn_with_engine<F>(
+    pub async fn run_turn<F>(
         config: &AppConfig,
         req: &ChatRequest,
         conversation_id: &str,

@@ -112,23 +112,10 @@ async fn stream_response_attempt_with_behavior(
         resolved.provider.stream_transport == "sse" || websocket_is_downgraded(&websocket_key);
 
     let first_attempt = if use_sse {
-        transport::create_response_streaming_sse(
-            resolved,
-            req,
-            behavior,
-            cancel_rx,
-            on_delta,
-        )
-        .await
+        transport::create_response_streaming_sse(resolved, req, behavior, cancel_rx, on_delta).await
     } else {
-        transport::create_response_streaming_websocket(
-            resolved,
-            req,
-            behavior,
-            cancel_rx,
-            on_delta,
-        )
-        .await
+        transport::create_response_streaming_websocket(resolved, req, behavior, cancel_rx, on_delta)
+            .await
     };
 
     if !use_sse && first_attempt.is_err() {
@@ -136,11 +123,7 @@ async fn stream_response_attempt_with_behavior(
             log_websocket_fallback(resolved, &websocket_key, "WebSocket transport failed", err);
         }
         return transport::create_response_streaming_sse(
-            resolved,
-            req,
-            behavior,
-            cancel_rx,
-            on_delta,
+            resolved, req, behavior, cancel_rx, on_delta,
         )
         .await;
     }

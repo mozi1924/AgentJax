@@ -246,7 +246,10 @@ mod tests {
         let payload = build_streaming_request_payload(&resolved, &req, false);
         assert_eq!(payload.get("store").and_then(|v| v.as_bool()), Some(false));
         assert!(payload.get("previous_response_id").is_none());
-        assert_eq!(payload.get("custom_flag").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            payload.get("custom_flag").and_then(|v| v.as_bool()),
+            Some(true)
+        );
     }
 }
 
