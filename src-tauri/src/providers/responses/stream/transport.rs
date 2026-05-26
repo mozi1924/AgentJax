@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::watch;
+use tokio::time::sleep;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
@@ -19,6 +20,34 @@ use super::parser::{
 use super::{payload::build_streaming_request_payload, ResponsesStreamBehavior};
 use crate::providers::responses::http;
 
+fn resolved_stream_idle_timeout(resolved: &ResolvedModelConfig) -> Duration {
+    let ms = resolved
+        .provider
+        .stream_idle_timeout_ms
+        .unwrap_or_else(|| resolved.timeout_seconds.saturating_mul(1000))
+        .max(1);
+    Duration::from_millis(ms)
+}
+
+fn resolved_websocket_connect_timeout(resolved: &ResolvedModelConfig) -> Duration {
+    let ms = resolved
+        .provider
+        .websocket_connect_timeout_ms
+        .unwrap_or_else(|| resolved.timeout_seconds.saturating_mul(1000))
+        .max(1);
+    Duration::from_millis(ms)
+}
+
+fn should_retry_http_status(status: u16) -> bool {
+    matches!(status, 408 | 425 | 429 | 500 | 502 | 503 | 504)
+}
+
+fn retry_delay(attempt: u32) -> Duration {
+    let shift = attempt.saturating_sub(1).min(4);
+    let multiplier = 1u64 << shift;
+    Duration::from_millis((150 * multiplier).min(2400))
+}
+
 pub(crate) async fn create_response_streaming_sse(
     resolved: &ResolvedModelConfig,
     req: &ResponseStreamRequest,
@@ -28,6 +57,8 @@ pub(crate) async fn create_response_streaming_sse(
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<ResponseStreamResult, String> {
     let credential = resolved.provider.resolved_credential();
+    let request_max_retries = resolved.provider.request_max_retries.unwrap_or(0);
+    let idle_timeout = resolved_stream_idle_timeout(resolved);
     let request_headers = http::merge_request_headers(
         &[("Content-Type", "application/json")],
         &resolved.provider,
@@ -49,19 +80,42 @@ pub(crate) async fn create_response_streaming_sse(
         .build()
         .map_err(|e| format!("Failed to initialize HTTP client: {e}"))?;
 
-    let request =
-        http::apply_headers_to_reqwest(client.post(endpoint).json(&body), &request_headers)
-            .map_err(|e| {
-                format!(
-                    "Failed to prepare {} request headers: {e}",
-                    behavior.api_label
-                )
-            })?;
+    let mut request_attempt = 0u32;
+    let response = loop {
+        let request = http::apply_headers_to_reqwest(
+            client.post(endpoint.clone()).json(&body),
+            &request_headers,
+        )
+        .map_err(|e| {
+            format!(
+                "Failed to prepare {} request headers: {e}",
+                behavior.api_label
+            )
+        })?;
 
-    let response = request
-        .send()
-        .await
-        .map_err(|e| format!("Failed to reach {} API: {e}", behavior.api_label))?;
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(err) => {
+                if request_attempt < request_max_retries {
+                    request_attempt += 1;
+                    sleep(retry_delay(request_attempt)).await;
+                    continue;
+                }
+                return Err(format!("Failed to reach {} API: {err}", behavior.api_label));
+            }
+        };
+
+        if !response.status().is_success()
+            && should_retry_http_status(response.status().as_u16())
+            && request_attempt < request_max_retries
+        {
+            request_attempt += 1;
+            sleep(retry_delay(request_attempt)).await;
+            continue;
+        }
+
+        break response;
+    };
 
     if !response.status().is_success() {
         let status = response.status();
@@ -98,7 +152,16 @@ pub(crate) async fn create_response_streaming_sse(
               break;
             }
           }
-          next_chunk = stream.next() => {
+          next_chunk = tokio::time::timeout(idle_timeout, stream.next()) => {
+            let next_chunk = match next_chunk {
+              Ok(next_chunk) => next_chunk,
+              Err(_) => {
+                return Err(format!(
+                  "SSE stream idle timed out after {}ms",
+                  idle_timeout.as_millis()
+                ));
+              }
+            };
             let Some(next_chunk) = next_chunk else {
               break;
             };
@@ -167,6 +230,8 @@ pub(crate) async fn create_response_streaming_websocket(
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<ResponseStreamResult, String> {
     let credential = resolved.provider.resolved_credential();
+    let connect_timeout = resolved_websocket_connect_timeout(resolved);
+    let idle_timeout = resolved_stream_idle_timeout(resolved);
     let request_headers =
         http::merge_request_headers(&[], &resolved.provider, None, credential.as_deref());
 
@@ -187,18 +252,15 @@ pub(crate) async fn create_response_streaming_websocket(
     http::apply_headers_to_websocket_request(&mut request, &request_headers)
         .map_err(|e| format!("Failed to apply websocket request headers: {e}"))?;
 
-    let (mut ws, _) = tokio::time::timeout(
-        Duration::from_secs(resolved.timeout_seconds),
-        connect_async(request),
-    )
-    .await
-    .map_err(|_| {
-        format!(
-            "WebSocket connection timed out after {}s",
-            resolved.timeout_seconds
-        )
-    })?
-    .map_err(|e| format!("Failed to connect websocket transport: {e}"))?;
+    let (mut ws, _) = tokio::time::timeout(connect_timeout, connect_async(request))
+        .await
+        .map_err(|_| {
+            format!(
+                "WebSocket connection timed out after {}ms",
+                connect_timeout.as_millis()
+            )
+        })?
+        .map_err(|e| format!("Failed to connect websocket transport: {e}"))?;
 
     let mut create_event = build_streaming_request_payload(
         resolved,
@@ -224,82 +286,74 @@ pub(crate) async fn create_response_streaming_websocket(
         completed_tool_calls: Vec::new(),
     });
 
-    let stream_result = tokio::time::timeout(
-        Duration::from_secs(resolved.timeout_seconds),
-        async {
-            loop {
-                tokio::select! {
-                  changed = cancel_rx.changed() => {
-                    if changed.is_ok() && *cancel_rx.borrow() {
-                      break;
-                    }
-                  }
-                  next_message = ws.next() => {
-                    let Some(message) = next_message else {
-                      break;
-                    };
-                    let message = message.map_err(|e| format!("WebSocket receive error: {e}"))?;
-
-                    match message {
-                      Message::Text(text) => {
-                        handle_stream_event_json(
-                          &text,
-                          &mut response_id,
-                          &mut output_text,
-                          &mut last_response_obj,
-                          &state,
-                          on_delta,
-                        )?;
-
-                        let parsed_val: Value = serde_json::from_str(&text).unwrap_or_default();
-                        let maybe_type = parsed_val.get("type").and_then(Value::as_str).unwrap_or("");
-
-                        if maybe_type == "response.output_item.done" {
-                            if let Some(item) = parsed_val.get("item") {
-                                accumulated_output_items.push(item.clone());
-                            }
-                        }
-
-                        if matches!(maybe_type, "response.completed" | "response.done") {
-                          break;
-                        }
-                      }
-                      Message::Binary(bin) => {
-                        if let Ok(text) = String::from_utf8(bin.to_vec()) {
-                          handle_stream_event_json(
-                            &text,
-                            &mut response_id,
-                            &mut output_text,
-                            &mut last_response_obj,
-                            &state,
-                            on_delta,
-                          )?;
-                        }
-                      }
-                      Message::Close(_) => {
-                        break;
-                      }
-                      Message::Ping(payload) => {
-                        let _ = ws.send(Message::Pong(payload)).await;
-                      }
-                      Message::Pong(_) => {}
-                      Message::Frame(_) => {}
-                    }
-                  }
-                }
+    loop {
+        tokio::select! {
+          changed = cancel_rx.changed() => {
+            if changed.is_ok() && *cancel_rx.borrow() {
+              break;
             }
-            Ok::<(), String>(())
-        }
-    )
-    .await;
+          }
+          next_message = tokio::time::timeout(idle_timeout, ws.next()) => {
+            let next_message = match next_message {
+              Ok(next_message) => next_message,
+              Err(_) => {
+                return Err(format!(
+                  "WebSocket stream idle timed out after {}ms",
+                  idle_timeout.as_millis()
+                ));
+              }
+            };
+            let Some(message) = next_message else {
+              break;
+            };
+            let message = message.map_err(|e| format!("WebSocket receive error: {e}"))?;
 
-    match stream_result {
-        Ok(inner) => inner?,
-        Err(_) => {
-            return Err(format!(
-                "WebSocket stream timed out after {}s",
-                resolved.timeout_seconds
-            ))
+            match message {
+              Message::Text(text) => {
+                handle_stream_event_json(
+                  &text,
+                  &mut response_id,
+                  &mut output_text,
+                  &mut last_response_obj,
+                  &state,
+                  on_delta,
+                )?;
+
+                let parsed_val: Value = serde_json::from_str(&text).unwrap_or_default();
+                let maybe_type = parsed_val.get("type").and_then(Value::as_str).unwrap_or("");
+
+                if maybe_type == "response.output_item.done" {
+                    if let Some(item) = parsed_val.get("item") {
+                        accumulated_output_items.push(item.clone());
+                    }
+                }
+
+                if matches!(maybe_type, "response.completed" | "response.done") {
+                  break;
+                }
+              }
+              Message::Binary(bin) => {
+                if let Ok(text) = String::from_utf8(bin.to_vec()) {
+                  handle_stream_event_json(
+                    &text,
+                    &mut response_id,
+                    &mut output_text,
+                    &mut last_response_obj,
+                    &state,
+                    on_delta,
+                  )?;
+                }
+              }
+              Message::Close(_) => {
+                break;
+              }
+              Message::Ping(payload) => {
+                let _ = ws.send(Message::Pong(payload)).await;
+              }
+              Message::Pong(_) => {}
+              Message::Frame(_) => {}
+            }
+          }
         }
     }
 

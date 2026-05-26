@@ -1,5 +1,6 @@
 use serde_json::Value;
 use std::time::Duration;
+use tokio::time::sleep;
 
 use crate::config::ResolvedModelConfig;
 use crate::providers::types::ProviderModelDescriptor;
@@ -61,6 +62,7 @@ pub async fn fetch_remote_models_with_strategy(
         .timeout(Duration::from_secs(resolved.timeout_seconds))
         .build()
         .map_err(|e| format!("Failed to initialize HTTP client: {e}"))?;
+    let max_retries = resolved.provider.request_max_retries.unwrap_or(0);
 
     let mut errors = Vec::new();
     for candidate in &strategy.endpoint_candidates {
@@ -73,48 +75,66 @@ pub async fn fetch_remote_models_with_strategy(
                     continue;
                 }
             };
-        let request =
-            match http::apply_headers_to_reqwest(client.get(endpoint.clone()), &request_headers) {
+        let mut attempt = 0u32;
+        loop {
+            let request = match http::apply_headers_to_reqwest(
+                client.get(endpoint.clone()),
+                &request_headers,
+            ) {
                 Ok(request) => request,
                 Err(err) => {
                     errors.push(format!(
                         "{endpoint}: failed to apply request headers: {err}"
                     ));
-                    continue;
+                    break;
                 }
             };
-        let response = match request.send().await {
-            Ok(response) => response,
-            Err(err) => {
-                errors.push(format!("{endpoint}: request failed: {err}"));
-                continue;
+            let response = match request.send().await {
+                Ok(response) => response,
+                Err(err) => {
+                    if attempt < max_retries {
+                        attempt += 1;
+                        sleep(retry_delay(attempt)).await;
+                        continue;
+                    }
+                    errors.push(format!("{endpoint}: request failed: {err}"));
+                    break;
+                }
+            };
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "<unable to read error body>".to_string());
+
+                if should_retry_http_status(status.as_u16()) && attempt < max_retries {
+                    attempt += 1;
+                    sleep(retry_delay(attempt)).await;
+                    continue;
+                }
+
+                errors.push(format!("{endpoint}: http {status}: {text}"));
+                break;
             }
-        };
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response
-                .text()
+            let body: Value = response
+                .json()
                 .await
-                .unwrap_or_else(|_| "<unable to read error body>".to_string());
-            errors.push(format!("{endpoint}: http {status}: {text}"));
-            continue;
+                .map_err(|e| format!("Failed to parse remote model list JSON: {e}"))?;
+
+            let models = parse_model_descriptors(&body);
+            if !models.is_empty() {
+                return Ok(models);
+            }
+
+            // Endpoint is valid but has no models in expected shape; keep trying fallbacks.
+            errors.push(format!(
+                "{endpoint}: response did not contain recognized model list fields"
+            ));
+            break;
         }
-
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse remote model list JSON: {e}"))?;
-
-        let models = parse_model_descriptors(&body);
-        if !models.is_empty() {
-            return Ok(models);
-        }
-
-        // Endpoint is valid but has no models in expected shape; keep trying fallbacks.
-        errors.push(format!(
-            "{endpoint}: response did not contain recognized model list fields"
-        ));
     }
 
     Err(format!(
@@ -122,6 +142,16 @@ pub async fn fetch_remote_models_with_strategy(
         resolved.provider_key,
         errors.join(" | ")
     ))
+}
+
+fn should_retry_http_status(status: u16) -> bool {
+    matches!(status, 408 | 425 | 429 | 500 | 502 | 503 | 504)
+}
+
+fn retry_delay(attempt: u32) -> Duration {
+    let shift = attempt.saturating_sub(1).min(4);
+    let multiplier = 1u64 << shift;
+    Duration::from_millis((150 * multiplier).min(2400))
 }
 
 fn build_models_endpoint(base_endpoint: &str, candidate: &str) -> String {

@@ -72,6 +72,42 @@ pub async fn stream_response_with_behavior(
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<ResponseStreamResult, String> {
+    let max_retries = resolved.provider.stream_max_retries.unwrap_or(0);
+    let mut attempt = 0u32;
+
+    loop {
+        let result =
+            stream_response_attempt_with_behavior(resolved, req, behavior, cancel_rx, on_delta)
+                .await;
+
+        let should_retry = match &result {
+            Ok(_) => false,
+            Err(err) => attempt < max_retries && should_retry_stream_error(err),
+        };
+        if !should_retry {
+            return result;
+        }
+
+        attempt += 1;
+        if let Err(err) = &result {
+            log::warn!(
+                "Streaming request attempt {}/{} failed for provider '{}': {}. Retrying",
+                attempt,
+                max_retries,
+                resolved.provider_key,
+                err
+            );
+        }
+    }
+}
+
+async fn stream_response_attempt_with_behavior(
+    resolved: &ResolvedModelConfig,
+    req: &ResponseStreamRequest,
+    behavior: ResponsesStreamBehavior,
+    cancel_rx: &mut watch::Receiver<bool>,
+    on_delta: &mut ProviderEventSink<'_>,
+) -> Result<ResponseStreamResult, String> {
     let persistence = behavior.retry_store_false;
     let websocket_key = websocket_fallback_key(resolved);
     let use_sse =
@@ -146,6 +182,25 @@ pub async fn stream_response_with_behavior(
     }
 
     first_attempt
+}
+
+fn should_retry_stream_error(err: &str) -> bool {
+    let text = err.to_lowercase();
+    if text.contains("timed out")
+        || text.contains("timeout")
+        || text.contains("failed to reach")
+        || text.contains("failed to connect websocket transport")
+        || text.contains("websocket receive error")
+        || text.contains("failed to read streaming response")
+    {
+        return true;
+    }
+
+    text.contains("api error (429")
+        || text.contains("api error (500")
+        || text.contains("api error (502")
+        || text.contains("api error (503")
+        || text.contains("api error (504")
 }
 
 fn should_retry_with_store_false(
