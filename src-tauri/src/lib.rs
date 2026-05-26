@@ -55,6 +55,12 @@ fn parse_rust_log_level() -> log::LevelFilter {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Install a rustls crypto provider before any TLS connections are made.
+    // reqwest, tokio-tungstenite, and rmcp all use rustls under the hood.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls ring crypto provider");
+
     let log_level = parse_rust_log_level();
 
     tauri::Builder::default()
@@ -121,7 +127,8 @@ pub fn run() {
             commands::config::get_settings_ui_snapshot,
             commands::config::apply_settings_patch,
             commands::models::get_model_catalog,
-            commands::models::force_sync_model_cache
+            commands::models::force_sync_model_cache,
+            commands::devtools::open_devtools
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

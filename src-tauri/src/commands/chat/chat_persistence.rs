@@ -92,6 +92,14 @@ pub async fn persist_completed_exchange(
     let response_id = response.response_id.clone();
     let ts = now_unix_ms();
 
+    log::info!(
+        "persist_completed_exchange: conv={} req={} text_len={} resp_id={}",
+        conversation_id,
+        request_id,
+        text.len(),
+        response_id
+    );
+
     let line = ConversationLine::Assistant(AssistantLine {
         id: format!("asst-{request_id}"),
         ts,

@@ -63,8 +63,20 @@ pub fn append_line(input: AppendLineInput) -> Result<(), String> {
 
     // Deduplicate: skip if line with same id already exists.
     if data.lines.iter().any(|l| l.id() == input.line.id()) {
+        log::warn!(
+            "append_line: skipping duplicate line id={} kind={:?}",
+            input.line.id(),
+            std::mem::discriminant(&input.line)
+        );
         return Ok(());
     }
+
+    log::info!(
+        "append_line: conv={} id={} lines_before={}",
+        input.conversation_id,
+        input.line.id(),
+        data.lines.len()
+    );
 
     data.lines.push(input.line);
     write_conversation_file(&metadata_path, &messages_path, &data)

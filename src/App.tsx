@@ -400,6 +400,18 @@ export default function App() {
     };
   }, []);
 
+  // DevTools shortcut: Cmd+Shift+I (Mac) / Ctrl+Shift+I (Windows/Linux)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'I') {
+        e.preventDefault();
+        invoke('open_devtools').catch(() => {});
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   useEffect(() => {
     const selectedConversation = conversations.find(
       (conversation) => conversation.conversationId === activeConversationId
@@ -500,7 +512,7 @@ export default function App() {
             return;
           }
 
-          // ── Working markers ───────────────────────────────────────
+          // ── Text streaming ────────────────────────────────────────
           if (payload.kind === 'working_started') {
             markConversationThinking(mapping.conversationId, false);
             setConversations((prev) =>
@@ -547,6 +559,7 @@ export default function App() {
           // ── Text streaming ────────────────────────────────────────
           if (payload.kind === 'delta' && payload.delta) {
             markConversationThinking(mapping.conversationId, false);
+            const deltaText = String(payload.delta);
             setConversations((prev) =>
               prev.map((c) => {
                 if (c.conversationId !== mapping.conversationId) return c;
@@ -555,7 +568,7 @@ export default function App() {
                 if (last && last.kind === 'assistant' && (last as AssistantLine).status === 'draft') {
                   lines[lines.length - 1] = {
                     ...last,
-                    text: last.text + payload.delta,
+                    text: String((last as AssistantLine).text) + deltaText,
                   } as AssistantLine;
                 } else {
                   lines.push({
@@ -564,7 +577,7 @@ export default function App() {
                     ts: Date.now(),
                     requestId: requestId || '',
                     responseId: '',
-                    text: payload.delta || '',
+                    text: deltaText,
                     status: 'draft' as const,
                   });
                 }
@@ -661,7 +674,7 @@ export default function App() {
                   if (l.kind === 'assistant' && l.id === `asst-${requestId}`) {
                     return {
                       ...l,
-                      text: typeof payload.delta === 'string' ? payload.delta : (l as AssistantLine).text,
+                      text: typeof payload.delta === 'string' ? payload.delta : String((l as AssistantLine).text || ''),
                       responseId: payload.responseId || (l as AssistantLine).responseId,
                       status: 'done' as const,
                     } satisfies AssistantLine;
@@ -815,7 +828,7 @@ export default function App() {
 
     markConversationGenerating(currentConversationId, true);
     markConversationStopping(currentConversationId, false);
-    markConversationThinking(currentConversationId, false);
+    markConversationThinking(currentConversationId, true);
 
     const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setConversations((prevConversations) =>

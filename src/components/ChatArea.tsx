@@ -90,7 +90,7 @@ export default function ChatArea({
                     data-native-context-menu="true"
                     className="max-w-[80%] break-words rounded-3xl border border-[#2d2f31]/30 bg-[#1e1f20] px-5 py-3.5 text-sm leading-relaxed text-slate-200 transition hover:border-slate-500/30 select-text"
                   >
-                    {(line as UserLine).text}
+                    {(line as UserLine).text && String((line as UserLine).text)}
                   </div>
                 </div>
               );
@@ -185,7 +185,7 @@ export default function ChatArea({
             case 'assistant': {
               const a = line as AssistantLine;
               const isDraft = a.status === 'draft';
-              const isEmpty = !a.text.trim();
+              const isEmpty = !a.text || (typeof a.text === 'string' && !a.text.trim());
               if (isEmpty && !isDraft) return null;
 
               return (
@@ -202,7 +202,7 @@ export default function ChatArea({
                             {'\u601D\u8003\u4E2D...'}
                           </span>
                         ) : (
-                          <span dangerouslySetInnerHTML={{ __html: renderMarkdown(a.text) }} />
+                          <>{renderMarkdown(String(a.text))}</>
                         )}
                         {isDraft && !isEmpty && (
                           <span className="inline-block ml-1 w-1.5 h-4 bg-cyan-400 animate-pulse rounded-sm align-middle" />

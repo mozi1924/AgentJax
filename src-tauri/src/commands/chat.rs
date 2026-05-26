@@ -167,6 +167,15 @@ pub async fn chat_stream(
     let _ = registry.remove_chat_request(&request_id)?;
     let (response, _timeline_events) = result?;
 
+    log::info!(
+        "chat_stream turn complete: conv={} req={} text_len={} resp_id={} output_items={}",
+        conversation_id,
+        request_id,
+        response.output_text.len(),
+        response.response_id,
+        response.output_items.len(),
+    );
+
     let conversation_title: Option<String> = None;
     if !registry.is_conversation_deleted(&conversation_id)? {
         persist_completed_exchange(&conversation_id, &request_id, &response)
