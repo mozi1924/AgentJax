@@ -72,7 +72,7 @@ pub async fn stream_response_with_behavior(
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<ResponseStreamResult, String> {
-    let persistence = false;
+    let persistence = behavior.retry_store_false;
     let websocket_key = websocket_fallback_key(resolved);
     let use_sse =
         resolved.provider.stream_transport == "sse" || websocket_is_downgraded(&websocket_key);

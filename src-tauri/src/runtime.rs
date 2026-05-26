@@ -61,6 +61,10 @@ fn parse_tool_arguments(arguments: &str, fallback_delta: Option<&str>) -> Value 
         .unwrap_or_else(|| json!({}))
 }
 
+fn is_valid_pending_tool_call(call: &ProviderPendingToolCall) -> bool {
+    !call.call_id.trim().is_empty() && !call.name.trim().is_empty()
+}
+
 impl AgentRuntime {
     pub async fn run_turn<F>(
         config: &AppConfig,
@@ -101,7 +105,7 @@ impl AgentRuntime {
         let mut turn_idx = 0;
         let max_turns = 10;
 
-        loop {
+        'turn_loop: loop {
             if turn_idx >= max_turns {
                 return Err("Maximum turn execution limit reached".to_string());
             }
@@ -211,18 +215,42 @@ impl AgentRuntime {
             }
 
             // Prefer event-driven tool-call extraction, fallback to output-item scan.
-            let mut pending_tools = pending_tools_from_events;
-            if pending_tools.is_empty() {
-                pending_tools = crate::providers::extract_pending_tool_calls(
+            let event_pending_total = pending_tools_from_events.len();
+            let mut pending_tools: Vec<ProviderPendingToolCall> = pending_tools_from_events
+                .into_iter()
+                .filter(is_valid_pending_tool_call)
+                .collect();
+            let has_invalid_event_pending = pending_tools.len() != event_pending_total;
+
+            if pending_tools.is_empty() || has_invalid_event_pending {
+                let extracted_pending = crate::providers::extract_pending_tool_calls(
                     &resolved_model.provider.kind,
                     &response_result.output_items,
                 )?;
-                if !pending_tools.is_empty() {
+                if has_invalid_event_pending {
+                    log::warn!(
+                        "Provider '{}' emitted incomplete tool-call events; merged fallback extraction from output items",
+                        resolved_model.provider_key
+                    );
+                }
+                if pending_tools.is_empty() && !extracted_pending.is_empty() {
                     log::debug!(
                         "Tool-call fallback path used for provider '{}': extracted {} calls from output items",
                         resolved_model.provider_key,
-                        pending_tools.len()
+                        extracted_pending.len()
                     );
+                }
+                for extracted in extracted_pending {
+                    if !is_valid_pending_tool_call(&extracted) {
+                        continue;
+                    }
+                    if pending_tools
+                        .iter()
+                        .any(|existing| existing.call_id == extracted.call_id)
+                    {
+                        continue;
+                    }
+                    pending_tools.push(extracted);
                 }
             }
 
@@ -233,6 +261,9 @@ impl AgentRuntime {
             let mut tool_results_items = Vec::new();
 
             for pending in pending_tools {
+                if *cancel_rx.borrow() {
+                    break 'turn_loop;
+                }
                 let call_id = pending.call_id;
                 let name = pending.name;
                 let args = if pending.arguments.is_object() {
@@ -265,6 +296,10 @@ impl AgentRuntime {
                     max_attempts = 0;
                 }
                 while attempt < max_attempts {
+                    if *cancel_rx.borrow() {
+                        last_error = Some("Tool execution cancelled".to_string());
+                        break;
+                    }
                     attempt += 1;
                     let exec_result = tools_catalog
                         .execute(

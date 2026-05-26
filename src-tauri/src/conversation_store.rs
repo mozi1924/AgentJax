@@ -571,9 +571,39 @@ pub fn load_title_generation_candidate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agentjax_home::AGENTJAX_HOME_ENV;
+
+    struct TestHomeGuard {
+        home: std::path::PathBuf,
+    }
+
+    impl Drop for TestHomeGuard {
+        fn drop(&mut self) {
+            unsafe {
+                std::env::remove_var(AGENTJAX_HOME_ENV);
+            }
+            let _ = std::fs::remove_dir_all(&self.home);
+        }
+    }
+
+    fn setup_test_home() -> TestHomeGuard {
+        let home = std::env::temp_dir().join(format!(
+            "agentjax-conversation-store-test-{}",
+            Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&home).expect("create test home");
+        unsafe {
+            std::env::set_var(AGENTJAX_HOME_ENV, &home);
+        }
+        TestHomeGuard { home }
+    }
 
     #[test]
     fn delete_conversation_removes_session_directory() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
         let conversation_id = format!("test-delete-{}", Uuid::new_v4());
         let utility_model = "gpt-5-mini";
 
@@ -594,6 +624,10 @@ mod tests {
 
     #[test]
     fn load_context_merges_history_for_all_providers() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
         let conversation_id = format!("test-provider-filter-{}", Uuid::new_v4());
         let utility_model = "gpt-5-mini";
         ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
@@ -646,6 +680,10 @@ mod tests {
 
     #[test]
     fn load_context_filters_orphan_tool_call_items() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
         let conversation_id = format!("test-orphan-tool-items-{}", Uuid::new_v4());
         let utility_model = "gpt-5-mini";
         ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
@@ -704,6 +742,10 @@ mod tests {
 
     #[test]
     fn load_context_truncates_without_splitting_tool_pairs() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
         let conversation_id = format!("test-context-truncate-{}", Uuid::new_v4());
         let utility_model = "gpt-5-mini";
         ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");

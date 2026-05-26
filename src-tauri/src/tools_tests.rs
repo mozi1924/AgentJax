@@ -1,11 +1,35 @@
 #[cfg(test)]
 mod tests {
+    use crate::agentjax_home::AGENTJAX_HOME_ENV;
     use crate::conversation_store;
     use crate::tools::{
         CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool, Tool, ToolExecutionContext,
         ToolRegistry, ToolSchemaFormat,
     };
     use serde_json::json;
+
+    struct TestHomeGuard {
+        home: std::path::PathBuf,
+    }
+
+    impl Drop for TestHomeGuard {
+        fn drop(&mut self) {
+            unsafe {
+                std::env::remove_var(AGENTJAX_HOME_ENV);
+            }
+            let _ = std::fs::remove_dir_all(&self.home);
+        }
+    }
+
+    fn setup_test_home() -> TestHomeGuard {
+        let home =
+            std::env::temp_dir().join(format!("agentjax-tools-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home).expect("create test home");
+        unsafe {
+            std::env::set_var(AGENTJAX_HOME_ENV, &home);
+        }
+        TestHomeGuard { home }
+    }
 
     #[test]
     fn test_calculator_success() {
@@ -96,6 +120,10 @@ mod tests {
 
     #[test]
     fn test_file_tools_workspace_isolated_by_conversation() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
         let reader = FileReaderTool;
         let writer = FileWriterTool;
         let utility_model = "gpt-5-mini";

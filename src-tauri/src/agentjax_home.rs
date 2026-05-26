@@ -38,16 +38,12 @@ fn expand_home_prefix(value: &str) -> Result<PathBuf, String> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use std::sync::{Mutex, OnceLock};
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     #[test]
     fn defaults_to_home_dot_agentjax_when_env_missing() {
-        let _guard = env_lock().lock().expect("lock AGENTJAX_HOME env");
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         unsafe {
             std::env::remove_var(AGENTJAX_HOME_ENV);
         }
@@ -62,7 +58,9 @@ mod tests {
 
     #[test]
     fn respects_env_override_absolute_path() {
-        let _guard = env_lock().lock().expect("lock AGENTJAX_HOME env");
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let expected = std::env::temp_dir().join(format!("agentjax-home-{}", uuid::Uuid::new_v4()));
         unsafe {
             std::env::set_var(AGENTJAX_HOME_ENV, expected.as_os_str());
@@ -77,7 +75,9 @@ mod tests {
 
     #[test]
     fn expands_tilde_prefix_from_env() {
-        let _guard = env_lock().lock().expect("lock AGENTJAX_HOME env");
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         unsafe {
             std::env::set_var(AGENTJAX_HOME_ENV, "~/agentjax-custom-home");
         }
@@ -92,7 +92,9 @@ mod tests {
 
     #[test]
     fn config_dir_matches_agentjax_home() {
-        let _guard = env_lock().lock().expect("lock AGENTJAX_HOME env");
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let expected = PathBuf::from("/tmp/agentjax-config-home");
         unsafe {
             std::env::set_var(AGENTJAX_HOME_ENV, expected.as_os_str());

@@ -309,10 +309,19 @@ pub(crate) async fn create_response_streaming_websocket(
 
     let _ = on_delta(ProviderStreamEvent::ResponseCompleted);
 
+    let output_items = if accumulated_output_items.is_empty() {
+        last_response_obj
+            .as_ref()
+            .map(extract_output_items)
+            .unwrap_or_default()
+    } else {
+        accumulated_output_items
+    };
+
     Ok(ResponseStreamResult {
         response_id,
         output_text,
-        output_items: accumulated_output_items,
+        output_items,
         provider_key: resolved.provider_key.clone(),
         model_profile: resolved.profile_key.clone(),
         model_id: resolved.model_id.clone(),

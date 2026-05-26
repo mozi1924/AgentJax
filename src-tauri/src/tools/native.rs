@@ -122,6 +122,7 @@ impl Tool for SystemTimeTool {
         );
 
         Ok(json!({
+            "utcTime": formatted_time,
             "localTime": formatted_time,
             "unixTimestampMs": duration.as_millis() as i64
         }))
