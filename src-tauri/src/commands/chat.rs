@@ -15,9 +15,9 @@ use crate::config;
 use crate::conversation_store;
 use crate::tools::ToolCatalog;
 use chat_events::{emit_mapped_stream_event, next_event_index, ChatStreamEvent};
-use chat_persistence::persist_completed_exchange;
+use chat_persistence::{persist_completed_exchange, persist_tool_progress_event};
 use chat_title::schedule_title_generation;
-use chat_utils::{chrono_like_now_id, run_blocking};
+use chat_utils::{chrono_like_now_id, now_unix_ms, run_blocking};
 use tauri::{Emitter, Manager, State};
 use tokio::sync::watch;
 
@@ -78,10 +78,41 @@ pub async fn chat_stream(
 
     let tools_catalog = ToolCatalog::new(mcp_manager.inner().clone(), &config);
 
+    {
+        let conversation_id = conversation_id.clone();
+        let request_id = request_id.clone();
+        let input_text = input_text.clone();
+        let utility_model = utility_model.clone();
+        let _ = run_blocking(move || {
+            conversation_store::append_message(
+                conversation_store::AppendMessageInput {
+                    conversation_id,
+                    entry_id: format!("msg-user-{request_id}"),
+                    role: "user".to_string(),
+                    text: input_text.clone(),
+                    created_at_unix_ms: now_unix_ms(),
+                    response_id: None,
+                    provider: None,
+                    model_profile: None,
+                    model_id: None,
+                    request_id: Some(request_id),
+                    context_items: conversation_store::build_user_input_items(&input_text),
+                    timeline_events: None,
+                    metadata: Default::default(),
+                },
+                &utility_model,
+            )
+        })
+        .await;
+    }
+
     let closure_window = window.clone();
     let closure_request_id = request_id.clone();
     let closure_conversation_id = conversation_id.clone();
 
+    let callback_utility_model = utility_model.clone();
+    let callback_request_id = request_id.clone();
+    let callback_conversation_id = conversation_id.clone();
     let result = crate::runtime::AgentRuntime::run_turn(
         &config,
         &req,
@@ -90,6 +121,40 @@ pub async fn chat_stream(
         &tools_catalog,
         &mut cancel_rx,
         move |event| {
+            match &event {
+                crate::providers::types::ProviderStreamEvent::ToolCallCompleted {
+                    call_id,
+                    name,
+                    arguments,
+                    ..
+                } => {
+                    let _ = persist_tool_progress_event(
+                        &callback_conversation_id,
+                        &callback_request_id,
+                        &callback_utility_model,
+                        "tool_call_done",
+                        call_id,
+                        Some(name),
+                        Some(arguments),
+                    );
+                }
+                crate::providers::types::ProviderStreamEvent::ToolCallExecuted {
+                    call_id,
+                    output,
+                } => {
+                    let _ = persist_tool_progress_event(
+                        &callback_conversation_id,
+                        &callback_request_id,
+                        &callback_utility_model,
+                        "tool_call_exec",
+                        call_id,
+                        None,
+                        Some(output),
+                    );
+                }
+                _ => {}
+            }
+
             emit_mapped_stream_event(
                 &closure_window,
                 &closure_request_id,
@@ -102,7 +167,7 @@ pub async fn chat_stream(
     .await;
 
     let _ = registry.remove_chat_request(&request_id)?;
-    let (response, timeline_events) = result?;
+    let (response, _timeline_events) = result?;
 
     let conversation_title: Option<String> = None;
     if !registry.is_conversation_deleted(&conversation_id)? {
@@ -111,7 +176,6 @@ pub async fn chat_stream(
             &request_id,
             &input_text,
             &response,
-            Some(timeline_events),
             &utility_model,
         )
         .await?;

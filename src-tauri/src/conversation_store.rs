@@ -65,8 +65,8 @@ pub fn build_assistant_output_items(text: &str) -> Vec<Value> {
 
 pub use paths::{conversation_dir_path, conversation_workspace_path};
 pub use types::{
-    AppendMessageInput, ConversationContext, ConversationDetail, ConversationMessage,
-    ConversationMetaLine, ConversationSummary, TitleGenerationCandidate,
+    AppendContextItemInput, AppendMessageInput, ConversationContext, ConversationDetail,
+    ConversationMessage, ConversationMetaLine, ConversationSummary, TitleGenerationCandidate,
 };
 
 #[allow(dead_code)]
@@ -133,17 +133,6 @@ pub fn ensure_conversation(
 }
 
 pub fn append_message(input: AppendMessageInput, utility_model: &str) -> Result<(), String> {
-    let metadata_path = conversation_metadata_path(&input.conversation_id)?;
-    let messages_path = conversation_messages_path(&input.conversation_id)?;
-    let mut data = if let Some(existing) = read_conversation_file(&metadata_path, &messages_path)? {
-        existing
-    } else {
-        ConversationFileData {
-            meta: ensure_conversation(&input.conversation_id, utility_model)?,
-            entries: Vec::new(),
-        }
-    };
-
     let role = input.role.trim().to_string();
     let text = input.text.trim().to_string();
     let context_items = if !input.context_items.is_empty() {
@@ -157,26 +146,85 @@ pub fn append_message(input: AppendMessageInput, utility_model: &str) -> Result<
     };
     let context_items = sanitize_tool_call_pairs(context_items);
 
-    data.entries.push(ConversationEntryLine {
-        version: LOG_VERSION,
-        record_type: "message".to_string(),
-        entry_id: input.entry_id,
-        created_at_unix_ms: input.created_at_unix_ms,
-        role: Some(role),
-        text: Some(text),
-        response_id: sanitize_optional(input.response_id),
-        provider: sanitize_optional(input.provider),
-        model_profile: sanitize_optional(input.model_profile),
-        model_id: sanitize_optional(input.model_id),
-        request_id: sanitize_optional(input.request_id),
-        context_items,
-        tool_name: None,
-        tool_call_id: None,
-        tool_arguments: None,
-        tool_output: None,
-        timeline_events: input.timeline_events,
-        metadata: input.metadata,
-    });
+    append_entry_line(
+        &input.conversation_id,
+        utility_model,
+        ConversationEntryLine {
+            version: LOG_VERSION,
+            record_type: "message".to_string(),
+            entry_id: input.entry_id,
+            created_at_unix_ms: input.created_at_unix_ms,
+            role: Some(role),
+            text: Some(text),
+            response_id: sanitize_optional(input.response_id),
+            provider: sanitize_optional(input.provider),
+            model_profile: sanitize_optional(input.model_profile),
+            model_id: sanitize_optional(input.model_id),
+            request_id: sanitize_optional(input.request_id),
+            context_items,
+            tool_name: None,
+            tool_call_id: None,
+            tool_arguments: None,
+            tool_output: None,
+            timeline_events: input.timeline_events,
+            metadata: input.metadata,
+        },
+    )
+}
+
+pub fn append_context_item(
+    input: AppendContextItemInput,
+    utility_model: &str,
+) -> Result<(), String> {
+    append_entry_line(
+        &input.conversation_id,
+        utility_model,
+        ConversationEntryLine {
+            version: LOG_VERSION,
+            record_type: "context_item".to_string(),
+            entry_id: input.entry_id,
+            created_at_unix_ms: input.created_at_unix_ms,
+            role: None,
+            text: None,
+            response_id: sanitize_optional(input.response_id),
+            provider: sanitize_optional(input.provider),
+            model_profile: sanitize_optional(input.model_profile),
+            model_id: sanitize_optional(input.model_id),
+            request_id: sanitize_optional(input.request_id),
+            context_items: vec![input.context_item],
+            tool_name: None,
+            tool_call_id: None,
+            tool_arguments: None,
+            tool_output: None,
+            timeline_events: None,
+            metadata: input.metadata,
+        },
+    )
+}
+
+fn append_entry_line(
+    conversation_id: &str,
+    utility_model: &str,
+    entry: ConversationEntryLine,
+) -> Result<(), String> {
+    let metadata_path = conversation_metadata_path(conversation_id)?;
+    let messages_path = conversation_messages_path(conversation_id)?;
+    let mut data = if let Some(existing) = read_conversation_file(&metadata_path, &messages_path)? {
+        existing
+    } else {
+        ConversationFileData {
+            meta: ensure_conversation(conversation_id, utility_model)?,
+            entries: Vec::new(),
+        }
+    };
+    if data
+        .entries
+        .iter()
+        .any(|existing| existing.entry_id == entry.entry_id)
+    {
+        return Ok(());
+    }
+    data.entries.push(entry);
 
     refresh_meta_derived_fields(&mut data.meta, &data.entries);
     if data.meta.utility_model.trim().is_empty() && !utility_model.trim().is_empty() {
@@ -796,5 +844,73 @@ mod tests {
         }));
 
         delete_conversation(&conversation_id).expect("cleanup");
+    }
+
+    #[test]
+    fn append_context_item_keeps_tool_pairs_across_separate_lines() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let conversation_id = format!("test-context-item-lines-{}", Uuid::new_v4());
+        let utility_model = "gpt-5-mini";
+        ensure_conversation(&conversation_id, utility_model).expect("ensure conversation");
+
+        append_context_item(
+            AppendContextItemInput {
+                conversation_id: conversation_id.clone(),
+                entry_id: "ctx-call".to_string(),
+                created_at_unix_ms: now_unix_ms(),
+                response_id: None,
+                provider: None,
+                model_profile: None,
+                model_id: None,
+                request_id: Some("req-1".to_string()),
+                context_item: json!({
+                    "type":"function_call",
+                    "call_id":"call_1",
+                    "name":"mcp__demo__tool",
+                    "arguments":"{\"x\":1}"
+                }),
+                metadata: BTreeMap::new(),
+            },
+            utility_model,
+        )
+        .expect("append function_call line");
+
+        append_context_item(
+            AppendContextItemInput {
+                conversation_id: conversation_id.clone(),
+                entry_id: "ctx-output".to_string(),
+                created_at_unix_ms: now_unix_ms(),
+                response_id: None,
+                provider: None,
+                model_profile: None,
+                model_id: None,
+                request_id: Some("req-1".to_string()),
+                context_item: json!({
+                    "type":"function_call_output",
+                    "call_id":"call_1",
+                    "output":"{\"ok\":true}"
+                }),
+                metadata: BTreeMap::new(),
+            },
+            utility_model,
+        )
+        .expect("append function_call_output line");
+
+        let context = load_context_for_request(&conversation_id).expect("load context");
+        let has_call = context.input_items.iter().any(|item| {
+            item.get("type").and_then(Value::as_str) == Some("function_call")
+                && item.get("call_id").and_then(Value::as_str) == Some("call_1")
+        });
+        let has_output = context.input_items.iter().any(|item| {
+            item.get("type").and_then(Value::as_str) == Some("function_call_output")
+                && item.get("call_id").and_then(Value::as_str) == Some("call_1")
+        });
+        assert!(
+            has_call && has_output,
+            "expected tool pair restored from separate lines"
+        );
     }
 }

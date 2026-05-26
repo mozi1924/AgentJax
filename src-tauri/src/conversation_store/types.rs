@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-pub const LOG_VERSION: u32 = 3;
+pub const LOG_VERSION: u32 = 4;
 pub const DEFAULT_CONVERSATION_TITLE: &str = "新对话";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +63,20 @@ pub struct AppendMessageInput {
     pub request_id: Option<String>,
     pub context_items: Vec<Value>,
     pub timeline_events: Option<Vec<Value>>,
+    pub metadata: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AppendContextItemInput {
+    pub conversation_id: String,
+    pub entry_id: String,
+    pub created_at_unix_ms: i64,
+    pub response_id: Option<String>,
+    pub provider: Option<String>,
+    pub model_profile: Option<String>,
+    pub model_id: Option<String>,
+    pub request_id: Option<String>,
+    pub context_item: Value,
     pub metadata: BTreeMap<String, Value>,
 }
 
