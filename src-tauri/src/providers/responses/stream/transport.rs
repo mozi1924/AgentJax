@@ -17,6 +17,7 @@ use super::parser::{
     split_sse_event_block, ParserState,
 };
 use super::{payload::build_streaming_request_payload, ResponsesStreamBehavior};
+use crate::providers::responses::http;
 
 pub(crate) async fn create_response_streaming_sse(
     resolved: &ResolvedModelConfig,
@@ -26,17 +27,20 @@ pub(crate) async fn create_response_streaming_sse(
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<ResponseStreamResult, String> {
-    let credential = resolved.provider.resolved_credential().ok_or_else(|| {
-        format!(
-            "Provider '{}' credential is missing.",
-            resolved.provider_key
-        )
-    })?;
+    let credential = resolved.provider.resolved_credential();
+    let request_headers = http::merge_request_headers(
+        &[("Content-Type", "application/json")],
+        &resolved.provider,
+        None,
+        credential.as_deref(),
+    );
 
     let endpoint = format!(
         "{}/responses",
         resolved.provider.api_endpoint.trim_end_matches('/')
     );
+    let endpoint = http::apply_query_params_to_url(&endpoint, &resolved.provider.query_params)
+        .map_err(|e| format!("Failed to build SSE endpoint URL: {e}"))?;
 
     let body = build_streaming_request_payload(resolved, req, store, true);
 
@@ -45,11 +49,16 @@ pub(crate) async fn create_response_streaming_sse(
         .build()
         .map_err(|e| format!("Failed to initialize HTTP client: {e}"))?;
 
-    let response = client
-        .post(endpoint)
-        .bearer_auth(credential)
-        .header("Content-Type", "application/json")
-        .json(&body)
+    let request =
+        http::apply_headers_to_reqwest(client.post(endpoint).json(&body), &request_headers)
+            .map_err(|e| {
+                format!(
+                    "Failed to prepare {} request headers: {e}",
+                    behavior.api_label
+                )
+            })?;
+
+    let response = request
         .send()
         .await
         .map_err(|e| format!("Failed to reach {} API: {e}", behavior.api_label))?;
@@ -157,12 +166,9 @@ pub(crate) async fn create_response_streaming_websocket(
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<ResponseStreamResult, String> {
-    let credential = resolved.provider.resolved_credential().ok_or_else(|| {
-        format!(
-            "Provider '{}' credential is missing.",
-            resolved.provider_key
-        )
-    })?;
+    let credential = resolved.provider.resolved_credential();
+    let request_headers =
+        http::merge_request_headers(&[], &resolved.provider, None, credential.as_deref());
 
     let ws_url = format!(
         "{}/responses",
@@ -171,17 +177,15 @@ pub(crate) async fn create_response_streaming_websocket(
             .resolved_realtime_endpoint()
             .trim_end_matches('/')
     );
+    let ws_url = http::apply_query_params_to_url(&ws_url, &resolved.provider.query_params)
+        .map_err(|e| format!("Failed to build websocket endpoint URL: {e}"))?;
 
     let mut request = ws_url
         .clone()
         .into_client_request()
         .map_err(|e| format!("Failed to build websocket request: {e}"))?;
-    request.headers_mut().insert(
-        "Authorization",
-        format!("Bearer {}", credential)
-            .parse()
-            .map_err(|e| format!("Failed to encode websocket authorization header: {e}"))?,
-    );
+    http::apply_headers_to_websocket_request(&mut request, &request_headers)
+        .map_err(|e| format!("Failed to apply websocket request headers: {e}"))?;
 
     let (mut ws, _) = tokio::time::timeout(
         Duration::from_secs(resolved.timeout_seconds),

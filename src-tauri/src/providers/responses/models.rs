@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::config::ResolvedModelConfig;
 use crate::providers::types::ProviderModelDescriptor;
 
-use super::normalize_reasoning_levels;
+use super::{http, normalize_reasoning_levels};
 
 pub struct ModelsFetchStrategy {
     pub endpoint_candidates: Vec<String>,
@@ -53,12 +53,9 @@ pub async fn fetch_remote_models_with_strategy(
     resolved: &ResolvedModelConfig,
     strategy: &ModelsFetchStrategy,
 ) -> Result<Vec<ProviderModelDescriptor>, String> {
-    let credential = resolved.provider.resolved_credential().ok_or_else(|| {
-        format!(
-            "Provider '{}' credential is missing.",
-            resolved.provider_key
-        )
-    })?;
+    let credential = resolved.provider.resolved_credential();
+    let request_headers =
+        http::merge_request_headers(&[], &resolved.provider, None, credential.as_deref());
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(resolved.timeout_seconds))
@@ -68,12 +65,25 @@ pub async fn fetch_remote_models_with_strategy(
     let mut errors = Vec::new();
     for candidate in &strategy.endpoint_candidates {
         let endpoint = build_models_endpoint(&resolved.provider.api_endpoint, candidate);
-        let response = match client
-            .get(endpoint.clone())
-            .bearer_auth(&credential)
-            .send()
-            .await
-        {
+        let endpoint =
+            match http::apply_query_params_to_url(&endpoint, &resolved.provider.query_params) {
+                Ok(endpoint) => endpoint,
+                Err(err) => {
+                    errors.push(format!("{endpoint}: failed to apply query params: {err}"));
+                    continue;
+                }
+            };
+        let request =
+            match http::apply_headers_to_reqwest(client.get(endpoint.clone()), &request_headers) {
+                Ok(request) => request,
+                Err(err) => {
+                    errors.push(format!(
+                        "{endpoint}: failed to apply request headers: {err}"
+                    ));
+                    continue;
+                }
+            };
+        let response = match request.send().await {
             Ok(response) => response,
             Err(err) => {
                 errors.push(format!("{endpoint}: request failed: {err}"));

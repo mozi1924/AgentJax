@@ -1,3 +1,4 @@
+mod http;
 pub mod models;
 pub mod stream;
 
