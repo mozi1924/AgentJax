@@ -1,0 +1,4 @@
+[toolchain]
+# Pin the desktop workspace to a known-good stable compiler so contributors can
+# reliably adopt newer crates without version drift across environments.
+channel = "1.95.0"

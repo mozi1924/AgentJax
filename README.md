@@ -22,6 +22,8 @@ For the desktop app:
 pnpm dev:desktop
 ```
 
+Desktop builds currently target Rust `1.95.0` for the `src-tauri` workspace.
+
 To produce a build:
 
 ```bash

@@ -6,7 +6,9 @@ authors = ["you"]
 license = ""
 repository = ""
 edition = "2021"
-rust-version = "1.77.2"
+# Keep this in sync with `src-tauri/rust-toolchain.toml` so local builds and
+# CI agree on the minimum supported compiler for the desktop runtime.
+rust-version = "1.95.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -23,7 +25,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 dirs = "6"
 log = "0.4.30"
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
+# Reqwest 0.13 renamed its Rustls integration feature from `rustls-tls` to
+# `rustls`, so keep the transport surface explicit while staying on Rustls.
+reqwest = { version = "0.13.4", features = ["json", "rustls", "stream"] }
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.29.0", features = ["rustls-tls-webpki-roots"] }
 tokio = { version = "1", features = ["macros", "rt", "sync"] }
@@ -31,7 +35,7 @@ tauri = { version = "2.11.2", features = ["devtools"] }
 tauri-plugin-log = "2"
 uuid = { version = "1", features = ["v4"] }
 rmcp = { version = "1.7.0", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
-notify = "6.1.1"
+notify = "8.2.0"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 chrono = { version = "0.4", features = ["clock", "serde"] }
 meval = "0.2"
