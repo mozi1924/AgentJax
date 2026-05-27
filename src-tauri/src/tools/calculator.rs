@@ -1,5 +1,6 @@
 use crate::tools::math::evaluate_math_expression;
 use fend_core::{evaluate_with_interrupt, Context as FendContext, Interrupt as FendInterrupt};
+use num_rational::Ratio;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
@@ -17,6 +18,7 @@ const MAX_EXPRESSION_LENGTH: usize = 512;
 const MAX_EQUATION_COUNT: usize = 8;
 const MAX_STEP_COUNT: usize = 24;
 const FEND_TIMEOUT_MS: u64 = 200;
+const MAX_INFERRED_EXACT_DENOMINATOR: i64 = 10_000;
 
 /// High-level execution mode exposed through the calculator tool schema.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -333,6 +335,16 @@ fn execute_auto(
         return solve_equation(request, normalized, original_expression);
     }
 
+    // Unit-bearing expressions need to hit the natural-language evaluator
+    // before symbolic parsing, otherwise `km`/`m`/`h` become free variables.
+    if should_prefer_fend_in_auto(normalized) {
+        if let Ok(response) =
+            evaluate_plain_expression(request, normalized, original_expression.clone())
+        {
+            return Ok(response);
+        }
+    }
+
     if let Ok(expr) = parse_expression(normalized) {
         let variables = expr.variables();
         if !variables.is_empty() {
@@ -428,8 +440,10 @@ fn dispatch_top_level_call(
             "{name}(...) is not wired into the calculator tool yet. The current symbolic engine supports simplify, differentiate, integrate, solve, and limit. As a fallback, try simplify(...) or solve(...) depending on your goal."
         )),
         _ => {
-            let fallback_expression = original_expression.clone().unwrap_or_default();
             if is_legacy_numeric_function(name) || is_passthrough_expression_function(name) {
+                let fallback_expression =
+                    normalize_expression(original_expression.as_deref().unwrap_or_default())
+                        .unwrap_or_else(|_| original_expression.clone().unwrap_or_default());
                 evaluate_plain_expression(request, &fallback_expression, original_expression)
             } else {
                 let suggestion = closest_function_suggestion(name)
@@ -770,7 +784,7 @@ fn solve_equation_from_parts(
     let approximate_value =
         solution_to_approximation(&solution, &request.variables, request.precision);
     let used_approximation = approximate_value.is_some();
-    let steps = render_resolution_steps(request.steps_mode, &path.steps, &path.result);
+    let steps = render_solution_steps(request.steps_mode, equation, &path.steps, &solution);
 
     Ok(CalculatorResponse {
         expression: original_expression,
@@ -1112,7 +1126,7 @@ fn evaluate_with_fend(expression: &str, precision: u32) -> Result<FendPayload, S
     let interrupt = DeadlineInterrupt::new(Duration::from_millis(FEND_TIMEOUT_MS));
     let result = evaluate_with_interrupt(expression, &mut context, &interrupt)
         .map_err(|err| err.to_string())?;
-    let (rendered, warnings) = normalize_fend_output(result.get_main_result().trim());
+    let (rendered, mut warnings) = normalize_fend_output(result.get_main_result().trim());
 
     if rendered.is_empty() {
         return Ok(FendPayload {
@@ -1125,11 +1139,23 @@ fn evaluate_with_fend(expression: &str, precision: u32) -> Result<FendPayload, S
         });
     }
 
-    let (approx_numeric, unit) = split_numeric_result(&rendered);
-    let unit = unit.or_else(|| extract_unit_hint(&rendered));
-    let approximate_value =
-        approx_numeric.map(|value| json!(round_with_precision(value, precision)));
-    let result_value = if unit.is_some() {
+    let is_complex = looks_like_complex_result(&rendered);
+    let exact_value = infer_fend_exact_value(expression, &rendered, is_complex, &mut warnings);
+    let (approx_numeric, unit) = if is_complex {
+        (None, None)
+    } else {
+        let (approx_numeric, unit) = split_numeric_result(&rendered);
+        (
+            approx_numeric,
+            unit.or_else(|| extract_unit_hint(&rendered)),
+        )
+    };
+    let approximate_value = if is_complex {
+        Some(json!(rendered.clone()))
+    } else {
+        approx_numeric.map(|value| json!(round_with_precision(value, precision)))
+    };
+    let result_value = if is_complex || unit.is_some() {
         json!(rendered)
     } else if let Some(value) = approx_numeric {
         json!(round_with_precision(value, precision))
@@ -1141,11 +1167,11 @@ fn evaluate_with_fend(expression: &str, precision: u32) -> Result<FendPayload, S
 
     Ok(FendPayload {
         result: result_value,
-        exact_value: Some(rendered),
+        exact_value,
         approximate_value,
         unit,
         warnings,
-        used_approximation,
+        used_approximation: used_approximation || is_complex,
     })
 }
 
@@ -1184,14 +1210,18 @@ fn symbolic_response(
     steps: Vec<String>,
     warnings: Vec<String>,
 ) -> CalculatorResponse {
+    let rendered = format!("{result}");
+    let mut warnings = warnings;
     let used_approximation = approximate.is_some();
+    let (exact_value, approximate_value) =
+        refine_symbolic_numeric_fields(&rendered, approximate, &mut warnings);
     CalculatorResponse {
         expression,
         normalized_expression,
         mode: mode.to_string(),
-        result: json!(format!("{result}")),
-        exact_value: Some(format!("{result}")),
-        approximate_value: approximate,
+        result: json!(rendered),
+        exact_value,
+        approximate_value,
         unit,
         steps,
         warnings,
@@ -1200,6 +1230,7 @@ fn symbolic_response(
     }
 }
 
+#[allow(dead_code)]
 fn render_resolution_steps(
     steps_mode: StepsMode,
     steps: &[ResolutionStep],
@@ -1227,6 +1258,46 @@ fn render_resolution_steps(
                 ));
             }
             rendered.push(format!("Final result: {final_result}"));
+            rendered
+        }
+    }
+}
+
+/// Equation solving benefits from explanation-first steps because the raw
+/// operation labels are too repetitive for multi-root outputs.
+fn render_solution_steps(
+    steps_mode: StepsMode,
+    equation: &str,
+    steps: &[ResolutionStep],
+    solution: &Solution,
+) -> Vec<String> {
+    let final_summary = format!("Solutions: {}", solution_to_string(solution));
+    match steps_mode {
+        StepsMode::None => Vec::new(),
+        StepsMode::Summary => {
+            let mut rendered = vec![format!("Parsed the equation: {equation}.")];
+            for step in steps.iter().take(MAX_STEP_COUNT) {
+                let explanation = step.explanation.trim();
+                if !explanation.is_empty()
+                    && rendered.last().map(String::as_str) != Some(explanation)
+                {
+                    rendered.push(explanation.to_string());
+                }
+            }
+            rendered.push(final_summary);
+            rendered
+        }
+        StepsMode::Detailed => {
+            let mut rendered = vec![format!("Parsed the equation: {equation}.")];
+            for step in steps.iter().take(MAX_STEP_COUNT) {
+                rendered.push(format!(
+                    "{} => {} ({})",
+                    step.operation.describe(),
+                    step.result,
+                    step.explanation
+                ));
+            }
+            rendered.push(final_summary);
             rendered
         }
     }
@@ -1336,11 +1407,9 @@ fn limit_result_to_payload(result: &LimitResult, precision: u32) -> (Value, Stri
     match result {
         LimitResult::Value(value) => {
             let rounded = round_with_precision(*value, precision);
-            (
-                json!(rounded),
-                format_decimal(rounded, precision),
-                Some(json!(rounded)),
-            )
+            let exact = inferred_exact_from_float(*value, &format_decimal(rounded, precision))
+                .unwrap_or_else(|| format_decimal(rounded, precision));
+            (json!(rounded), exact, Some(json!(rounded)))
         }
         LimitResult::PositiveInfinity => (json!("∞"), "∞".to_string(), None),
         LimitResult::NegativeInfinity => (json!("-∞"), "-∞".to_string(), None),
@@ -1406,6 +1475,49 @@ fn normalize_expression(expression: &str) -> Result<String, String> {
     }
 
     Ok(normalized)
+}
+
+/// Prefer the natural-language calculator for inputs that look like unit
+/// arithmetic so symbolic parsing does not reinterpret units as variables.
+fn should_prefer_fend_in_auto(expression: &str) -> bool {
+    let mut expect_unit_after_number = false;
+    let mut saw_numeric_token = false;
+
+    for token in expression.split_whitespace() {
+        let cleaned = token.trim_matches(|ch: char| matches!(ch, '(' | ')' | ',' | ';'));
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        let is_number = cleaned
+            .chars()
+            .all(|ch| ch.is_ascii_digit() || matches!(ch, '.' | '-' | '+'));
+        let is_identifier = cleaned
+            .chars()
+            .all(|ch| ch.is_ascii_alphabetic() || ch == '°');
+        let is_compound_unit = cleaned.contains('/')
+            && cleaned
+                .split('/')
+                .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_alphabetic()));
+
+        if is_number {
+            saw_numeric_token = true;
+            expect_unit_after_number = true;
+            continue;
+        }
+
+        if expect_unit_after_number && (is_identifier || is_compound_unit) {
+            return true;
+        }
+
+        if saw_numeric_token && is_compound_unit {
+            return true;
+        }
+
+        expect_unit_after_number = false;
+    }
+
+    false
 }
 
 fn wrap_simple_function_argument(expression: &str) -> Option<String> {
@@ -1709,6 +1821,10 @@ fn format_evaluation_error(expression: &str, reason: &str) -> String {
 }
 
 fn split_numeric_result(rendered: &str) -> (Option<f64>, Option<String>) {
+    if looks_like_complex_result(rendered) {
+        return (None, None);
+    }
+
     if let Some((number, unit)) = rendered.split_once(' ') {
         if let Ok(value) = number.parse::<f64>() {
             return (Some(value), Some(unit.trim().to_string()));
@@ -1754,6 +1870,10 @@ fn split_numeric_result(rendered: &str) -> (Option<f64>, Option<String>) {
 }
 
 fn extract_unit_hint(rendered: &str) -> Option<String> {
+    if looks_like_complex_result(rendered) {
+        return None;
+    }
+
     let trimmed = rendered.trim();
     let mut unit_start = trimmed.len();
     let mut saw_unit_char = false;
@@ -1797,8 +1917,126 @@ fn normalize_fend_output(rendered: &str) -> (String, Vec<String>) {
         .replace("0 + ", "")
         .replace("0 - ", "-")
         .replace(" i", "i");
+    cleaned = strip_zero_imaginary_part(&cleaned);
 
     (cleaned, warnings)
+}
+
+fn infer_fend_exact_value(
+    expression: &str,
+    rendered: &str,
+    is_complex: bool,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    if is_complex {
+        return None;
+    }
+
+    if let Some(exact) = evaluate_exact_with_fend(expression) {
+        return Some(exact);
+    }
+
+    if let Ok(value) = rendered.parse::<f64>() {
+        if let Some(inferred) = inferred_exact_from_float(value, rendered) {
+            if inferred != rendered {
+                warnings.push(format!(
+                    "Inferred an exact rational form `{inferred}` from the decimal result."
+                ));
+            }
+            return Some(inferred);
+        }
+        return Some(rendered.to_string());
+    }
+
+    Some(rendered.to_string())
+}
+
+fn evaluate_exact_with_fend(expression: &str) -> Option<String> {
+    let exact_query = format!("({expression}) as exact");
+    let mut context = FendContext::new();
+    let interrupt = DeadlineInterrupt::new(Duration::from_millis(FEND_TIMEOUT_MS));
+    let exact_result = evaluate_with_interrupt(&exact_query, &mut context, &interrupt).ok()?;
+    let raw_rendered = exact_result.get_main_result().trim();
+    if raw_rendered.starts_with("approx. ") {
+        return None;
+    }
+    let (rendered, _) = normalize_fend_output(raw_rendered);
+    if rendered.is_empty() || looks_like_complex_result(&rendered) {
+        None
+    } else {
+        Some(rendered)
+    }
+}
+
+fn refine_symbolic_numeric_fields(
+    rendered: &str,
+    approximate: Option<Value>,
+    warnings: &mut Vec<String>,
+) -> (Option<String>, Option<Value>) {
+    let numeric_approx = rendered
+        .parse::<f64>()
+        .ok()
+        .or_else(|| approximate.as_ref().and_then(Value::as_f64));
+
+    if let Some(value) = numeric_approx {
+        if let Some(inferred) = inferred_exact_from_float(value, rendered) {
+            if inferred != rendered && rendered.contains('.') {
+                warnings.push(format!(
+                    "Exact value `{inferred}` was inferred from the numeric symbolic result."
+                ));
+            }
+            return (Some(inferred), approximate);
+        }
+
+        if rendered.contains('.') {
+            return (None, approximate);
+        }
+    }
+
+    (Some(rendered.to_string()), approximate)
+}
+
+fn inferred_exact_from_float(value: f64, rendered: &str) -> Option<String> {
+    if !value.is_finite() || rendered.contains('e') || rendered.contains('E') {
+        return None;
+    }
+
+    let ratio = Ratio::<i64>::approximate_float(value)?;
+    let denominator = *ratio.denom();
+    if denominator == 0 || denominator.abs() > MAX_INFERRED_EXACT_DENOMINATOR {
+        return None;
+    }
+
+    if denominator == 1 {
+        return Some(ratio.numer().to_string());
+    }
+
+    Some(format!("{}/{}", ratio.numer(), ratio.denom()))
+}
+
+fn looks_like_complex_result(rendered: &str) -> bool {
+    let trimmed = rendered.trim();
+    if !trimmed.ends_with('i') {
+        return false;
+    }
+
+    let without_i = trimmed[..trimmed.len() - 1].trim_end();
+    if without_i.is_empty() {
+        return false;
+    }
+
+    without_i
+        .chars()
+        .all(|ch| ch.is_ascii_digit() || matches!(ch, ' ' | '+' | '-' | '.' | '/'))
+}
+
+fn strip_zero_imaginary_part(rendered: &str) -> String {
+    for marker in [" + 0i", " - 0i"] {
+        if let Some(prefix) = rendered.strip_suffix(marker) {
+            return prefix.trim().to_string();
+        }
+    }
+    rendered.to_string()
 }
 
 fn round_with_precision(value: f64, precision: u32) -> f64 {

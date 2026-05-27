@@ -114,11 +114,19 @@ mod tests {
         assert_eq!(res["result"], "3 * x^2 + cos(x)");
         assert!(res["steps"].as_array().unwrap().len() >= 2);
 
+        // Natural trigonometric syntax should normalize before evaluation.
+        let args = json!({ "expression": "sin pi/2" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["mode"], "evaluate");
+        assert_approx_eq(res["result"].as_f64().unwrap(), 1.0, 1e-12);
+        assert_eq!(res["exactValue"], "1");
+
         // Definite integration
         let args = json!({ "expression": "integral(x^2, x, 0, 1)" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["mode"], "integrate");
         assert!(res["result"].is_string() || res["result"].is_number());
+        assert_eq!(res["exactValue"], "1/3");
         assert_approx_eq(res["approximateValue"].as_f64().unwrap(), 1.0 / 3.0, 1e-9);
 
         // Equation solving
@@ -133,16 +141,28 @@ mod tests {
             .unwrap()
             .as_str()
             .unwrap()
-            .contains("Final result"));
+            .contains("Solutions: 3, 2"));
 
         // Unit-aware arithmetic
         let args = json!({ "expression": "3 km + 500 m" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["mode"], "evaluate");
+        assert_eq!(res["result"], "3.5 km");
         assert!(res["exactValue"].as_str().unwrap().contains("km"));
+        assert!(res["warnings"].as_array().unwrap().is_empty());
         if let Some(unit) = res["unit"].as_str() {
             assert!(unit.contains("km"));
         }
+
+        // Complex outputs should not leak into the unit field.
+        let args = json!({ "expression": "exp(i*pi)" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        if let Some(value) = res["result"].as_f64() {
+            assert_approx_eq(value, -1.0, 1e-12);
+        } else {
+            assert!(res["result"].as_str().unwrap().starts_with("-1"));
+        }
+        assert!(res["unit"].is_null());
 
         // Capability discovery
         let args = json!({ "mode": "capabilities" });

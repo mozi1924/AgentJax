@@ -87,6 +87,7 @@ dependencies = [
  "log",
  "meval",
  "notify",
+ "num-rational",
  "reqwest",
  "rmcp",
  "rustls",
