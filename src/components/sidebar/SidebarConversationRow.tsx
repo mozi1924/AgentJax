@@ -1,4 +1,4 @@
-import { Ellipsis, MessageSquare } from 'lucide-react';
+import { Ellipsis, Loader2, MessageSquare } from 'lucide-react';
 import type { MouseEvent, RefObject } from 'react';
 import { getConversationDisplayTitle } from '../../features/conversations/conversationUtils';
 import type { Conversation } from '../../features/conversations/types';
@@ -92,7 +92,11 @@ export default function SidebarConversationRow({
         }`}
         title={getConversationDisplayTitle(conversation)}
       >
-        <MessageSquare className="h-5 w-5 flex-shrink-0" />
+        {isBusy ? (
+          <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin text-indigo-400" />
+        ) : (
+          <MessageSquare className="h-5 w-5 flex-shrink-0" />
+        )}
         <span className="min-w-0 flex-1 truncate">
           {getConversationDisplayTitle(conversation)}
         </span>
