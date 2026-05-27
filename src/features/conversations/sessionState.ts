@@ -1,4 +1,8 @@
-import { applyConversationTitle, buildDraftConversationTitle } from './conversationUtils';
+import {
+  applyConversationTitle,
+  buildDraftConversationTitle,
+  getLastVisibleConversationText,
+} from './conversationUtils';
 import {
   countVisibleMessages,
   ensureAtLeastOneConversation,
@@ -11,7 +15,6 @@ import type {
   ConversationDetail,
   ConversationSummary,
   ToolLine,
-  UserLine,
 } from './types';
 
 const parsePossiblyJson = (value: string | undefined): unknown => {
@@ -112,6 +115,115 @@ const updateConversation = (
     conversation.conversationId === conversationId ? updater(conversation) : conversation
   );
 
+const isDraftAssistantLineForRequest = (
+  line: Conversation['lines'][number] | undefined,
+  requestId: string
+): line is AssistantLine =>
+  Boolean(
+    line &&
+      line.kind === 'assistant' &&
+      (line as AssistantLine).status === 'draft' &&
+      (line as AssistantLine).requestId === requestId
+  );
+
+const isPhaseCompatibleForDraftReuse = (
+  draftPhase: AssistantLine['phase'],
+  incomingPhase: AssistantLine['phase']
+): boolean => {
+  // Unknown-phase deltas/messages should not attach themselves onto an
+  // already-classified commentary/final draft, otherwise two phases can blur.
+  if (incomingPhase == null) {
+    return draftPhase == null;
+  }
+  return draftPhase == null || draftPhase === incomingPhase;
+};
+
+const findReusableDraftAssistantIndex = (
+  lines: Conversation['lines'],
+  requestId: string,
+  phase: AssistantLine['phase']
+): number => {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (!isDraftAssistantLineForRequest(line, requestId)) continue;
+    if (!isPhaseCompatibleForDraftReuse(line.phase, phase)) continue;
+    return index;
+  }
+  return -1;
+};
+
+const hasVisibleFinalAssistantForRequest = (
+  lines: Conversation['lines'],
+  requestId: string
+): boolean =>
+  lines.some(
+    (line) =>
+      line.kind === 'assistant' &&
+      line.requestId === requestId &&
+      line.phase === 'final_answer' &&
+      Boolean(line.text?.trim())
+  );
+
+const finalizeLingeringAssistantDrafts = (
+  lines: Conversation['lines'],
+  requestId: string,
+  outputText: string,
+  responseId?: string | null,
+  wasStopped?: boolean
+): Conversation['lines'] => {
+  // When the request promise resolves, we only promote one non-commentary
+  // draft to the final answer. Commentary drafts are merely closed out.
+  let finalCandidateIndex = -1;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (!isDraftAssistantLineForRequest(line, requestId)) continue;
+    if (line.phase === 'commentary') continue;
+    finalCandidateIndex = index;
+    break;
+  }
+
+  const finalizedLines = lines.map((line, index) => {
+    if (!isDraftAssistantLineForRequest(line, requestId)) {
+      return line;
+    }
+
+    if (index === finalCandidateIndex) {
+      return {
+        ...line,
+        text: outputText || line.text || (wasStopped ? '已停止' : ''),
+        responseId: responseId || line.responseId,
+        phase: line.phase ?? 'final_answer',
+        status: 'done' as const,
+      } satisfies AssistantLine;
+    }
+
+    return {
+      ...line,
+      responseId: responseId || line.responseId,
+      status: 'done' as const,
+    } satisfies AssistantLine;
+  });
+
+  if (
+    finalCandidateIndex === -1 &&
+    outputText &&
+    !hasVisibleFinalAssistantForRequest(finalizedLines, requestId)
+  ) {
+    finalizedLines.push({
+      kind: 'assistant' as const,
+      id: `asst-${requestId}-final`,
+      ts: Date.now(),
+      requestId,
+      responseId: responseId || '',
+      phase: 'final_answer' as const,
+      text: outputText,
+      status: 'done' as const,
+    } satisfies AssistantLine);
+  }
+
+  return finalizedLines;
+};
+
 export const applyLoadedConversationDetail = (
   conversations: Conversation[],
   conversationId: string,
@@ -119,13 +231,8 @@ export const applyLoadedConversationDetail = (
 ): Conversation[] =>
   updateConversation(conversations, conversationId, (conversation) => {
     const hydratedLines = detail.lines || [];
-    const lastLine = hydratedLines[hydratedLines.length - 1];
     const lastMessagePreview =
-      lastLine?.kind === 'assistant'
-        ? (lastLine as AssistantLine).text
-        : lastLine?.kind === 'user'
-          ? (lastLine as UserLine).text
-          : conversation.lastMessagePreview;
+      getLastVisibleConversationText(hydratedLines) || conversation.lastMessagePreview;
 
     return {
       ...conversation,
@@ -157,17 +264,13 @@ export const applyAssistantDelta = (
 ): Conversation[] =>
   updateConversation(conversations, conversationId, (conversation) => {
     const lines = [...conversation.lines];
-    const last = lines[lines.length - 1];
-    if (
-      last &&
-      last.kind === 'assistant' &&
-      (last as AssistantLine).status === 'draft' &&
-      (last as AssistantLine).requestId === requestId
-    ) {
-      lines[lines.length - 1] = {
-        ...last,
-        phase: phase ?? (last as AssistantLine).phase,
-        text: String((last as AssistantLine).text) + deltaText,
+    const reusableDraftIndex = findReusableDraftAssistantIndex(lines, requestId, phase);
+    if (reusableDraftIndex >= 0) {
+      const draft = lines[reusableDraftIndex] as AssistantLine;
+      lines[reusableDraftIndex] = {
+        ...draft,
+        phase: phase ?? draft.phase,
+        text: String(draft.text) + deltaText,
       } as AssistantLine;
     } else {
       lines.push({
@@ -195,26 +298,18 @@ export const applyAssistantMessage = (
 ): Conversation[] =>
   updateConversation(conversations, conversationId, (conversation) => {
     const lines = [...conversation.lines];
-    let updated = false;
+    const reusableDraftIndex = findReusableDraftAssistantIndex(lines, requestId, phase);
 
-    for (let index = lines.length - 1; index >= 0; index -= 1) {
-      const line = lines[index];
-      if (line.kind !== 'assistant') continue;
-      const assistant = line as AssistantLine;
-      if (assistant.requestId !== requestId || assistant.status !== 'draft') continue;
-      if (phase && assistant.phase && assistant.phase !== phase) continue;
-      lines[index] = {
-        ...assistant,
-        text: messageText || assistant.text,
-        responseId: responseId || assistant.responseId,
-        phase: phase ?? assistant.phase,
+    if (reusableDraftIndex >= 0) {
+      const draft = lines[reusableDraftIndex] as AssistantLine;
+      lines[reusableDraftIndex] = {
+        ...draft,
+        text: messageText || draft.text,
+        responseId: responseId || draft.responseId,
+        phase: phase ?? draft.phase,
         status: 'done' as const,
       };
-      updated = true;
-      break;
-    }
-
-    if (!updated) {
+    } else {
       lines.push({
         kind: 'assistant' as const,
         id: `asst-${requestId}-${eventIndex || Date.now()}`,
@@ -227,10 +322,15 @@ export const applyAssistantMessage = (
       });
     }
 
+    const shouldRefreshPreview =
+      phase !== 'commentary' && Boolean((messageText || '').trim());
+
     return {
       ...conversation,
       lines,
-      lastMessagePreview: messageText || conversation.lastMessagePreview,
+      lastMessagePreview: shouldRefreshPreview
+        ? messageText
+        : conversation.lastMessagePreview,
       messageCount: countVisibleMessages(lines),
       isLoaded: true,
     };
@@ -410,22 +510,13 @@ export const applySendResponse = (
   wasStopped?: boolean
 ): Conversation[] =>
   updateConversation(conversations, conversationId, (conversation) => {
-    const lines = conversation.lines.map((line) => {
-      if (
-        line.kind === 'assistant' &&
-        line.requestId === requestId &&
-        (line as AssistantLine).status === 'draft'
-      ) {
-        return {
-          ...line,
-          text: outputText || (line as AssistantLine).text || (wasStopped ? '已停止' : ''),
-          responseId: responseId || (line as AssistantLine).responseId,
-          phase: (line as AssistantLine).phase ?? 'final_answer',
-          status: 'done' as const,
-        } satisfies AssistantLine;
-      }
-      return line;
-    });
+    const lines = finalizeLingeringAssistantDrafts(
+      conversation.lines,
+      requestId,
+      outputText,
+      responseId,
+      wasStopped
+    );
 
     return applyConversationTitle(
       {

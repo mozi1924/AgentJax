@@ -108,13 +108,32 @@ impl ConversationLine {
         }
     }
 
-    /// Does this line represent a "message" for the purpose of
-    /// counting and preview generation?
-    pub fn is_message(&self) -> bool {
-        matches!(
-            self,
-            ConversationLine::User(_) | ConversationLine::Assistant(_)
-        )
+    /// Whether this line should contribute to sidebar-style conversation
+    /// summaries such as message counts and preview text.
+    ///
+    /// Commentary lines remain persisted and replayed into model context, but
+    /// they are intentionally excluded from user-facing summary metadata so
+    /// the sidebar tracks substantive user/final-answer exchanges rather than
+    /// in-progress narration.
+    pub fn contributes_to_summary(&self) -> bool {
+        match self {
+            ConversationLine::User(line) => !line.text.trim().is_empty(),
+            ConversationLine::Assistant(line) => line.is_visible_summary_message(),
+            ConversationLine::Tool(_) => false,
+        }
+    }
+
+    /// Returns the text that should be used for summary previews when this
+    /// line contributes to user-facing metadata.
+    pub fn summary_preview_text(&self) -> Option<&str> {
+        match self {
+            ConversationLine::User(line) => {
+                let text = line.text.trim();
+                (!text.is_empty()).then_some(text)
+            }
+            ConversationLine::Assistant(line) => line.summary_preview_text(),
+            ConversationLine::Tool(_) => None,
+        }
     }
 }
 
@@ -173,6 +192,20 @@ pub struct AssistantLine {
 impl AssistantLine {
     pub fn is_final_or_unknown(&self) -> bool {
         self.phase != Some(AssistantPhase::Commentary)
+    }
+
+    /// Assistant lines count toward user-facing conversation summaries only
+    /// when they represent a completed non-commentary message with visible
+    /// text.
+    pub fn is_visible_summary_message(&self) -> bool {
+        self.status == AssistantStatus::Done
+            && self.is_final_or_unknown()
+            && !self.text.trim().is_empty()
+    }
+
+    pub fn summary_preview_text(&self) -> Option<&str> {
+        let text = self.text.trim();
+        (self.is_visible_summary_message() && !text.is_empty()).then_some(text)
     }
 }
 

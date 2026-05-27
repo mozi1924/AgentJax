@@ -64,6 +64,32 @@ function compactText(rawText: string | null | undefined, maxLength = 28): string
   return `${cleaned.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
+export function isVisibleAssistantLine(line: AssistantLine | null | undefined): boolean {
+  if (!line) return false;
+  return line.status === 'done' && line.phase !== 'commentary' && Boolean(line.text?.trim());
+}
+
+export function getVisibleConversationLineText(
+  line: ConversationLine | null | undefined
+): string {
+  if (!line) return '';
+  if (line.kind === 'user') {
+    return (line.text || '').trim();
+  }
+  if (line.kind === 'assistant' && isVisibleAssistantLine(line)) {
+    return (line.text || '').trim();
+  }
+  return '';
+}
+
+export function getLastVisibleConversationText(lines: ConversationLine[] = []): string {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const text = getVisibleConversationLineText(lines[index]);
+    if (text) return text;
+  }
+  return '';
+}
+
 export function buildDraftConversationTitle(rawText: string): string {
   return compactText(rawText, 30) || DEFAULT_CONVERSATION_TITLE;
 }
@@ -89,11 +115,7 @@ export function getConversationDisplayTitle(
 }
 
 export function countUserAndDoneAssistant(lines: ConversationLine[]): number {
-  return lines.filter(
-    (l) =>
-      l.kind === 'user' ||
-      (l.kind === 'assistant' && (l as AssistantLine).status === 'done')
-  ).length;
+  return lines.filter((line) => Boolean(getVisibleConversationLineText(line))).length;
 }
 
 export function hydrateConversationLines(
@@ -101,4 +123,3 @@ export function hydrateConversationLines(
 ): ConversationLine[] {
   return rawLines;
 }
-

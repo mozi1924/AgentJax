@@ -295,21 +295,13 @@ where
 pub fn apply_line_to_meta(meta: &mut ConversationMeta, line: &ConversationLine) {
     meta.updated_at_unix_ms = meta.updated_at_unix_ms.max(line.ts());
 
-    if !line.is_message() {
+    if !line.contributes_to_summary() {
         return;
     }
 
     meta.message_count += 1;
-    match line {
-        ConversationLine::User(user) => {
-            meta.last_message_preview = compact_preview(&user.text);
-        }
-        ConversationLine::Assistant(assistant) => {
-            if !assistant.text.trim().is_empty() {
-                meta.last_message_preview = compact_preview(&assistant.text);
-            }
-        }
-        ConversationLine::Tool(_) => {}
+    if let Some(preview_text) = line.summary_preview_text() {
+        meta.last_message_preview = compact_preview(preview_text);
     }
 }
 
@@ -475,22 +467,14 @@ fn refresh_meta_from_lines(meta: &mut ConversationMeta, lines: &[ConversationLin
     let mut last_ts = meta.created_at_unix_ms;
 
     for line in lines {
-        if !line.is_message() {
+        if !line.contributes_to_summary() {
             continue;
         }
         message_count += 1;
         last_ts = last_ts.max(line.ts());
 
-        match line {
-            ConversationLine::User(u) => {
-                last_preview = compact_preview(&u.text);
-            }
-            ConversationLine::Assistant(a) => {
-                if !a.text.trim().is_empty() {
-                    last_preview = compact_preview(&a.text);
-                }
-            }
-            _ => {}
+        if let Some(preview_text) = line.summary_preview_text() {
+            last_preview = compact_preview(preview_text);
         }
     }
 

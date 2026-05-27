@@ -337,6 +337,95 @@ fn update_line_refreshes_summary_metadata_after_streaming_rewrite() {
 }
 
 #[test]
+fn commentary_is_excluded_from_summary_metadata() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("tsummary-commentary-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: u("u1", "r1", "需要修一个旁白问题"),
+    })
+    .expect("user");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: a(
+            "a1",
+            "r1",
+            "resp1",
+            Some(AssistantPhase::Commentary),
+            "我先检查一下前后端链路。",
+            AssistantStatus::Done,
+        ),
+    })
+    .expect("commentary");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: a(
+            "a2",
+            "r1",
+            "resp1",
+            Some(AssistantPhase::FinalAnswer),
+            "已经定位到问题并完成第一轮修复。",
+            AssistantStatus::Done,
+        ),
+    })
+    .expect("final");
+
+    let summary = list_conversations()
+        .expect("list conversations")
+        .into_iter()
+        .find(|item| item.conversation_id == cid)
+        .expect("conversation summary");
+    assert_eq!(summary.message_count, 2);
+    assert_eq!(summary.last_message_preview, "已经定位到问题并完成第一轮修复。");
+
+    delete_conversation(&cid).ok();
+}
+
+#[test]
+fn summary_refresh_rebuild_still_excludes_commentary_preview() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("trefresh-commentary-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: u("u1", "r1", "请继续"),
+    })
+    .expect("user");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: a(
+            "a1",
+            "r1",
+            "resp1",
+            Some(AssistantPhase::Commentary),
+            "我先看一下代码结构。",
+            AssistantStatus::Done,
+        ),
+    })
+    .expect("commentary");
+
+    let detail = load_conversation(&cid).expect("load").expect("detail");
+    assert_eq!(detail.lines.len(), 2);
+
+    let summary = list_conversations()
+        .expect("list conversations")
+        .into_iter()
+        .find(|item| item.conversation_id == cid)
+        .expect("conversation summary");
+    assert_eq!(summary.message_count, 1);
+    assert_eq!(summary.last_message_preview, "请继续");
+
+    delete_conversation(&cid).ok();
+}
+
+#[test]
 fn duplicate_append_is_skipped_with_cached_line_ids() {
     let _g = crate::config::test_env_lock()
         .lock()

@@ -1,399 +1,364 @@
-# Codex 式中间输出/最终回答分层分析
+# Codex 式旁白 / 最终回答链路排查
 
-## 目标
+## 这次排查要回答什么
 
-当前 AgentJax 已经实现了两类用户可见行为：
+这次主要确认两件事：
 
-- Agent 工作时会持续输出一些文本
-- 最后会给出一个最终回答
+1. AgentJax 里的“旁白”到底是模型真实输出的，还是最后由 API / 前后端重新拼出来的。
+2. 当前实现和 `/Volumes/Data/codex/codex-rs` 相比，真正的差距在哪里。
 
-但框架目前没有稳定地区分：
+结论先放前面：
 
-- 哪些文本是工作中的旁白 / commentary
-- 哪些文本是最终回答 / final answer
+- 当前 AgentJax 已经不是“纯 UI 猜测”模式，而是有明确的 `commentary` / `final_answer` 相位链路。
+- “最终回答不要重复旁白”这件事，当前主要是后端 runtime 主动做的，不是前端渲染时临时过滤。
+- 也就是说，最终回答里是否不重复旁白，不完全取决于模型自觉；框架本身已经在做一次去重/清洗。
+- 但 UI 层和会话摘要层仍然把 commentary 当成普通 assistant 文本的一部分来计数、预览和展示，这就是当前“摸不着头脑”的主要来源之一。
 
-这会导致 `working_start` / `working_done` 与 assistant 文本错位，进而让 UI 和上下文重建都出现混乱。
+## 现在的 AgentJax 到底怎么跑
 
-这份文档基于三部分内容总结：
-
-- 复现场景：`/Users/jaxlocke/.agentjax/sessions/d709db5a-cf42-41e2-bf98-58bc6f1b392a/messages.jsonl`
-- AgentJax 当前实现
-- Codex 源码：`/Volumes/Data/codex/codex-rs`
-
-## 这次错乱是怎么发生的
-
-在样本会话里，相关顺序是：
-
-1. assistant 先输出一句中间说明
-2. `working_start` 才被写入
-3. tool 行被写入
-4. assistant 又写入一大段文本
-5. `working_done` 最后写入
-
-也就是会出现这种顺序：
-
-```text
-assistant(commentary)
-working_start
-tool
-assistant(这里其实已经像 final 了，但仍被当普通 assistant)
-working_done
-```
-
-这和你想要的心智模型不一致。你希望的是更接近 Codex：
-
-```text
-commentary / streaming updates
-tool activity
-final answer
-```
-
-而不是“普通 assistant 消息 + 外围 marker 再去猜语义”。
-
-## AgentJax 当前实现的问题
-
-### 1. assistant 文本没有 phase
-
-当前 `AssistantLine` 只有：
-
-- `text`
-- `status`
-
-没有：
-
-- `phase: commentary | final_answer`
+## 1. 提示词层已经要求模型区分旁白和最终回答
 
 见：
 
-- `/Volumes/Data/AgentJax/src-tauri/src/conversation_store/types.rs`
-- `/Volumes/Data/AgentJax/src/features/conversations/types.ts`
+- `/Volumes/Data/AgentJax/src-tauri/src/config/constants.rs`
 
-这意味着一旦一段文本被落盘为 `assistant`，系统就失去了“它到底是工作中旁白还是最终回答”的信息。
+内置 system block 已明确要求：
 
-### 2. Provider 流解析层完全没保留 phase
+- commentary 只用于进度更新
+- final answer 必须和 commentary 分开
+- final answer 不要复述 earlier commentary
 
-`ChatStreamEventPayload` 里虽然已经有注释说明：
+所以从提示词设计上说，框架本来就在模仿 Codex 的双相位语义。
 
-- `phase?: string`
-
-但实际 provider 解析层并没有把 OpenAI/Codex 兼容的 `phase` 取出来。
+## 2. provider 流解析层已经能识别 `phase`
 
 见：
 
-- `/Volumes/Data/AgentJax/src/features/conversations/types.ts`
 - `/Volumes/Data/AgentJax/src-tauri/src/providers/responses/stream/parser.rs`
+- `/Volumes/Data/AgentJax/src-tauri/src/message_phase.rs`
 
-`parser.rs` 只在收：
+当前解析器已经做了这些事：
 
-- `response.output_text.delta`
-- `response.output_text.done`
-- `response.output_item.done`
+- 在 `response.output_item.added` / `response.output_item.done` 中读取 assistant message 的 `phase`
+- 识别 `commentary` 和 `final_answer`
+- 把 `item_id -> phase` 记到 `assistant_message_phase_by_item`
+- 在 `response.output_text.delta` 里把 phase 一起带出来
 
-但没有读取 message item 上的 `phase`。
+这点很重要，因为它说明：
 
-### 3. runtime 发事件的顺序本身就会制造错位
+- phase 不是前端自己猜的
+- 也不是 chat command 事后硬编码猜的
+- 它来自流式响应里的 assistant item 元数据
 
-在 `run_turn()` 里：
-
-- 先根据本 hop 的 `output_text` 发 `HopAssistantText`
-- 如果这一跳后面还有工具，再发 `WorkingStarted`
+## 3. runtime 会主动挑选“最终回答”，并去掉前置旁白
 
 见：
 
 - `/Volumes/Data/AgentJax/src-tauri/src/runtime/engine.rs`
 
-关键顺序是：
+这里有三段关键逻辑：
 
-```rust
-if !collected.response_result.output_text.is_empty() {
-    on_event(ProviderStreamEvent::HopAssistantText { ... })?;
-}
+### `resolve_hop_phase`
 
-if is_final_hop {
-    ...
-} else if !working_started {
-    on_event(ProviderStreamEvent::WorkingStarted)?;
-}
+如果 provider 没给 phase，就按 hop 是否还有 pending tools 推断：
+
+- 还有工具：默认 `commentary`
+- 没有工具：默认 `final_answer`
+
+这和 codex-rs 的兼容思路一致，都是“phase 有则用之，没有则降级”。
+
+### `select_final_output_text`
+
+runtime 会优先从 assistant message items 里选“最后一个不是 commentary 的消息”作为最终答案。
+
+### `strip_commentary_prefixes`
+
+runtime 还会维护一份 `commentary_history`，然后把最终文本开头与历史旁白逐行对上的部分剥掉。
+
+也就是说，如果模型输出了这种东西：
+
+```text
+我先检查文件。
+接下来我运行测试。
+已经修复完成。
 ```
 
-这意味着第一段中间旁白会天然先于 `working_start` 落盘，所以单靠 marker 包裹 assistant 文本，本来就不稳。
+而前两行已经作为 commentary 出现过，runtime 会把最终结果清成：
 
-### 4. 所有 hop assistant 文本都会被持久化成普通 assistant
+```text
+已经修复完成。
+```
 
-当前：
+这已经明确回答了核心问题：
 
-- `HopAssistantText` 不区分 `is_final`
-- `persist_hop_assistant_line()` 直接写 `ConversationLine::Assistant`
+## “最终回答不重复旁白”目前主要是后端 runtime 在做，不是单靠模型自律
+
+## 4. provider 返回的 `output_text` 也优先取 final，而不是简单拼全量 delta
+
+见：
+
+- `/Volumes/Data/AgentJax/src-tauri/src/providers/responses/stream/transport.rs`
+- `/Volumes/Data/AgentJax/src-tauri/src/providers/responses/stream/parser.rs`
+
+当流结束后，如果实时累计的 `output_text` 为空，transport 会回退到：
+
+- `extract_output_text(root)`
+
+而 `extract_output_text()` 的第一步就是：
+
+- `extract_final_output_text(root)`
+
+它会优先选：
+
+- 最后一个 `phase != commentary` 的 assistant message
+
+如果没有 phase，再退化到最后一条 assistant message。
+
+这说明当前 `ChatResponse.output_text` 的设计目标本身就是：
+
+- “最终答案文本”
+
+而不是：
+
+- “commentary + tool narration + final answer 的完整拼接”
+
+## 5. chat command 和持久化层把 commentary / final 分开落盘
 
 见：
 
 - `/Volumes/Data/AgentJax/src-tauri/src/commands/chat.rs`
 - `/Volumes/Data/AgentJax/src-tauri/src/commands/chat/chat_persistence.rs`
 
-而且注释已经写明：
+当前行为是：
 
-```rust
-/// Called for every model-response hop — both commentary (working) and final.
-```
+- `AssistantMessageCompleted` 且 `phase == commentary` 时，持久化 commentary
+- `HopAssistantText` 且 `phase != commentary` 时，持久化 final / unknown
 
-也就是说，当前设计从一开始就是把 commentary 和 final 混存成同一种 assistant 行。
+这意味着现在磁盘上的 `messages.jsonl` 已经可以保存：
 
-### 5. 前端流式展示也没有真正按 working/final 分流
+- assistant text
+- phase
 
-`App.tsx` 会：
+而不是像更早版本那样完全混在一起。
 
-- 收到 `delta` 时直接往最后一个 draft assistant 追加文本
-- 收到 `working_started` / `working_done` 时单独插 marker
-
-见：
-
-- `/Volumes/Data/AgentJax/src/App.tsx`
-
-但 `delta` 分支没有按 `payload.phase` 做真正分流。结果就是：
-
-- 流式文本本身是“相位盲”的
-- marker 只是后置补丁
-
-### 6. 更严重的问题：commentary 还会污染后续请求上下文
-
-`load_context_for_request()` 会把所有 `assistant` 行都回放成：
-
-```json
-{
-  "type": "message",
-  "role": "assistant",
-  "status": "completed",
-  "content": [{ "type": "output_text", "text": a.text, "annotations": [] }]
-}
-```
+## 6. 会话上下文回放也会保留 `phase`
 
 见：
 
 - `/Volumes/Data/AgentJax/src-tauri/src/conversation_store/context.rs`
 
-由于 commentary 也被存成普通 assistant，所以后续请求会把这些“我先查一下”“我先去看文档”之类的工作中旁白当作正式 assistant 历史继续送回模型。
+`build_assistant_input_item()` 会把 assistant line 转成：
 
-这不仅影响 UI，还会影响模型对话上下文质量。
+- `type: "message"`
+- `role: "assistant"`
+- `content: [...]`
+- 如果有 phase，就带上 `phase`
 
-## Codex 是怎么做的
+所以 commentary 并没有在回放历史时丢失语义。
 
-## 核心结论
+这点和 codex-rs 的设计方向是一致的。
 
-Codex 不是靠 `working_start` / `working_done` 去推断文本语义。
+## 现在“看起来诡异”的主要问题在哪
 
-它的核心建模是：
+## 1. 前端显示虽然区分样式，但会话级语义还不够干净
 
-- assistant 文本本身就是结构化 item
-- item 自带 `phase`
-- `phase` 取值是：
-  - `commentary`
-  - `final_answer`
+见：
 
-### 1. Codex 的 assistant item 自带 phase
+- `/Volumes/Data/AgentJax/src/components/ChatArea.tsx`
+- `/Volumes/Data/AgentJax/src/features/conversations/sessionState.ts`
+- `/Volumes/Data/AgentJax/src/features/conversations/conversationUtils.ts`
+
+当前前端已经做了视觉区分：
+
+- `phase === commentary` 时用小号、缩进、加载图标
+- `phase !== commentary` 时按正式 assistant 消息渲染
+
+但还有几个地方仍把 commentary 当“普通 assistant 成果”处理：
+
+- `countUserAndDoneAssistant()` 统计 done assistant 时不区分 phase
+- `lastMessagePreview` 可能被 commentary 更新
+- 侧边栏标题 fallback 也可能落到 commentary 文本
+
+这会带来几个体验问题：
+
+- 侧边栏预览可能显示“我先看一下代码”
+- 消息数会把旁白也算进去
+- 用户会误以为 commentary 是正式回复的一部分
+
+这更像是产品层 / UI 层语义没收干净，不是 phase 链路缺失。
+
+## 2. 流式过程中仍有“相位切换时序”带来的理解负担
+
+当前事件流里同时存在两类 assistant 文本事件：
+
+- `delta`
+- `assistant_message`
+
+见：
+
+- `/Volumes/Data/AgentJax/src-tauri/src/commands/chat/chat_events.rs`
+- `/Volumes/Data/AgentJax/src/hooks/useConversationStreaming.ts`
+
+前端用 `delta` 做草稿流式显示，再用 `assistant_message` 收口为 done。
+
+这个策略本身没错，但用户看到的“旁白块”和“最终回答块”之间是否足够稳定，取决于：
+
+- provider 是否稳定发 phase
+- 每个 hop 结束时 `assistant_message` 到达的时机
+- 是否存在 phase 缺失导致的 fallback 推断
+
+所以现在的“摸不着头脑”，更像是：
+
+- 底层 phase 语义已有
+- 但前端在“列表/摘要/计数/过渡时机”上没有完全按 phase 建模
+
+## 3. `applyAssistantDelta()` 仍按 request 维度复用草稿，没按 phase 强约束
+
+见：
+
+- `/Volumes/Data/AgentJax/src/features/conversations/sessionState.ts`
+
+`applyAssistantDelta()` 只要发现最后一条是同一个 `requestId` 的 draft assistant，就继续追加。
+
+它会更新 phase，但不会先校验“这个草稿是否属于当前 phase”。
+
+在大多数正常流里这问题不大，因为：
+
+- commentary hop 结束后通常会先收到 `assistant_message` 把它收口成 done
+- 下一阶段 final delta 到来时会新建 draft
+
+但如果上游 phase 发得不稳定，或者某些 provider 的 delta / done 时序不同，这里会是潜在抖动点。
+
+## AgentJax 和 codex-rs 的关键差距
+
+## 1. 核心建模方向其实已经接近 codex-rs
+
+Codex 的核心不是 `working_start` / `working_done` 去猜文本语义，而是：
+
+- assistant message item 自带 `phase`
+- phase 一路保留到历史和 UI
 
 见：
 
 - `/Volumes/Data/codex/codex-rs/protocol/src/models.rs`
 - `/Volumes/Data/codex/codex-rs/protocol/src/items.rs`
-
-`MessagePhase`：
-
-```rust
-pub enum MessagePhase {
-    Commentary,
-    FinalAnswer,
-}
-```
-
-`AgentMessageItem`：
-
-```rust
-pub struct AgentMessageItem {
-    pub id: String,
-    pub content: Vec<AgentMessageContent>,
-    pub phase: Option<MessagePhase>,
-}
-```
-
-源码注释已经直接说明用途：
-
-- 用来区分 mid-turn commentary 和 final answer
-- 避免 UI 状态抖动
-
-### 2. Codex 会把 phase 一路保留到线程历史和前端协议
-
-见：
-
-- `/Volumes/Data/codex/codex-rs/app-server-protocol/src/protocol/v2/item.rs`
-- `/Volumes/Data/codex/codex-rs/app-server-protocol/schema/typescript/v2/ThreadItem.ts`
 - `/Volumes/Data/codex/codex-rs/app-server-protocol/src/protocol/thread_history.rs`
 
-也就是说：
+AgentJax 现在在这些点上已经基本对齐：
 
-- provider / core 层拿到 phase
-- turn item 保留 phase
-- thread history 保留 phase
-- UI 消费的 `ThreadItem::AgentMessage` 仍然保留 phase
+- 有 `AssistantPhase`
+- provider parser 保留 phase
+- conversation store 保留 phase
+- 前端也能读 phase
 
-这是完整链路，而不是只在某一层临时判断一下。
+所以大方向并没有跑偏。
 
-### 3. Codex 的“中间输出”和“最终回答”是同类 item，不同 phase
-
-这点很重要。
-
-Codex 不是：
-
-- 一类普通 assistant
-- 一类 working marker
-
-而是：
-
-- 同一类 `agentMessage`
-- `phase=commentary` 或 `phase=final_answer`
-
-marker 只适合表达“当前 turn 是否还在进行中”，不适合承载 assistant 文本语义。
-
-### 4. Codex 的 UI 也是按 phase 响应
+## 2. codex-rs 更成熟的地方在“UI 消费 phase 的一致性”
 
 见：
 
 - `/Volumes/Data/codex/codex-rs/tui/src/chatwidget/streaming.rs`
 
-`on_agent_message_item_completed()` 里有明确逻辑：
+codex-rs 会把 `phase` 直接用于：
 
-- `Commentary` 完成后，只恢复工作状态指示
-- `FinalAnswer` 或 `None` 才按最终回答语义处理
+- commentary 完成时机
+- 状态指示器恢复时机
+- final answer 的 transcript 记录
 
-也就是说 UI 的“工作中”状态是围绕消息 phase 运作的，而不是让 phase 依赖 UI 去猜。
+也就是说它不是“只把 phase 存下来”，而是整个 UI 状态机都围着 phase 转。
 
-### 5. Codex 对 phase 缺失时做兼容，但不依赖兼容路径
+AgentJax 现在更像是：
 
-Codex 允许：
+- 数据模型已经知道 phase
+- 但列表预览、计数、摘要、流式过渡，还没完全 phase-aware
 
-- `phase: None`
+## 3. AgentJax 还保留了额外的一层“文本清洗”
 
-这是为了兼容不支持该字段的 provider / legacy 模型。
+Codex 的主路径更偏向：
 
-但它的结构是“能拿到 phase 时就保真保留”。这和 AgentJax 当前“从头到尾没有 phase”是两个层级的问题。
+- 保留 item 语义
+- UI 按 phase 消费 item
 
-## 两套模型的本质差异
+AgentJax 目前则多了一层：
 
-### AgentJax 当前模型
+- `strip_commentary_prefixes()`
 
-```text
-assistant text
-+ working_start / working_done markers
-+ tool lines
-=> 最后通过时序猜哪些 assistant 是 working，哪些是 final
-```
+这层是很实用的兜底，但也说明我们当前仍不完全信任：
 
-问题：
+- provider 的 final message phase
+- 模型不会复述 commentary
 
-- 猜测不稳定
-- 持久化后语义丢失
-- 回放和上下文重建都会出错
+换句话说：
 
-### Codex 模型
+- codex-rs 更像“结构优先”
+- AgentJax 现在是“结构优先 + 文本补丁兜底”
 
-```text
-agentMessage(phase=commentary)
-tool items
-agentMessage(phase=final_answer)
-turn status / runtime status
-```
+## 这次排查能下的结论
 
-优点：
+## 关于“是 API 拼出来的还是模型复述的”
 
-- 语义在数据层就确定
-- 历史回放不需要猜
-- UI 只负责展示，不负责定义语义
-- 上下文重建可以按 phase 做更细控制
+更准确的说法是：
 
-## 对 AgentJax 的修正建议
+- commentary 文本本身通常是模型真实输出的
+- final answer 文本也通常来自模型真实输出
+- 但 AgentJax runtime 会主动挑选 final message，并剥掉与历史 commentary 完全重合的前缀行
 
-## 建议方向
+所以最终用户看到的 `output_text` 不是原封不动的“模型最后一段原文”，而是：
 
-最接近 Codex 的修正方式是：
+- 模型输出
+- 经过 phase 选择
+- 再经过 commentary-prefix 清洗
 
-### 方案 A：最小修复
+因此答案不是二选一。
 
-保留 `working_start / working_done`，但新增 assistant phase。
+不是“纯模型复述”。
 
-具体做法：
+也不是“前端最后乱拼一坨”。
 
-1. 为 `AssistantLine` 增加字段：
-   - `phase?: "commentary" | "final_answer"`
-2. 为 `ProviderStreamEvent::HopAssistantText` 增加 phase，而不是只有 `is_final`
-3. provider 层如果能读到 message phase，就直接透传
-4. runtime 层不要再用“是否有 pending tools”去猜文本语义
-5. `persist_hop_assistant_line()` 按 phase 落盘
-6. `load_context_for_request()` 至少要能区分：
-   - commentary 是否回放
-   - final answer 一定回放
+而是：
 
-这是当前代码最容易落地的一条线。
+- 后端按照 phase 结构选 final
+- 再做一次轻量文本去重
 
-### 方案 B：更接近 Codex 的重构
+## 关于“显示摸不着头脑”更像哪一层的问题
 
-逐步弱化 `working_start / working_done` 作为语义边界的职责，把它们降级成纯 UI/runtime 状态事件。
+更像前端/产品语义问题，次要才是模型行为问题。
 
-目标结构变成：
+具体说：
 
-- `assistant(phase=commentary)`
-- `tool`
-- `assistant(phase=final_answer)`
+- phase 链路已经存在
+- 过滤逻辑已经存在
+- 真正不稳的是 preview / count / summary / draft merge 这些 UI 行为还没有彻底 phase-aware
 
-而不是：
+## 本次验证
 
-- `working_start`
-- `assistant`
-- `tool`
-- `assistant`
-- `working_done`
+已跑通现有单测：
 
-在这个模型下：
+- `cargo test strips_leading_commentary_lines_from_final_answer --manifest-path src-tauri/Cargo.toml`
+- `cargo test selects_unknown_phase_message_as_final_output_when_no_final_phase_exists --manifest-path src-tauri/Cargo.toml`
 
-- working marker 只负责“现在还在干活”
-- assistant line 自己负责“这段话是什么性质”
+这两条测试直接验证了：
 
-这才是 Codex 风格。
+- 框架会剥掉与 commentary 重复的前缀行
+- 即使 phase 不完整，也会尽量把最终回答从 commentary 中分离出来
 
-## 推荐的具体改动顺序
+## 下一步建议
 
-建议按下面顺序做，风险最低：
+如果下一步要继续模仿 codex-rs，我建议优先做这三件事：
 
-1. 在数据模型里给 `AssistantLine` 增加 `phase`
-2. 在前端 `AssistantLine` 类型同步加 `phase`
-3. 修改 provider 解析和 runtime 事件，让每段 assistant 文本都带 phase
-4. 修改 `persist_hop_assistant_line()`，落盘 phase
-5. 修改 `App.tsx` 的流式处理，按 phase 分流 draft assistant
-6. 修改 `ChatArea.tsx`，按 phase 展示 commentary 和 final
-7. 修改 `load_context_for_request()`，决定 commentary 是否回放给模型
+1. 把前端会话摘要彻底 phase-aware。
+   - sidebar preview、messageCount、fallback title 默认忽略 commentary。
 
-## 一个非常关键的实现原则
+2. 把流式草稿状态机也做成 phase-aware。
+   - `applyAssistantDelta()` 不只按 `requestId` 复用草稿，也要考虑 phase。
 
-不要再让 `working_start` / `working_done` 决定 assistant 文本属于 working 还是 final。
+3. 给 runtime 增加更强的观测日志或调试开关。
+   - 直接记录“原始 assistant items / phase / 选中的 final text / strip 前后结果”，这样以后能快速判断到底是模型复述，还是 runtime 清洗。
 
-正确方向应该是：
+如果要直接进入实现阶段，最合适的起点是：
 
-- assistant 文本先天自带 phase
-- `working_start` / `working_done` 只是运行状态提示
+- `/Volumes/Data/AgentJax/src/features/conversations/conversationUtils.ts`
+- `/Volumes/Data/AgentJax/src/features/conversations/sessionState.ts`
+- `/Volumes/Data/AgentJax/src/components/ChatArea.tsx`
 
-否则你即使修掉这次顺序问题，未来仍然会在以下情况继续错：
-
-- 模型先说一句再调用工具
-- 连续多轮 tool hop
-- 工具后又有一段 commentary
-- provider 流式顺序和 UI 事件顺序不完全一致
-
-## 最终结论
-
-当前 bug 不是单纯的“marker 插入时机不对”。
-
-更本质的问题是：
-
-- AgentJax 现在没有把 assistant 文本分成 `commentary` 和 `final_answer` 两个语义相位
-- 所以系统只能依赖 `working_start` / `working_done` 和时间顺序去猜
-- 而 Codex 的做法是把 `phase` 变成消息本身的一部分，并把这个字段贯穿 provider、runtime、history、UI 全链路
-
-所以下一步修正的正确方向不是继续补 marker 判断，而是把 assistant phase 建模补上。
+因为第一波收益最大的问题，已经主要落在前端语义收口上了。
