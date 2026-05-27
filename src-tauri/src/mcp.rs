@@ -43,6 +43,7 @@ impl McpManager {
     ) -> Result<rmcp::Peer<RoleClient>, String> {
         let resolved = resolve_server_runtime(server_id, config, runtime_config)?;
         if !resolved.enabled {
+            self.shutdown_service(server_id).await;
             return Err(format!("MCP server '{}' is disabled", server_id));
         }
 
@@ -50,15 +51,15 @@ impl McpManager {
         let _guard = server_lock.lock().await;
 
         {
-            let mut services = self.services.lock().await;
+            let services = self.services.lock().await;
             if let Some(entry) = services.get(server_id) {
                 if entry.fingerprint == resolved.fingerprint {
                     return Ok(entry.service.peer().clone());
                 }
-
-                services.remove(server_id);
             }
         }
+
+        self.shutdown_service(server_id).await;
 
         let service = tokio::time::timeout(
             Duration::from_millis(runtime_config.startup_timeout_ms),
@@ -81,6 +82,32 @@ impl McpManager {
             },
         );
         Ok(peer)
+    }
+
+    async fn shutdown_service(&self, server_id: &str) {
+        let removed = {
+            let mut services = self.services.lock().await;
+            services.remove(server_id)
+        };
+
+        let Some(mut entry) = removed else {
+            return;
+        };
+
+        match tokio::time::timeout(Duration::from_secs(3), entry.service.close()).await {
+            Ok(Ok(reason)) => {
+                log::info!("Closed MCP server '{}' with reason {:?}", server_id, reason);
+            }
+            Ok(Err(err)) => {
+                log::warn!("Failed to close MCP server '{}': {}", server_id, err);
+            }
+            Err(_) => {
+                log::warn!(
+                    "Timed out while closing MCP server '{}'; dropping transport",
+                    server_id
+                );
+            }
+        }
     }
 
     pub async fn list_tools(

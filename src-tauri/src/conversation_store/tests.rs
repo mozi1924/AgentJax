@@ -562,3 +562,42 @@ fn recovery_treats_unknown_assistant_phase_as_completed_answer() {
     );
     delete_conversation(&cid).ok();
 }
+
+#[test]
+fn concurrent_appends_preserve_all_lines_for_same_conversation() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("tconcurrent-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+
+    let mut handles = Vec::new();
+    for idx in 0..12 {
+        let conversation_id = cid.clone();
+        handles.push(std::thread::spawn(move || {
+            append_line(AppendLineInput {
+                conversation_id,
+                line: u(
+                    &format!("u{idx}"),
+                    &format!("req-{idx}"),
+                    &format!("message {idx}"),
+                ),
+            })
+        }));
+    }
+
+    for handle in handles {
+        handle.join().expect("join").expect("append");
+    }
+
+    let detail = load_conversation(&cid).expect("load").expect("detail");
+    let user_count = detail
+        .lines
+        .iter()
+        .filter(|line| matches!(line, ConversationLine::User(_)))
+        .count();
+    assert_eq!(user_count, 12);
+
+    delete_conversation(&cid).ok();
+}

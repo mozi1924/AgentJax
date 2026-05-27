@@ -6,7 +6,7 @@ use crate::conversation_store_utils::{
     compact_preview, normalize_title_source, sanitize_conversation_id,
 };
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
 // ── Read ──────────────────────────────────────────────────────────────────
@@ -97,12 +97,11 @@ pub fn write_conversation_file(
     // metadata.json — pretty-printed
     let meta_json = serde_json::to_string_pretty(&data.meta)
         .map_err(|e| format!("Failed to serialize metadata: {e}"))?;
-    fs::write(metadata_path, format!("{meta_json}\n")).map_err(|e| {
-        format!(
-            "Failed to write metadata file {}: {e}",
-            metadata_path.display()
-        )
-    })?;
+    write_file_atomically(
+        metadata_path,
+        format!("{meta_json}\n").as_bytes(),
+        "metadata",
+    )?;
 
     // messages.jsonl — one compact JSON line per item
     let mut buf = String::with_capacity(data.lines.len() * 256);
@@ -112,12 +111,108 @@ pub fn write_conversation_file(
         buf.push_str(&json);
         buf.push('\n');
     }
-    fs::write(messages_path, buf.as_bytes()).map_err(|e| {
+    write_file_atomically(messages_path, buf.as_bytes(), "messages")
+}
+
+fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> Result<(), String> {
+    let Some(parent) = path.parent() else {
+        return Err(format!(
+            "Failed to resolve parent directory for {} file {}",
+            label,
+            path.display()
+        ));
+    };
+
+    if !parent.exists() {
+        fs::create_dir_all(parent).map_err(|e| {
+            format!(
+                "Failed to create parent directory {} for {} file: {e}",
+                parent.display(),
+                label
+            )
+        })?;
+    }
+
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("Invalid {} file name {}", label, path.display()))?;
+    let unique_suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = parent.join(format!(
+        ".{file_name}.tmp-{}-{unique_suffix}",
+        std::process::id()
+    ));
+
+    let mut tmp_file = fs::File::create(&tmp_path).map_err(|e| {
         format!(
-            "Failed to write messages file {}: {e}",
-            messages_path.display()
+            "Failed to create temporary {} file {}: {e}",
+            label,
+            tmp_path.display()
         )
-    })
+    })?;
+    tmp_file.write_all(contents).map_err(|e| {
+        format!(
+            "Failed to write temporary {} file {}: {e}",
+            label,
+            tmp_path.display()
+        )
+    })?;
+    tmp_file.sync_all().map_err(|e| {
+        format!(
+            "Failed to sync temporary {} file {}: {e}",
+            label,
+            tmp_path.display()
+        )
+    })?;
+    drop(tmp_file);
+
+    if let Err(rename_err) = fs::rename(&tmp_path, path) {
+        #[cfg(target_os = "windows")]
+        {
+            if path.exists() {
+                fs::remove_file(path).map_err(|e| {
+                    format!(
+                        "Failed to replace existing {} file {} after rename error {}: {e}",
+                        label,
+                        path.display(),
+                        rename_err
+                    )
+                })?;
+                fs::rename(&tmp_path, path).map_err(|e| {
+                    format!(
+                        "Failed to finalize {} file {} after rename retry: {e}",
+                        label,
+                        path.display()
+                    )
+                })?;
+            } else {
+                return Err(format!(
+                    "Failed to atomically rename temporary {} file {} to {}: {}",
+                    label,
+                    tmp_path.display(),
+                    path.display(),
+                    rename_err
+                ));
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(format!(
+                "Failed to atomically rename temporary {} file {} to {}: {}",
+                label,
+                tmp_path.display(),
+                path.display(),
+                rename_err
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 // ── Metadata helpers ──────────────────────────────────────────────────────

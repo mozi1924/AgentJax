@@ -1,4 +1,5 @@
 use super::file_io::read_conversation_file;
+use super::locks::with_conversation_lock;
 use super::paths::{conversation_messages_path, conversation_metadata_path};
 use super::types::{
     AssistantLine, AssistantStatus, ConversationContext, ConversationLine, ToolLine,
@@ -14,41 +15,45 @@ const MAX_CONTEXT_ITEMS_PER_REQUEST: usize = 200;
 /// that the OpenAI Responses endpoint expects.
 
 pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationContext, String> {
-    let metadata_path = conversation_metadata_path(conversation_id)?;
-    let messages_path = conversation_messages_path(conversation_id)?;
-    let Some(data) = read_conversation_file(&metadata_path, &messages_path)? else {
-        return Ok(ConversationContext::default());
-    };
+    with_conversation_lock(conversation_id, || {
+        let metadata_path = conversation_metadata_path(conversation_id)?;
+        let messages_path = conversation_messages_path(conversation_id)?;
+        let Some(data) = read_conversation_file(&metadata_path, &messages_path)? else {
+            return Ok(ConversationContext::default());
+        };
 
-    let mut input_items: Vec<Value> = Vec::new();
+        let mut input_items: Vec<Value> = Vec::new();
 
-    for line in &data.lines {
-        match line {
-            ConversationLine::User(u) => {
-                input_items.push(json!({
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": u.text}]
-                }));
-            }
-            ConversationLine::Assistant(a) => {
-                if a.status != AssistantStatus::Done || a.text.trim().is_empty() {
-                    continue;
+        for line in &data.lines {
+            match line {
+                ConversationLine::User(u) => {
+                    input_items.push(json!({
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": u.text}]
+                    }));
                 }
-                input_items.push(build_assistant_input_item(a));
-            }
-            ConversationLine::Tool(t) => {
-                input_items.extend(build_tool_input_items(t));
+                ConversationLine::Assistant(a) => {
+                    if a.status != AssistantStatus::Done || a.text.trim().is_empty() {
+                        continue;
+                    }
+                    input_items.push(build_assistant_input_item(a));
+                }
+                ConversationLine::Tool(t) => {
+                    input_items.extend(build_tool_input_items(t));
+                }
             }
         }
-    }
 
-    // Deduplicate and pair tool calls
-    input_items = sanitize_tool_call_pairs(input_items);
-    // Truncate if too large, preserving tool-call pairs
-    input_items =
-        truncate_context_items_preserving_tool_pairs(input_items, MAX_CONTEXT_ITEMS_PER_REQUEST);
+        // Deduplicate and pair tool calls
+        input_items = sanitize_tool_call_pairs(input_items);
+        // Truncate if too large, preserving tool-call pairs
+        input_items = truncate_context_items_preserving_tool_pairs(
+            input_items,
+            MAX_CONTEXT_ITEMS_PER_REQUEST,
+        );
 
-    Ok(ConversationContext { input_items })
+        Ok(ConversationContext { input_items })
+    })
 }
 
 fn build_assistant_input_item(line: &AssistantLine) -> Value {

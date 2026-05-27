@@ -1,5 +1,6 @@
 mod context;
 mod file_io;
+mod locks;
 mod mutations;
 mod paths;
 mod queries;

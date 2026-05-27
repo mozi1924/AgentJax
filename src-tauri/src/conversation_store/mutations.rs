@@ -1,4 +1,5 @@
 use super::file_io::{read_conversation_file, summary_from_meta, write_conversation_file};
+use super::locks::with_conversation_lock;
 use super::paths::{
     conversation_dir_path, conversation_messages_path, conversation_metadata_path,
     ensure_session_layout,
@@ -14,6 +15,12 @@ use std::fs;
 // ── Ensure existence ──────────────────────────────────────────────────────
 
 pub fn ensure_conversation(conversation_id: &str) -> Result<ConversationMeta, String> {
+    with_conversation_lock(conversation_id, || {
+        ensure_conversation_inner(conversation_id)
+    })
+}
+
+fn ensure_conversation_inner(conversation_id: &str) -> Result<ConversationMeta, String> {
     let metadata_path = conversation_metadata_path(conversation_id)?;
     let messages_path = conversation_messages_path(conversation_id)?;
     if let Some(mut data) = read_conversation_file(&metadata_path, &messages_path)? {
@@ -57,9 +64,21 @@ pub fn ensure_conversation(conversation_id: &str) -> Result<ConversationMeta, St
 // ── Append line ───────────────────────────────────────────────────────────
 
 pub fn append_line(input: AppendLineInput) -> Result<(), String> {
+    let conversation_id = input.conversation_id.clone();
+    with_conversation_lock(&conversation_id, move || append_line_inner(input))
+}
+
+// ── Update existing line (in-place replace by id) ─────────────────────────
+
+pub fn update_line(input: UpdateLineInput) -> Result<(), String> {
+    let conversation_id = input.conversation_id.clone();
+    with_conversation_lock(&conversation_id, move || update_line_inner(input))
+}
+
+fn append_line_inner(input: AppendLineInput) -> Result<(), String> {
     let metadata_path = conversation_metadata_path(&input.conversation_id)?;
     let messages_path = conversation_messages_path(&input.conversation_id)?;
-    let mut data = load_or_create(&input.conversation_id, &metadata_path, &messages_path)?;
+    let mut data = load_or_create_inner(&input.conversation_id, &metadata_path, &messages_path)?;
 
     // Deduplicate: skip if line with same id already exists.
     if data.lines.iter().any(|l| l.id() == input.line.id()) {
@@ -82,12 +101,10 @@ pub fn append_line(input: AppendLineInput) -> Result<(), String> {
     write_conversation_file(&metadata_path, &messages_path, &data)
 }
 
-// ── Update existing line (in-place replace by id) ─────────────────────────
-
-pub fn update_line(input: UpdateLineInput) -> Result<(), String> {
+fn update_line_inner(input: UpdateLineInput) -> Result<(), String> {
     let metadata_path = conversation_metadata_path(&input.conversation_id)?;
     let messages_path = conversation_messages_path(&input.conversation_id)?;
-    let mut data = load_or_create(&input.conversation_id, &metadata_path, &messages_path)?;
+    let mut data = load_or_create_inner(&input.conversation_id, &metadata_path, &messages_path)?;
 
     if let Some(existing) = data.lines.iter_mut().find(|l| l.id() == input.line_id) {
         *existing = merge_updated_line(existing, input.line);
@@ -102,9 +119,18 @@ pub fn rename_conversation(
     conversation_id: &str,
     title: &str,
 ) -> Result<ConversationSummary, String> {
+    with_conversation_lock(conversation_id, || {
+        rename_conversation_inner(conversation_id, title)
+    })
+}
+
+fn rename_conversation_inner(
+    conversation_id: &str,
+    title: &str,
+) -> Result<ConversationSummary, String> {
     let metadata_path = conversation_metadata_path(conversation_id)?;
     let messages_path = conversation_messages_path(conversation_id)?;
-    let mut data = load_or_create(conversation_id, &metadata_path, &messages_path)?;
+    let mut data = load_or_create_inner(conversation_id, &metadata_path, &messages_path)?;
 
     data.meta.title = normalize_title(title);
     data.meta.title_source = "manual".to_string();
@@ -116,6 +142,15 @@ pub fn rename_conversation(
 // ── Auto-title update ─────────────────────────────────────────────────────
 
 pub fn update_auto_title(
+    conversation_id: &str,
+    title: &str,
+) -> Result<Option<ConversationSummary>, String> {
+    with_conversation_lock(conversation_id, || {
+        update_auto_title_inner(conversation_id, title)
+    })
+}
+
+fn update_auto_title_inner(
     conversation_id: &str,
     title: &str,
 ) -> Result<Option<ConversationSummary>, String> {
@@ -139,6 +174,12 @@ pub fn update_auto_title(
 // ── Delete ────────────────────────────────────────────────────────────────
 
 pub fn delete_conversation(conversation_id: &str) -> Result<bool, String> {
+    with_conversation_lock(conversation_id, || {
+        delete_conversation_inner(conversation_id)
+    })
+}
+
+fn delete_conversation_inner(conversation_id: &str) -> Result<bool, String> {
     let dir = conversation_dir_path(conversation_id)?;
     if !dir.exists() {
         return Ok(false);
@@ -151,7 +192,7 @@ pub fn delete_conversation(conversation_id: &str) -> Result<bool, String> {
 
 // ── Internal helper ───────────────────────────────────────────────────────
 
-fn load_or_create(
+fn load_or_create_inner(
     conversation_id: &str,
     metadata_path: &std::path::Path,
     messages_path: &std::path::Path,
@@ -159,7 +200,7 @@ fn load_or_create(
     if let Some(existing) = read_conversation_file(metadata_path, messages_path)? {
         return Ok(existing);
     }
-    let meta = ensure_conversation(conversation_id)?;
+    let meta = ensure_conversation_inner(conversation_id)?;
     Ok(ConversationData {
         meta,
         lines: Vec::new(),

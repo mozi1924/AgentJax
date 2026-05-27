@@ -21,6 +21,7 @@ pub async fn start_transport(
         } => {
             let executable = resolve_stdio_executable(command, *inherit_parent_env, env);
             let mut cmd = Command::new(&executable);
+            cmd.kill_on_drop(true);
             if !inherit_parent_env {
                 cmd.env_clear();
             }
