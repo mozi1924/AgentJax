@@ -13,7 +13,7 @@ use super::paths::{
 };
 use super::types::{
     AppendLineInput, ConversationData, ConversationDynamicTool, ConversationLine, ConversationMeta,
-    ConversationMountedMcpServer, ConversationMountedToolSource, ConversationSummary, ToolStatus, UpdateLineInput,
+    ConversationMountedToolSource, ConversationSummary, ToolStatus, UpdateLineInput,
     CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY, CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
     CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY, DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
 };

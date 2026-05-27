@@ -2,7 +2,7 @@ use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::common::{
     is_hidden_name, relative_path_display, resolve_workspace_path, stat_value,
