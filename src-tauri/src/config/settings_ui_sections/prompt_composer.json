@@ -1,20 +1,20 @@
 {
   "id": "prompt-composer",
-  "title": "Prompt Composer",
+  "title": "settings.prompt_composer.title",
   "icon": "Blocks",
   "order": 15,
-  "description": "组合 system 与 developer 提示词块，并预览最终发送给模型的结构。",
+  "description": "settings.prompt_composer.description",
   "children": [
     {
       "kind": "group",
       "id": "prompt-composer-main",
-      "title": "Prompt Blocks",
+      "title": "settings.prompt_composer.main.title",
       "children": [
         {
           "kind": "field",
           "id": "prompt-composer-field",
-          "title": "Prompt composer",
-          "description": "System 块始终编译到 instructions；Developer 块会按顺序作为独立 developer messages 发送。",
+          "title": "settings.prompt_composer.field.title",
+          "description": "settings.prompt_composer.field.description",
           "path": "prompt_composer",
           "valueType": "object",
           "control": "prompt_assembler"

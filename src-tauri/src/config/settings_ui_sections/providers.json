@@ -1,20 +1,20 @@
 {
   "id": "providers",
-  "title": "Providers",
+  "title": "settings.providers.title",
   "icon": "PlugZap",
   "order": 20,
-  "description": "连接 provider、认证方式和模型目录入口。",
+  "description": "settings.providers.description",
   "children": [
     {
       "kind": "collection",
       "id": "providers-collection",
-      "title": "Configured providers",
-      "description": "每个 provider 都可以定义自己的一组模型与传输策略。",
+      "title": "settings.providers.collection.title",
+      "description": "settings.providers.collection.description",
       "path": "providers",
       "valueType": "object_collection",
-      "addLabel": "Add provider",
-      "keyLabel": "Provider key",
-      "itemLabel": "Provider",
+      "addLabel": "settings.providers.collection.add_label",
+      "keyLabel": "settings.providers.collection.key_label",
+      "itemLabel": "settings.providers.collection.item_label",
       "keyPattern": "^[A-Za-z0-9_-]+$",
       "defaultItem": {
         "kind": "openai-responses",
@@ -39,7 +39,7 @@
         {
           "kind": "field",
           "id": "provider-kind",
-          "title": "Kind",
+          "title": "settings.providers.kind.title",
           "path": "kind",
           "valueType": "enum",
           "control": "select",
@@ -48,7 +48,7 @@
         {
           "kind": "field",
           "id": "provider-api-endpoint",
-          "title": "API endpoint",
+          "title": "settings.providers.api_endpoint.title",
           "path": "api_endpoint",
           "valueType": "string",
           "control": "text",
@@ -57,8 +57,8 @@
         {
           "kind": "field",
           "id": "provider-models-endpoints",
-          "title": "Models endpoint candidates",
-          "description": "可选的备用模型列表接口。",
+          "title": "settings.providers.models_endpoints.title",
+          "description": "settings.providers.models_endpoints.description",
           "path": "models_endpoint_candidates",
           "valueType": "string_list",
           "control": "tags"
@@ -66,8 +66,8 @@
         {
           "kind": "field",
           "id": "provider-query-params",
-          "title": "Default query params",
-          "description": "附加到 provider 请求 URL 的 query 参数。",
+          "title": "settings.providers.query_params.title",
+          "description": "settings.providers.query_params.description",
           "path": "query_params",
           "valueType": "string_map",
           "control": "key_value"
@@ -75,8 +75,8 @@
         {
           "kind": "field",
           "id": "provider-http-headers",
-          "title": "Default HTTP headers",
-          "description": "所有请求都附带的静态 Header。",
+          "title": "settings.providers.http_headers.title",
+          "description": "settings.providers.http_headers.description",
           "path": "http_headers",
           "valueType": "string_map",
           "control": "key_value"
@@ -84,8 +84,8 @@
         {
           "kind": "field",
           "id": "provider-env-http-headers",
-          "title": "Env HTTP headers",
-          "description": "Header 名到环境变量名的映射（运行时读取变量值）。",
+          "title": "settings.providers.env_http_headers.title",
+          "description": "settings.providers.env_http_headers.description",
           "path": "env_http_headers",
           "valueType": "string_map",
           "control": "key_value"
@@ -93,8 +93,8 @@
         {
           "kind": "field",
           "id": "provider-realtime-endpoint",
-          "title": "Realtime endpoint",
-          "description": "留空时会根据 API endpoint 自动推导。",
+          "title": "settings.providers.realtime_endpoint.title",
+          "description": "settings.providers.realtime_endpoint.description",
           "path": "realtime_endpoint",
           "valueType": "string",
           "control": "text",
@@ -103,8 +103,8 @@
         {
           "kind": "field",
           "id": "provider-supports-websockets",
-          "title": "Supports WebSocket",
-          "description": "关闭后会强制使用 SSE。",
+          "title": "settings.providers.supports_websockets.title",
+          "description": "settings.providers.supports_websockets.description",
           "path": "supports_websockets",
           "valueType": "boolean",
           "control": "switch"
@@ -112,7 +112,7 @@
         {
           "kind": "field",
           "id": "provider-stream-transport",
-          "title": "Stream transport",
+          "title": "settings.providers.stream_transport.title",
           "path": "stream_transport",
           "valueType": "enum",
           "control": "select",
@@ -121,18 +121,18 @@
         {
           "kind": "field",
           "id": "provider-credential",
-          "title": "Inline credential",
-          "description": "默认不回显当前值，只在你输入新值时覆盖。",
+          "title": "settings.providers.credential.title",
+          "description": "settings.providers.credential.description",
           "path": "credential",
           "valueType": "secret",
           "control": "secret",
-          "placeholder": "Paste a new API key to replace the current secret"
+          "placeholder": "settings.providers.credential.placeholder"
         },
         {
           "kind": "field",
           "id": "provider-credential-env",
-          "title": "Credential env",
-          "description": "当 inline credential 为空时，从这个环境变量读取。",
+          "title": "settings.providers.credential_env.title",
+          "description": "settings.providers.credential_env.description",
           "path": "credential_env",
           "valueType": "string",
           "control": "text"
@@ -140,8 +140,8 @@
         {
           "kind": "field",
           "id": "provider-timeout",
-          "title": "Provider timeout override",
-          "description": "留空则跟随全局超时。",
+          "title": "settings.providers.timeout.title",
+          "description": "settings.providers.timeout.description",
           "path": "request_timeout_seconds",
           "valueType": "integer",
           "control": "number",
@@ -152,8 +152,8 @@
         {
           "kind": "field",
           "id": "provider-request-max-retries",
-          "title": "Request max retries",
-          "description": "普通 HTTP 请求的最大重试次数。",
+          "title": "settings.providers.request_max_retries.title",
+          "description": "settings.providers.request_max_retries.description",
           "path": "request_max_retries",
           "valueType": "integer",
           "control": "number",
@@ -164,8 +164,8 @@
         {
           "kind": "field",
           "id": "provider-stream-max-retries",
-          "title": "Stream max retries",
-          "description": "流式请求的最大重试次数。",
+          "title": "settings.providers.stream_max_retries.title",
+          "description": "settings.providers.stream_max_retries.description",
           "path": "stream_max_retries",
           "valueType": "integer",
           "control": "number",
@@ -176,8 +176,8 @@
         {
           "kind": "field",
           "id": "provider-stream-idle-timeout-ms",
-          "title": "Stream idle timeout (ms)",
-          "description": "流式连接空闲超时，留空使用运行时默认值。",
+          "title": "settings.providers.stream_idle_timeout.title",
+          "description": "settings.providers.stream_idle_timeout.description",
           "path": "stream_idle_timeout_ms",
           "valueType": "integer",
           "control": "number",
@@ -188,8 +188,8 @@
         {
           "kind": "field",
           "id": "provider-websocket-connect-timeout-ms",
-          "title": "WebSocket connect timeout (ms)",
-          "description": "WebSocket 连接超时，留空使用运行时默认值。",
+          "title": "settings.providers.websocket_connect_timeout.title",
+          "description": "settings.providers.websocket_connect_timeout.description",
           "path": "websocket_connect_timeout_ms",
           "valueType": "integer",
           "control": "number",

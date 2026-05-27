@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+fn default_language() -> String {
+    "auto".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -22,6 +26,8 @@ pub struct AppConfig {
     pub mcp_runtime: McpRuntimeConfig,
     #[serde(default)]
     pub mcp_servers: BTreeMap<String, McpServerConfig>,
+    #[serde(default = "default_language")]
+    pub language: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,6 +156,7 @@ impl Default for AppConfig {
             show_advanced_request_options: false,
             mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
+            language: default_language(),
         }
     }
 }

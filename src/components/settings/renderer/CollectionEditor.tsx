@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import type { SettingsCollectionSchema, SettingsSnapshot } from '../../../features/settings/types';
+import { useI18n } from '../../../features/i18n';
 import { appendPathSegment, asRecord, getCollectionItems, resolvePath } from '../../../features/settings/utils';
 import type { NodeListProps } from './types';
 import { createDefaultItem } from './utils';
@@ -27,6 +28,7 @@ export function CollectionEditor({
   onAddCollectionItem: (path: string, key: string, value: Record<string, unknown>) => Promise<void>;
   renderNodeList: (props: NodeListProps) => ReactNode;
 }) {
+  const { t } = useI18n();
   const resolvedPath = resolvePath(collection.path, contextPath);
   const items = getCollectionItems(collection, snapshot, contextPath);
   const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});
@@ -53,9 +55,9 @@ export function CollectionEditor({
     <div className="space-y-3.5">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h4 className="text-[13px] font-semibold text-neutral-200">{collection.title}</h4>
+          <h4 className="text-[13px] font-semibold text-neutral-200">{t(collection.title)}</h4>
           {collection.description && (
-            <p className="mt-0.5 text-[11px] text-neutral-500">{collection.description}</p>
+            <p className="mt-0.5 text-[11px] text-neutral-500">{t(collection.description)}</p>
           )}
         </div>
         <button
@@ -63,7 +65,7 @@ export function CollectionEditor({
           className="inline-flex items-center gap-1.5 rounded-lg border border-[#2b2b2d] bg-[#2e2e30]/80 px-2.5 py-1 text-xs text-[#e3e3e3] hover:bg-[#3e3e40] transition"
         >
           <Plus className="h-3.5 w-3.5" />
-          {collection.addLabel}
+          {t(collection.addLabel)}
         </button>
       </div>
 
@@ -76,7 +78,7 @@ export function CollectionEditor({
                 setNewKey(event.target.value);
                 setNewKeyError('');
               }}
-              placeholder={collection.keyLabel}
+              placeholder={t(collection.keyLabel)}
               className="flex-1 rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-2.5 py-1.5 text-xs text-neutral-200 outline-none transition focus:border-neutral-500"
             />
             <button
@@ -84,15 +86,15 @@ export function CollectionEditor({
                 const candidate = newKey.trim();
                 const pattern = collection.keyPattern ? new RegExp(collection.keyPattern) : null;
                 if (!candidate) {
-                  setNewKeyError('请输入一个 key');
+                  setNewKeyError(t('settings.renderer.collection.enter_key'));
                   return;
                 }
                 if (pattern && !pattern.test(candidate)) {
-                  setNewKeyError('key 格式不合法');
+                  setNewKeyError(t('settings.renderer.collection.invalid_key'));
                   return;
                 }
                 if (items.some(([itemKey]) => itemKey === candidate)) {
-                  setNewKeyError('这个 key 已经存在');
+                  setNewKeyError(t('settings.renderer.collection.key_exists'));
                   return;
                 }
                 void onAddCollectionItem(
@@ -107,7 +109,7 @@ export function CollectionEditor({
               }}
               className="rounded-lg bg-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-900 transition hover:bg-white"
             >
-              Create
+              {t('settings.renderer.collection.create')}
             </button>
           </div>
           {newKeyError && <p className="mt-1.5 text-xs text-rose-300">{newKeyError}</p>}
@@ -117,7 +119,7 @@ export function CollectionEditor({
       <div className="space-y-2">
         {items.length === 0 && (
           <div className="rounded-xl border border-dashed border-[#242426] px-4 py-6 text-center text-xs text-neutral-500">
-            No items configured yet.
+            {t('settings.renderer.collection.empty')}
           </div>
         )}
 
@@ -169,7 +171,7 @@ export function CollectionEditor({
                     void onDeletePath(itemPath);
                   }}
                   className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-rose-500/10 hover:text-rose-300"
-                  title={`Delete ${collection.itemLabel}`}
+                  title={`${t('sidebar.action.delete')} ${t(collection.itemLabel)}`}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>

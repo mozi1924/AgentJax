@@ -108,11 +108,11 @@ export const buildMapFromEntries = (
     }
 
     if (!key) {
-      return { error: '键名不能为空' };
+      return { error: 'settings.renderer.key_value.key_empty' };
     }
 
     if (seen.has(key)) {
-      return { error: `键名重复: ${key}` };
+      return { error: 'settings.renderer.key_value.duplicate_key' };
     }
 
     seen.add(key);

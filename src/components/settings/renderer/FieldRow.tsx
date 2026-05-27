@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { SettingsFieldSchema, SettingsSnapshot } from '../../../features/settings/types';
+import { useI18n } from '../../../features/i18n';
 import {
   getFieldOptions,
   getValueAtPath,
@@ -25,9 +26,9 @@ const resolveKeyValueMeta = (field: SettingsFieldSchema) => {
 
   if (path.includes('env_http_headers') || id.includes('env-http-headers')) {
     return {
-      emptyState: 'No header mappings yet.',
-      addLabel: 'Add header mapping',
-      removeTitle: 'Remove mapping',
+      emptyState: 'settings.renderer.key_value.env_http_headers.empty',
+      addLabel: 'settings.renderer.key_value.env_http_headers.add',
+      removeTitle: 'settings.renderer.key_value.env_http_headers.remove',
       keyPlaceholder: 'Header-Name',
       valuePlaceholder: 'ENV_VAR',
       allowDotenvImport: false,
@@ -36,9 +37,9 @@ const resolveKeyValueMeta = (field: SettingsFieldSchema) => {
 
   if (path.includes('header') || id.includes('header')) {
     return {
-      emptyState: 'No HTTP headers yet.',
-      addLabel: 'Add header',
-      removeTitle: 'Remove header',
+      emptyState: 'settings.renderer.key_value.headers.empty',
+      addLabel: 'settings.renderer.key_value.headers.add',
+      removeTitle: 'settings.renderer.key_value.headers.remove',
       keyPlaceholder: 'Header-Name',
       valuePlaceholder: 'value',
       allowDotenvImport: false,
@@ -47,9 +48,9 @@ const resolveKeyValueMeta = (field: SettingsFieldSchema) => {
 
   if (path.endsWith('.env') || path === 'env' || id.includes('-env')) {
     return {
-      emptyState: 'No environment variables yet.',
-      addLabel: 'Add variable',
-      removeTitle: 'Remove variable',
+      emptyState: 'settings.renderer.key_value.env.empty',
+      addLabel: 'settings.renderer.key_value.env.add',
+      removeTitle: 'settings.renderer.key_value.env.remove',
       keyPlaceholder: 'KEY',
       valuePlaceholder: 'value',
       allowDotenvImport: true,
@@ -58,9 +59,9 @@ const resolveKeyValueMeta = (field: SettingsFieldSchema) => {
 
   if (path.includes('query_params') || id.includes('query-params')) {
     return {
-      emptyState: 'No query params yet.',
-      addLabel: 'Add query param',
-      removeTitle: 'Remove query param',
+      emptyState: 'settings.renderer.key_value.query_params.empty',
+      addLabel: 'settings.renderer.key_value.query_params.add',
+      removeTitle: 'settings.renderer.key_value.query_params.remove',
       keyPlaceholder: 'param',
       valuePlaceholder: 'value',
       allowDotenvImport: false,
@@ -68,9 +69,9 @@ const resolveKeyValueMeta = (field: SettingsFieldSchema) => {
   }
 
   return {
-    emptyState: 'No entries yet.',
-    addLabel: 'Add entry',
-    removeTitle: 'Remove entry',
+    emptyState: 'settings.renderer.key_value.empty',
+    addLabel: 'settings.renderer.key_value.add',
+    removeTitle: 'settings.renderer.key_value.remove',
     keyPlaceholder: 'key',
     valuePlaceholder: 'value',
     allowDotenvImport: false,
@@ -92,6 +93,7 @@ export function FieldRow({
   contextPath?: string;
   onSaveField: (path: string, value: unknown) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const resolvedPath = resolvePath(field.path, contextPath);
   const value = getValueAtPath(snapshot.values, resolvedPath);
   const secretStatus = snapshot.secretStatuses[resolvedPath];
@@ -145,7 +147,7 @@ export function FieldRow({
 
     const baseMapResult = buildMapFromEntries(keyValueEntries);
     if (baseMapResult.error || !baseMapResult.map) {
-      setLocalError(baseMapResult.error || '当前列表包含非法键值对');
+      setLocalError(baseMapResult.error || 'settings.renderer.key_value.error_empty');
       return;
     }
 
@@ -187,7 +189,8 @@ export function FieldRow({
     await onSaveField(resolvedPath, nextValue);
   };
 
-  const helperText = fieldErrors[resolvedPath] || localError || field.helpText;
+  const rawHelper = fieldErrors[resolvedPath] || localError || field.helpText;
+  const helperText = rawHelper ? t(rawHelper) : '';
   const fullWidth = isFullWidthControl(field.control);
 
   return (
@@ -199,27 +202,27 @@ export function FieldRow({
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <h4 className="text-[13.5px] font-medium text-neutral-200">{field.title}</h4>
+            <h4 className="text-[13.5px] font-medium text-neutral-200">{t(field.title)}</h4>
             {field.advanced && (
               <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold bg-[#2e2e30] text-neutral-400 uppercase tracking-wider">
-                Advanced
+                {t('settings.renderer.advanced')}
               </span>
             )}
           </div>
           {field.description && (
             <p className="mt-0.5 text-[11.5px] leading-relaxed text-neutral-400/80 max-w-[95%]">
-              {field.description}
+              {t(field.description)}
             </p>
           )}
           {field.control === 'secret' && secretStatus && (
             <p className="mt-1 text-[11px] text-neutral-500">
               {secretStatus.configured
-                ? `Current secret stored via ${secretStatus.source}. Leave blank to keep it unchanged.`
-                : 'No secret configured yet.'}
+                ? t('settings.renderer.secret.configured', { source: secretStatus.source })
+                : t('settings.renderer.secret.not_configured')}
             </p>
           )}
           {field.warningText && (
-            <p className="mt-1 text-[11px] text-amber-500/80">{field.warningText}</p>
+            <p className="mt-1 text-[11px] text-amber-500/80">{t(field.warningText)}</p>
           )}
           {helperText && (
             <p
@@ -285,7 +288,7 @@ export function FieldRow({
                     value={option.value}
                     className="bg-[#1a1b1d] text-neutral-200"
                   >
-                    {option.label}
+                    {t(option.label)}
                   </option>
                 ))}
               </select>
@@ -307,7 +310,7 @@ export function FieldRow({
             <input
               type="text"
               value={draft}
-              placeholder={field.placeholder}
+              placeholder={field.placeholder ? t(field.placeholder) : ''}
               disabled={disabled}
               onChange={(event) => {
                 setDraft(event.target.value);
@@ -324,7 +327,7 @@ export function FieldRow({
             <input
               type="password"
               value={draft}
-              placeholder={field.placeholder}
+              placeholder={field.placeholder ? t(field.placeholder) : ''}
               disabled={disabled}
               onChange={(event) => {
                 setDraft(event.target.value);
@@ -341,7 +344,7 @@ export function FieldRow({
             <textarea
               rows={field.rows || 3}
               value={draft}
-              placeholder={field.placeholder}
+              placeholder={field.placeholder ? t(field.placeholder) : ''}
               disabled={disabled}
               onChange={(event) => {
                 setDraft(event.target.value);
@@ -358,7 +361,7 @@ export function FieldRow({
             <input
               type="number"
               value={draft}
-              placeholder={field.placeholder}
+              placeholder={field.placeholder ? t(field.placeholder) : ''}
               min={field.min}
               max={field.max}
               step={field.step || (field.valueType === 'integer' ? 1 : 0.1)}
@@ -405,7 +408,7 @@ export function FieldRow({
             <div className="w-full space-y-2 rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 p-2">
               {keyValueEntries.length === 0 && (
                 <p className="px-1 py-1 text-[11px] text-neutral-500">
-                  {keyValueMeta.emptyState}
+                  {t(keyValueMeta.emptyState)}
                 </p>
               )}
 
@@ -453,7 +456,7 @@ export function FieldRow({
                       void persistKeyValueEntries(next);
                     }}
                     className="rounded-md p-1 text-neutral-500 transition hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-50"
-                    title={keyValueMeta.removeTitle}
+                    title={t(keyValueMeta.removeTitle)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -474,7 +477,7 @@ export function FieldRow({
                   className="inline-flex items-center gap-1.5 rounded-md border border-[#2b2b2d] bg-[#2e2e30]/80 px-2 py-1 text-[11px] text-[#e3e3e3] transition hover:bg-[#3e3e40] disabled:opacity-50"
                 >
                   <Plus className="h-3 w-3" />
-                  {keyValueMeta.addLabel}
+                  {t(keyValueMeta.addLabel)}
                 </button>
 
                 {allowDotenvImport && (
@@ -487,7 +490,7 @@ export function FieldRow({
                     }}
                     className="inline-flex items-center gap-1.5 rounded-md border border-[#2b2b2d] bg-[#2e2e30]/80 px-2 py-1 text-[11px] text-[#e3e3e3] transition hover:bg-[#3e3e40] disabled:opacity-50"
                   >
-                    Paste .env
+                    {t('settings.renderer.key_value.dotenv_import')}
                   </button>
                 )}
               </div>
@@ -521,7 +524,7 @@ export function FieldRow({
                       }}
                       className="inline-flex items-center gap-1 rounded-md bg-neutral-200 px-2 py-1 text-[11px] font-medium text-neutral-900 transition hover:bg-white disabled:opacity-50"
                     >
-                      Import
+                      {t('settings.renderer.key_value.import')}
                     </button>
                     <button
                       type="button"
@@ -533,7 +536,7 @@ export function FieldRow({
                       }}
                       className="inline-flex items-center gap-1 rounded-md border border-[#2b2b2d] px-2 py-1 text-[11px] text-neutral-300 transition hover:bg-[#2e2e30]/70 disabled:opacity-50"
                     >
-                      Cancel
+                      {t('settings.renderer.key_value.cancel')}
                     </button>
                   </div>
                 </div>
@@ -555,12 +558,12 @@ export function FieldRow({
                 try {
                   const parsed = draft.trim() ? JSON.parse(draft) : {};
                   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                    setLocalError('请输入合法的 JSON 对象');
+                    setLocalError('settings.renderer.json.invalid');
                     return;
                   }
                   void commit(parsed);
                 } catch {
-                  setLocalError('请输入合法的 JSON 对象');
+                  setLocalError('settings.renderer.json.invalid');
                 }
               }}
               className="w-full rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-2.5 py-2 font-mono text-xs text-neutral-200 outline-none transition focus:border-neutral-500 focus:bg-[#222326]/40 disabled:opacity-50"

@@ -1,5 +1,6 @@
 import { Pencil, Trash2 } from 'lucide-react';
 import type { CSSProperties, RefObject } from 'react';
+import { useI18n } from '../../features/i18n';
 
 interface SidebarActionMenuProps {
   menuRef: RefObject<HTMLDivElement | null>;
@@ -14,6 +15,8 @@ export default function SidebarActionMenu({
   onRename,
   onDelete,
 }: SidebarActionMenuProps) {
+  const { t } = useI18n();
+
   return (
     <div
       ref={menuRef}
@@ -27,7 +30,7 @@ export default function SidebarActionMenu({
         className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-[#2d2f31]"
       >
         <Pencil className="h-4 w-4" />
-        <span>重命名</span>
+        <span>{t('sidebar.action.rename')}</span>
       </button>
       <div className="my-1 border-t border-[#2d2f31]" />
       <button
@@ -36,7 +39,7 @@ export default function SidebarActionMenu({
         className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-rose-300 transition hover:bg-[#2d2f31]"
       >
         <Trash2 className="h-4 w-4" />
-        <span>删除</span>
+        <span>{t('sidebar.action.delete')}</span>
       </button>
     </div>
   );

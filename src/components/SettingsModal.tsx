@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import * as LucideIcons from 'lucide-react';
 import { LoaderCircle, Settings2, X } from 'lucide-react';
+import { useI18n } from '../features/i18n';
 import SettingsRenderer from './settings/SettingsRenderer';
 import type {
   SettingsSectionSchema,
@@ -30,6 +31,7 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+  const { t } = useI18n();
   const [sections, setSections] = useState<SettingsSectionSchema[]>([]);
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
   const [activeSectionId, setActiveSectionId] = useState('');
@@ -82,7 +84,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       })
       .catch((error) => {
         if (disposed) return;
-        setLoadingError(typeof error === 'string' ? error : '无法加载设置。');
+        setLoadingError(typeof error === 'string' ? error : t('settings.modal.load_error'));
       })
       .finally(() => {
         if (!disposed) {
@@ -103,8 +105,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           setFieldErrors({});
           setStatusMessage(
             payload.origin === 'external'
-              ? 'Configuration reloaded from disk.'
-              : 'Settings saved.'
+              ? t('settings.modal.reloaded_external')
+              : t('settings.modal.saved')
           );
         })
         .then((dispose) => {
@@ -137,7 +139,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       delete next[path];
       return next;
     });
-    setStatusMessage(operation === 'delete' ? 'Removing item…' : 'Saving…');
+    setStatusMessage(operation === 'delete' ? t('settings.modal.removing_item') : t('settings.modal.saving'));
     setSnapshot(buildOptimisticSnapshot(snapshot, path, value, operation));
 
     try {
@@ -150,14 +152,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         },
       });
       setSnapshot(nextSnapshot);
-      setStatusMessage(operation === 'delete' ? 'Item removed.' : 'Settings saved.');
+      setStatusMessage(operation === 'delete' ? t('settings.modal.item_removed') : t('settings.modal.saved'));
     } catch (error) {
       setSnapshot(previousSnapshot);
       setFieldErrors((current) => ({
         ...current,
-        [path]: typeof error === 'string' ? error : '保存失败，请稍后重试。',
+        [path]: typeof error === 'string' ? error : t('settings.modal.save_failed'),
       }));
-      setStatusMessage('Save failed.');
+      setStatusMessage(t('settings.modal.save_failed'));
     } finally {
       setSavingPath(null);
     }
@@ -181,7 +183,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <button
               onClick={onClose}
               className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#2e2e30] text-[#e3e3e3] hover:bg-[#3e3e40] transition"
-              title="Close"
+              title={t('settings.modal.close')}
             >
               <X className="h-4 w-4" />
             </button>
@@ -202,7 +204,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   }`}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-normal">{section.title}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-normal">{t(section.title)}</span>
                 </button>
               );
             })}
@@ -213,13 +215,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div className="border-b border-[#242426]/50 px-6 pt-5 pb-3">
             <div className="flex items-center justify-between">
               <h3 className="font-sans text-[17px] font-bold text-white">
-                {activeSection?.title}
+                {t(activeSection?.title)}
               </h3>
               <div className="text-right text-xs text-slate-500">
                 {savingPath && (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-indigo-200">
                     <LoaderCircle className="h-3 w-3 animate-spin" />
-                    Saving
+                    {t('settings.modal.saving')}
                   </span>
                 )}
               </div>
@@ -241,7 +243,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {loading && (
               <div className="flex h-full items-center justify-center text-slate-400">
                 <LoaderCircle className="mr-3 h-4 w-4 animate-spin" />
-                Loading settings…
+                {t('settings.modal.loading')}
               </div>
             )}
 

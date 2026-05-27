@@ -5,11 +5,12 @@ import {
   DEFAULT_REASONING_MODE,
 } from '../features/models/modelCatalog';
 import type { ModelOption } from '../features/conversations/types';
+import { useI18n } from '../features/i18n';
 
-const formatReasoningLabel = (value: string) => {
+const formatReasoningLabel = (value: string, t: (key: string) => string) => {
   const normalized = `${value || ''}`.trim().toLowerCase();
   if (!normalized || normalized === DEFAULT_REASONING_MODE) {
-    return '跟随配置';
+    return t('settings.renderer.reasoning.follow_default');
   }
   if (normalized === 'none') {
     return 'None';
@@ -56,6 +57,7 @@ export default function AppHeader({
   configPath,
   cachePath,
 }: AppHeaderProps) {
+  const { t } = useI18n();
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [activeSubmenuKey, setActiveSubmenuKey] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
@@ -110,7 +112,7 @@ export default function AppHeader({
       : [];
 
   const selectedReasoningLabel = hasReasoningSupport
-    ? formatReasoningLabel(selectedReasoningMode)
+    ? formatReasoningLabel(selectedReasoningMode, t)
     : '';
 
   return (
@@ -122,7 +124,7 @@ export default function AppHeader({
         onClick={onToggleSidebar}
         data-no-drag="true"
         className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-slate-300 transition hover:bg-[#2d2f31]"
-        title={sidebarOpen ? '收起菜单' : '展开菜单'}
+        title={sidebarOpen ? t('header.sidebar.collapse') : t('header.sidebar.expand')}
       >
         <Menu className="h-4.5 w-4.5" />
       </button>
@@ -134,8 +136,8 @@ export default function AppHeader({
             className="flex items-center gap-2 whitespace-nowrap rounded-xl px-3 py-1 text-sm font-medium text-slate-300 transition hover:bg-[#2d2f31]"
             title={
               configPath
-                ? `配置文件: ${configPath}${cachePath ? `\n模型缓存: ${cachePath}` : ''}`
-                : '模型配置'
+                ? `${t('header.config_file', { path: configPath })}${cachePath ? t('header.model_cache', { path: cachePath }) : ''}`
+                : t('header.model_config')
             }
           >
             <span className="truncate">
@@ -167,16 +169,16 @@ export default function AppHeader({
                 }`}
               >
                 <div className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">推理等级 (Reasoning)</span>
+                  <span className="block text-sm font-medium">{t('header.reasoning')}</span>
                   <span className="mt-0.5 block truncate text-[10px] text-slate-500">
                     {hasReasoningSupport
-                      ? '选择全局思考努力程度'
-                      : '当前选中模型不支持思考等级'}
+                      ? t('header.select_reasoning_hint')
+                      : t('header.unsupported_reasoning')}
                   </span>
                 </div>
                 {hasReasoningSupport && (
                   <div className="flex shrink-0 select-none items-center gap-1.5 text-xs font-medium text-indigo-400">
-                    <span>{formatReasoningLabel(selectedReasoningMode)}</span>
+                    <span>{formatReasoningLabel(selectedReasoningMode, t)}</span>
                     <ChevronRight className="h-3.5 w-3.5 text-slate-500 transition group-hover:text-slate-300" />
                   </div>
                 )}
@@ -188,7 +190,7 @@ export default function AppHeader({
                   className="sidebar-context-menu before:content-[''] absolute left-[324px] top-0 z-50 w-[180px] rounded-2xl border border-[#2d2f31] bg-[#1e1f20] p-2 shadow-2xl before:absolute before:-left-3 before:top-0 before:bottom-0 before:w-3"
                 >
                   <div className="mb-1 border-b border-[#2d2f31]/60 px-3 py-1.5 text-[11px] font-semibold tracking-[0.2em] text-slate-500 uppercase">
-                    选择推理等级
+                    {t('header.reasoning_submenu_title')}
                   </div>
                   <div className="grid gap-0.5">
                     <button
@@ -203,7 +205,7 @@ export default function AppHeader({
                           : 'text-slate-300 hover:bg-[#2d2f31]'
                       }`}
                     >
-                      <span>跟随配置</span>
+                      <span>{t('settings.renderer.reasoning.follow_default')}</span>
                       {selectedReasoningMode === DEFAULT_REASONING_MODE && (
                         <span className="font-sans text-[10px] text-indigo-200">✓</span>
                       )}
@@ -223,7 +225,7 @@ export default function AppHeader({
                             : 'text-slate-300 hover:bg-[#2d2f31]'
                         }`}
                       >
-                        <span>{formatReasoningLabel(level)}</span>
+                        <span>{formatReasoningLabel(level, t)}</span>
                         {selectedReasoningMode === level && (
                           <span className="font-sans text-[10px] text-indigo-200">✓</span>
                         )}
@@ -266,7 +268,7 @@ export default function AppHeader({
 
                       {isSelected && (
                         <span className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-[11px] text-indigo-200 select-none">
-                          已选
+                          {t('header.selected')}
                         </span>
                       )}
                     </button>

@@ -1,19 +1,19 @@
 {
   "id": "model-profiles",
-  "title": "Model Profiles",
+  "title": "settings.model_profiles.title",
   "icon": "Bot",
   "order": 30,
-  "description": "按 provider 管理模型预设与请求参数。",
+  "description": "settings.model_profiles.description",
   "children": [
     {
       "kind": "collection",
       "id": "provider-profile-models",
-      "title": "Provider models",
+      "title": "settings.model_profiles.collection.title",
       "path": "providers",
       "valueType": "object_collection",
-      "addLabel": "Add provider shell",
-      "keyLabel": "Provider key",
-      "itemLabel": "Provider",
+      "addLabel": "settings.model_profiles.collection.add_label",
+      "keyLabel": "settings.model_profiles.collection.key_label",
+      "itemLabel": "settings.model_profiles.collection.item_label",
       "keyPattern": "^[A-Za-z0-9_-]+$",
       "defaultItem": {
         "kind": "openai-responses",
@@ -38,12 +38,12 @@
         {
           "kind": "collection",
           "id": "provider-models",
-          "title": "Profiles",
+          "title": "settings.model_profiles.profiles.title",
           "path": "models",
           "valueType": "object_collection",
-          "addLabel": "Add model profile",
-          "keyLabel": "Profile key",
-          "itemLabel": "Model profile",
+          "addLabel": "settings.model_profiles.profiles.add_label",
+          "keyLabel": "settings.model_profiles.profiles.key_label",
+          "itemLabel": "settings.model_profiles.profiles.item_label",
           "keyPattern": "^[A-Za-z0-9_.-]+$",
           "defaultItem": {
             "model": "",
@@ -63,8 +63,8 @@
             {
               "kind": "field",
               "id": "profile-model-id",
-              "title": "Model id",
-              "description": "实际发送给 provider 的模型名称。",
+              "title": "settings.model_profiles.model_id.title",
+              "description": "settings.model_profiles.model_id.description",
               "path": "model",
               "valueType": "string",
               "control": "text",
@@ -73,7 +73,7 @@
             {
               "kind": "field",
               "id": "profile-enabled",
-              "title": "Enabled",
+              "title": "settings.model_profiles.enabled.title",
               "path": "enabled",
               "valueType": "boolean",
               "control": "switch"
@@ -81,12 +81,12 @@
             {
               "kind": "group",
               "id": "profile-request-group",
-              "title": "Request overrides",
+              "title": "settings.model_profiles.request_overrides.title",
               "children": [
                 {
                   "kind": "field",
                   "id": "profile-temperature",
-                  "title": "Temperature",
+                  "title": "settings.model_profiles.temperature.title",
                   "path": "request.temperature",
                   "valueType": "float",
                   "control": "number",
@@ -97,7 +97,7 @@
                 {
                   "kind": "field",
                   "id": "profile-top-p",
-                  "title": "Top P",
+                  "title": "settings.model_profiles.top_p.title",
                   "path": "request.top_p",
                   "valueType": "float",
                   "control": "number",
@@ -108,7 +108,7 @@
                 {
                   "kind": "field",
                   "id": "profile-top-k",
-                  "title": "Top K",
+                  "title": "settings.model_profiles.top_k.title",
                   "path": "request.top_k",
                   "valueType": "integer",
                   "control": "number",
@@ -119,7 +119,7 @@
                 {
                   "kind": "field",
                   "id": "profile-max-output-tokens",
-                  "title": "Max output tokens",
+                  "title": "settings.model_profiles.max_output_tokens.title",
                   "path": "request.max_output_tokens",
                   "valueType": "integer",
                   "control": "number",
@@ -130,7 +130,7 @@
                 {
                   "kind": "field",
                   "id": "profile-frequency-penalty",
-                  "title": "Frequency penalty",
+                  "title": "settings.model_profiles.frequency_penalty.title",
                   "path": "request.frequency_penalty",
                   "valueType": "float",
                   "control": "number",
@@ -141,7 +141,7 @@
                 {
                   "kind": "field",
                   "id": "profile-presence-penalty",
-                  "title": "Presence penalty",
+                  "title": "settings.model_profiles.presence_penalty.title",
                   "path": "request.presence_penalty",
                   "valueType": "float",
                   "control": "number",
@@ -152,8 +152,8 @@
                 {
                   "kind": "field",
                   "id": "profile-reasoning-effort",
-                  "title": "Reasoning effort",
-                  "description": "留空则交给运行时默认逻辑。",
+                  "title": "settings.model_profiles.reasoning_effort.title",
+                  "description": "settings.model_profiles.reasoning_effort.description",
                   "path": "request.reasoning_effort",
                   "valueType": "enum",
                   "control": "select",
@@ -162,8 +162,8 @@
                 {
                   "kind": "field",
                   "id": "profile-extra-body",
-                  "title": "Extra body",
-                  "description": "Provider 特有字段透传。",
+                  "title": "settings.model_profiles.extra_body.title",
+                  "description": "settings.model_profiles.extra_body.description",
                   "path": "request.extra_body",
                   "valueType": "json_map",
                   "control": "key_value"

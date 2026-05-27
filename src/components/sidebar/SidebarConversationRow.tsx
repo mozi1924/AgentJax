@@ -2,6 +2,7 @@ import { Ellipsis, MessageSquare } from 'lucide-react';
 import type { MouseEvent, RefObject } from 'react';
 import { getConversationDisplayTitle } from '../../features/conversations/conversationUtils';
 import type { Conversation } from '../../features/conversations/types';
+import { useI18n } from '../../features/i18n';
 
 interface SidebarConversationRowProps {
   conversation: Conversation;
@@ -44,6 +45,7 @@ export default function SidebarConversationRow({
   editingRowRef,
   renameInputRef,
 }: SidebarConversationRowProps) {
+  const { t } = useI18n();
   if (isEditing) {
     return (
       <div
@@ -67,7 +69,7 @@ export default function SidebarConversationRow({
               }
             }}
             className="flex-1 bg-transparent text-sm text-slate-100 outline-none placeholder:text-slate-500"
-            placeholder="输入对话标题"
+            placeholder={t('sidebar.action.rename_placeholder')}
           />
         </div>
       </div>
@@ -107,7 +109,7 @@ export default function SidebarConversationRow({
               ? 'bg-[#131314] text-slate-100'
               : 'text-slate-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-[#131314] hover:text-slate-100'
           } disabled:cursor-not-allowed disabled:opacity-30`}
-          title={isBusy ? '生成中暂不可操作' : '更多操作'}
+          title={isBusy ? t('sidebar.action.busy_tooltip') : t('sidebar.action.more_options')}
         >
           <Ellipsis className="h-4 w-4" />
         </button>

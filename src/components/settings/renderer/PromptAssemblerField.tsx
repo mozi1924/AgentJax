@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useI18n } from '../../../features/i18n';
 import {
   closestCenter,
   DndContext,
@@ -50,6 +51,7 @@ function SortableBlockItem({
   onToggleEnabled,
   onDelete,
 }: SortableBlockItemProps) {
+  const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: block.id,
   });
@@ -77,7 +79,7 @@ function SortableBlockItem({
         {...listeners}
         onClick={(e) => e.stopPropagation()}
         className="inline-flex cursor-grab rounded-md p-0.5 text-neutral-600 transition hover:bg-[#202022] hover:text-neutral-300 active:cursor-grabbing shrink-0"
-        title="Drag to reorder"
+        title={t('assembler.drag_hint')}
       >
         <GripVertical className="h-3.5 w-3.5" />
       </span>
@@ -88,7 +90,7 @@ function SortableBlockItem({
         onClick={(e) => e.stopPropagation()}
         onChange={(e) => onToggleEnabled(block.id, e.target.checked)}
         className="h-3.5 w-3.5 rounded border-[#2e2e30] bg-[#111112] text-cyan-400 focus:ring-cyan-400/40 transition cursor-pointer shrink-0"
-        title={block.enabled ? 'Disable block' : 'Enable block'}
+        title={block.enabled ? t('assembler.disable_block') : t('assembler.enable_block')}
       />
 
       <div className="min-w-0 flex-1 pl-1">
@@ -117,7 +119,7 @@ function SortableBlockItem({
             onDelete(block.id);
           }}
           className="opacity-0 group-hover:opacity-100 p-1 text-neutral-500 hover:text-rose-450 hover:bg-rose-500/10 rounded-md transition shrink-0"
-          title="Delete block"
+          title={t('assembler.delete_block')}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -133,21 +135,22 @@ function PromptPreviewModal({
   markdown: string;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm">
       <div className="flex h-[min(70vh,720px)] w-[min(760px,100%)] flex-col overflow-hidden rounded-2xl border border-[#2b2b2d] bg-[#131314] shadow-2xl shadow-black/70">
         <div className="flex items-center justify-between border-b border-[#242426] px-4 py-3">
           <div>
-            <h4 className="text-sm font-semibold text-white">Compiled prompt preview</h4>
+            <h4 className="text-sm font-semibold text-white">{t('assembler.preview.title')}</h4>
             <p className="mt-0.5 text-[11px] text-neutral-500">
-              This is the Markdown-shaped preview of the final prompt assembly.
+              {t('assembler.preview.description')}
             </p>
           </div>
           <button
             onClick={onClose}
             className="rounded-lg border border-[#2b2b2d] px-2.5 py-1 text-xs text-neutral-300 transition hover:bg-[#202022]"
           >
-            Close
+            {t('settings.modal.close')}
           </button>
         </div>
         <div className="scrollbar-thin flex-1 overflow-auto px-4 py-4">
@@ -176,6 +179,8 @@ export function PromptAssemblerField({
   contextPath,
   onSaveField,
 }: FieldRendererProps) {
+  const { t } = useI18n();
+  const laneLabel = (role: PromptBlockRole) => t(`settings.prompt_composer.lane.${role}`);
   const resolvedPath = resolvePath(field.path, contextPath);
   const value = getValueAtPath(snapshot.values, resolvedPath);
   const [composer, setComposer] = useState<PromptComposerConfig>(() =>
@@ -296,10 +301,10 @@ export function PromptAssemblerField({
   return (
     <div className="relative space-y-2">
       <div>
-        <h4 className="text-[13.5px] font-semibold text-neutral-200">{field.title}</h4>
+        <h4 className="text-[13.5px] font-semibold text-neutral-200">{t(field.title)}</h4>
         {field.description && (
           <p className="mt-0.5 text-[11.5px] leading-relaxed text-neutral-400/80">
-            {field.description}
+            {t(field.description)}
           </p>
         )}
         {helperText && (
@@ -308,7 +313,7 @@ export function PromptAssemblerField({
               fieldErrors[resolvedPath] || localError ? 'text-rose-400' : 'text-neutral-500'
             }`}
           >
-            {helperText}
+            {t(helperText)}
           </p>
         )}
       </div>
@@ -333,10 +338,10 @@ export function PromptAssemblerField({
                         void handleAddBlock(role);
                       }}
                       className="inline-flex items-center gap-1 rounded-md border border-[#2b2b2d] bg-[#1d1d1f] hover:bg-[#28282b] px-1.5 py-0.5 text-[10px] text-neutral-350 transition disabled:opacity-50"
-                      title={role === 'system' ? 'Add system block' : 'Add developer message'}
+                      title={role === 'system' ? t('assembler.enable_block') : t('assembler.add')}
                     >
                       <Plus className="h-3 w-3" />
-                      Add
+                      {t('assembler.add')}
                     </button>
                   </div>
                   <DndContext
@@ -353,7 +358,7 @@ export function PromptAssemblerField({
                       <div className="space-y-2">
                         {blocks.length === 0 && (
                           <div className="rounded-xl border border-dashed border-[#242426] bg-neutral-900/10 px-3 py-4 text-center text-[11px] text-neutral-500">
-                            No {role} blocks.
+                            {t('assembler.no_blocks', { role })}
                           </div>
                         )}
                         {blocks.map((block) => (
@@ -377,26 +382,26 @@ export function PromptAssemblerField({
           {/* Bottom Summary & Stats Panel */}
           <div className="mt-2 rounded-xl border border-[#242426] bg-[#18181a]/60 p-3 space-y-2 shrink-0">
             <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-neutral-500 font-semibold">
-              <span>Assembly Stats</span>
+              <span>{t('assembler.stats.title')}</span>
               <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
             </div>
             <div className="text-[11px] leading-relaxed text-neutral-400 space-y-1">
               <div className="flex justify-between">
-                <span>Active instructions:</span>
+                <span>{t('assembler.stats.active_instructions')}</span>
                 <span className="font-mono text-neutral-200">
-                  {systemBlocks.filter((b) => b.enabled).length} blocks
+                  {t('assembler.stats.blocks', { count: String(systemBlocks.filter((b) => b.enabled).length) })}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>Developer messages:</span>
+                <span>{t('assembler.stats.developer_messages')}</span>
                 <span className="font-mono text-neutral-200">
-                  {developerBlocks.filter((b) => b.enabled).length} blocks
+                  {t('assembler.stats.blocks', { count: String(developerBlocks.filter((b) => b.enabled).length) })}
                 </span>
               </div>
               <div className="flex justify-between border-t border-[#242426] pt-1 mt-1 font-medium">
-                <span>Estimated size:</span>
+                <span>{t('assembler.stats.estimated_size')}</span>
                 <span className="font-mono text-cyan-400">
-                  {preview.instructionsText ? `${preview.instructionsText.split(/\s+/).filter(Boolean).length} words` : '0 words'}
+                  {t('assembler.stats.words', { count: String(preview.instructionsText ? preview.instructionsText.split(/\s+/).filter(Boolean).length : 0) })}
                 </span>
               </div>
             </div>
@@ -406,7 +411,7 @@ export function PromptAssemblerField({
               className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-neutral-200 hover:bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-900 transition"
             >
               <Eye className="h-3.5 w-3.5" />
-              Preview compiled prompt
+              {t('assembler.preview_btn')}
             </button>
           </div>
         </div>
@@ -425,7 +430,7 @@ export function PromptAssemblerField({
                     onBlur={() => {
                       void saveCurrentComposer();
                     }}
-                    placeholder="Block Title..."
+                    placeholder={t('assembler.block_title_placeholder')}
                     className="min-w-0 flex-1 rounded-lg border border-transparent bg-transparent hover:bg-[#1a1b1d]/40 focus:bg-[#1a1b1d]/75 focus:border-[#2b2b2d] px-2.5 py-1.5 text-[14px] font-semibold text-white outline-none transition disabled:opacity-60"
                   />
                   <div className="flex items-center gap-2 shrink-0">
@@ -441,7 +446,7 @@ export function PromptAssemblerField({
                 {/* Sub-toolbar with role & direct details */}
                 <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1 border-t border-[#242426]/50">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] uppercase tracking-wider text-neutral-500 font-medium">Role:</span>
+                    <span className="text-[10px] uppercase tracking-wider text-neutral-500 font-medium">{t('assembler.role')}</span>
                     <select
                       value={selectedBlock.role}
                       disabled={selectedBlock.locked || isSaving}
@@ -469,7 +474,7 @@ export function PromptAssemblerField({
 
                   <div className="flex items-center gap-2">
                     <label className="inline-flex items-center gap-1.5 rounded-lg border border-[#2b2b2d] bg-[#18191b] px-2 py-1 cursor-pointer select-none text-[11px] text-neutral-350 hover:bg-[#202022] transition">
-                      <span>Active</span>
+                      <span>{t('assembler.active')}</span>
                       <input
                         type="checkbox"
                         checked={selectedBlock.enabled}
@@ -491,7 +496,7 @@ export function PromptAssemblerField({
                         className="inline-flex items-center justify-center gap-1 rounded-lg border border-rose-500/20 bg-rose-500/10 px-2 py-1 text-[11px] font-medium text-rose-350 hover:bg-rose-500/15 transition disabled:opacity-40"
                       >
                         <Trash2 className="h-3 w-3" />
-                        Delete
+                        {t('sidebar.action.delete')}
                       </button>
                     )}
                   </div>
@@ -500,8 +505,8 @@ export function PromptAssemblerField({
                 {/* Locked Banner / Info Message */}
                 {selectedBlock.locked && (
                   <div className="flex items-center gap-1.5 rounded-lg border border-amber-500/10 bg-amber-500/[0.04] px-2.5 py-1.5 text-[11px] text-amber-450 leading-relaxed">
-                    <span className="font-semibold text-amber-400 shrink-0">🔒 Managed block:</span>
-                    <span>Reorder and toggle are allowed, but content cannot be edited.</span>
+                    <span className="font-semibold text-amber-400 shrink-0">🔒 {t('assembler.managed_block')}</span>
+                    <span>{t('assembler.managed_block_hint')}</span>
                   </div>
                 )}
               </div>
@@ -517,26 +522,26 @@ export function PromptAssemblerField({
                   }}
                   placeholder={
                     selectedBlock.role === 'system'
-                      ? 'Write high-priority system instructions here…'
-                      : 'Write developer block context and message guidelines here…'
+                      ? t('assembler.placeholder.system')
+                      : t('assembler.placeholder.developer')
                   }
                   className="w-full flex-1 resize-none rounded-xl border border-[#242426] bg-[#0c0c0d]/90 px-3.5 py-3 font-mono text-[11.5px] leading-6 text-neutral-200 outline-none transition focus:border-neutral-500 focus:bg-[#070708] disabled:opacity-60 placeholder-neutral-600"
                 />
                 
                 {/* Word & Character Counter */}
                 <div className="absolute bottom-5 right-6 flex items-center gap-2 rounded-md bg-[#131416]/90 border border-[#242426] px-2 py-1 text-[10px] font-mono text-neutral-500 select-none">
-                  <span>{selectedBlock.content.length} chars</span>
+                  <span>{t('assembler.stats.chars', { count: String(selectedBlock.content.length) })}</span>
                   <span className="h-2 w-px bg-[#242426]" />
-                  <span>{selectedBlock.content.split(/\s+/).filter(Boolean).length} words</span>
+                  <span>{t('assembler.stats.words', { count: String(selectedBlock.content.split(/\s+/).filter(Boolean).length) })}</span>
                 </div>
               </div>
             </div>
           ) : (
             <div className="flex flex-col h-full items-center justify-center text-center p-6 text-neutral-500">
               <Sparkles className="h-8 w-8 text-neutral-600 mb-2 animate-pulse" />
-              <p className="text-sm font-medium text-neutral-400">No block selected</p>
+              <p className="text-sm font-medium text-neutral-400">{t('assembler.no_block_selected')}</p>
               <p className="mt-1 text-[11px] text-neutral-500 max-w-[240px]">
-                Select an existing prompt block from the sidebar or click "+ Add" to create a new one.
+                {t('assembler.select_block_hint')}
               </p>
             </div>
           )}

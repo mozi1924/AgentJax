@@ -1,19 +1,19 @@
 {
   "id": "mcp-runtime",
-  "title": "MCP Runtime",
+  "title": "settings.mcp_runtime.title",
   "icon": "Cpu",
   "order": 40,
-  "description": "所有本地 stdio MCP 进程共享的运行时默认值。",
+  "description": "settings.mcp_runtime.description",
   "children": [
     {
       "kind": "group",
       "id": "mcp-runtime-group",
-      "title": "Shared runtime",
+      "title": "settings.mcp_runtime.group.title",
       "children": [
         {
           "kind": "field",
           "id": "mcp-runtime-inherit-parent-env",
-          "title": "Inherit parent env",
+          "title": "settings.mcp_runtime.inherit_parent_env.title",
           "path": "mcp_runtime.stdio.inherit_parent_env",
           "valueType": "boolean",
           "control": "switch"
@@ -21,7 +21,7 @@
         {
           "kind": "field",
           "id": "mcp-runtime-env",
-          "title": "Shared env",
+          "title": "settings.mcp_runtime.shared_env.title",
           "path": "mcp_runtime.stdio.env",
           "valueType": "string_map",
           "control": "key_value"
@@ -29,7 +29,7 @@
         {
           "kind": "field",
           "id": "mcp-runtime-startup-timeout",
-          "title": "Startup timeout (ms)",
+          "title": "settings.mcp_runtime.startup_timeout.title",
           "path": "mcp_runtime.startup_timeout_ms",
           "valueType": "integer",
           "control": "number",
@@ -40,7 +40,7 @@
         {
           "kind": "field",
           "id": "mcp-runtime-tool-timeout",
-          "title": "Tool timeout (ms)",
+          "title": "settings.mcp_runtime.tool_timeout.title",
           "path": "mcp_runtime.tool_timeout_ms",
           "valueType": "integer",
           "control": "number",

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Image, Mic, Paperclip, Send, SlidersHorizontal, Square, X } from 'lucide-react';
+import { useI18n } from '../features/i18n';
 
 interface ComposerAttachment {
   name: string;
@@ -37,6 +38,7 @@ export default function ChatComposer({
   onSend,
   onStop,
 }: ChatComposerProps) {
+  const { t } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const advancedTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [advancedPanelOpen, setAdvancedPanelOpen] = useState(false);
@@ -91,11 +93,11 @@ export default function ChatComposer({
           {showAdvancedRequestOptionsButton && advancedPanelOpen && (
             <div className="mb-2 rounded-xl border border-[#25282d] bg-[#111214] p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-slate-400">高级请求参数 (JSON)</span>
+                <span className="text-xs font-medium text-slate-400">{t('composer.advanced_request')}</span>
                 <button
                   onClick={() => setAdvancedPanelOpen(false)}
                   className="rounded-full p-1 text-slate-500 transition hover:bg-[#222427] hover:text-slate-200"
-                  title="收起高级参数"
+                  title={t('composer.hide_advanced')}
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -122,7 +124,7 @@ export default function ChatComposer({
             <button
               onClick={onAttachFile}
               className="rounded-full p-2 text-slate-400 transition hover:bg-[#222427] hover:text-slate-200"
-              title="上传文件/图片"
+              title={t('composer.upload_file')}
             >
               <Paperclip className="h-5 w-5" />
             </button>
@@ -137,7 +139,7 @@ export default function ChatComposer({
                   handleSubmit();
                 }
               }}
-              placeholder="问问 AgentJax..."
+              placeholder={t('composer.placeholder')}
               rows={1}
               data-native-context-menu="true"
               className="scrollbar-thin max-h-[180px] flex-1 resize-none bg-transparent py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none select-text"
@@ -152,7 +154,7 @@ export default function ChatComposer({
                       ? 'bg-slate-700/30 text-slate-200'
                       : 'text-slate-400 hover:bg-[#222427] hover:text-slate-200'
                   }`}
-                  title="高级请求参数"
+                  title={t('composer.advanced_request')}
                 >
                   <SlidersHorizontal className="h-4.5 w-4.5" />
                 </button>
@@ -160,7 +162,7 @@ export default function ChatComposer({
 
               <button
                 className="rounded-full p-2 text-slate-400 transition hover:bg-[#222427] hover:text-slate-200"
-                title="语音输入"
+                title={t('composer.audio_input')}
               >
                 <Mic className="h-5 w-5" />
               </button>
@@ -175,7 +177,7 @@ export default function ChatComposer({
                       ? 'cursor-pointer bg-slate-100 hover:bg-white text-slate-950 shadow-sm active:scale-95'
                       : 'bg-transparent text-slate-600'
                 }`}
-                title={isGenerating ? '停止生成' : '发送消息'}
+                title={isGenerating ? t('composer.stop_generating') : t('composer.send_message')}
               >
                 {isGenerating ? (
                   <Square className="h-4 w-4 fill-current" />

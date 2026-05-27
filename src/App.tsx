@@ -6,6 +6,7 @@ import ChatArea from './components/ChatArea';
 import ChatComposer from './components/ChatComposer';
 import ConfirmModal from './components/ConfirmModal';
 import SettingsModal from './components/SettingsModal';
+import { useI18n } from './features/i18n';
 import {
   canUseNativeContextMenu,
   getConversationDisplayTitle,
@@ -17,6 +18,7 @@ import { useAppConfig } from './hooks/useAppConfig';
 import { useChatSessions } from './hooks/useChatSessions';
 
 export default function App() {
+  const { t } = useI18n();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -197,11 +199,11 @@ export default function App() {
               >
                 <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">
                   <span className="animate-gradient bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text font-bold text-transparent">
-                    Mozi
+                    {t('main.headline.mozi')}
                   </span>
                   <br />
                   <span className="text-[#444746] dark:text-[#8e9196] text-lg font-normal tracking-wide mt-2 block">
-                    想了解什么，尽管问吧！
+                    {t('main.headline.subtitle')}
                   </span>
                 </h1>
               </div>
@@ -230,8 +232,8 @@ export default function App() {
 
       {conversationToDelete && (
         <ConfirmModal
-          title="删除对话"
-          message={`确定要删除对话“${getConversationDisplayTitle(conversationToDelete)}”吗？此操作无法撤销。`}
+          title={t('confirm.delete_chat.title')}
+          message={t('confirm.delete_chat.message', { title: getConversationDisplayTitle(conversationToDelete) })}
           onConfirm={confirmDeleteConversation}
           onCancel={cancelDeleteConversation}
         />

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { useI18n } from '../features/i18n';
 
 interface ConfirmModalProps {
   title: string;
@@ -13,11 +14,14 @@ interface ConfirmModalProps {
 export default function ConfirmModal({
   title,
   message,
-  confirmText = '确认删除',
-  cancelText = '取消',
+  confirmText,
+  cancelText,
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
+  const { t } = useI18n();
+  const resolvedConfirmText = confirmText || t('confirm.delete_chat.confirm');
+  const resolvedCancelText = cancelText || t('confirm.delete_chat.cancel');
   const modalRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -57,13 +61,13 @@ export default function ConfirmModal({
             onClick={onCancel}
             className="cursor-pointer rounded-xl px-4 py-2.5 text-sm font-medium text-slate-400 transition-all duration-200 hover:bg-[#2d2f31]/60 hover:text-slate-200"
           >
-            {cancelText}
+            {resolvedCancelText}
           </button>
           <button
             onClick={onConfirm}
             className="cursor-pointer rounded-xl border border-rose-500/20 bg-rose-500/10 px-5 py-2.5 text-sm font-medium text-rose-300 shadow-lg shadow-rose-950/20 transition-all duration-200 hover:border-transparent hover:bg-rose-600 hover:text-white"
           >
-            {confirmText}
+            {resolvedConfirmText}
           </button>
         </div>
       </div>

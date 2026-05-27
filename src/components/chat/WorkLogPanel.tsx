@@ -17,6 +17,7 @@ import {
   getTurnDurationMs,
   type ConversationTurn,
 } from './transcriptGrouping';
+import { useI18n } from '../../features/i18n';
 
 interface WorkLogPanelProps {
   isOpen: boolean;
@@ -72,6 +73,15 @@ const resolveToolAccent = (toolName: string) => {
   };
 };
 
+const getLocalizedSummaryLabel = (
+  summary: { kind: 'search' | 'edit' | 'tool' | 'update'; count: number; label: string },
+  t: (key: string, replacements?: Record<string, string>) => string
+) => {
+  const isOne = summary.count === 1;
+  const key = `chat.activity.${summary.kind}_${isOne ? 'one' : 'many'}`;
+  return t(key, { count: String(summary.count) });
+};
+
 /**
  * Keeps intermediate commentary and tool activity inside one collapsible
  * transcript panel so the final answer can stay visually dominant.
@@ -81,6 +91,7 @@ export default function WorkLogPanel({
   onToggle,
   turn,
 }: WorkLogPanelProps) {
+  const { t } = useI18n();
   const [copiedToolId, setCopiedToolId] = useState<string | null>(null);
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const summaries = getTurnActivitySummary(turn);
@@ -118,7 +129,7 @@ export default function WorkLogPanel({
             <Sparkles className="h-3.5 w-3.5 text-slate-400" />
           )}
           <span className="rounded-md border border-zinc-800 bg-[#0d0e0f]/80 px-2 py-0.5 font-mono text-[11px] text-slate-300">
-            Worked {durationLabel}
+            {t('chat.worked', { duration: durationLabel })}
           </span>
           <ChevronDown
             className={`h-3.5 w-3.5 text-slate-500 transition-transform duration-250 ${
@@ -141,7 +152,7 @@ export default function WorkLogPanel({
                 key={`${summary.kind}-${summary.count}`}
                 className={`rounded-md border px-2 py-0.5 text-[11px] font-normal leading-none ${accentClassName}`}
               >
-                {summary.label}
+                {getLocalizedSummaryLabel(summary, t)}
               </span>
             );
           })}
@@ -168,7 +179,7 @@ export default function WorkLogPanel({
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
                             <Loader2 className="h-3 w-3 animate-spin" />
-                            Thinking...
+                            {t('chat.thinking')}
                           </span>
                         )}
                         {isDraft && text && (
@@ -186,10 +197,10 @@ export default function WorkLogPanel({
                 const AccentIcon = accent.icon;
                 const statusLabel =
                   toolLine.status === 'done'
-                    ? 'Completed'
+                    ? t('chat.work_items.completed')
                     : toolLine.status === 'failed'
-                      ? 'Failed'
-                      : 'Running';
+                      ? t('chat.work_items.failed')
+                      : t('chat.work_items.running');
 
                 return (
                   <div key={toolLine.id || `${toolLine.callId}-${index}`} className="relative pl-2">
@@ -207,9 +218,9 @@ export default function WorkLogPanel({
                         <span className="truncate text-xs font-semibold text-slate-300">{toolMeta.displayName}</span>
                         <span className="truncate text-[10px] text-slate-500">{toolMeta.origin}</span>
                         <span className={`ml-auto text-[10px] ${
-                          statusLabel === 'Completed'
+                          toolLine.status === 'done'
                             ? 'text-emerald-400/80'
-                            : statusLabel === 'Failed'
+                            : toolLine.status === 'failed'
                               ? 'text-rose-400/80'
                               : 'text-indigo-400/80'
                         }`}>{statusLabel}</span>
@@ -252,6 +263,7 @@ function ToolPayload({
   onCopy,
   toolLine,
 }: ToolPayloadProps) {
+  const { t } = useI18n();
   const payloadId = toolLine.callId || toolLine.id;
 
   return (
@@ -259,7 +271,7 @@ function ToolPayload({
       {toolLine.args != null && (
         <ToolPayloadBlock
           copied={copiedToolId === `${payloadId}:args`}
-          label="Arguments"
+          label={t('chat.arguments')}
           onCopy={() => onCopy(`${payloadId}:args`, toolLine.args)}
           value={toolLine.args}
         />
@@ -267,7 +279,7 @@ function ToolPayload({
       {toolLine.output != null && (
         <ToolPayloadBlock
           copied={copiedToolId === `${payloadId}:output`}
-          label="Output"
+          label={t('chat.output')}
           onCopy={() => onCopy(`${payloadId}:output`, toolLine.output)}
           value={toolLine.output}
         />
@@ -289,6 +301,7 @@ function ToolPayloadBlock({
   onCopy,
   value,
 }: ToolPayloadBlockProps) {
+  const { t } = useI18n();
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between">
@@ -303,12 +316,12 @@ function ToolPayloadBlock({
           {copied ? (
             <>
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-              Copied
+              {t('chat.copied')}
             </>
           ) : (
             <>
               <Copy className="h-3.5 w-3.5" />
-              Copy
+              {t('chat.copy')}
             </>
           )}
         </button>

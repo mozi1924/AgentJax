@@ -13,6 +13,7 @@ import type {
   ConversationLine,
   UserLine,
 } from '../features/conversations/types';
+import { useI18n } from '../features/i18n';
 
 interface ChatAreaProps {
   lines: ConversationLine[];
@@ -42,6 +43,7 @@ export default function ChatArea({
   isThinking,
   activeChatTitle,
 }: ChatAreaProps) {
+  const { t } = useI18n();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [manualWorkLogState, setManualWorkLogState] = useState<Record<string, boolean>>({});
@@ -123,7 +125,7 @@ export default function ChatArea({
             <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
             <span className="flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-slate-400">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              模型思考中...
+              {t('chat.thinking')}
             </span>
             <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
           </div>
@@ -161,6 +163,7 @@ function AssistantFinalCard({
   onCopy,
   turnText,
 }: AssistantFinalCardProps) {
+  const { t } = useI18n();
   return (
     <div className="group rounded-xl border border-zinc-800/80 bg-[#161718]/45 px-4.5 py-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.15)] transition-all duration-300 hover:border-zinc-700/60">
       <div className="flex items-start gap-3">
@@ -182,7 +185,7 @@ function AssistantFinalCard({
                   {isEmpty ? (
                     <span className="inline-flex items-center gap-1.5 text-sm text-slate-500">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Thinking...
+                      {t('chat.thinking')}
                     </span>
                   ) : (
                     renderMarkdown(String(line.text))
@@ -201,7 +204,7 @@ function AssistantFinalCard({
             type="button"
             className="mt-0.5 shrink-0 rounded-lg p-1.5 opacity-0 transition hover:bg-white/5 group-hover:opacity-100"
             onClick={() => void onCopy(lines[0]?.id || 'assistant-final', turnText)}
-            title="复制最终回答"
+            title={t('chat.copy_final')}
           >
             {copiedId === (lines[0]?.id || 'assistant-final') ? (
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />

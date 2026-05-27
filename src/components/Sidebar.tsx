@@ -5,6 +5,7 @@ import SidebarActionMenu from './sidebar/SidebarActionMenu';
 import SidebarConversationRow from './sidebar/SidebarConversationRow';
 import { getConversationDisplayTitle } from '../features/conversations/conversationUtils';
 import type { Conversation } from '../features/conversations/types';
+import { useI18n } from '../features/i18n';
 
 interface SidebarMenuState {
   conversationId: string;
@@ -36,6 +37,7 @@ export default function Sidebar({
   onDeleteConversation,
   generatingConversationIds,
 }: SidebarProps) {
+  const { t } = useI18n();
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState('');
   const [menuState, setMenuState] = useState<SidebarMenuState | null>(null);
@@ -230,7 +232,7 @@ export default function Sidebar({
             className={`flex h-11 items-center whitespace-nowrap border border-[#2d2f31]/50 bg-[#131314] text-sm font-medium transition-all duration-300 hover:bg-[#2d2f31] ${
               isOpen ? 'ml-0 w-[232px] rounded-full pl-[18px] pr-4' : 'ml-[6px] w-11 rounded-full pl-[12px]'
             }`}
-            title="发起新对话"
+            title={t('sidebar.new_chat')}
           >
             <Plus className="h-5 w-5 flex-shrink-0 text-slate-300" />
             <span
@@ -240,7 +242,7 @@ export default function Sidebar({
                   : 'pointer-events-none max-w-0 -translate-x-4 opacity-0'
               }`}
             >
-              发起新对话
+              {t('sidebar.new_chat')}
             </span>
           </button>
 
@@ -248,7 +250,7 @@ export default function Sidebar({
             className={`flex h-11 items-center whitespace-nowrap text-sm text-slate-400 transition-all duration-300 hover:bg-[#2d2f31] hover:text-slate-200 ${
               isOpen ? 'ml-0 w-[232px] rounded-xl pl-[18px] pr-4' : 'ml-[6px] w-11 rounded-full pl-[12px]'
             }`}
-            title="搜索对话内容"
+            title={t('sidebar.search')}
           >
             <Search className="h-5 w-5 flex-shrink-0" />
             <span
@@ -258,7 +260,7 @@ export default function Sidebar({
                   : 'pointer-events-none max-w-0 -translate-x-4 opacity-0'
               }`}
             >
-              搜索对话内容
+              {t('sidebar.search')}
             </span>
           </button>
         </div>
@@ -273,7 +275,7 @@ export default function Sidebar({
           {conversations.length > 0 && (
             <div className="space-y-2">
               <h3 className="whitespace-nowrap px-2 text-xs font-semibold tracking-wider text-slate-500 uppercase">
-                最近
+                {t('sidebar.recent')}
               </h3>
               <div className="space-y-1">
                 {conversations.map((conversation) => {
@@ -325,7 +327,7 @@ export default function Sidebar({
           className={`flex h-11 items-center whitespace-nowrap text-sm text-slate-400 transition-all duration-300 hover:bg-[#2d2f31] hover:text-slate-200 ${
             isOpen ? 'ml-0 w-[232px] rounded-xl pl-[18px] pr-4' : 'ml-[6px] w-11 rounded-xl pl-[12px]'
           }`}
-          title="设置"
+          title={t('sidebar.settings')}
         >
           <Settings className="h-5 w-5 flex-shrink-0" />
           <span
@@ -335,7 +337,7 @@ export default function Sidebar({
                 : 'pointer-events-none max-w-0 -translate-x-4 opacity-0'
             }`}
           >
-            设置
+            {t('sidebar.settings')}
           </span>
         </button>
       </div>

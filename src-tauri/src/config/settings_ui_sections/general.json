@@ -1,20 +1,43 @@
 {
   "id": "general",
-  "title": "General",
+  "title": "settings.general.title",
   "icon": "Settings2",
   "order": 10,
-  "description": "全局运行行为与默认模型。",
+  "description": "settings.general.description",
   "children": [
     {
       "kind": "group",
       "id": "general-basics",
-      "title": "Application",
+      "title": "settings.general.basics.title",
       "children": [
         {
           "kind": "field",
+          "id": "language",
+          "title": "settings.general.language.title",
+          "description": "settings.general.language.description",
+          "path": "language",
+          "valueType": "enum",
+          "control": "select",
+          "options": [
+            {
+              "label": "settings.general.language.auto",
+              "value": "auto"
+            },
+            {
+              "label": "settings.general.language.en",
+              "value": "en"
+            },
+            {
+              "label": "settings.general.language.zh",
+              "value": "zh"
+            }
+          ]
+        },
+        {
+          "kind": "field",
           "id": "active-provider",
-          "title": "Active provider",
-          "description": "当前主对话默认使用的 provider。",
+          "title": "settings.general.active_provider.title",
+          "description": "settings.general.active_provider.description",
           "path": "active_provider",
           "valueType": "enum",
           "control": "select",
@@ -23,8 +46,8 @@
         {
           "kind": "field",
           "id": "default-model",
-          "title": "Default model",
-          "description": "主对话默认模型。",
+          "title": "settings.general.default_model.title",
+          "description": "settings.general.default_model.description",
           "path": "default_model",
           "valueType": "enum",
           "control": "select",
@@ -33,8 +56,8 @@
         {
           "kind": "field",
           "id": "utility-small-model",
-          "title": "Utility small model",
-          "description": "标题生成和轻量任务优先使用的小模型。",
+          "title": "settings.general.utility_small_model.title",
+          "description": "settings.general.utility_small_model.description",
           "path": "utility_small_model",
           "valueType": "enum",
           "control": "select",
@@ -43,8 +66,8 @@
         {
           "kind": "field",
           "id": "request-timeout-seconds",
-          "title": "Request timeout (seconds)",
-          "description": "所有 provider 的全局回退超时。",
+          "title": "settings.general.request_timeout.title",
+          "description": "settings.general.request_timeout.description",
           "path": "request_timeout_seconds",
           "valueType": "integer",
           "control": "number",
@@ -55,8 +78,8 @@
         {
           "kind": "field",
           "id": "show-advanced-request-options",
-          "title": "Show advanced request options",
-          "description": "启用后在消息输入框旁显示高级请求参数按钮。",
+          "title": "settings.general.show_advanced_options.title",
+          "description": "settings.general.show_advanced_options.description",
           "path": "show_advanced_request_options",
           "valueType": "boolean",
           "control": "switch"

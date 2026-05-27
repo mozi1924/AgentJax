@@ -1,19 +1,19 @@
 {
   "id": "mcp-servers",
-  "title": "MCP Servers",
+  "title": "settings.mcp_servers.title",
   "icon": "ServerCog",
   "order": 50,
-  "description": "配置本地 stdio 或远程 streamable HTTP MCP 服务。",
+  "description": "settings.mcp_servers.description",
   "children": [
     {
       "kind": "collection",
       "id": "mcp-servers-collection",
-      "title": "Servers",
+      "title": "settings.mcp_servers.collection.title",
       "path": "mcp_servers",
       "valueType": "object_collection",
-      "addLabel": "Add MCP server",
-      "keyLabel": "Server key",
-      "itemLabel": "Server",
+      "addLabel": "settings.mcp_servers.collection.add_label",
+      "keyLabel": "settings.mcp_servers.collection.key_label",
+      "itemLabel": "settings.mcp_servers.collection.item_label",
       "keyPattern": "^[A-Za-z0-9_-]+$",
       "defaultItem": {
         "transport": "stdio",
@@ -35,7 +35,7 @@
         {
           "kind": "field",
           "id": "mcp-server-enabled",
-          "title": "Enabled",
+          "title": "settings.mcp_servers.enabled.title",
           "path": "enabled",
           "valueType": "boolean",
           "control": "switch"
@@ -43,7 +43,7 @@
         {
           "kind": "field",
           "id": "mcp-server-transport",
-          "title": "Transport",
+          "title": "settings.mcp_servers.transport.title",
           "path": "transport",
           "valueType": "enum",
           "control": "select",
@@ -52,7 +52,7 @@
         {
           "kind": "field",
           "id": "mcp-server-command",
-          "title": "Command",
+          "title": "settings.mcp_servers.command.title",
           "path": "command",
           "valueType": "string",
           "control": "text",
@@ -66,7 +66,7 @@
         {
           "kind": "field",
           "id": "mcp-server-args",
-          "title": "Args",
+          "title": "settings.mcp_servers.args.title",
           "path": "args",
           "valueType": "string_list",
           "control": "tags",
@@ -80,7 +80,7 @@
         {
           "kind": "field",
           "id": "mcp-server-env",
-          "title": "Env",
+          "title": "settings.mcp_servers.env.title",
           "path": "env",
           "valueType": "string_map",
           "control": "key_value",
@@ -94,7 +94,7 @@
         {
           "kind": "field",
           "id": "mcp-server-cwd",
-          "title": "Working directory",
+          "title": "settings.mcp_servers.cwd.title",
           "path": "cwd",
           "valueType": "string",
           "control": "text",
@@ -108,7 +108,7 @@
         {
           "kind": "field",
           "id": "mcp-server-use-global-env",
-          "title": "Use global stdio env",
+          "title": "settings.mcp_servers.use_global_env.title",
           "path": "use_global_stdio_env",
           "valueType": "boolean",
           "control": "switch",
@@ -122,14 +122,14 @@
         {
           "kind": "field",
           "id": "mcp-server-inherit-parent-env",
-          "title": "Inherit parent env",
-          "description": "留空时跟随共享 runtime 配置。",
+          "title": "settings.mcp_servers.inherit_parent_env.title",
+          "description": "settings.mcp_servers.inherit_parent_env.description",
           "path": "inherit_parent_env",
           "valueType": "enum",
           "control": "select",
           "options": [
             {
-              "label": "Follow runtime",
+              "label": "settings.mcp_servers.inherit_parent_env.options.follow_runtime",
               "value": ""
             },
             {
@@ -151,7 +151,7 @@
         {
           "kind": "field",
           "id": "mcp-server-uri",
-          "title": "URI",
+          "title": "settings.mcp_servers.uri.title",
           "path": "uri",
           "valueType": "string",
           "control": "text",
@@ -165,8 +165,8 @@
         {
           "kind": "field",
           "id": "mcp-server-auth-header",
-          "title": "Auth header",
-          "description": "如需 Bearer token，可直接填写完整 header 值。",
+          "title": "settings.mcp_servers.auth_header.title",
+          "description": "settings.mcp_servers.auth_header.description",
           "path": "auth_header",
           "valueType": "secret",
           "control": "secret",
@@ -181,7 +181,7 @@
         {
           "kind": "field",
           "id": "mcp-server-headers",
-          "title": "HTTP headers",
+          "title": "settings.mcp_servers.headers.title",
           "path": "headers",
           "valueType": "string_map",
           "control": "key_value",
@@ -195,7 +195,7 @@
         {
           "kind": "field",
           "id": "mcp-server-allow-stateless",
-          "title": "Allow stateless",
+          "title": "settings.mcp_servers.allow_stateless.title",
           "path": "allow_stateless",
           "valueType": "boolean",
           "control": "switch",
@@ -209,8 +209,8 @@
         {
           "kind": "field",
           "id": "mcp-server-channel-buffer",
-          "title": "Channel buffer capacity",
-          "description": "留空表示使用默认值。",
+          "title": "settings.mcp_servers.channel_buffer.title",
+          "description": "settings.mcp_servers.channel_buffer.description",
           "path": "channel_buffer_capacity",
           "valueType": "integer",
           "control": "number",
@@ -227,7 +227,7 @@
         {
           "kind": "field",
           "id": "mcp-server-reinit",
-          "title": "Reinit on expired session",
+          "title": "settings.mcp_servers.reinit.title",
           "path": "reinit_on_expired_session",
           "valueType": "boolean",
           "control": "switch",
