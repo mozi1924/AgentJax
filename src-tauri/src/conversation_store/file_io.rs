@@ -5,6 +5,7 @@ use super::types::{
 use crate::conversation_store_utils::{
     compact_preview, normalize_title_source, sanitize_conversation_id,
 };
+use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -171,25 +172,24 @@ pub fn write_conversation_metadata(
     )
 }
 
-pub fn conversation_file_contains_line_id(
-    messages_path: &Path,
-    target_line_id: &str,
-) -> Result<bool, String> {
+pub fn read_conversation_line_ids(messages_path: &Path) -> Result<HashSet<String>, String> {
     if !messages_path.exists() {
-        return Ok(false);
+        return Ok(HashSet::new());
     }
 
     let file = fs::File::open(messages_path).map_err(|e| {
         format!(
-            "Failed to open messages file {} while checking for duplicates: {e}",
+            "Failed to open messages file {} while loading line-id index: {e}",
             messages_path.display()
         )
     })?;
     let reader = BufReader::new(file);
+    let mut line_ids = HashSet::new();
+
     for (idx, raw) in reader.lines().enumerate() {
         let raw = raw.map_err(|e| {
             format!(
-                "Failed to read line {} from {} while checking for duplicates: {e}",
+                "Failed to read line {} from {} while loading line-id index: {e}",
                 idx + 1,
                 messages_path.display()
             )
@@ -200,11 +200,12 @@ pub fn conversation_file_contains_line_id(
         }
 
         match serde_json::from_str::<ConversationLine>(trimmed) {
-            Ok(line) if line.id() == target_line_id => return Ok(true),
-            Ok(_) => {}
+            Ok(line) => {
+                line_ids.insert(line.id().to_string());
+            }
             Err(err) => {
                 log::warn!(
-                    "Skipping malformed line {} in {} while checking for duplicates: {}",
+                    "Skipping malformed line {} in {} while loading line-id index: {}",
                     idx + 1,
                     messages_path.display(),
                     err
@@ -213,7 +214,82 @@ pub fn conversation_file_contains_line_id(
         }
     }
 
-    Ok(false)
+    Ok(line_ids)
+}
+
+pub fn rewrite_conversation_messages<F>(
+    messages_path: &Path,
+    current_meta: &ConversationMeta,
+    mut transform: F,
+) -> Result<(ConversationMeta, bool, HashSet<String>), String>
+where
+    F: FnMut(ConversationLine) -> (ConversationLine, bool),
+{
+    if !messages_path.exists() {
+        return Ok((current_meta.clone(), false, HashSet::new()));
+    }
+
+    let file = fs::File::open(messages_path).map_err(|e| {
+        format!(
+            "Failed to open messages file {} for rewrite: {e}",
+            messages_path.display()
+        )
+    })?;
+    let reader = BufReader::new(file);
+    let (tmp_path, mut tmp_file) = create_temp_file(messages_path, "messages")?;
+
+    let mut rebuilt_meta = current_meta.clone();
+    sanitize_meta_basics(&mut rebuilt_meta);
+    rebuilt_meta.message_count = 0;
+    rebuilt_meta.last_message_preview.clear();
+    let previous_updated_at = rebuilt_meta.updated_at_unix_ms;
+    rebuilt_meta.updated_at_unix_ms = rebuilt_meta.created_at_unix_ms;
+    let mut line_ids = HashSet::new();
+
+    let mut transformed_any = false;
+    for (idx, raw) in reader.lines().enumerate() {
+        let raw = raw.map_err(|e| {
+            format!(
+                "Failed to read line {} from {} during rewrite: {e}",
+                idx + 1,
+                messages_path.display()
+            )
+        })?;
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        match serde_json::from_str::<ConversationLine>(trimmed) {
+            Ok(line) => {
+                let (next_line, changed) = transform(line);
+                transformed_any |= changed;
+                line_ids.insert(next_line.id().to_string());
+                write_jsonl_line(&mut tmp_file, &next_line, messages_path, "messages")?;
+                apply_line_to_meta(&mut rebuilt_meta, &next_line);
+            }
+            Err(err) => {
+                log::warn!(
+                    "Skipping malformed line {} in {} during rewrite: {}",
+                    idx + 1,
+                    messages_path.display(),
+                    err
+                );
+            }
+        }
+    }
+
+    tmp_file.sync_all().map_err(|e| {
+        format!(
+            "Failed to sync temporary messages file {}: {e}",
+            tmp_path.display()
+        )
+    })?;
+    drop(tmp_file);
+    finalize_atomic_replace(&tmp_path, messages_path, "messages")?;
+
+    rebuilt_meta.updated_at_unix_ms = rebuilt_meta.updated_at_unix_ms.max(previous_updated_at);
+    Ok((rebuilt_meta, transformed_any, line_ids))
 }
 
 pub fn apply_line_to_meta(meta: &mut ConversationMeta, line: &ConversationLine) {
@@ -260,6 +336,27 @@ fn ensure_parent_dir(path: &Path, label: &str) -> Result<(), String> {
 }
 
 fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> Result<(), String> {
+    let (tmp_path, mut tmp_file) = create_temp_file(path, label)?;
+    tmp_file.write_all(contents).map_err(|e| {
+        format!(
+            "Failed to write temporary {} file {}: {e}",
+            label,
+            tmp_path.display()
+        )
+    })?;
+    tmp_file.sync_all().map_err(|e| {
+        format!(
+            "Failed to sync temporary {} file {}: {e}",
+            label,
+            tmp_path.display()
+        )
+    })?;
+    drop(tmp_file);
+
+    finalize_atomic_replace(&tmp_path, path, label)
+}
+
+fn create_temp_file(path: &Path, label: &str) -> Result<(std::path::PathBuf, fs::File), String> {
     let parent = path.parent().ok_or_else(|| {
         format!(
             "Failed to resolve parent directory for {} file {}",
@@ -281,30 +378,43 @@ fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> Result<()
         std::process::id()
     ));
 
-    let mut tmp_file = fs::File::create(&tmp_path).map_err(|e| {
+    let tmp_file = fs::File::create(&tmp_path).map_err(|e| {
         format!(
             "Failed to create temporary {} file {}: {e}",
             label,
             tmp_path.display()
         )
     })?;
-    tmp_file.write_all(contents).map_err(|e| {
-        format!(
-            "Failed to write temporary {} file {}: {e}",
-            label,
-            tmp_path.display()
-        )
-    })?;
-    tmp_file.sync_all().map_err(|e| {
-        format!(
-            "Failed to sync temporary {} file {}: {e}",
-            label,
-            tmp_path.display()
-        )
-    })?;
-    drop(tmp_file);
 
-    if let Err(rename_err) = fs::rename(&tmp_path, path) {
+    Ok((tmp_path, tmp_file))
+}
+
+fn write_jsonl_line(
+    file: &mut fs::File,
+    line: &ConversationLine,
+    path: &Path,
+    label: &str,
+) -> Result<(), String> {
+    let json = serde_json::to_string(line)
+        .map_err(|e| format!("Failed to serialize conversation line: {e}"))?;
+    file.write_all(json.as_bytes()).map_err(|e| {
+        format!(
+            "Failed to write {} line to temporary file for {}: {e}",
+            label,
+            path.display()
+        )
+    })?;
+    file.write_all(b"\n").map_err(|e| {
+        format!(
+            "Failed to write newline to temporary {} file for {}: {e}",
+            label,
+            path.display()
+        )
+    })
+}
+
+fn finalize_atomic_replace(tmp_path: &Path, path: &Path, label: &str) -> Result<(), String> {
+    if let Err(rename_err) = fs::rename(tmp_path, path) {
         #[cfg(target_os = "windows")]
         {
             if path.exists() {
@@ -316,7 +426,7 @@ fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> Result<()
                         rename_err
                     )
                 })?;
-                fs::rename(&tmp_path, path).map_err(|e| {
+                fs::rename(tmp_path, path).map_err(|e| {
                     format!(
                         "Failed to finalize {} file {} after rename retry: {e}",
                         label,
@@ -336,7 +446,7 @@ fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> Result<()
 
         #[cfg(not(target_os = "windows"))]
         {
-            let _ = fs::remove_file(&tmp_path);
+            let _ = fs::remove_file(tmp_path);
             return Err(format!(
                 "Failed to atomically rename temporary {} file {} to {}: {}",
                 label,

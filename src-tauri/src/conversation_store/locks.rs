@@ -1,7 +1,14 @@
-use std::collections::BTreeMap;
+use super::types::ConversationSummary;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 
 type ConversationMutex = Arc<Mutex<()>>;
+
+#[derive(Debug, Clone, Default)]
+struct ConversationIndexEntry {
+    line_ids: Option<HashSet<String>>,
+    summary: Option<ConversationSummary>,
+}
 
 fn lock_registry() -> &'static Mutex<BTreeMap<String, ConversationMutex>> {
     static LOCKS: OnceLock<Mutex<BTreeMap<String, ConversationMutex>>> = OnceLock::new();
@@ -18,6 +25,11 @@ fn conversation_lock(conversation_id: &str) -> Result<ConversationMutex, String>
         .clone())
 }
 
+fn conversation_index_registry() -> &'static Mutex<BTreeMap<String, ConversationIndexEntry>> {
+    static INDEX: OnceLock<Mutex<BTreeMap<String, ConversationIndexEntry>>> = OnceLock::new();
+    INDEX.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
 pub fn with_conversation_lock<T, F>(conversation_id: &str, action: F) -> Result<T, String>
 where
     F: FnOnce() -> Result<T, String>,
@@ -27,4 +39,72 @@ where
         .lock()
         .map_err(|_| format!("Conversation lock is poisoned for '{conversation_id}'"))?;
     action()
+}
+
+pub fn cached_line_id_exists(conversation_id: &str, line_id: &str) -> Result<Option<bool>, String> {
+    let registry = conversation_index_registry()
+        .lock()
+        .map_err(|_| "Conversation index registry is poisoned".to_string())?;
+    Ok(registry
+        .get(conversation_id)
+        .and_then(|entry| entry.line_ids.as_ref())
+        .map(|line_ids| line_ids.contains(line_id)))
+}
+
+pub fn replace_cached_line_ids(
+    conversation_id: &str,
+    line_ids: HashSet<String>,
+) -> Result<(), String> {
+    let mut registry = conversation_index_registry()
+        .lock()
+        .map_err(|_| "Conversation index registry is poisoned".to_string())?;
+    registry
+        .entry(conversation_id.to_string())
+        .or_default()
+        .line_ids = Some(line_ids);
+    Ok(())
+}
+
+pub fn insert_cached_line_id(conversation_id: &str, line_id: &str) -> Result<(), String> {
+    let mut registry = conversation_index_registry()
+        .lock()
+        .map_err(|_| "Conversation index registry is poisoned".to_string())?;
+    registry
+        .entry(conversation_id.to_string())
+        .or_default()
+        .line_ids
+        .get_or_insert_with(HashSet::new)
+        .insert(line_id.to_string());
+    Ok(())
+}
+
+pub fn cached_summary(conversation_id: &str) -> Result<Option<ConversationSummary>, String> {
+    let registry = conversation_index_registry()
+        .lock()
+        .map_err(|_| "Conversation index registry is poisoned".to_string())?;
+    Ok(registry
+        .get(conversation_id)
+        .and_then(|entry| entry.summary.clone()))
+}
+
+pub fn replace_cached_summary(
+    conversation_id: &str,
+    summary: ConversationSummary,
+) -> Result<(), String> {
+    let mut registry = conversation_index_registry()
+        .lock()
+        .map_err(|_| "Conversation index registry is poisoned".to_string())?;
+    registry
+        .entry(conversation_id.to_string())
+        .or_default()
+        .summary = Some(summary);
+    Ok(())
+}
+
+pub fn invalidate_cached_conversation_index(conversation_id: &str) -> Result<(), String> {
+    let mut registry = conversation_index_registry()
+        .lock()
+        .map_err(|_| "Conversation index registry is poisoned".to_string())?;
+    registry.remove(conversation_id);
+    Ok(())
 }

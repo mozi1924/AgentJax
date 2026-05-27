@@ -286,6 +286,150 @@ fn update_line_preserves_existing_tool_args_when_exec_event_omits_them() {
 }
 
 #[test]
+fn update_line_refreshes_summary_metadata_after_streaming_rewrite() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("tsummary-update-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: u("u1", "r1", "original user"),
+    })
+    .expect("user");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: a(
+            "a1",
+            "r1",
+            "resp1",
+            Some(AssistantPhase::FinalAnswer),
+            "old assistant preview",
+            AssistantStatus::Done,
+        ),
+    })
+    .expect("assistant");
+
+    update_line(UpdateLineInput {
+        conversation_id: cid.clone(),
+        line_id: "a1".into(),
+        line: a(
+            "a1",
+            "r1",
+            "resp1",
+            Some(AssistantPhase::FinalAnswer),
+            "new assistant preview",
+            AssistantStatus::Done,
+        ),
+    })
+    .expect("update");
+
+    let summaries = list_conversations().expect("list conversations");
+    let summary = summaries
+        .into_iter()
+        .find(|item| item.conversation_id == cid)
+        .expect("conversation summary");
+    assert_eq!(summary.message_count, 2);
+    assert_eq!(summary.last_message_preview, "new assistant preview");
+
+    delete_conversation(&cid).ok();
+}
+
+#[test]
+fn duplicate_append_is_skipped_with_cached_line_ids() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("tdup-cache-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+
+    let first_line = u("u-dup", "r1", "hello once");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: first_line.clone(),
+    })
+    .expect("first append");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: first_line,
+    })
+    .expect("duplicate append");
+
+    let detail = load_conversation(&cid).expect("load").expect("detail");
+    assert_eq!(detail.lines.len(), 1);
+
+    delete_conversation(&cid).ok();
+}
+
+#[test]
+fn delete_conversation_clears_line_id_cache_for_recreated_session() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("tcache-reset-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: u("u-reset", "r1", "first life"),
+    })
+    .expect("append");
+    assert!(delete_conversation(&cid).expect("delete"));
+
+    ensure_conversation(&cid).expect("recreate");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: u("u-reset", "r2", "second life"),
+    })
+    .expect("append after recreate");
+
+    let detail = load_conversation(&cid).expect("load").expect("detail");
+    assert_eq!(detail.lines.len(), 1);
+    let text = match &detail.lines[0] {
+        ConversationLine::User(line) => line.text.as_str(),
+        other => panic!("expected user line after recreate, got {:?}", other),
+    };
+    assert_eq!(text, "second life");
+
+    delete_conversation(&cid).ok();
+}
+
+#[test]
+fn delete_conversation_clears_cached_summary_for_recreated_session() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("tsummary-reset-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+    rename_conversation(&cid, "旧标题").expect("rename");
+
+    let initial_summary = list_conversations()
+        .expect("list before delete")
+        .into_iter()
+        .find(|item| item.conversation_id == cid)
+        .expect("initial summary");
+    assert_eq!(initial_summary.title, "旧标题");
+
+    assert!(delete_conversation(&cid).expect("delete"));
+    ensure_conversation(&cid).expect("recreate");
+
+    let recreated_summary = list_conversations()
+        .expect("list after recreate")
+        .into_iter()
+        .find(|item| item.conversation_id == cid)
+        .expect("recreated summary");
+    assert_eq!(
+        recreated_summary.title,
+        crate::conversation_store::types::DEFAULT_CONVERSATION_TITLE
+    );
+
+    delete_conversation(&cid).ok();
+}
+
+#[test]
 fn load_context_filters_orphan_tool_calls() {
     let _g = crate::config::test_env_lock()
         .lock()

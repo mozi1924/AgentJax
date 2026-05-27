@@ -1,5 +1,5 @@
-use super::file_io::{read_conversation_file, summary_from_meta};
-use super::locks::with_conversation_lock;
+use super::file_io::{read_conversation_file, read_conversation_meta, summary_from_meta};
+use super::locks::{cached_summary, replace_cached_summary, with_conversation_lock};
 use super::paths::{conversation_messages_path, conversation_metadata_path, list_conversation_ids};
 use super::types::{
     ConversationDetail, ConversationLine, ConversationSummary, TitleGenerationCandidate,
@@ -11,10 +11,17 @@ pub fn list_conversations() -> Result<Vec<ConversationSummary>, String> {
 
     for conversation_id in list_conversation_ids()? {
         if let Some(summary) = with_conversation_lock(&conversation_id, || {
+            if let Some(summary) = cached_summary(&conversation_id)? {
+                return Ok(Some(summary));
+            }
+
             let metadata_path = conversation_metadata_path(&conversation_id)?;
-            let messages_path = conversation_messages_path(&conversation_id)?;
-            Ok(read_conversation_file(&metadata_path, &messages_path)?
-                .map(|data| summary_from_meta(&data.meta)))
+            let Some(meta) = read_conversation_meta(&metadata_path)? else {
+                return Ok(None);
+            };
+            let summary = summary_from_meta(&meta);
+            replace_cached_summary(&conversation_id, summary.clone())?;
+            Ok(Some(summary))
         })? {
             out.push(summary);
         }
@@ -33,6 +40,7 @@ pub fn load_conversation(conversation_id: &str) -> Result<Option<ConversationDet
         let Some(data) = read_conversation_file(&metadata_path, &messages_path)? else {
             return Ok(None);
         };
+        replace_cached_summary(conversation_id, summary_from_meta(&data.meta))?;
 
         Ok(Some(ConversationDetail {
             conversation_id: data.meta.conversation_id.clone(),

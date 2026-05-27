@@ -1,9 +1,12 @@
 use super::file_io::{
-    append_conversation_line, apply_line_to_meta, conversation_file_contains_line_id,
-    read_conversation_file, read_conversation_meta, summary_from_meta, write_conversation_file,
-    write_conversation_metadata,
+    append_conversation_line, apply_line_to_meta, read_conversation_file,
+    read_conversation_line_ids, read_conversation_meta, rewrite_conversation_messages,
+    summary_from_meta, write_conversation_file, write_conversation_metadata,
 };
-use super::locks::with_conversation_lock;
+use super::locks::{
+    cached_line_id_exists, insert_cached_line_id, invalidate_cached_conversation_index,
+    replace_cached_line_ids, replace_cached_summary, with_conversation_lock,
+};
 use super::paths::{
     conversation_dir_path, conversation_messages_path, conversation_metadata_path,
     ensure_session_layout,
@@ -40,6 +43,7 @@ fn ensure_conversation_inner(conversation_id: &str) -> Result<ConversationMeta, 
         if changed {
             write_conversation_file(&metadata_path, &messages_path, &data)?;
         }
+        replace_cached_summary(conversation_id, summary_from_meta(&data.meta))?;
         return Ok(data.meta);
     }
 
@@ -62,6 +66,7 @@ fn ensure_conversation_inner(conversation_id: &str) -> Result<ConversationMeta, 
 
     ensure_session_layout(conversation_id)?;
     write_conversation_file(&metadata_path, &messages_path, &data)?;
+    replace_cached_summary(conversation_id, summary_from_meta(&data.meta))?;
     Ok(data.meta)
 }
 
@@ -85,7 +90,7 @@ fn append_line_inner(input: AppendLineInput) -> Result<(), String> {
     let mut meta = load_or_create_meta(&input.conversation_id, &metadata_path, &messages_path)?;
 
     // Deduplicate: skip if line with same id already exists.
-    if conversation_file_contains_line_id(&messages_path, input.line.id())? {
+    if line_id_exists(&input.conversation_id, &messages_path, input.line.id())? {
         log::warn!(
             "append_line: skipping duplicate line id={} kind={:?}",
             input.line.id(),
@@ -102,19 +107,30 @@ fn append_line_inner(input: AppendLineInput) -> Result<(), String> {
 
     append_conversation_line(&messages_path, &input.line)?;
     apply_line_to_meta(&mut meta, &input.line);
-    write_conversation_metadata(&metadata_path, &meta)
+    write_conversation_metadata(&metadata_path, &meta)?;
+    replace_cached_summary(&input.conversation_id, summary_from_meta(&meta))?;
+    insert_cached_line_id(&input.conversation_id, input.line.id())
 }
 
 fn update_line_inner(input: UpdateLineInput) -> Result<(), String> {
     let metadata_path = conversation_metadata_path(&input.conversation_id)?;
     let messages_path = conversation_messages_path(&input.conversation_id)?;
-    let mut data = load_or_create_inner(&input.conversation_id, &metadata_path, &messages_path)?;
+    let current_meta = load_or_create_meta(&input.conversation_id, &metadata_path, &messages_path)?;
+    let replacement = input.line.clone();
+    let line_id = input.line_id.clone();
 
-    if let Some(existing) = data.lines.iter_mut().find(|l| l.id() == input.line_id) {
-        *existing = merge_updated_line(existing, input.line);
-    }
+    let (next_meta, _updated, line_ids) =
+        rewrite_conversation_messages(&messages_path, &current_meta, move |line| {
+            if line.id() == line_id {
+                (merge_updated_line(&line, replacement.clone()), true)
+            } else {
+                (line, false)
+            }
+        })?;
 
-    write_conversation_file(&metadata_path, &messages_path, &data)
+    write_conversation_metadata(&metadata_path, &next_meta)?;
+    replace_cached_summary(&input.conversation_id, summary_from_meta(&next_meta))?;
+    replace_cached_line_ids(&input.conversation_id, line_ids)
 }
 
 // ── Rename ────────────────────────────────────────────────────────────────
@@ -134,13 +150,15 @@ fn rename_conversation_inner(
 ) -> Result<ConversationSummary, String> {
     let metadata_path = conversation_metadata_path(conversation_id)?;
     let messages_path = conversation_messages_path(conversation_id)?;
-    let mut data = load_or_create_inner(conversation_id, &metadata_path, &messages_path)?;
+    let mut meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
 
-    data.meta.title = normalize_title(title);
-    data.meta.title_source = "manual".to_string();
-    data.meta.updated_at_unix_ms = now_unix_ms();
-    write_conversation_file(&metadata_path, &messages_path, &data)?;
-    Ok(summary_from_meta(&data.meta))
+    meta.title = normalize_title(title);
+    meta.title_source = "manual".to_string();
+    meta.updated_at_unix_ms = now_unix_ms();
+    write_conversation_metadata(&metadata_path, &meta)?;
+    let summary = summary_from_meta(&meta);
+    replace_cached_summary(conversation_id, summary.clone())?;
+    Ok(summary)
 }
 
 // ── Auto-title update ─────────────────────────────────────────────────────
@@ -160,19 +178,24 @@ fn update_auto_title_inner(
 ) -> Result<Option<ConversationSummary>, String> {
     let metadata_path = conversation_metadata_path(conversation_id)?;
     let messages_path = conversation_messages_path(conversation_id)?;
-    let Some(mut data) = read_conversation_file(&metadata_path, &messages_path)? else {
+    let Some(mut meta) = load_existing_meta(conversation_id, &metadata_path, &messages_path)?
+    else {
         return Ok(None);
     };
 
-    if data.meta.title_source == "manual" {
-        return Ok(Some(summary_from_meta(&data.meta)));
+    if meta.title_source == "manual" {
+        let summary = summary_from_meta(&meta);
+        replace_cached_summary(conversation_id, summary.clone())?;
+        return Ok(Some(summary));
     }
 
-    data.meta.title = normalize_title(title);
-    data.meta.title_source = "auto".to_string();
-    data.meta.updated_at_unix_ms = now_unix_ms();
-    write_conversation_file(&metadata_path, &messages_path, &data)?;
-    Ok(Some(summary_from_meta(&data.meta)))
+    meta.title = normalize_title(title);
+    meta.title_source = "auto".to_string();
+    meta.updated_at_unix_ms = now_unix_ms();
+    write_conversation_metadata(&metadata_path, &meta)?;
+    let summary = summary_from_meta(&meta);
+    replace_cached_summary(conversation_id, summary.clone())?;
+    Ok(Some(summary))
 }
 
 // ── Delete ────────────────────────────────────────────────────────────────
@@ -186,29 +209,14 @@ pub fn delete_conversation(conversation_id: &str) -> Result<bool, String> {
 fn delete_conversation_inner(conversation_id: &str) -> Result<bool, String> {
     let dir = conversation_dir_path(conversation_id)?;
     if !dir.exists() {
+        invalidate_cached_conversation_index(conversation_id)?;
         return Ok(false);
     }
 
     fs::remove_dir_all(&dir)
         .map_err(|e| format!("Failed to delete session dir {}: {e}", dir.display()))?;
+    invalidate_cached_conversation_index(conversation_id)?;
     Ok(true)
-}
-
-// ── Internal helper ───────────────────────────────────────────────────────
-
-fn load_or_create_inner(
-    conversation_id: &str,
-    metadata_path: &std::path::Path,
-    messages_path: &std::path::Path,
-) -> Result<ConversationData, String> {
-    if let Some(existing) = read_conversation_file(metadata_path, messages_path)? {
-        return Ok(existing);
-    }
-    let meta = ensure_conversation_inner(conversation_id)?;
-    Ok(ConversationData {
-        meta,
-        lines: Vec::new(),
-    })
 }
 
 fn load_or_create_meta(
@@ -228,6 +236,41 @@ fn load_or_create_meta(
     }
 
     ensure_conversation_inner(conversation_id)
+}
+
+fn load_existing_meta(
+    conversation_id: &str,
+    metadata_path: &std::path::Path,
+    messages_path: &std::path::Path,
+) -> Result<Option<ConversationMeta>, String> {
+    if let Some(meta) = read_conversation_meta(metadata_path)? {
+        return Ok(Some(meta));
+    }
+
+    if messages_path.exists() {
+        let Some(data) = read_conversation_file(metadata_path, messages_path)? else {
+            return Ok(None);
+        };
+        return Ok(Some(data.meta));
+    }
+
+    let _ = conversation_id;
+    Ok(None)
+}
+
+fn line_id_exists(
+    conversation_id: &str,
+    messages_path: &std::path::Path,
+    line_id: &str,
+) -> Result<bool, String> {
+    if let Some(exists) = cached_line_id_exists(conversation_id, line_id)? {
+        return Ok(exists);
+    }
+
+    let line_ids = read_conversation_line_ids(messages_path)?;
+    let exists = line_ids.contains(line_id);
+    replace_cached_line_ids(conversation_id, line_ids)?;
+    Ok(exists)
 }
 
 fn merge_updated_line(existing: &ConversationLine, next: ConversationLine) -> ConversationLine {
