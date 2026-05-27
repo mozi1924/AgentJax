@@ -142,7 +142,7 @@ export default function AppHeader({
               AgentJax {selectedModelOption?.modelId || selectedModel}
             </span>
             {selectedReasoningLabel && (
-              <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-[11px] text-cyan-200">
+              <span className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-[11px] text-indigo-200">
                 {selectedReasoningLabel}
               </span>
             )}
@@ -175,7 +175,7 @@ export default function AppHeader({
                   </span>
                 </div>
                 {hasReasoningSupport && (
-                  <div className="flex shrink-0 select-none items-center gap-1.5 text-xs font-medium text-cyan-300">
+                  <div className="flex shrink-0 select-none items-center gap-1.5 text-xs font-medium text-indigo-400">
                     <span>{formatReasoningLabel(selectedReasoningMode)}</span>
                     <ChevronRight className="h-3.5 w-3.5 text-slate-500 transition group-hover:text-slate-300" />
                   </div>
@@ -199,13 +199,13 @@ export default function AppHeader({
                       }}
                       className={`flex cursor-pointer items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-xs transition ${
                         selectedReasoningMode === DEFAULT_REASONING_MODE
-                          ? 'bg-cyan-400/10 font-medium text-cyan-200'
+                          ? 'bg-indigo-500/10 font-medium text-indigo-200'
                           : 'text-slate-300 hover:bg-[#2d2f31]'
                       }`}
                     >
                       <span>跟随配置</span>
                       {selectedReasoningMode === DEFAULT_REASONING_MODE && (
-                        <span className="font-sans text-[10px] text-cyan-200">✓</span>
+                        <span className="font-sans text-[10px] text-indigo-200">✓</span>
                       )}
                     </button>
 
@@ -219,13 +219,13 @@ export default function AppHeader({
                         }}
                         className={`flex cursor-pointer items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-xs transition ${
                           selectedReasoningMode === level
-                            ? 'bg-cyan-400/10 font-medium text-cyan-200'
+                            ? 'bg-indigo-500/10 font-medium text-indigo-200'
                             : 'text-slate-300 hover:bg-[#2d2f31]'
                         }`}
                       >
                         <span>{formatReasoningLabel(level)}</span>
                         {selectedReasoningMode === level && (
-                          <span className="font-sans text-[10px] text-cyan-200">✓</span>
+                          <span className="font-sans text-[10px] text-indigo-200">✓</span>
                         )}
                       </button>
                     ))}
@@ -251,7 +251,7 @@ export default function AppHeader({
                       onMouseEnter={() => handleMouseEnterRow(null)}
                       className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-[#2d2f31] ${
                         isSelected
-                          ? 'border-cyan-400/30 bg-[#232526]'
+                          ? 'border-indigo-500/20 bg-[#202224]'
                           : 'border-transparent'
                       }`}
                     >
@@ -265,7 +265,7 @@ export default function AppHeader({
                       </span>
 
                       {isSelected && (
-                        <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-[11px] text-cyan-200 select-none">
+                        <span className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-[11px] text-indigo-200 select-none">
                           已选
                         </span>
                       )}

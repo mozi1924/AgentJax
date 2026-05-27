@@ -232,7 +232,7 @@ export default function Sidebar({
             }`}
             title="发起新对话"
           >
-            <Plus className="h-5 w-5 flex-shrink-0 text-cyan-400" />
+            <Plus className="h-5 w-5 flex-shrink-0 text-slate-300" />
             <span
               className={`transform overflow-hidden whitespace-nowrap transition-all duration-500 ease-out ${
                 isOpen

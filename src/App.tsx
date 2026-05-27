@@ -102,19 +102,19 @@ export default function App() {
     <div className="app-shell relative flex h-screen w-screen overflow-hidden bg-transparent font-sans text-slate-100 antialiased select-none">
       <div className="absolute inset-0 -z-10 overflow-hidden bg-[#131314]">
         <div
-          className={`absolute left-1/2 top-1/2 h-[550px] w-[550px] -translate-x-1/2 -translate-y-1/2 animate-pulse-fast rounded-full bg-gradient-to-tr from-cyan-500/25 via-purple-500/30 to-pink-500/25 filter blur-[80px] transition-opacity duration-1000 ease-in-out md:blur-[120px] ${
+          className={`absolute left-1/2 top-1/2 h-[550px] w-[550px] -translate-x-1/2 -translate-y-1/2 animate-pulse-fast rounded-full bg-gradient-to-tr from-indigo-500/8 via-slate-600/8 to-indigo-950/12 filter blur-[80px] transition-opacity duration-1000 ease-in-out md:blur-[120px] ${
             hasAnyGenerating ? 'opacity-100' : 'pointer-events-none opacity-0'
           }`}
         />
         <div
-          className={`absolute left-1/2 top-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 animate-pulse-slow rounded-full bg-gradient-to-tr from-blue-600/20 via-indigo-500/25 to-purple-600/20 filter blur-[80px] transition-opacity duration-1000 ease-in-out md:blur-[120px] ${
+          className={`absolute left-1/2 top-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 animate-pulse-slow rounded-full bg-gradient-to-tr from-slate-900/10 via-indigo-950/8 to-slate-900/10 filter blur-[80px] transition-opacity duration-1000 ease-in-out md:blur-[120px] ${
             activeConversation?.lines?.length === 0 && !activeConversationIsGenerating
               ? 'opacity-100'
               : 'pointer-events-none opacity-0'
           }`}
         />
         <div
-          className={`absolute left-1/2 top-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-tr from-indigo-950/25 to-purple-950/25 filter blur-[100px] transition-opacity duration-1000 ease-in-out ${
+          className={`absolute left-1/2 top-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-tr from-slate-950/10 to-slate-900/5 filter blur-[100px] transition-opacity duration-1000 ease-in-out ${
             activeConversation?.lines?.length > 0 && !activeConversationIsGenerating
               ? 'opacity-100'
               : 'pointer-events-none opacity-0'
@@ -196,11 +196,13 @@ export default function App() {
                 }`}
               >
                 <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">
-                  <span className="animate-gradient bg-gradient-to-r from-blue-400 via-purple-400 to-rose-400 bg-clip-text font-bold text-transparent">
-                    Mozi,
+                  <span className="animate-gradient bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text font-bold text-transparent">
+                    Mozi
                   </span>
                   <br />
-                  <span className="text-[#444746] dark:text-[#e3e3e3]">想了解什么，尽管问吧！</span>
+                  <span className="text-[#444746] dark:text-[#8e9196] text-lg font-normal tracking-wide mt-2 block">
+                    想了解什么，尽管问吧！
+                  </span>
                 </h1>
               </div>
 

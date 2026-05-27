@@ -155,3 +155,22 @@ input:focus {
 .animate-modal-content {
   animation: modal-scale-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
+
+/* Grid Transition for auto-height expand/collapse */
+.grid-collapse-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 280ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 220ms ease;
+  opacity: 0;
+}
+
+.grid-collapse-wrapper.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.grid-collapse-content {
+  overflow: hidden;
+  min-height: 0;
+}
+

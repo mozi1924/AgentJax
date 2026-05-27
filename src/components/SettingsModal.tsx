@@ -217,7 +217,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               </h3>
               <div className="text-right text-xs text-slate-500">
                 {savingPath && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-cyan-200">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-indigo-200">
                     <LoaderCircle className="h-3 w-3 animate-spin" />
                     Saving
                   </span>
@@ -229,7 +229,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 className={`mt-2.5 rounded-xl border px-3 py-2 text-xs ${
                   loadingError || Object.keys(fieldErrors).length > 0
                     ? 'border-rose-500/20 bg-rose-500/10 text-rose-200'
-                    : 'border-cyan-400/15 bg-cyan-400/10 text-cyan-100'
+                    : 'border-indigo-500/15 bg-indigo-500/10 text-indigo-100'
                 }`}
               >
                 {loadingError || statusMessage}

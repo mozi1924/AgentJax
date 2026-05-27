@@ -140,7 +140,7 @@ function UserMessageBubble({ line }: { line: UserLine }) {
     <div className="flex justify-end">
       <div
         data-native-context-menu="true"
-        className="max-w-[85%] break-words rounded-[26px] border border-white/6 bg-[#232425] px-5 py-3.5 text-sm leading-7 text-slate-100 shadow-[0_16px_40px_-32px_rgba(0,0,0,0.95)] select-text"
+        className="max-w-[85%] break-words rounded-2xl border border-[#34383e] bg-[#202225] px-4 py-2.5 text-sm leading-6 text-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.1)] select-text"
       >
         {line.text && String(line.text)}
       </div>
@@ -162,7 +162,7 @@ function AssistantFinalCard({
   turnText,
 }: AssistantFinalCardProps) {
   return (
-    <div className="group rounded-[28px] border border-white/6 bg-transparent px-1 py-1">
+    <div className="group rounded-xl border border-zinc-800/80 bg-[#161718]/45 px-4.5 py-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.15)] transition-all duration-300 hover:border-zinc-700/60">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1 overflow-hidden">
           {lines.map((line) => {
@@ -176,7 +176,7 @@ function AssistantFinalCard({
             return (
               <div
                 key={line.id}
-                className="rounded-[24px] bg-transparent px-1 py-0.5 text-slate-100"
+                className="bg-transparent py-0.5 text-slate-100"
               >
                 <div className={createAssistantTextClassName(false)}>
                   {isEmpty ? (
@@ -188,7 +188,7 @@ function AssistantFinalCard({
                     renderMarkdown(String(line.text))
                   )}
                   {isDraft && !isEmpty && (
-                    <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-300 align-middle" />
+                    <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-400 align-middle" />
                   )}
                 </div>
               </div>
@@ -199,7 +199,7 @@ function AssistantFinalCard({
         {turnText && (
           <button
             type="button"
-            className="mt-1 shrink-0 rounded-lg p-1.5 opacity-0 transition hover:bg-white/5 group-hover:opacity-100"
+            className="mt-0.5 shrink-0 rounded-lg p-1.5 opacity-0 transition hover:bg-white/5 group-hover:opacity-100"
             onClick={() => void onCopy(lines[0]?.id || 'assistant-final', turnText)}
             title="复制最终回答"
           >
