@@ -1,5 +1,6 @@
 use crate::conversation_store;
 use crate::tools::{Tool, ToolExecutionContext};
+use file_format::{FileFormat, Kind as FileFormatKind};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
@@ -155,6 +156,7 @@ struct TextFileRead {
     total_bytes: usize,
     returned_bytes: usize,
     truncated: bool,
+    file_type: FileTypeDetection,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -179,6 +181,21 @@ impl ListCollectionState {
         }
         reasons
     }
+}
+
+/// Centralized content-sniffing result reused by stat/read/write/edit tools so
+/// every file-oriented path applies the same text-vs-binary policy and exposes
+/// the same metadata for future multimodal routing.
+#[derive(Debug, Clone)]
+struct FileTypeDetection {
+    detected_format: String,
+    detected_short_name: Option<String>,
+    media_type: String,
+    detected_extension: String,
+    format_kind: &'static str,
+    content_kind: &'static str,
+    text_readable: bool,
+    content_kind_reason: Option<String>,
 }
 
 pub struct FileReaderTool;
@@ -323,6 +340,8 @@ where
         .map_err(|err| format!("Invalid arguments for tool '{tool_name}': {err}"))
 }
 
+/// Guards brand-new writes where no on-disk bytes exist yet to inspect. Once a
+/// file exists we always defer to content sniffing instead of the extension.
 fn known_binary_extension(path: &Path) -> Option<String> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     let is_binary = matches!(
@@ -408,24 +427,18 @@ fn detect_binary_reason_from_bytes(bytes: &[u8]) -> Option<&'static str> {
     None
 }
 
-fn detect_non_text_file(path: &Path) -> Result<Option<String>, String> {
-    if let Some(ext) = known_binary_extension(path) {
-        return Ok(Some(format!(
-            "files ending in '.{ext}' are treated as binary"
-        )));
-    }
-
+fn read_file_sample(path: &Path, max_bytes: usize) -> Result<Vec<u8>, String> {
     let metadata = fs::metadata(path)
         .map_err(|err| format!("Failed to stat file {}: {err}", path.display()))?;
     if !metadata.is_file() {
-        return Ok(None);
+        return Ok(Vec::new());
     }
 
     let sample_len = usize::try_from(metadata.len())
-        .unwrap_or(TEXT_DETECTION_SAMPLE_BYTES)
-        .min(TEXT_DETECTION_SAMPLE_BYTES);
-    if sample_len == 0 {
-        return Ok(None);
+        .unwrap_or(max_bytes)
+        .min(max_bytes);
+    if sample_len == 0 || max_bytes == 0 {
+        return Ok(Vec::new());
     }
 
     let file = fs::File::open(path)
@@ -435,14 +448,170 @@ fn detect_non_text_file(path: &Path) -> Result<Option<String>, String> {
         .read_to_end(&mut sample)
         .map_err(|err| format!("Failed to inspect file {}: {err}", path.display()))?;
 
-    Ok(detect_binary_reason_from_bytes(&sample).map(str::to_string))
+    Ok(sample)
+}
+
+fn file_format_kind_label(kind: FileFormatKind) -> &'static str {
+    match kind {
+        FileFormatKind::Archive => "archive",
+        FileFormatKind::Audio => "audio",
+        FileFormatKind::Compressed => "compressed",
+        FileFormatKind::Database => "database",
+        FileFormatKind::Diagram => "diagram",
+        FileFormatKind::Disk => "disk",
+        FileFormatKind::Document => "document",
+        FileFormatKind::Ebook => "ebook",
+        FileFormatKind::Executable => "executable",
+        FileFormatKind::Font => "font",
+        FileFormatKind::Formula => "formula",
+        FileFormatKind::Geospatial => "geospatial",
+        FileFormatKind::Image => "image",
+        FileFormatKind::Metadata => "metadata",
+        FileFormatKind::Model => "model",
+        FileFormatKind::Other => "other",
+        FileFormatKind::Package => "package",
+        FileFormatKind::Playlist => "playlist",
+        FileFormatKind::Presentation => "presentation",
+        FileFormatKind::Rom => "rom",
+        FileFormatKind::Spreadsheet => "spreadsheet",
+        FileFormatKind::Subtitle => "subtitle",
+        FileFormatKind::Video => "video",
+        _ => "other",
+    }
+}
+
+fn media_type_is_textual(media_type: &str) -> bool {
+    media_type.starts_with("text/")
+        || matches!(
+            media_type,
+            "application/json"
+                | "application/ld+json"
+                | "application/xml"
+                | "application/javascript"
+                | "application/x-javascript"
+                | "application/x-sh"
+                | "application/x-shellscript"
+        )
+        || media_type.ends_with("+json")
+        || media_type.ends_with("+xml")
+}
+
+fn format_is_text_candidate(format: FileFormat) -> bool {
+    matches!(format, FileFormat::Empty | FileFormat::PlainText)
+        || media_type_is_textual(format.media_type())
+}
+
+fn detect_file_type(path: &Path) -> Result<FileTypeDetection, String> {
+    let metadata = fs::metadata(path)
+        .map_err(|err| format!("Failed to stat file {}: {err}", path.display()))?;
+    if !metadata.is_file() {
+        return Ok(FileTypeDetection {
+            detected_format: "Directory".to_string(),
+            detected_short_name: None,
+            media_type: "inode/directory".to_string(),
+            detected_extension: String::new(),
+            format_kind: "directory",
+            content_kind: "directory",
+            text_readable: false,
+            content_kind_reason: None,
+        });
+    }
+
+    let file = fs::File::open(path)
+        .map_err(|err| format!("Failed to open file {}: {err}", path.display()))?;
+    let detected = FileFormat::from_reader(file)
+        .map_err(|err| format!("Failed to detect file type for {}: {err}", path.display()))?;
+    let sample = read_file_sample(path, TEXT_DETECTION_SAMPLE_BYTES)?;
+    let sample_reason = detect_binary_reason_from_bytes(&sample);
+    let text_candidate = format_is_text_candidate(detected);
+    let text_readable = text_candidate && sample_reason.is_none();
+    let content_kind_reason = if text_readable {
+        None
+    } else if detected == FileFormat::ArbitraryBinaryData {
+        Some(
+            sample_reason
+                .map(|reason| {
+                    format!("content probe classified the file as arbitrary binary data ({reason})")
+                })
+                .unwrap_or_else(|| {
+                    "content probe classified the file as arbitrary binary data".to_string()
+                }),
+        )
+    } else if text_candidate {
+        Some(
+            sample_reason
+                .map(|reason| {
+                    format!(
+                        "content probe recognized {} ({}) but it is not UTF-8 text readable ({reason})",
+                        detected.name(),
+                        detected.media_type()
+                    )
+                })
+                .unwrap_or_else(|| {
+                    format!(
+                        "content probe recognized {} ({}) but it is not UTF-8 text readable",
+                        detected.name(),
+                        detected.media_type()
+                    )
+                }),
+        )
+    } else {
+        Some(format!(
+            "content probe recognized {} ({})",
+            detected.name(),
+            detected.media_type()
+        ))
+    };
+
+    Ok(FileTypeDetection {
+        detected_format: detected.name().to_string(),
+        detected_short_name: detected.short_name().map(str::to_string),
+        media_type: detected.media_type().to_string(),
+        detected_extension: detected.extension().to_string(),
+        format_kind: file_format_kind_label(detected.kind()),
+        content_kind: if text_readable { "text" } else { "binary" },
+        text_readable,
+        content_kind_reason,
+    })
+}
+
+fn attach_file_type_metadata(
+    object: &mut serde_json::Map<String, Value>,
+    detection: &FileTypeDetection,
+) {
+    object.insert("contentKind".to_string(), json!(detection.content_kind));
+    object.insert("textReadable".to_string(), json!(detection.text_readable));
+    object.insert(
+        "contentKindReason".to_string(),
+        json!(detection.content_kind_reason),
+    );
+    object.insert(
+        "detectedFormat".to_string(),
+        json!(detection.detected_format),
+    );
+    object.insert(
+        "detectedShortName".to_string(),
+        json!(detection.detected_short_name),
+    );
+    object.insert("mediaType".to_string(), json!(detection.media_type));
+    object.insert(
+        "detectedExtension".to_string(),
+        json!(detection.detected_extension),
+    );
+    object.insert("formatKind".to_string(), json!(detection.format_kind));
+    object.insert("typeDetectionSource".to_string(), json!("content_sniffing"));
 }
 
 fn ensure_text_file(path: &Path, operation: &str) -> Result<(), String> {
-    if let Some(reason) = detect_non_text_file(path)? {
+    let detection = detect_file_type(path)?;
+    if !detection.text_readable {
         return Err(format!(
             "Refusing to {operation} '{}' because it appears to be a non-text/binary file ({reason})",
-            path.display()
+            path.display(),
+            reason = detection
+                .content_kind_reason
+                .as_deref()
+                .unwrap_or("content probe marked it as non-text")
         ));
     }
 
@@ -476,7 +645,17 @@ fn truncate_to_utf8_boundary(bytes: &[u8], max_bytes: usize) -> Result<&[u8], St
 }
 
 fn read_text_file(path: &Path, max_bytes: usize, operation: &str) -> Result<TextFileRead, String> {
-    ensure_text_file(path, operation)?;
+    let file_type = detect_file_type(path)?;
+    if !file_type.text_readable {
+        return Err(format!(
+            "Refusing to {operation} '{}' because it appears to be a non-text/binary file ({reason})",
+            path.display(),
+            reason = file_type
+                .content_kind_reason
+                .as_deref()
+                .unwrap_or("content probe marked it as non-text")
+        ));
+    }
 
     let metadata = fs::metadata(path)
         .map_err(|err| format!("Failed to stat file {}: {err}", path.display()))?;
@@ -501,6 +680,7 @@ fn read_text_file(path: &Path, max_bytes: usize, operation: &str) -> Result<Text
         total_bytes,
         truncated: total_bytes > preview.len(),
         content,
+        file_type,
     })
 }
 
@@ -810,7 +990,7 @@ impl Tool for FileReaderTool {
     }
 
     fn description(&self) -> &'static str {
-        "Reads a UTF-8 text file preview from the current conversation workspace. Large files are truncated, and binary files are rejected."
+        "Reads a UTF-8 text file preview from the current conversation workspace. Large files are truncated, and content-based type sniffing rejects binary files even when the extension looks text-like."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -853,7 +1033,7 @@ impl Tool for FileReaderTool {
             .clamp(1, MAX_READ_MAX_BYTES);
         let text = read_text_file(&resolved.absolute_path, max_bytes, "read")?;
         let line_count = count_lines(&text.content);
-        Ok(json!({
+        let mut response = json!({
             "path": relative_path_display(&resolved.relative_path),
             "content": text.content,
             "bytesRead": text.returned_bytes,
@@ -861,7 +1041,12 @@ impl Tool for FileReaderTool {
             "lineCount": line_count,
             "truncated": text.truncated,
             "maxBytes": max_bytes,
-        }))
+        });
+        if let Some(object) = response.as_object_mut() {
+            attach_file_type_metadata(object, &text.file_type);
+        }
+
+        Ok(response)
     }
 }
 
@@ -1026,7 +1211,7 @@ impl Tool for StatFileTool {
     }
 
     fn description(&self) -> &'static str {
-        "Returns metadata for a workspace-relative file or directory, including type, size, permissions, timestamps, and whether a file looks text-readable."
+        "Returns metadata for a workspace-relative file or directory, including size, permissions, timestamps, and content-sniffed file type details."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -1060,16 +1245,9 @@ impl Tool for StatFileTool {
         })?;
         let mut value = stat_value(&resolved.relative_path, &metadata);
         if metadata.is_file() {
-            let (content_kind, text_readable, reason) =
-                match detect_non_text_file(&resolved.absolute_path)? {
-                    Some(reason) => ("binary", false, Some(reason)),
-                    None => ("text", true, None),
-                };
-
+            let detection = detect_file_type(&resolved.absolute_path)?;
             if let Some(object) = value.as_object_mut() {
-                object.insert("contentKind".to_string(), json!(content_kind));
-                object.insert("textReadable".to_string(), json!(text_readable));
-                object.insert("contentKindReason".to_string(), json!(reason));
+                attach_file_type_metadata(object, &detection);
             }
         }
 

@@ -346,6 +346,45 @@ mod tests {
     }
 
     #[test]
+    fn test_content_sniffing_detects_extensionless_text_files() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let registry = ToolRegistry::new_with_defaults();
+        let conversation_id = format!("test-content-sniffing-text-{}", uuid::Uuid::new_v4());
+        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(conversation_id.clone()),
+        };
+
+        registry
+            .execute(
+                "write_file",
+                &json!({"path": "notes/README", "content": "hello from a file without an extension\n"}),
+                &ctx,
+            )
+            .unwrap();
+
+        let stat = registry
+            .execute("stat_file", &json!({"path": "notes/README"}), &ctx)
+            .unwrap();
+        assert_eq!(stat["contentKind"], "text");
+        assert_eq!(stat["textReadable"], true);
+        assert_eq!(stat["mediaType"], "text/plain");
+        assert_eq!(stat["detectedFormat"], "Plain Text");
+        assert_eq!(stat["typeDetectionSource"], "content_sniffing");
+
+        let read = registry
+            .execute("read_file", &json!({"path": "notes/README"}), &ctx)
+            .unwrap();
+        assert_eq!(read["contentKind"], "text");
+        assert_eq!(read["mediaType"], "text/plain");
+
+        conversation_store::delete_conversation(&conversation_id).unwrap();
+    }
+
+    #[test]
     fn test_list_files_truncates_by_output_size() {
         let _guard = crate::config::test_env_lock()
             .lock()
@@ -384,6 +423,44 @@ mod tests {
         let reasons = listing["truncationReasons"].as_array().unwrap();
         assert!(reasons.iter().any(|reason| reason == "max_output_chars"));
         assert!(listing["approxOutputChars"].as_u64().unwrap() > 0);
+
+        conversation_store::delete_conversation(&conversation_id).unwrap();
+    }
+
+    #[test]
+    fn test_content_sniffing_rejects_binary_files_disguised_as_text() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let registry = ToolRegistry::new_with_defaults();
+        let conversation_id = format!("test-content-sniffing-binary-{}", uuid::Uuid::new_v4());
+        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(conversation_id.clone()),
+        };
+
+        let workspace = conversation_store::conversation_workspace_path(&conversation_id).unwrap();
+        let disguised_binary = workspace.join("assets/fake-notes.txt");
+        std::fs::create_dir_all(disguised_binary.parent().unwrap()).unwrap();
+        std::fs::write(
+            &disguised_binary,
+            [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A],
+        )
+        .unwrap();
+
+        let stat = registry
+            .execute("stat_file", &json!({"path": "assets/fake-notes.txt"}), &ctx)
+            .unwrap();
+        assert_eq!(stat["contentKind"], "binary");
+        assert_eq!(stat["textReadable"], false);
+        assert_eq!(stat["mediaType"], "image/png");
+        assert_eq!(stat["detectedExtension"], "png");
+
+        let read_err = registry
+            .execute("read_file", &json!({"path": "assets/fake-notes.txt"}), &ctx)
+            .unwrap_err();
+        assert!(read_err.contains("Portable Network Graphics"));
 
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
