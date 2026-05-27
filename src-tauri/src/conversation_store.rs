@@ -15,16 +15,20 @@ use std::path::PathBuf;
 pub use context::load_context_for_request;
 pub use mutations::{
     append_line, delete_conversation, ensure_conversation, rename_conversation, update_auto_title,
-    update_line,
+    update_conversation_dynamic_tools, update_line,
 };
 #[cfg(test)]
 pub use paths::conversation_dir_path;
 pub use paths::conversation_workspace_path;
-pub use queries::{list_conversations, load_conversation, load_title_generation_candidate};
+pub use queries::{
+    list_conversations, load_conversation, load_conversation_dynamic_tools,
+    load_title_generation_candidate,
+};
 pub use recovery::build_recovery_developer_note;
 pub use types::{
-    AppendLineInput, AssistantLine, AssistantStatus, ConversationDetail, ConversationLine,
-    ConversationSummary, TitleGenerationCandidate, ToolLine, ToolStatus, UpdateLineInput, UserLine,
+    AppendLineInput, AssistantLine, AssistantStatus, ConversationDetail, ConversationDynamicTool,
+    ConversationDynamicToolBinding, ConversationLine, ConversationSummary,
+    TitleGenerationCandidate, ToolLine, ToolStatus, UpdateLineInput, UserLine,
 };
 
 /// Generate a new unique conversation id.

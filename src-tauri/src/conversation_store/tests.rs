@@ -708,6 +708,49 @@ fn recovery_treats_unknown_assistant_phase_as_completed_answer() {
 }
 
 #[test]
+fn conversation_dynamic_tools_round_trip_through_metadata() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("tdyntools-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+
+    update_conversation_dynamic_tools(
+        &cid,
+        vec![ConversationDynamicTool {
+            name: "math_alias".to_string(),
+            description: "Alias".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "expression": { "type": "string" }
+                }
+            }),
+            binding: ConversationDynamicToolBinding::Native {
+                tool: "calculator".to_string(),
+            },
+        }],
+    )
+    .expect("persist dynamic tools");
+
+    let loaded = load_conversation_dynamic_tools(&cid).expect("load dynamic tools");
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].name, "math_alias");
+    assert_eq!(
+        loaded[0].binding,
+        ConversationDynamicToolBinding::Native {
+            tool: "calculator".to_string()
+        }
+    );
+
+    update_conversation_dynamic_tools(&cid, Vec::new()).expect("clear dynamic tools");
+    assert!(load_conversation_dynamic_tools(&cid)
+        .expect("reload dynamic tools")
+        .is_empty());
+}
+
+#[test]
 fn concurrent_appends_preserve_all_lines_for_same_conversation() {
     let _g = crate::config::test_env_lock()
         .lock()

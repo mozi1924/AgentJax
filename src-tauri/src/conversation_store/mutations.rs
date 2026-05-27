@@ -12,8 +12,9 @@ use super::paths::{
     ensure_session_layout,
 };
 use super::types::{
-    AppendLineInput, ConversationData, ConversationLine, ConversationMeta, ConversationSummary,
-    ToolStatus, UpdateLineInput, DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
+    AppendLineInput, ConversationData, ConversationDynamicTool, ConversationLine, ConversationMeta,
+    ConversationSummary, ToolStatus, UpdateLineInput, CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY,
+    DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
 };
 use crate::conversation_store_utils::{normalize_title, now_unix_ms};
 use std::collections::BTreeMap;
@@ -170,6 +171,40 @@ pub fn update_auto_title(
     with_conversation_lock(conversation_id, || {
         update_auto_title_inner(conversation_id, title)
     })
+}
+
+// ── Conversation-scoped dynamic tools ────────────────────────────────────
+
+pub fn update_conversation_dynamic_tools(
+    conversation_id: &str,
+    tools: Vec<ConversationDynamicTool>,
+) -> Result<(), String> {
+    with_conversation_lock(conversation_id, || {
+        update_conversation_dynamic_tools_inner(conversation_id, tools)
+    })
+}
+
+fn update_conversation_dynamic_tools_inner(
+    conversation_id: &str,
+    tools: Vec<ConversationDynamicTool>,
+) -> Result<(), String> {
+    let metadata_path = conversation_metadata_path(conversation_id)?;
+    let messages_path = conversation_messages_path(conversation_id)?;
+    let mut meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
+
+    if tools.is_empty() {
+        meta.metadata
+            .remove(CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY);
+    } else {
+        let value = serde_json::to_value(&tools)
+            .map_err(|err| format!("Failed to serialize dynamic tools metadata: {err}"))?;
+        meta.metadata
+            .insert(CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY.to_string(), value);
+    }
+    meta.updated_at_unix_ms = now_unix_ms();
+    write_conversation_metadata(&metadata_path, &meta)?;
+    replace_cached_summary(conversation_id, summary_from_meta(&meta))?;
+    Ok(())
 }
 
 fn update_auto_title_inner(

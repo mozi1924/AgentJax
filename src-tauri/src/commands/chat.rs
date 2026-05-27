@@ -18,8 +18,51 @@ use chat_events::{emit_mapped_stream_event, next_event_index, ChatStreamEvent};
 use chat_persistence::{persist_assistant_line, persist_tool_progress_event};
 use chat_title::schedule_title_generation;
 use chat_utils::{chrono_like_now_id, now_unix_ms, run_blocking};
+use serde::Deserialize;
+use serde_json::Value;
 use tauri::{Emitter, Manager, State};
 use tokio::sync::watch;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalClientMetadataEnvelope {
+    #[serde(default)]
+    dynamic_tools: Vec<conversation_store::ConversationDynamicTool>,
+}
+
+/// Extract AgentJax-local client metadata extensions and return a sanitized
+/// payload safe to forward upstream.
+fn split_local_client_metadata(
+    client_metadata: Option<Value>,
+) -> Result<
+    (
+        Option<Value>,
+        Option<Vec<conversation_store::ConversationDynamicTool>>,
+    ),
+    String,
+> {
+    let Some(value) = client_metadata else {
+        return Ok((None, None));
+    };
+    let Value::Object(mut metadata) = value else {
+        return Ok((Some(value), None));
+    };
+
+    let Some(local_value) = metadata.remove("agentjax_local") else {
+        return Ok((Some(Value::Object(metadata)), None));
+    };
+
+    let local: LocalClientMetadataEnvelope = serde_json::from_value(local_value)
+        .map_err(|err| format!("Invalid agentjax_local client metadata: {err}"))?;
+    let dynamic_tools = Some(local.dynamic_tools);
+
+    let sanitized = if metadata.is_empty() {
+        None
+    } else {
+        Some(Value::Object(metadata))
+    };
+    Ok((sanitized, dynamic_tools))
+}
 
 #[tauri::command]
 pub async fn chat_stream(
@@ -29,6 +72,8 @@ pub async fn chat_stream(
     req: ChatRequest,
 ) -> Result<ChatResponse, String> {
     let config = config::load_config()?;
+    let (sanitized_client_metadata, local_dynamic_tools) =
+        split_local_client_metadata(req.client_metadata.clone())?;
     let request_id = req
         .request_id
         .clone()
@@ -61,8 +106,15 @@ pub async fn chat_stream(
 
     let context = match {
         let conversation_id = conversation_id.clone();
+        let local_dynamic_tools = local_dynamic_tools.clone();
         run_blocking(move || {
             conversation_store::ensure_conversation(&conversation_id)?;
+            if let Some(dynamic_tools) = local_dynamic_tools {
+                conversation_store::update_conversation_dynamic_tools(
+                    &conversation_id,
+                    dynamic_tools,
+                )?;
+            }
             conversation_store::load_context_for_request(&conversation_id)
         })
         .await
@@ -108,9 +160,11 @@ pub async fn chat_stream(
 
     let callback_request_id = request_id.clone();
     let callback_conversation_id = conversation_id.clone();
+    let mut runtime_req = req.clone();
+    runtime_req.client_metadata = sanitized_client_metadata;
     let result = crate::runtime::AgentRuntime::run_turn(
         &config,
-        &req,
+        &runtime_req,
         &conversation_id,
         context.input_items,
         recovery_note,
@@ -286,4 +340,46 @@ pub fn cancel_chat_stream(
     req: CancelChatRequest,
 ) -> Result<bool, String> {
     registry.cancel_chat_request(&req.request_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_local_client_metadata;
+    use crate::conversation_store::ConversationDynamicToolBinding;
+    use serde_json::json;
+
+    #[test]
+    fn local_dynamic_tools_are_extracted_and_removed_from_forwarded_metadata() {
+        let (sanitized, dynamic_tools) = split_local_client_metadata(Some(json!({
+            "trace_id": "abc",
+            "agentjax_local": {
+                "dynamicTools": [{
+                    "name": "math_alias",
+                    "description": "Alias",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "expression": { "type": "string" }
+                        }
+                    },
+                    "binding": {
+                        "type": "native",
+                        "tool": "calculator"
+                    }
+                }]
+            }
+        })))
+        .expect("split local metadata");
+
+        assert_eq!(sanitized, Some(json!({ "trace_id": "abc" })));
+        let dynamic_tools = dynamic_tools.expect("dynamic tools");
+        assert_eq!(dynamic_tools.len(), 1);
+        assert_eq!(dynamic_tools[0].name, "math_alias");
+        assert_eq!(
+            dynamic_tools[0].binding,
+            ConversationDynamicToolBinding::Native {
+                tool: "calculator".to_string()
+            }
+        );
+    }
 }

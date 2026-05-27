@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 pub const LOG_VERSION: u32 = 6;
 pub const DEFAULT_CONVERSATION_TITLE: &str = "新对话";
+pub const CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY: &str = "dynamic_tools";
 
 // ── Metadata (metadata.json) ──────────────────────────────────────────────
 
@@ -23,6 +24,28 @@ pub struct ConversationMeta {
     pub conversation_type: String,
     #[serde(default)]
     pub metadata: BTreeMap<String, Value>,
+}
+
+/// Conversation-scoped dynamic tool definition persisted in metadata.json.
+///
+/// These tools are model-visible aliases whose execution is routed to a stable
+/// local binding (native tool or MCP tool). Persisting them at the conversation
+/// layer lets future turns reconstruct the same logical tool set without
+/// depending on ad-hoc in-memory registration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationDynamicTool {
+    pub name: String,
+    pub description: String,
+    pub parameters: Value,
+    pub binding: ConversationDynamicToolBinding,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ConversationDynamicToolBinding {
+    Native { tool: String },
+    Mcp { server_id: String, tool: String },
 }
 
 // ── Conversation lines (messages.jsonl) ───────────────────────────────────

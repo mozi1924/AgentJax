@@ -15,6 +15,31 @@ enum ToolSnapshotEntry {
     },
 }
 
+fn insert_snapshot_tool(
+    schemas: &mut Vec<Value>,
+    schema: Value,
+    active_tool_names: &mut HashSet<String>,
+    entries: &mut HashMap<String, ToolSnapshotEntry>,
+    tool_name: String,
+    entry: ToolSnapshotEntry,
+) {
+    active_tool_names.insert(tool_name.clone());
+    entries.insert(tool_name.clone(), entry);
+
+    if let Some(existing_idx) = schemas.iter().position(|existing| {
+        existing.get("name").and_then(Value::as_str) == Some(tool_name.as_str())
+            || existing
+                .get("function")
+                .and_then(|function| function.get("name"))
+                .and_then(Value::as_str)
+                == Some(tool_name.as_str())
+    }) {
+        schemas[existing_idx] = schema;
+    } else {
+        schemas.push(schema);
+    }
+}
+
 /// Turn-scoped tool snapshot.
 ///
 /// The model-visible tool list and local execution dispatch both read from the
@@ -110,12 +135,14 @@ impl ToolCatalog {
 
         for tool in &self.native_tools {
             let schema = tool.to_schema_with_format(format);
-            active_tool_names.insert(tool.name().to_string());
-            entries.insert(
+            insert_snapshot_tool(
+                &mut schemas,
+                schema,
+                &mut active_tool_names,
+                &mut entries,
                 tool.name().to_string(),
                 ToolSnapshotEntry::Native(tool.clone()),
             );
-            schemas.push(schema);
         }
 
         for (server_id, server_config) in &self.mcp_config {
@@ -157,21 +184,18 @@ impl ToolCatalog {
                                 "properties": {}
                             }));
 
-                        active_tool_names.insert(prefixed_name.clone());
-                        entries.insert(
-                            prefixed_name.clone(),
+                        insert_snapshot_tool(
+                            &mut schemas,
+                            format_tool_schema(format, &prefixed_name, &description, input_schema),
+                            &mut active_tool_names,
+                            &mut entries,
+                            prefixed_name,
                             ToolSnapshotEntry::Mcp {
                                 server_id: server_id.clone(),
                                 tool_name: raw_name,
                                 server_config: resolved_server_config.clone(),
                             },
                         );
-                        schemas.push(format_tool_schema(
-                            format,
-                            &prefixed_name,
-                            &description,
-                            input_schema,
-                        ));
                     }
                 }
                 Err(err) => {
@@ -182,6 +206,20 @@ impl ToolCatalog {
                     );
                 }
             }
+        }
+
+        if let Err(err) = self.apply_conversation_dynamic_tools(
+            format,
+            context,
+            &mut schemas,
+            &mut active_tool_names,
+            &mut entries,
+        ) {
+            log::warn!(
+                "Failed to apply conversation dynamic tools for {:?}: {}",
+                context.conversation_id,
+                err
+            );
         }
 
         ToolCatalogSnapshot {
@@ -251,5 +289,90 @@ impl ToolCatalog {
         let mut next = server_config.clone();
         next.cwd = Some(workspace.to_string_lossy().to_string());
         next
+    }
+
+    fn apply_conversation_dynamic_tools(
+        &self,
+        format: ToolSchemaFormat,
+        context: &ToolExecutionContext,
+        schemas: &mut Vec<Value>,
+        active_tool_names: &mut HashSet<String>,
+        entries: &mut HashMap<String, ToolSnapshotEntry>,
+    ) -> Result<(), String> {
+        let conversation_id = context
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let Some(conversation_id) = conversation_id else {
+            return Ok(());
+        };
+
+        let dynamic_tools =
+            crate::conversation_store::load_conversation_dynamic_tools(conversation_id)?;
+        for dynamic_tool in dynamic_tools {
+            let crate::conversation_store::ConversationDynamicTool {
+                name,
+                description,
+                parameters,
+                binding,
+            } = dynamic_tool;
+            let entry = match binding {
+                crate::conversation_store::ConversationDynamicToolBinding::Native { tool } => {
+                    let Some(native_tool) = self
+                        .native_tools
+                        .iter()
+                        .find(|candidate| candidate.name() == tool)
+                    else {
+                        log::warn!(
+                            "Skipping conversation dynamic tool '{}' because native target '{}' was not found",
+                            name,
+                            tool
+                        );
+                        continue;
+                    };
+                    ToolSnapshotEntry::Native(native_tool.clone())
+                }
+                crate::conversation_store::ConversationDynamicToolBinding::Mcp {
+                    server_id,
+                    tool,
+                } => {
+                    let Some(server_config) = self.mcp_config.get(&server_id) else {
+                        log::warn!(
+                            "Skipping conversation dynamic tool '{}' because MCP server '{}' config was not found",
+                            name,
+                            server_id
+                        );
+                        continue;
+                    };
+                    if !server_config.enabled {
+                        log::warn!(
+                            "Skipping conversation dynamic tool '{}' because MCP server '{}' is disabled",
+                            name,
+                            server_id
+                        );
+                        continue;
+                    }
+
+                    ToolSnapshotEntry::Mcp {
+                        server_id,
+                        tool_name: tool,
+                        server_config: self
+                            .resolve_server_config_with_workspace_fallback(server_config, context),
+                    }
+                }
+            };
+
+            insert_snapshot_tool(
+                schemas,
+                format_tool_schema(format, &name, &description, parameters),
+                active_tool_names,
+                entries,
+                name,
+                entry,
+            );
+        }
+
+        Ok(())
     }
 }
