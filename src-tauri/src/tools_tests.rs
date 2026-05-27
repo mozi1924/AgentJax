@@ -11,7 +11,7 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
-    const DEFAULT_NATIVE_TOOL_COUNT: usize = 12;
+    const DEFAULT_NATIVE_TOOL_COUNT: usize = 7;
 
     struct TestHomeGuard {
         home: std::path::PathBuf,
@@ -353,22 +353,6 @@ mod tests {
             .iter()
             .any(|entry| entry["path"] == "src/components/Button.tsx"));
 
-        let file_stat = registry
-            .execute(
-                "stat_file",
-                &json!({"path": "src/components/Button.tsx"}),
-                &ctx,
-            )
-            .unwrap();
-        assert_eq!(file_stat["isFile"], true);
-        assert_eq!(file_stat["kind"], "file");
-
-        let dir_stat = registry
-            .execute("stat_file", &json!({"path": "src/components"}), &ctx)
-            .unwrap();
-        assert_eq!(dir_stat["isDirectory"], true);
-        assert_eq!(dir_stat["kind"], "directory");
-
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
 
@@ -433,15 +417,6 @@ mod tests {
                 &ctx,
             )
             .unwrap();
-
-        let stat = registry
-            .execute("stat_file", &json!({"path": "notes/README"}), &ctx)
-            .unwrap();
-        assert_eq!(stat["contentKind"], "text");
-        assert_eq!(stat["textReadable"], true);
-        assert_eq!(stat["mediaType"], "text/plain");
-        assert_eq!(stat["detectedFormat"], "Plain Text");
-        assert_eq!(stat["typeDetectionSource"], "content_sniffing");
 
         let read = registry
             .execute("read_file", &json!({"path": "notes/README"}), &ctx)
@@ -517,14 +492,6 @@ mod tests {
         )
         .unwrap();
 
-        let stat = registry
-            .execute("stat_file", &json!({"path": "assets/fake-notes.txt"}), &ctx)
-            .unwrap();
-        assert_eq!(stat["contentKind"], "binary");
-        assert_eq!(stat["textReadable"], false);
-        assert_eq!(stat["mediaType"], "image/png");
-        assert_eq!(stat["detectedExtension"], "png");
-
         let read_err = registry
             .execute("read_file", &json!({"path": "assets/fake-notes.txt"}), &ctx)
             .unwrap_err();
@@ -558,11 +525,16 @@ mod tests {
 
         let replace_err = registry
             .execute(
-                "replace_text",
+                "edit_file",
                 &json!({
                     "path": "assets/image.bin",
-                    "old_text": "a",
-                    "new_text": "b"
+                    "edits": [
+                        {
+                            "op": "replace",
+                            "find": "a",
+                            "replace": "b"
+                        }
+                    ]
                 }),
                 &ctx,
             )
@@ -577,21 +549,6 @@ mod tests {
             )
             .unwrap_err();
         assert!(write_err.contains("Refusing to write"));
-
-        let new_binary_err = registry
-            .execute(
-                "write_file",
-                &json!({"path": "assets/new-image.png", "content": "not a real png"}),
-                &ctx,
-            )
-            .unwrap_err();
-        assert!(new_binary_err.contains(".png"));
-
-        let stat = registry
-            .execute("stat_file", &json!({"path": "assets/image.bin"}), &ctx)
-            .unwrap();
-        assert_eq!(stat["contentKind"], "binary");
-        assert_eq!(stat["textReadable"], false);
 
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
@@ -622,62 +579,82 @@ mod tests {
 
         registry
             .execute(
-                "replace_text",
-                &json!({
-                    "path": "src/main.rs",
-                    "old_text": "hello",
-                    "new_text": "hi"
-                }),
-                &ctx,
-            )
-            .unwrap();
-
-        registry
-            .execute(
-                "insert_after",
-                &json!({
-                    "path": "src/main.rs",
-                    "anchor": "fn main() {",
-                    "content": "\n    let value = 1;"
-                }),
-                &ctx,
-            )
-            .unwrap();
-
-        registry
-            .execute(
-                "insert_before",
-                &json!({
-                    "path": "src/main.rs",
-                    "anchor": "    println!(\"hi\");",
-                    "content": "    // greeting\n"
-                }),
-                &ctx,
-            )
-            .unwrap();
-
-        registry
-            .execute(
-                "replace_block",
-                &json!({
-                    "path": "src/main.rs",
-                    "old_block": "    let value = 1;\n    // greeting\n    println!(\"hi\");",
-                    "new_block": "    let value = 2;\n    // greeting\n    println!(\"hi\");"
-                }),
-                &ctx,
-            )
-            .unwrap();
-
-        registry
-            .execute(
-                "apply_patch",
+                "edit_file",
                 &json!({
                     "path": "src/main.rs",
                     "edits": [
                         {
-                            "op": "replace_text",
-                            "old_text": "value = 2",
-                            "new_text": "value = 3"
+                            "op": "replace",
+                            "find": "hello",
+                            "replace": "hi"
+                        }
+                    ]
+                }),
+                &ctx,
+            )
+            .unwrap();
+
+        registry
+            .execute(
+                "edit_file",
+                &json!({
+                    "path": "src/main.rs",
+                    "edits": [
+                        {
+                            "op": "insert_after",
+                            "anchor": "fn main() {",
+                            "content": "\n    let value = 1;"
+                        }
+                    ]
+                }),
+                &ctx,
+            )
+            .unwrap();
+
+        registry
+            .execute(
+                "edit_file",
+                &json!({
+                    "path": "src/main.rs",
+                    "edits": [
+                        {
+                            "op": "insert_before",
+                            "anchor": "    println!(\"hi\");",
+                            "content": "    // greeting\n"
+                        }
+                    ]
+                }),
+                &ctx,
+            )
+            .unwrap();
+
+        registry
+            .execute(
+                "edit_file",
+                &json!({
+                    "path": "src/main.rs",
+                    "edits": [
+                        {
+                            "op": "replace",
+                            "find": "    let value = 1;\n    // greeting\n    println!(\"hi\");",
+                            "replace": "    let value = 2;\n    // greeting\n    println!(\"hi\");"
+                        }
+                    ]
+                }),
+                &ctx,
+            )
+            .unwrap();
+
+        registry
+            .execute(
+                "edit_file",
+                &json!({
+                    "path": "src/main.rs",
+                    "edits": [
+                        {
+                            "op": "replace",
+                            "find": "value = 2",
+                            "replace": "value = 3"
                         },
                         {
                             "op": "insert_before",
@@ -727,14 +704,14 @@ mod tests {
 
         let err = registry
             .execute(
-                "apply_patch",
+                "edit_file",
                 &json!({
                     "path": "notes/example.txt",
                     "edits": [
                         {
-                            "op": "replace_text",
-                            "old_text": "alpha",
-                            "new_text": "ALPHA"
+                            "op": "replace",
+                            "find": "alpha",
+                            "replace": "ALPHA"
                         },
                         {
                             "op": "insert_after",

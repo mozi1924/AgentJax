@@ -13,8 +13,7 @@ pub use catalog::{
     ToolCatalogSnapshot, ToolCatalogStateChange,
 };
 pub use files::{
-    ApplyPatchTool, FileReaderTool, FileWriterTool, InsertAfterTool, InsertBeforeTool,
-    ListFilesTool, MkdirTool, ReplaceBlockTool, ReplaceTextTool, StatFileTool,
+    EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool,
 };
 pub use native::{CalculatorTool, SystemTimeTool};
 pub use registry::ToolRegistry;
