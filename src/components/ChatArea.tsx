@@ -165,7 +165,10 @@ function AssistantFinalCard({
 }: AssistantFinalCardProps) {
   const { t } = useI18n();
   return (
-    <div className="group rounded-xl border border-zinc-800/80 bg-[#161718]/45 px-4.5 py-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.15)] transition-all duration-300 hover:border-zinc-700/60">
+    <div
+      data-native-context-menu="true"
+      className="group rounded-xl border border-zinc-800/80 bg-[#161718]/45 px-4.5 py-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.15)] transition-all duration-300 hover:border-zinc-700/60 select-text"
+    >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1 overflow-hidden">
           {lines.map((line) => {

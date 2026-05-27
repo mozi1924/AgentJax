@@ -723,6 +723,37 @@ mod tests {
         assert!(first_cc.get("function").is_some());
         assert!(first_cc["function"].get("name").is_some());
         assert!(first_cc["function"].get("parameters").is_some());
+
+        for schema in &responses_schemas {
+            let parameters = schema
+                .get("parameters")
+                .and_then(|value| value.as_object())
+                .expect("responses schema parameters should be an object");
+            assert_eq!(
+                parameters.get("type").and_then(|value| value.as_str()),
+                Some("object")
+            );
+            assert!(!parameters.contains_key("anyOf"));
+            assert!(!parameters.contains_key("oneOf"));
+            assert!(!parameters.contains_key("allOf"));
+            assert!(!parameters.contains_key("not"));
+        }
+
+        for schema in &cc_schemas {
+            let parameters = schema
+                .get("function")
+                .and_then(|value| value.get("parameters"))
+                .and_then(|value| value.as_object())
+                .expect("chat completions schema parameters should be an object");
+            assert_eq!(
+                parameters.get("type").and_then(|value| value.as_str()),
+                Some("object")
+            );
+            assert!(!parameters.contains_key("anyOf"));
+            assert!(!parameters.contains_key("oneOf"));
+            assert!(!parameters.contains_key("allOf"));
+            assert!(!parameters.contains_key("not"));
+        }
     }
 
     #[tokio::test]

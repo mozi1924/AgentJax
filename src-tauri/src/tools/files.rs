@@ -1003,17 +1003,14 @@ impl Tool for FileReaderTool {
                 },
                 "filename": {
                     "type": "string",
-                    "description": "Backward-compatible alias for 'path'."
+                    "description": "Legacy alias for 'path'. New callers should send 'path'."
                 },
                 "max_bytes": {
                     "type": "integer",
                     "description": "Optional maximum number of UTF-8 bytes to return. Defaults to 32768 and is capped at 262144."
                 }
             },
-            "anyOf": [
-                { "required": ["path"] },
-                { "required": ["filename"] }
-            ]
+            "required": ["path"]
         })
     }
 
@@ -1077,18 +1074,14 @@ impl Tool for FileWriterTool {
                 },
                 "filename": {
                     "type": "string",
-                    "description": "Backward-compatible alias for 'path'."
+                    "description": "Legacy alias for 'path'. New callers should send 'path'."
                 },
                 "content": {
                     "type": "string",
                     "description": "Complete UTF-8 file contents to write."
                 }
             },
-            "required": ["content"],
-            "anyOf": [
-                { "required": ["path"] },
-                { "required": ["filename"] }
-            ]
+            "required": ["path", "content"]
         })
     }
 
@@ -1224,13 +1217,10 @@ impl Tool for StatFileTool {
                 },
                 "filename": {
                     "type": "string",
-                    "description": "Backward-compatible alias for 'path'."
+                    "description": "Legacy alias for 'path'. New callers should send 'path'."
                 }
             },
-            "anyOf": [
-                { "required": ["path"] },
-                { "required": ["filename"] }
-            ]
+            "required": ["path"]
         })
     }
 
@@ -1341,16 +1331,12 @@ impl Tool for ReplaceTextTool {
             "type": "object",
             "properties": {
                 "path": { "type": "string", "description": "Workspace-relative file path to edit." },
-                "filename": { "type": "string", "description": "Backward-compatible alias for 'path'." },
+                "filename": { "type": "string", "description": "Legacy alias for 'path'. New callers should send 'path'." },
                 "old_text": { "type": "string", "description": "Exact text to find." },
                 "new_text": { "type": "string", "description": "Replacement text." },
                 "replace_all": { "type": "boolean", "description": "Whether to replace every exact match instead of requiring uniqueness." }
             },
-            "required": ["old_text", "new_text"],
-            "anyOf": [
-                { "required": ["path"] },
-                { "required": ["filename"] }
-            ]
+            "required": ["path", "old_text", "new_text"]
         })
     }
 
@@ -1399,16 +1385,12 @@ impl Tool for ReplaceBlockTool {
             "type": "object",
             "properties": {
                 "path": { "type": "string", "description": "Workspace-relative file path to edit." },
-                "filename": { "type": "string", "description": "Backward-compatible alias for 'path'." },
+                "filename": { "type": "string", "description": "Legacy alias for 'path'. New callers should send 'path'." },
                 "old_block": { "type": "string", "description": "Exact text block to replace." },
                 "new_block": { "type": "string", "description": "Replacement text block." },
                 "replace_all": { "type": "boolean", "description": "Whether to replace every exact block match instead of requiring uniqueness." }
             },
-            "required": ["old_block", "new_block"],
-            "anyOf": [
-                { "required": ["path"] },
-                { "required": ["filename"] }
-            ]
+            "required": ["path", "old_block", "new_block"]
         })
     }
 
@@ -1457,16 +1439,12 @@ impl Tool for InsertAfterTool {
             "type": "object",
             "properties": {
                 "path": { "type": "string", "description": "Workspace-relative file path to edit." },
-                "filename": { "type": "string", "description": "Backward-compatible alias for 'path'." },
+                "filename": { "type": "string", "description": "Legacy alias for 'path'. New callers should send 'path'." },
                 "anchor": { "type": "string", "description": "Exact anchor text to insert after." },
                 "content": { "type": "string", "description": "Text to insert." },
                 "insert_all": { "type": "boolean", "description": "Whether to insert after every anchor match instead of requiring uniqueness." }
             },
-            "required": ["anchor", "content"],
-            "anyOf": [
-                { "required": ["path"] },
-                { "required": ["filename"] }
-            ]
+            "required": ["path", "anchor", "content"]
         })
     }
 
@@ -1516,16 +1494,12 @@ impl Tool for InsertBeforeTool {
             "type": "object",
             "properties": {
                 "path": { "type": "string", "description": "Workspace-relative file path to edit." },
-                "filename": { "type": "string", "description": "Backward-compatible alias for 'path'." },
+                "filename": { "type": "string", "description": "Legacy alias for 'path'. New callers should send 'path'." },
                 "anchor": { "type": "string", "description": "Exact anchor text to insert before." },
                 "content": { "type": "string", "description": "Text to insert." },
                 "insert_all": { "type": "boolean", "description": "Whether to insert before every anchor match instead of requiring uniqueness." }
             },
-            "required": ["anchor", "content"],
-            "anyOf": [
-                { "required": ["path"] },
-                { "required": ["filename"] }
-            ]
+            "required": ["path", "anchor", "content"]
         })
     }
 
@@ -1575,7 +1549,7 @@ impl Tool for ApplyPatchTool {
             "type": "object",
             "properties": {
                 "path": { "type": "string", "description": "Workspace-relative file path to edit." },
-                "filename": { "type": "string", "description": "Backward-compatible alias for 'path'." },
+                "filename": { "type": "string", "description": "Legacy alias for 'path'. New callers should send 'path'." },
                 "edits": {
                     "type": "array",
                     "description": "Ordered patch edits. Supported op values: replace_text, replace_block, insert_after, insert_before.",
@@ -1599,11 +1573,7 @@ impl Tool for ApplyPatchTool {
                     }
                 }
             },
-            "required": ["edits"],
-            "anyOf": [
-                { "required": ["path"] },
-                { "required": ["filename"] }
-            ]
+            "required": ["path", "edits"]
         })
     }
 

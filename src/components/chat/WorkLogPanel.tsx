@@ -174,7 +174,11 @@ export default function WorkLogPanel({
                   const isDraft = item.line.status === 'draft';
 
                   return (
-                    <div key={item.line.id} className="relative pl-2">
+                    <div
+                      key={item.line.id}
+                      data-native-context-menu="true"
+                      className="relative pl-2 select-text"
+                    >
                       <span className="absolute -left-[19px] top-2.5 h-1.5 w-1.5 rounded-full bg-slate-600/80" />
                       <div className="rounded-xl bg-transparent py-0.5 text-sm text-slate-300">
                         {text ? (
