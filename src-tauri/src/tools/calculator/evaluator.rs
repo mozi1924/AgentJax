@@ -1,5 +1,8 @@
 use super::request::normalize_expression;
-use super::types::{CalculatorMode, CalculatorRequest, CalculatorResponse, FEND_TIMEOUT_MS};
+use super::types::{
+    CalculatorMode, CalculatorRequest, CalculatorResponse, CalculatorVariableBinding,
+    FEND_TIMEOUT_MS,
+};
 use fend_core::{evaluate_with_interrupt, Context as FendContext, Interrupt as FendInterrupt};
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
@@ -47,13 +50,13 @@ pub(crate) fn execute(request: CalculatorRequest) -> Result<CalculatorResponse, 
 
     reject_unsupported_symbolic_call(&normalized)?;
 
-    let substituted = apply_variables(&normalized, &request.variables)?;
-    let evaluated = evaluate_with_fend(&substituted, request.precision)?;
+    let prepared = build_fend_expression(&normalized, &request.variables);
+    let evaluated = evaluate_with_fend(&prepared, request.precision)?;
 
     let mut warnings = evaluated.warnings;
     if !request.variables.is_empty() {
         warnings.push(
-            "Applied pre-evaluation variable substitutions from the 'variables' object."
+            "Injected native fend variable assignments from the 'variables' object before evaluation."
                 .to_string(),
         );
     }
@@ -111,44 +114,22 @@ fn reject_unsupported_symbolic_call(expression: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Apply simple variable substitution by replacing whole-word identifiers only.
-/// This keeps compatibility with old structured bindings while staying engine-agnostic.
-fn apply_variables(
-    expression: &str,
-    variables: &std::collections::HashMap<String, f64>,
-) -> Result<String, String> {
+/// Translate structured variable bindings into ordinary fend assignments so the
+/// engine, not our Rust layer, owns parsing and operator precedence.
+fn build_fend_expression(expression: &str, variables: &[CalculatorVariableBinding]) -> String {
     if variables.is_empty() {
-        return Ok(expression.to_string());
+        return expression.to_string();
     }
 
-    let mut out = String::with_capacity(expression.len() + variables.len() * 4);
-    let chars: Vec<char> = expression.chars().collect();
-    let mut i = 0usize;
-
-    while i < chars.len() {
-        let ch = chars[i];
-        if ch.is_ascii_alphabetic() || ch == '_' {
-            let start = i;
-            i += 1;
-            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
-                i += 1;
-            }
-            let token = chars[start..i].iter().collect::<String>();
-            if let Some(value) = variables.get(&token) {
-                if !value.is_finite() {
-                    return Err(format!("Variable '{token}' must be finite."));
-                }
-                out.push_str(&value.to_string());
-            } else {
-                out.push_str(&token);
-            }
-        } else {
-            out.push(ch);
-            i += 1;
-        }
+    let mut out = String::with_capacity(expression.len() + variables.len() * 16);
+    for binding in variables {
+        out.push_str(&binding.name);
+        out.push_str(" = (");
+        out.push_str(&binding.expression);
+        out.push_str("); ");
     }
-
-    Ok(out)
+    out.push_str(expression);
+    out
 }
 
 fn evaluate_with_fend(expression: &str, precision: u32) -> Result<FendPayload, String> {

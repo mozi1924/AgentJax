@@ -32,7 +32,7 @@ If these calls are sent by a model, calculator returns an explicit unsupported e
 - `expression: string`
 - `mode?: "auto" | "evaluate" | "capabilities"`
 - `precision?: number`
-- `variables?: object` (pre-evaluation substitution)
+- `variables?: object` (compiled into native fend assignments before evaluation)
 
 No symbolic-mode parameters are exposed in schema.
 
@@ -40,3 +40,5 @@ No symbolic-mode parameters are exposed in schema.
 
 When updating prompts, examples, or tests, do not reintroduce symbolic-mode examples.
 Use fend-native numeric/unit/complex expressions only.
+Keep frontend and tool-layer normalization minimal so fend-core owns parsing,
+precedence, and variable semantics wherever possible.

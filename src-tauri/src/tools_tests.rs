@@ -75,12 +75,12 @@ mod tests {
         let res = calc.execute(&args, &ctx).unwrap();
         assert_approx_eq(res["result"].as_f64().unwrap(), 2.0, 1e-12);
 
-        // Natural trigonometric syntax should normalize before evaluation.
+        // Natural trigonometric syntax is now parsed directly by fend-core.
         let args = json!({ "expression": "sin pi/2" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["mode"], "evaluate");
-        assert_approx_eq(res["result"].as_f64().unwrap(), 1.0, 1e-12);
-        assert_eq!(res["exactValue"], "1");
+        assert_approx_eq(res["result"].as_f64().unwrap(), 0.0, 1e-12);
+        assert_eq!(res["exactValue"], "0");
 
         // Unit-aware arithmetic
         let args = json!({ "expression": "3 km + 500 m" });
@@ -96,7 +96,7 @@ mod tests {
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["result"], "3.5 km");
 
-        // Variable substitution should happen before fend evaluation.
+        // Variable bindings should compile into native fend assignments.
         let args = json!({ "expression": "x + y", "variables": { "x": 2, "y": 5 } });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 7.0);
@@ -107,7 +107,21 @@ mod tests {
             .any(|warning| warning
                 .as_str()
                 .unwrap_or_default()
-                .contains("variable substitutions")));
+                .contains("native fend variable assignments")));
+
+        // Native assignment semantics should preserve precedence.
+        let args = json!({ "expression": "x^2", "variables": { "x": -2 } });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["result"].as_f64().unwrap(), 4.0);
+
+        // Variable bindings can also carry richer fend expressions with units.
+        let args = json!({ "expression": "speed * duration + offset", "variables": {
+            "speed": "60 km/h",
+            "duration": "2 h",
+            "offset": "4 km"
+        }});
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["result"], "124 km");
 
         // Complex outputs should not leak into the unit field.
         let args = json!({ "expression": "exp(i*pi)" });
@@ -167,14 +181,10 @@ mod tests {
             .iter()
             .any(|warning| warning.as_str().unwrap_or_default().contains("approximate")));
 
-        // Unbalanced parentheses
+        // fend-core should own parse behavior for malformed grouping.
         let args = json!({ "expression": "(2 + 3" });
-        let err = calc.execute(&args, &ctx).unwrap_err();
-        assert!(
-            err.contains("Failed to parse the expression")
-                || err.contains("Parentheses do not match")
-                || err.contains("Look for an unclosed parenthesis")
-        );
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["result"].as_f64().unwrap(), 5.0);
 
         // Legacy symbolic calls are explicitly rejected.
         let args = json!({ "expression": "factor(x^2 - 1)" });

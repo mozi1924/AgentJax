@@ -1,8 +1,8 @@
 use super::types::{
-    CalculatorMode, CalculatorRequest, DEFAULT_PRECISION, MAX_EXPRESSION_LENGTH, MAX_PRECISION,
+    CalculatorMode, CalculatorRequest, CalculatorVariableBinding, DEFAULT_PRECISION,
+    MAX_EXPRESSION_LENGTH, MAX_PRECISION,
 };
 use serde_json::Value;
-use std::collections::HashMap;
 
 /// Parse and validate external JSON payload into a stable internal request.
 pub(crate) fn parse_request(arguments: &Value) -> Result<CalculatorRequest, String> {
@@ -40,47 +40,75 @@ pub(crate) fn parse_request(arguments: &Value) -> Result<CalculatorRequest, Stri
     })
 }
 
-/// Normalize lightweight user-facing expression variants before fend-core
-/// evaluation while preserving calculator-friendly syntax expectations.
+/// Normalize only display-layer characters that users commonly paste into the
+/// calculator UI, and otherwise let fend-core own the full parse.
 pub(crate) fn normalize_expression(expression: &str) -> Result<String, String> {
-    let mut normalized = expression.trim().to_string();
-    normalized = normalized
+    let normalized = expression
+        .trim()
         .replace('π', "pi")
         .replace('×', "*")
         .replace('÷', "/")
         .replace('−', "-")
         .replace('·', "*");
 
-    ensure_balanced_grouping(&normalized)?;
-
-    if let Some(adapted) = wrap_simple_function_argument(&normalized) {
-        return Ok(adapted);
-    }
-
     Ok(normalized)
 }
 
-fn parse_variables(value: Option<&Value>) -> Result<HashMap<String, f64>, String> {
-    let mut variables = HashMap::new();
+fn parse_variables(value: Option<&Value>) -> Result<Vec<CalculatorVariableBinding>, String> {
+    let mut variables = Vec::new();
     if let Some(values) = value.and_then(Value::as_object) {
         for (name, raw) in values {
-            let number = raw.as_f64().ok_or_else(|| {
-                format!(
-                    "Variable '{name}' must be a finite number. Structured variable bindings currently accept only numeric values."
-                )
-            })?;
-
-            if !number.is_finite() {
-                return Err(format!(
-                    "Variable '{name}' must be finite. Received {number}."
-                ));
-            }
-
-            variables.insert(name.clone(), number);
+            validate_variable_name(name)?;
+            variables.push(CalculatorVariableBinding {
+                name: name.clone(),
+                expression: parse_variable_expression(name, raw)?,
+            });
         }
     }
 
     Ok(variables)
+}
+
+fn validate_variable_name(name: &str) -> Result<(), String> {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return Err("Variable names cannot be empty.".to_string());
+    };
+
+    if !(first.is_ascii_alphabetic() || first == '_')
+        || !chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    {
+        return Err(format!(
+            "Variable '{name}' is not a valid fend identifier. Use letters, numbers, and underscores, and do not start with a number."
+        ));
+    }
+
+    Ok(())
+}
+
+fn parse_variable_expression(name: &str, raw: &Value) -> Result<String, String> {
+    match raw {
+        Value::Number(number) => {
+            if number.as_f64().is_some_and(|value| !value.is_finite()) {
+                return Err(format!("Variable '{name}' must be finite."));
+            }
+
+            Ok(number.to_string())
+        }
+        Value::Bool(value) => Ok(value.to_string()),
+        Value::String(value) => {
+            let expression = value.trim();
+            if expression.is_empty() {
+                return Err(format!(
+                    "Variable '{name}' cannot be an empty fend expression."
+                ));
+            }
+            Ok(expression.to_string())
+        }
+        _ => Err(format!(
+            "Variable '{name}' must be a number, boolean, or fend expression string."
+        )),
+    }
 }
 
 fn validate_expression_budget(expression: &str) -> Result<(), String> {
@@ -92,58 +120,4 @@ fn validate_expression_budget(expression: &str) -> Result<(), String> {
     }
 
     Ok(())
-}
-
-fn ensure_balanced_grouping(expression: &str) -> Result<(), String> {
-    let mut paren_depth = 0i32;
-    let mut bracket_depth = 0i32;
-
-    for (position, ch) in expression.chars().enumerate() {
-        match ch {
-            '(' => paren_depth += 1,
-            ')' => {
-                paren_depth -= 1;
-                if paren_depth < 0 {
-                    return Err(format!(
-                        "Failed to parse the expression. Parentheses do not match at position {position}. Near `{expression}`."
-                    ));
-                }
-            }
-            '[' => bracket_depth += 1,
-            ']' => {
-                bracket_depth -= 1;
-                if bracket_depth < 0 {
-                    return Err(format!(
-                        "Failed to parse the expression. Brackets do not match at position {position}. Near `{expression}`."
-                    ));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    if paren_depth != 0 || bracket_depth != 0 {
-        return Err(format!(
-            "Failed to parse the expression. Look for an unclosed parenthesis or bracket in `{expression}`."
-        ));
-    }
-
-    Ok(())
-}
-
-fn wrap_simple_function_argument(expression: &str) -> Option<String> {
-    const SIMPLE_FUNCTIONS: &[&str] = &[
-        "sin", "cos", "tan", "asin", "acos", "atan", "sqrt", "ln", "exp", "abs",
-    ];
-
-    for function in SIMPLE_FUNCTIONS {
-        let prefix = format!("{function} ");
-        if let Some(argument) = expression.strip_prefix(&prefix) {
-            if !argument.starts_with('(') {
-                return Some(format!("{function}({argument})"));
-            }
-        }
-    }
-
-    None
 }

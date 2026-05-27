@@ -30,7 +30,7 @@ impl Tool for CalculatorTool {
             "properties": {
                 "expression": {
                     "type": "string",
-                    "description": "Primary calculator input. Supports numeric expressions like '2 * (3.5 + 4) / sqrt(16)', natural forms like 'sin pi/2', complex values like 'sqrt(-4)', and unit-aware arithmetic like '3 km + 500 m' or '60 km/h * 2 h'."
+                    "description": "Primary calculator input. Supports numeric expressions like '2 * (3.5 + 4) / sqrt(16)', fend-native function calls like 'sin(pi / 2)', complex values like 'sqrt(-4)', and unit-aware arithmetic like '3 km + 500 m' or '60 km/h * 2 h'."
                 },
                 "mode": {
                     "type": "string",
@@ -45,7 +45,7 @@ impl Tool for CalculatorTool {
                 },
                 "variables": {
                     "type": "object",
-                    "description": "Optional variable bindings applied as pre-evaluation substitutions, for example {\"x\": 2.5, \"y\": 1}."
+                    "description": "Optional variable bindings translated into native fend assignments before evaluation. Values may be numbers, booleans, or fend expression strings such as {\"x\": 2.5, \"y\": \"60 kg\"}."
                 },
             },
             "required": []

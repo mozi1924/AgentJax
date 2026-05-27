@@ -1,5 +1,4 @@
 use serde_json::{json, Value};
-use std::collections::HashMap;
 
 pub(crate) const DEFAULT_PRECISION: u32 = 12;
 pub(crate) const MAX_PRECISION: u32 = 32;
@@ -45,7 +44,15 @@ pub(crate) struct CalculatorRequest {
     pub(crate) expression: Option<String>,
     pub(crate) mode: CalculatorMode,
     pub(crate) precision: u32,
-    pub(crate) variables: HashMap<String, f64>,
+    pub(crate) variables: Vec<CalculatorVariableBinding>,
+}
+
+/// A validated variable binding that can be translated into native fend
+/// assignment syntax before evaluation.
+#[derive(Debug)]
+pub(crate) struct CalculatorVariableBinding {
+    pub(crate) name: String,
+    pub(crate) expression: String,
 }
 
 /// Stable structured response for tool callers.

@@ -44,19 +44,20 @@ fn calculator_capabilities() -> Value {
             "notes": [
                 "Legacy symbolic engine has been removed.",
                 "Legacy statrs helper preprocessing has been removed.",
-                "Use natural fend expressions for numeric, unit, and complex arithmetic."
+                "Use natural fend expressions for numeric, unit, and complex arithmetic.",
+                "Structured variables are compiled into native fend assignments before evaluation."
             ]
         },
         "syntax": {
             "naturalForms": [
-                "sin pi/2",
+                "sin(pi / 2)",
                 "2 * (3.5 + 4)",
                 "3 km + 500 m",
                 "60 km/h * 2 h",
                 "sqrt(-4)",
                 "(1 + i)^2"
             ],
-            "variables": "Pass variable bindings with the optional 'variables' object to pre-substitute values before evaluation, for example {\"x\": 2.5}."
+            "variables": "Pass variable bindings with the optional 'variables' object to emit native fend assignments before evaluation, for example {\"x\": 2.5, \"speed\": \"60 km/h\"}."
         },
         "resourceLimits": {
             "maxExpressionLength": MAX_EXPRESSION_LENGTH,
