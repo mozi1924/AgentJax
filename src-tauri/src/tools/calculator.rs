@@ -440,7 +440,17 @@ fn dispatch_top_level_call(
             "{name}(...) is not wired into the calculator tool yet. The current symbolic engine supports simplify, differentiate, integrate, solve, and limit. As a fallback, try simplify(...) or solve(...) depending on your goal."
         )),
         _ => {
-            if is_legacy_numeric_function(name) || is_passthrough_expression_function(name) {
+            if is_legacy_numeric_function(name) {
+                let fallback_expression =
+                    normalize_expression(original_expression.as_deref().unwrap_or_default())
+                        .unwrap_or_else(|_| original_expression.clone().unwrap_or_default());
+                evaluate_legacy_numeric_expression(
+                    original_expression,
+                    Some(fallback_expression),
+                    "Used the legacy numeric evaluator because this expression relies on compatibility-only helper functions.",
+                    request.precision,
+                )
+            } else if is_passthrough_expression_function(name) {
                 let fallback_expression =
                     normalize_expression(original_expression.as_deref().unwrap_or_default())
                         .unwrap_or_else(|_| original_expression.clone().unwrap_or_default());
@@ -513,6 +523,15 @@ fn evaluate_plain_expression(
     normalized: &str,
     original_expression: Option<String>,
 ) -> Result<CalculatorResponse, String> {
+    if contains_legacy_numeric_function_call(normalized) {
+        return evaluate_legacy_numeric_expression(
+            original_expression,
+            Some(normalized.to_string()),
+            "Used the legacy numeric evaluator because this expression relies on compatibility-only helper functions.",
+            request.precision,
+        );
+    }
+
     match evaluate_with_fend(normalized, request.precision) {
         Ok(fend) => Ok(CalculatorResponse {
             expression: original_expression,
@@ -527,27 +546,30 @@ fn evaluate_plain_expression(
             used_approximation: fend.used_approximation,
             capabilities: None,
         }),
-        Err(fend_error) => {
-            let fallback = evaluate_math_expression(&normalized.replace(' ', ""));
-            match fallback {
-                Ok(value) => Ok(numeric_response(
-                    original_expression,
-                    Some(normalized.to_string()),
-                    "evaluate",
-                    value,
-                    Vec::new(),
-                    vec!["Used the legacy numeric evaluator because the natural-language evaluator rejected the expression.".to_string()],
-                    request.precision,
-                )),
-                Err(legacy_error) => Err(format_evaluation_error(
-                    normalized,
-                    &format!(
-                        "Natural-language/unit evaluation failed with: {fend_error}. Legacy numeric fallback also failed with: {legacy_error}"
-                    ),
-                )),
-            }
-        }
+        Err(fend_error) => Err(format_evaluation_error(normalized, &fend_error)),
     }
+}
+
+/// Routes compatibility-only helper functions through the old numeric engine
+/// while we continue migrating the rest of the calculator to the new stack.
+fn evaluate_legacy_numeric_expression(
+    expression: Option<String>,
+    normalized_expression: Option<String>,
+    warning: &str,
+    precision: u32,
+) -> Result<CalculatorResponse, String> {
+    let normalized = normalized_expression.clone().unwrap_or_default();
+    let value = evaluate_math_expression(&normalized.replace(' ', ""))
+        .map_err(|legacy_error| format_evaluation_error(&normalized, &legacy_error))?;
+    Ok(numeric_response(
+        expression,
+        normalized_expression,
+        "evaluate",
+        value,
+        Vec::new(),
+        vec![warning.to_string()],
+        precision,
+    ))
 }
 
 fn simplify_expression(
@@ -1009,6 +1031,11 @@ fn calculator_capabilities() -> Value {
             "matrices": false,
             "statistics": "legacy numeric helper functions only"
         },
+        "compatibility": {
+            "legacyEvaluator": "meval + statrs",
+            "legacyFallbackPolicy": "Only documented compatibility helper functions use the legacy evaluator. Ordinary numeric, unit, and natural-language expressions no longer fall back implicitly.",
+            "exactValuePolicy": "exactValue is omitted when the calculator only has a decimal approximation; approximateValue carries the numeric estimate in those cases."
+        },
         "syntax": {
             "functionCalls": [
                 {
@@ -1040,7 +1067,9 @@ fn calculator_capabilities() -> Value {
                 "sin pi/2",
                 "2x + 3x",
                 "3 km + 500 m",
+                "3km + 500m",
                 "60 km/h * 2 h",
+                "60km/h * 2h",
                 "∫_0^1 x^2 dx"
             ],
             "variables": "Pass variable bindings with the optional 'variables' object, for example {\"x\": 2.5}."
@@ -1489,6 +1518,10 @@ fn should_prefer_fend_in_auto(expression: &str) -> bool {
             continue;
         }
 
+        if looks_like_attached_unit_token(cleaned) {
+            return true;
+        }
+
         let is_number = cleaned
             .chars()
             .all(|ch| ch.is_ascii_digit() || matches!(ch, '.' | '-' | '+'));
@@ -1518,6 +1551,71 @@ fn should_prefer_fend_in_auto(expression: &str) -> bool {
     }
 
     false
+}
+
+fn looks_like_attached_unit_token(token: &str) -> bool {
+    let numeric_prefix_len = token
+        .char_indices()
+        .take_while(|(index, ch)| {
+            ch.is_ascii_digit()
+                || matches!(ch, '.' | '-' | '+')
+                || ((*ch == 'e' || *ch == 'E') && *index > 0)
+        })
+        .last()
+        .map(|(index, ch)| index + ch.len_utf8())
+        .unwrap_or(0);
+
+    if numeric_prefix_len == 0 || numeric_prefix_len >= token.len() {
+        return false;
+    }
+
+    let suffix = token[numeric_prefix_len..].trim();
+    !suffix.is_empty()
+        && suffix
+            .chars()
+            .all(|ch| ch.is_ascii_alphabetic() || matches!(ch, '/' | '°' | '%' | '^'))
+}
+
+/// Detect compatibility-only helper calls anywhere in the expression so we can
+/// bypass `fend` before it misinterprets names like `mean(...)`.
+fn contains_legacy_numeric_function_call(expression: &str) -> bool {
+    iter_identifier_tokens(expression)
+        .any(|(name, function_like)| function_like && is_legacy_numeric_function(name))
+}
+
+fn iter_identifier_tokens(expression: &str) -> impl Iterator<Item = (&str, bool)> {
+    let mut tokens = Vec::new();
+    let mut chars = expression.char_indices().peekable();
+
+    while let Some((start, ch)) = chars.next() {
+        if !(ch.is_ascii_alphabetic() || ch == '_') {
+            continue;
+        }
+
+        let mut end = start + ch.len_utf8();
+        while let Some((index, next)) = chars.peek().copied() {
+            if next.is_ascii_alphanumeric() || next == '_' {
+                end = index + next.len_utf8();
+                chars.next();
+            } else {
+                break;
+            }
+        }
+
+        let mut lookahead = end;
+        while let Some(next) = expression[lookahead..].chars().next() {
+            if next.is_whitespace() {
+                lookahead += next.len_utf8();
+            } else {
+                break;
+            }
+        }
+
+        let function_like = expression[lookahead..].starts_with('(');
+        tokens.push((&expression[start..end], function_like));
+    }
+
+    tokens.into_iter()
 }
 
 fn wrap_simple_function_argument(expression: &str) -> Option<String> {

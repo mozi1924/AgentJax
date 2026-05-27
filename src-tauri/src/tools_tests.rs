@@ -79,6 +79,14 @@ mod tests {
         let args = json!({ "expression": "gamma(5) + ncr(6, 2) + mean(2, 4, 6)" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_approx_eq(res["result"].as_f64().unwrap(), 43.0, 1e-12);
+        assert!(res["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning
+                .as_str()
+                .unwrap_or_default()
+                .contains("legacy numeric evaluator")));
 
         let args = json!({ "expression": "beta(2, 3) + harmonic(4) + logistic(0)" });
         let res = calc.execute(&args, &ctx).unwrap();
@@ -87,6 +95,19 @@ mod tests {
             2.666_666_666_666_666_5,
             1e-12,
         );
+
+        // Compatibility helpers should bypass the natural-language evaluator.
+        let args = json!({ "expression": "mean(2, 4, 6)" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["result"].as_f64().unwrap(), 4.0);
+        assert!(res["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning
+                .as_str()
+                .unwrap_or_default()
+                .contains("legacy numeric evaluator")));
 
         let args = json!({ "expression": "erf(1)" });
         let res = calc.execute(&args, &ctx).unwrap();
@@ -154,6 +175,10 @@ mod tests {
             assert!(unit.contains("km"));
         }
 
+        let args = json!({ "expression": "3km + 500m" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["result"], "3.5 km");
+
         // Complex outputs should not leak into the unit field.
         let args = json!({ "expression": "exp(i*pi)" });
         let res = calc.execute(&args, &ctx).unwrap();
@@ -172,6 +197,10 @@ mod tests {
             .as_bool()
             .unwrap());
         assert!(res["capabilities"]["supports"]["units"].as_bool().unwrap());
+        assert!(res["capabilities"]["compatibility"]["legacyFallbackPolicy"]
+            .as_str()
+            .unwrap()
+            .contains("no longer fall back implicitly"));
     }
 
     #[test]
