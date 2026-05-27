@@ -83,6 +83,15 @@
           "path": "show_advanced_request_options",
           "valueType": "boolean",
           "control": "switch"
+        },
+        {
+          "kind": "field",
+          "id": "enable-developer-tools",
+          "title": "settings.general.enable_developer_tools.title",
+          "description": "settings.general.enable_developer_tools.description",
+          "path": "enable_developer_tools",
+          "valueType": "boolean",
+          "control": "switch"
         }
       ]
     }

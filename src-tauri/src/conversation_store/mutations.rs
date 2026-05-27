@@ -273,8 +273,9 @@ pub fn update_conversation_mounted_tool_sources(
             meta.metadata
                 .remove(CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY);
         } else {
-            let value = serde_json::to_value(&sources)
-                .map_err(|err| format!("Failed to serialize mounted tool sources metadata: {err}"))?;
+            let value = serde_json::to_value(&sources).map_err(|err| {
+                format!("Failed to serialize mounted tool sources metadata: {err}")
+            })?;
             meta.metadata.insert(
                 CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY.to_string(),
                 value,

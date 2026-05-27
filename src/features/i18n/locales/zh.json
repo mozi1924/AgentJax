@@ -57,6 +57,8 @@
   "settings.general.request_timeout.description": "所有 provider 的全局超时时间。",
   "settings.general.show_advanced_options.title": "显示高级参数按钮",
   "settings.general.show_advanced_options.description": "启用后在消息输入框旁显示高级请求参数按钮。",
+  "settings.general.enable_developer_tools.title": "启用开发者工具",
+  "settings.general.enable_developer_tools.description": "启用后可通过 Command/Ctrl + Shift + I 或 F12 打开前端开发者工具。",
   
   "settings.prompt_composer.title": "提示词组合器",
   "settings.prompt_composer.description": "组合 system 与 developer 提示词块，并预览最终发送给模型的结构。",

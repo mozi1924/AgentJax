@@ -592,7 +592,7 @@ mod tests {
     };
     use crate::config::McpServerConfig;
     use crate::tools::{
-        MountedToolSourceSession, MountedToolSourceSessions, MountedToolDefinition,
+        MountedToolDefinition, MountedToolSourceSession, MountedToolSourceSessions,
         ToolCatalogStateChange, ToolPresentation,
     };
     use serde_json::json;

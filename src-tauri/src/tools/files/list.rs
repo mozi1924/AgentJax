@@ -4,9 +4,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 
-use super::common::{
-    is_hidden_name, relative_path_display, resolve_workspace_path, stat_value,
-};
+use super::common::{is_hidden_name, relative_path_display, resolve_workspace_path, stat_value};
 
 const DEFAULT_LIST_MAX_ENTRIES: usize = 200;
 const MAX_LIST_MAX_ENTRIES: usize = 1_000;

@@ -103,6 +103,7 @@ fn default_config_yaml() -> String {
         ),
         &format!("request_timeout_seconds: {}", DEFAULT_TIMEOUT_SECONDS),
         "show_advanced_request_options: false",
+        "enable_developer_tools: false",
         "language: \"auto\"",
         "prompt_composer:",
         "  blocks:",

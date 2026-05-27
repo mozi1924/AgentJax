@@ -4,8 +4,8 @@ mod tests {
     use crate::config::{AppConfig, McpServerConfig};
     use crate::conversation_store;
     use crate::tools::{
-        CalculatorTool, FileReaderTool, FileWriterTool, MountedToolSourceSession,
-        MountedToolSourceSessions, MountedToolDefinition, SystemTimeTool, Tool, ToolCatalog,
+        CalculatorTool, FileReaderTool, FileWriterTool, MountedToolDefinition,
+        MountedToolSourceSession, MountedToolSourceSessions, SystemTimeTool, Tool, ToolCatalog,
         ToolExecutionContext, ToolRegistry, ToolSchemaFormat,
     };
     use serde_json::json;
@@ -1087,6 +1087,8 @@ mod tests {
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
-        assert!(!snapshot.active_tool_names().contains("mcp_server__unfolded_server"));
+        assert!(!snapshot
+            .active_tool_names()
+            .contains("mcp_server__unfolded_server"));
     }
 }

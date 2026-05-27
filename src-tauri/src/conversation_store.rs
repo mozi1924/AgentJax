@@ -28,8 +28,8 @@ pub use queries::{
 pub use recovery::build_recovery_developer_note;
 pub use types::{
     AppendLineInput, AssistantLine, AssistantStatus, ConversationDetail, ConversationDynamicTool,
-    ConversationDynamicToolBinding, ConversationLine, ConversationMountedToolSource,
-    ConversationMountedToolDefinition, ConversationSummary, TitleGenerationCandidate, ToolLine,
+    ConversationDynamicToolBinding, ConversationLine, ConversationMountedToolDefinition,
+    ConversationMountedToolSource, ConversationSummary, TitleGenerationCandidate, ToolLine,
     ToolStatus, UpdateLineInput, UserLine,
 };
 

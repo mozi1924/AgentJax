@@ -9,12 +9,10 @@ use serde_json::{json, Value};
 
 pub(crate) use catalog::ToolCatalogExecution;
 pub use catalog::{
-    MountedToolSourceSession, MountedToolSourceSessions, MountedToolDefinition, ToolCatalog,
+    MountedToolDefinition, MountedToolSourceSession, MountedToolSourceSessions, ToolCatalog,
     ToolCatalogSnapshot, ToolCatalogStateChange,
 };
-pub use files::{
-    EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool,
-};
+pub use files::{EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool};
 pub use native::{CalculatorTool, SystemTimeTool};
 pub use registry::ToolRegistry;
 

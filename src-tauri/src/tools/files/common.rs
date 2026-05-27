@@ -77,7 +77,10 @@ pub fn get_workspace_dir(context: &ToolExecutionContext) -> Result<PathBuf, Stri
 
 /// Normalizes a user-provided relative path and rejects absolute paths or any
 /// `..` traversal that would escape the workspace root.
-pub fn normalize_relative_path(raw_path: &str, allow_workspace_root: bool) -> Result<PathBuf, String> {
+pub fn normalize_relative_path(
+    raw_path: &str,
+    allow_workspace_root: bool,
+) -> Result<PathBuf, String> {
     let trimmed = raw_path.trim();
     if trimmed.is_empty() {
         return if allow_workspace_root {
@@ -279,7 +282,9 @@ pub fn detect_file_type(path: &Path) -> Result<FileTypeDetection, String> {
             format_kind: "other",
             content_kind: "other",
             text_readable: false,
-            content_kind_reason: Some("File on disk is neither a directory nor a standard file".to_string()),
+            content_kind_reason: Some(
+                "File on disk is neither a directory nor a standard file".to_string(),
+            ),
         });
     }
 
@@ -418,7 +423,11 @@ pub fn truncate_to_utf8_boundary(bytes: &[u8], max_bytes: usize) -> Result<&[u8]
     Ok(&bytes[..end])
 }
 
-pub fn read_text_file(path: &Path, max_bytes: usize, operation: &str) -> Result<TextFileRead, String> {
+pub fn read_text_file(
+    path: &Path,
+    max_bytes: usize,
+    operation: &str,
+) -> Result<TextFileRead, String> {
     let file_type = detect_file_type(path)?;
     if !file_type.text_readable {
         return Err(format!(

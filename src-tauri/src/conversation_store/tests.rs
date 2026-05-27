@@ -895,8 +895,8 @@ fn conversation_mounted_tool_sources_round_trip_through_metadata() {
 
 #[test]
 fn conversation_mounted_mcp_servers_legacy_fallback() {
-    use super::paths::conversation_metadata_path;
     use super::file_io::{read_conversation_meta, write_conversation_metadata};
+    use super::paths::conversation_metadata_path;
 
     let _g = crate::config::test_env_lock()
         .lock()
@@ -907,7 +907,9 @@ fn conversation_mounted_mcp_servers_legacy_fallback() {
 
     // Manually insert legacy format under old key in metadata
     let metadata_path = conversation_metadata_path(&cid).expect("metadata path");
-    let mut meta = read_conversation_meta(&metadata_path).expect("read meta").expect("meta exists");
+    let mut meta = read_conversation_meta(&metadata_path)
+        .expect("read meta")
+        .expect("meta exists");
     let legacy_data = json!([
         {
             "serverId": "openai_docs",
@@ -927,7 +929,8 @@ fn conversation_mounted_mcp_servers_legacy_fallback() {
             ]
         }
     ]);
-    meta.metadata.insert("mounted_mcp_servers".to_string(), legacy_data);
+    meta.metadata
+        .insert("mounted_mcp_servers".to_string(), legacy_data);
     write_conversation_metadata(&metadata_path, &meta).expect("write legacy meta");
 
     // Load using generic loader and assert mapped fields

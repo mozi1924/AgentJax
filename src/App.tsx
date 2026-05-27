@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useRef, useState } from 'react';
 import AppHeader from './components/AppHeader';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
@@ -16,6 +15,7 @@ import { useContextMenuGuard } from './hooks/useContextMenuGuard';
 import { useTitlebarDragging } from './hooks/useTitlebarDragging';
 import { useAppConfig } from './hooks/useAppConfig';
 import { useChatSessions } from './hooks/useChatSessions';
+import { useDeveloperToolsShortcut } from './hooks/useDeveloperToolsShortcut';
 
 export default function App() {
   const { t } = useI18n();
@@ -30,6 +30,7 @@ export default function App() {
   const {
     cachePath,
     configPath,
+    enableDeveloperTools,
     modelOptions,
     selectedModel,
     selectedModelOption,
@@ -87,18 +88,7 @@ export default function App() {
 
   useTitlebarDragging(titlebarRef);
   useContextMenuGuard(canUseNativeContextMenu);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'I') {
-        event.preventDefault();
-        invoke('open_devtools').catch(() => {});
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  useDeveloperToolsShortcut(enableDeveloperTools);
 
   return (
     <div className="app-shell relative flex h-screen w-screen overflow-hidden bg-transparent font-sans text-slate-100 antialiased select-none">

@@ -3,9 +3,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
 
-use super::common::{
-    count_lines, relative_path_display, resolve_workspace_path, write_text_file,
-};
+use super::common::{count_lines, relative_path_display, resolve_workspace_path, write_text_file};
 
 #[derive(Debug, Deserialize)]
 pub struct WriteFileArgs {

@@ -57,6 +57,8 @@
   "settings.general.request_timeout.description": "Global fallback timeout for all providers.",
   "settings.general.show_advanced_options.title": "Show advanced request options",
   "settings.general.show_advanced_options.description": "When enabled, shows advanced request options button next to message composer.",
+  "settings.general.enable_developer_tools.title": "Enable developer tools",
+  "settings.general.enable_developer_tools.description": "When enabled, use Command/Ctrl + Shift + I or F12 to open the frontend developer tools.",
   
   "settings.prompt_composer.title": "Prompt Composer",
   "settings.prompt_composer.description": "Compose system and developer prompt blocks, and preview the final structure sent to models.",

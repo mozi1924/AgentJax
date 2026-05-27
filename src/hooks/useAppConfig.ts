@@ -18,6 +18,10 @@ const resolveShowAdvancedRequestOptionsButton = (
   values: Record<string, unknown> | undefined
 ): boolean => values?.show_advanced_request_options === true;
 
+const resolveEnableDeveloperTools = (
+  values: Record<string, unknown> | undefined
+): boolean => values?.enable_developer_tools === true;
+
 export function useAppConfig() {
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL_PROFILE);
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
@@ -25,6 +29,7 @@ export function useAppConfig() {
   const [configPath, setConfigPath] = useState('');
   const [cachePath, setCachePath] = useState('');
   const [showAdvancedRequestOptionsButton, setShowAdvancedRequestOptionsButton] = useState(false);
+  const [enableDeveloperTools, setEnableDeveloperTools] = useState(false);
 
   const selectedModelRef = useRef(DEFAULT_MODEL_PROFILE);
   const selectedReasoningModeRef = useRef(DEFAULT_REASONING_MODE);
@@ -119,6 +124,7 @@ export function useAppConfig() {
         setShowAdvancedRequestOptionsButton(
           resolveShowAdvancedRequestOptionsButton(snapshot.values)
         );
+        setEnableDeveloperTools(resolveEnableDeveloperTools(snapshot.values));
       })
       .catch(() => {});
 
@@ -144,6 +150,7 @@ export function useAppConfig() {
           setShowAdvancedRequestOptionsButton(
             resolveShowAdvancedRequestOptionsButton(event.payload.values)
           );
+          setEnableDeveloperTools(resolveEnableDeveloperTools(event.payload.values));
           void refreshModelCatalog().catch(() => {});
         }
       );
@@ -172,6 +179,7 @@ export function useAppConfig() {
   return {
     cachePath,
     configPath,
+    enableDeveloperTools,
     modelOptions,
     refreshModelCatalog,
     selectedModel,

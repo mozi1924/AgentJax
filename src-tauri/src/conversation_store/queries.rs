@@ -3,9 +3,9 @@ use super::locks::{cached_summary, replace_cached_summary, with_conversation_loc
 use super::paths::{conversation_messages_path, conversation_metadata_path, list_conversation_ids};
 use super::types::{
     ConversationDetail, ConversationDynamicTool, ConversationLine, ConversationMountedMcpServer,
-    ConversationMountedToolSource, ConversationMountedToolDefinition, ConversationSummary, TitleGenerationCandidate,
-    CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY, CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
-    CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY,
+    ConversationMountedToolDefinition, ConversationMountedToolSource, ConversationSummary,
+    TitleGenerationCandidate, CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY,
+    CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY, CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY,
 };
 // ── List all conversations ────────────────────────────────────────────────
 
@@ -151,9 +151,12 @@ pub fn load_conversation_mounted_tool_sources(
             .metadata
             .get(CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY)
         {
-            let legacy_servers = serde_json::from_value::<Vec<ConversationMountedMcpServer>>(value.clone())
-                .map_err(|err| format!("Failed to parse legacy mounted MCP server metadata: {err}"))?;
-            
+            let legacy_servers =
+                serde_json::from_value::<Vec<ConversationMountedMcpServer>>(value.clone())
+                    .map_err(|err| {
+                        format!("Failed to parse legacy mounted MCP server metadata: {err}")
+                    })?;
+
             let generic_sources = legacy_servers
                 .into_iter()
                 .map(|server| ConversationMountedToolSource {

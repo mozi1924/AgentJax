@@ -1,7 +1,7 @@
 use crate::tools::{
-    format_tool_schema, humanize_tool_name, EditFileTool, CalculatorTool, FileReaderTool,
-    FileWriterTool, ListFilesTool, MkdirTool, SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation,
-    ToolSchemaFormat,
+    format_tool_schema, humanize_tool_name, CalculatorTool, EditFileTool, FileReaderTool,
+    FileWriterTool, ListFilesTool, MkdirTool, SystemTimeTool, Tool, ToolExecutionContext,
+    ToolPresentation, ToolSchemaFormat,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -29,7 +29,10 @@ pub type MountedToolSourceSessions = BTreeMap<String, MountedToolSourceSession>;
 #[derive(Debug, Clone)]
 pub enum ToolCatalogStateChange {
     MountToolSource(MountedToolSourceSession),
-    UnmountToolSource { source_id: String, source_type: String },
+    UnmountToolSource {
+        source_id: String,
+        source_type: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -532,7 +535,11 @@ impl ToolCatalog {
                 );
                 insert_snapshot_tool(
                     &mut schemas,
-                    build_manage_mcp_server_tool_schema(format, server_id, mounted_session.is_some()),
+                    build_manage_mcp_server_tool_schema(
+                        format,
+                        server_id,
+                        mounted_session.is_some(),
+                    ),
                     &mut active_tool_names,
                     &mut entries,
                     control_tool_name,
@@ -645,19 +652,19 @@ impl ToolCatalog {
             return MountedToolSourceSessions::new();
         };
 
-        let stored_sources =
-            match crate::conversation_store::load_conversation_mounted_tool_sources(conversation_id)
-            {
-                Ok(sources) => sources,
-                Err(err) => {
-                    log::warn!(
-                        "Failed to load mounted tool sources for conversation '{}': {}",
-                        conversation_id,
-                        err
-                    );
-                    return MountedToolSourceSessions::new();
-                }
-            };
+        let stored_sources = match crate::conversation_store::load_conversation_mounted_tool_sources(
+            conversation_id,
+        ) {
+            Ok(sources) => sources,
+            Err(err) => {
+                log::warn!(
+                    "Failed to load mounted tool sources for conversation '{}': {}",
+                    conversation_id,
+                    err
+                );
+                return MountedToolSourceSessions::new();
+            }
+        };
 
         let mut mounted_servers = MountedToolSourceSessions::new();
         for stored_source in stored_sources {
@@ -700,7 +707,12 @@ impl ToolCatalog {
                                 }
                             })
                             .collect(),
-                        mcp_config: Some(self.resolve_server_config_with_workspace_fallback(server_config, context)),
+                        mcp_config: Some(
+                            self.resolve_server_config_with_workspace_fallback(
+                                server_config,
+                                context,
+                            ),
+                        ),
                     },
                 );
             }
@@ -723,15 +735,15 @@ impl ToolCatalog {
                     tools: server
                         .tools
                         .iter()
-                        .map(|tool| {
-                            crate::conversation_store::ConversationMountedToolDefinition {
+                        .map(
+                            |tool| crate::conversation_store::ConversationMountedToolDefinition {
                                 tool_name: tool.tool_name.clone(),
                                 display_name: tool.display_name.clone(),
                                 description: tool.description.clone(),
                                 icon: tool.icon.clone(),
                                 input_schema: tool.input_schema.clone(),
-                            }
-                        })
+                            },
+                        )
                         .collect(),
                 },
             )

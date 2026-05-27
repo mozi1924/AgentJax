@@ -1,11 +1,14 @@
-use tauri::Manager;
-
 #[tauri::command]
-pub fn open_devtools(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(webview) = app.get_webview_window("main") {
-        webview.open_devtools();
-        Ok(())
-    } else {
-        Err("Main webview window not found".to_string())
+pub fn open_devtools(window: tauri::WebviewWindow) -> Result<(), String> {
+    let config = crate::config::load_config()?;
+    if !config.enable_developer_tools {
+        return Err("Developer tools are disabled in settings".to_string());
     }
+
+    // Open the frontend inspector for the invoking window so custom labels and
+    // future secondary windows do not depend on a hard-coded "main" lookup.
+    if !window.is_devtools_open() {
+        window.open_devtools();
+    }
+    Ok(())
 }

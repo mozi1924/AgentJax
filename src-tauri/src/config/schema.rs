@@ -22,6 +22,7 @@ pub struct AppConfig {
     pub prompt_composer: PromptComposerConfig,
     pub request_timeout_seconds: u64,
     pub show_advanced_request_options: bool,
+    pub enable_developer_tools: bool,
     #[serde(default)]
     pub mcp_runtime: McpRuntimeConfig,
     #[serde(default)]
@@ -156,6 +157,7 @@ impl Default for AppConfig {
             prompt_composer: PromptComposerConfig::default(),
             request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
             show_advanced_request_options: false,
+            enable_developer_tools: false,
             mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
             language: default_language(),
