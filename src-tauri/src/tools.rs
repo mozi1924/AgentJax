@@ -1,7 +1,6 @@
 mod calculator;
 mod catalog;
 mod files;
-mod math;
 mod native;
 mod registry;
 

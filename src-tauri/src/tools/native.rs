@@ -21,7 +21,7 @@ impl Tool for CalculatorTool {
     }
 
     fn description(&self) -> &'static str {
-        "A structured agent-friendly calculator with symbolic math, natural numeric input, unit-aware arithmetic, equation solving, limits, and legacy special-function support. Use mode='capabilities' to inspect supported syntax before generating expressions."
+        "A structured agent-friendly calculator powered exclusively by fend-core. Supports natural numeric input, unit-aware arithmetic, and complex numbers. Use mode='capabilities' to inspect supported syntax."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -30,44 +30,22 @@ impl Tool for CalculatorTool {
             "properties": {
                 "expression": {
                     "type": "string",
-                    "description": "Primary calculator input. Supports numeric expressions like '2 * (3.5 + 4) / sqrt(16)', symbolic calls like 'diff(x^3 + sin(x), x)', 'integral(x^2, x, 0, 1)', 'solve(x^2 - 5x + 6 = 0, x)', natural forms like 'sin pi/2', and unit-aware arithmetic like '3 km + 500 m' or '60 km/h * 2 h'."
+                    "description": "Primary calculator input. Supports numeric expressions like '2 * (3.5 + 4) / sqrt(16)', natural forms like 'sin pi/2', complex values like 'sqrt(-4)', and unit-aware arithmetic like '3 km + 500 m' or '60 km/h * 2 h'."
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["auto", "capabilities", "evaluate", "simplify", "differentiate", "integrate", "solve", "solve_system", "limit"],
-                    "description": "Optional explicit mode. Defaults to 'auto'. Use 'capabilities' to ask the calculator what syntax and operations it supports."
-                },
-                "variable": {
-                    "type": "string",
-                    "description": "Target variable for differentiate/integrate/solve/limit modes when it cannot be inferred safely."
-                },
-                "lowerBound": {
-                    "type": "string",
-                    "description": "Optional lower bound. Used for definite integrals and as a limit target when mode='limit'."
-                },
-                "upperBound": {
-                    "type": "string",
-                    "description": "Optional upper bound. Used for definite integrals."
+                    "enum": ["auto", "capabilities", "evaluate"],
+                    "description": "Optional explicit mode. Defaults to 'auto'. Use 'capabilities' to inspect current fend-core-only behavior."
                 },
                 "precision": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 32,
-                    "description": "Approximation precision in decimal digits for numeric fields. Exact symbolic strings are still returned separately when available."
-                },
-                "steps": {
-                    "type": "string",
-                    "enum": ["none", "summary", "detailed"],
-                    "description": "Controls how much derivation detail is returned in the structured 'steps' field."
+                    "description": "Approximation precision in decimal digits for numeric fields."
                 },
                 "variables": {
                     "type": "object",
-                    "description": "Optional variable bindings for numeric evaluation, for example {\"x\": 2.5, \"y\": 1}."
-                },
-                "equations": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Optional equation list for system solving, for example ['x+y=3', 'x-y=1']."
+                    "description": "Optional variable bindings applied as pre-evaluation substitutions, for example {\"x\": 2.5, \"y\": 1}."
                 },
             },
             "required": []

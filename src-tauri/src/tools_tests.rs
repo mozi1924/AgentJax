@@ -75,58 +75,6 @@ mod tests {
         let res = calc.execute(&args, &ctx).unwrap();
         assert_approx_eq(res["result"].as_f64().unwrap(), 2.0, 1e-12);
 
-        // Statistical and special functions backed by external math crates
-        let args = json!({ "expression": "gamma(5) + ncr(6, 2) + mean(2, 4, 6)" });
-        let res = calc.execute(&args, &ctx).unwrap();
-        assert_approx_eq(res["result"].as_f64().unwrap(), 43.0, 1e-12);
-        assert!(res["warnings"].as_array().unwrap().is_empty());
-
-        let args = json!({ "expression": "beta(2, 3) + harmonic(4) + logistic(0)" });
-        let res = calc.execute(&args, &ctx).unwrap();
-        assert_approx_eq(
-            res["result"].as_f64().unwrap(),
-            2.666_666_666_666_666_5,
-            1e-12,
-        );
-
-        // Compatibility helpers should bypass the natural-language evaluator.
-        let args = json!({ "expression": "mean(2, 4, 6)" });
-        let res = calc.execute(&args, &ctx).unwrap();
-        assert_eq!(res["result"].as_f64().unwrap(), 4.0);
-        assert!(res["warnings"].as_array().unwrap().is_empty());
-
-        // New capability check: legacy helper functions now natively support unit-awareness and arbitrary-precision thanks to fend preprocessing!
-        let args = json!({ "expression": "mean(2 km, 4 km, 6 km)" });
-        let res = calc.execute(&args, &ctx).unwrap();
-        assert_eq!(res["result"].as_str().unwrap(), "4 km");
-        assert_eq!(res["unit"].as_str().unwrap(), "km");
-
-        let args = json!({ "expression": "erf(1)" });
-        let res = calc.execute(&args, &ctx).unwrap();
-        assert_approx_eq(
-            res["result"].as_f64().unwrap(),
-            0.842_700_792_949_714_9,
-            1e-11,
-        );
-
-        // Symbolic simplification with structured output
-        let args = json!({ "expression": "2x + 3x" });
-        let res = calc.execute(&args, &ctx).unwrap();
-        assert_eq!(res["mode"], "evaluate");
-        assert_eq!(res["result"], "5 * x");
-        assert!(res["warnings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|warning| warning.as_str().unwrap_or_default().contains("unbound")));
-
-        // Symbolic differentiation
-        let args = json!({ "expression": "diff(x^3 + sin(x), x)", "steps": "summary" });
-        let res = calc.execute(&args, &ctx).unwrap();
-        assert_eq!(res["mode"], "differentiate");
-        assert_eq!(res["result"], "3 * x^2 + cos(x)");
-        assert!(res["steps"].as_array().unwrap().len() >= 2);
-
         // Natural trigonometric syntax should normalize before evaluation.
         let args = json!({ "expression": "sin pi/2" });
         let res = calc.execute(&args, &ctx).unwrap();
@@ -134,35 +82,12 @@ mod tests {
         assert_approx_eq(res["result"].as_f64().unwrap(), 1.0, 1e-12);
         assert_eq!(res["exactValue"], "1");
 
-        // Definite integration
-        let args = json!({ "expression": "integral(x^2, x, 0, 1)" });
-        let res = calc.execute(&args, &ctx).unwrap();
-        assert_eq!(res["mode"], "integrate");
-        assert!(res["result"].is_string() || res["result"].is_number());
-        assert_eq!(res["exactValue"], "1/3");
-        assert_approx_eq(res["approximateValue"].as_f64().unwrap(), 1.0 / 3.0, 1e-9);
-
-        // Equation solving
-        let args = json!({ "expression": "solve(x^2 - 5x + 6 = 0, x)", "steps": "summary" });
-        let res = calc.execute(&args, &ctx).unwrap();
-        assert_eq!(res["mode"], "solve");
-        assert_eq!(res["result"], json!(["3", "2"]));
-        assert!(res["steps"]
-            .as_array()
-            .unwrap()
-            .last()
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .contains("Solutions: 3, 2"));
-
         // Unit-aware arithmetic
         let args = json!({ "expression": "3 km + 500 m" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["mode"], "evaluate");
         assert_eq!(res["result"], "3.5 km");
         assert!(res["exactValue"].as_str().unwrap().contains("km"));
-        assert!(res["warnings"].as_array().unwrap().is_empty());
         if let Some(unit) = res["unit"].as_str() {
             assert!(unit.contains("km"));
         }
@@ -170,6 +95,19 @@ mod tests {
         let args = json!({ "expression": "3km + 500m" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["result"], "3.5 km");
+
+        // Variable substitution should happen before fend evaluation.
+        let args = json!({ "expression": "x + y", "variables": { "x": 2, "y": 5 } });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["result"].as_f64().unwrap(), 7.0);
+        assert!(res["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning
+                .as_str()
+                .unwrap_or_default()
+                .contains("variable substitutions")));
 
         // Complex outputs should not leak into the unit field.
         let args = json!({ "expression": "exp(i*pi)" });
@@ -185,30 +123,28 @@ mod tests {
         let args = json!({ "mode": "capabilities" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["mode"], "capabilities");
-        assert!(res["capabilities"]["supports"]["symbolicMath"]
+        assert!(!res["capabilities"]["supports"]["symbolicMath"]
             .as_bool()
             .unwrap());
         assert!(res["capabilities"]["supports"]["units"].as_bool().unwrap());
-        assert!(res["capabilities"]["compatibility"]["legacyFallbackPolicy"]
+        assert_eq!(
+            res["capabilities"]["engine"]["name"].as_str().unwrap(),
+            "fend-core"
+        );
+        assert!(res["capabilities"]["engine"]["policy"]
             .as_str()
             .unwrap()
-            .contains("no longer fall back implicitly"));
+            .contains("fend-core"));
     }
 
     #[test]
-    fn test_calculator_system_solving() {
+    fn test_calculator_legacy_modes_are_rejected() {
         let calc = CalculatorTool;
         let ctx = ToolExecutionContext::default();
 
-        let args = json!({
-            "mode": "solve_system",
-            "equations": ["x + y = 3", "x - y = 1"],
-            "steps": "summary"
-        });
-        let res = calc.execute(&args, &ctx).unwrap();
-        assert_eq!(res["mode"], "solve_system");
-        assert_eq!(res["result"]["x"], "2");
-        assert_eq!(res["result"]["y"], "1");
+        let args = json!({ "mode": "simplify", "expression": "2x + 3x" });
+        let err = calc.execute(&args, &ctx).unwrap_err();
+        assert!(err.contains("Unsupported calculator mode"));
     }
 
     #[test]
@@ -240,27 +176,16 @@ mod tests {
                 || err.contains("Look for an unclosed parenthesis")
         );
 
-        // Invalid factorial domain
-        let args = json!({ "expression": "factorial(3.2)" });
-        let err = calc.execute(&args, &ctx).unwrap_err();
-        assert!(err.contains("factorial requires an integer input"));
-
-        // Invalid logit domain
-        let args = json!({ "expression": "logit(1)" });
-        let err = calc.execute(&args, &ctx).unwrap_err();
-        assert!(err.contains("logit requires 0 < p < 1"));
-
-        // Unsupported symbolic helper should suggest alternatives
+        // Legacy symbolic calls are explicitly rejected.
         let args = json!({ "expression": "factor(x^2 - 1)" });
         let err = calc.execute(&args, &ctx).unwrap_err();
-        assert!(err.contains("not wired into the calculator tool yet"));
-        assert!(err.contains("simplify"));
+        assert!(err.contains("no longer supported"));
+        assert!(err.contains("legacy symbolic engine was removed"));
 
-        // Unknown function should surface a local suggestion
-        let args = json!({ "expression": "sni(x)" });
+        // Missing expression should surface a schema-level error.
+        let args = json!({});
         let err = calc.execute(&args, &ctx).unwrap_err();
-        assert!(err.contains("Unknown function 'sni'"));
-        assert!(err.contains("sin"));
+        assert!(err.contains("Missing calculator input"));
     }
 
     #[test]

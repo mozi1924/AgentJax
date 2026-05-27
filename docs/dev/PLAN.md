@@ -8,6 +8,12 @@
 - **Provider adapter**：只处理不同 Responses 风格 provider 的请求/流式事件差异，不负责工具执行。
 - **Local tool layer**：把内建工具和本地 MCP `stdio` server 暴露的 tools 统一桥接成 function tools，供任意兼容 Responses 风格的上游使用。
 
+当前状态补充（2026-05-28）：
+
+- 内建 `calculator` 已统一为 `fend-core` 单引擎实现
+- 旧符号模式（`simplify/differentiate/integrate/solve/solve_system/limit`）已从工具契约中移除
+- 细节见 [Calculator engine status](calculator-fend-core.md)
+
 这一阶段不依赖 OpenAI 的远程 `mcp` 内建 tool，而是完全本地处理 MCP，以兼容 Codex 风格网关和其他非官方 Responses 实现。设计对齐官方 Responses function calling 与 MCP 协议语义：
 [Function calling](https://developers.openai.com/api/docs/guides/function-calling),
 [Conversation state](https://developers.openai.com/api/docs/guides/conversation-state),

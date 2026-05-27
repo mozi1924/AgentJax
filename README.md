@@ -6,6 +6,7 @@ AgentJax is a desktop AI assistant built with React, Vite, and Tauri. It focuses
 
 - [Documentation home](docs/README.md)
 - [Configuration reference](docs/configuration.md)
+- [Calculator engine status](docs/dev/calculator-fend-core.md)
 - [Development plan](docs/dev/PLAN.md)
 - [Provider abstraction notes](docs/dev/agent-provider-abstraction.md)
 

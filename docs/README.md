@@ -5,6 +5,7 @@ This folder collects the project docs in one place so the README can stay a shor
 ## Start Here
 
 - [Configuration reference](configuration.md)
+- [Calculator engine status](dev/calculator-fend-core.md)
 - [Development plan](dev/PLAN.md)
 - [Provider abstraction notes](dev/agent-provider-abstraction.md)
 
