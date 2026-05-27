@@ -39,9 +39,17 @@ interface SortableBlockItemProps {
   block: PromptBlock;
   selected: boolean;
   onSelect: (id: string) => void;
+  onToggleEnabled: (id: string, enabled: boolean) => void;
+  onDelete: (id: string) => void;
 }
 
-function SortableBlockItem({ block, selected, onSelect }: SortableBlockItemProps) {
+function SortableBlockItem({
+  block,
+  selected,
+  onSelect,
+  onToggleEnabled,
+  onDelete,
+}: SortableBlockItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: block.id,
   });
@@ -51,42 +59,70 @@ function SortableBlockItem({ block, selected, onSelect }: SortableBlockItemProps
     transition,
   };
 
+  const isDeletable = block.source === 'user' && !block.locked;
+
   return (
-    <button
+    <div
       ref={setNodeRef}
       style={style}
       onClick={() => onSelect(block.id)}
-      className={`group flex w-full items-start gap-2 rounded-xl border px-2.5 py-2 text-left transition ${
+      className={`group flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition duration-200 cursor-pointer select-none ${
         selected
-          ? 'border-cyan-400/30 bg-cyan-400/10 text-white'
-          : 'border-[#2b2b2d] bg-[#1a1b1d]/60 text-neutral-200 hover:border-[#3b3b3f]'
-      } ${isDragging ? 'opacity-80 shadow-lg' : ''}`}
+          ? 'border-cyan-400/30 bg-cyan-400/[0.08] text-white shadow-[0_0_12px_rgba(34,211,238,0.05)]'
+          : 'border-[#242426] bg-[#141415]/40 text-neutral-300 hover:border-[#323235] hover:bg-[#1c1d1f]/60'
+      } ${isDragging ? 'opacity-80 shadow-lg border-cyan-400/40 bg-cyan-400/10' : ''}`}
     >
       <span
         {...attributes}
         {...listeners}
-        className="mt-0.5 inline-flex cursor-grab rounded-md p-1 text-neutral-500 transition hover:bg-[#2b2b2d] hover:text-neutral-200 active:cursor-grabbing"
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex cursor-grab rounded-md p-0.5 text-neutral-600 transition hover:bg-[#202022] hover:text-neutral-300 active:cursor-grabbing shrink-0"
         title="Drag to reorder"
       >
         <GripVertical className="h-3.5 w-3.5" />
       </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5">
-          <span className="truncate text-[12px] font-medium">{block.title}</span>
-          {!block.enabled && (
-            <span className="rounded-full border border-[#3a3a3d] px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-neutral-500">
-              Off
-            </span>
-          )}
-        </span>
-        <span className="mt-1 flex items-center gap-1.5 text-[10px] text-neutral-500">
-          {block.source === 'builtin' && <Shield className="h-3 w-3" />}
-          {block.source === 'plugin' && <Wrench className="h-3 w-3" />}
-          {block.source === 'user' && <Sparkles className="h-3 w-3" />}
-          <span className="uppercase tracking-wide">{block.source}</span>
-        </span>
-      </span>
-    </button>
+
+      <input
+        type="checkbox"
+        checked={block.enabled}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => onToggleEnabled(block.id, e.target.checked)}
+        className="h-3.5 w-3.5 rounded border-[#2e2e30] bg-[#111112] text-cyan-400 focus:ring-cyan-400/40 transition cursor-pointer shrink-0"
+        title={block.enabled ? 'Disable block' : 'Enable block'}
+      />
+
+      <div className="min-w-0 flex-1 pl-1">
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`truncate text-[11.5px] font-medium leading-normal transition ${
+              block.enabled ? 'text-neutral-200' : 'text-neutral-500 line-through'
+            }`}
+          >
+            {block.title}
+          </span>
+        </div>
+        <div className="mt-0.5 flex items-center gap-1 text-[9px] text-neutral-500 uppercase tracking-wider leading-none">
+          {block.source === 'builtin' && <Shield className="h-2.5 w-2.5" />}
+          {block.source === 'plugin' && <Wrench className="h-2.5 w-2.5" />}
+          {block.source === 'user' && <Sparkles className="h-2.5 w-2.5" />}
+          <span>{block.source}</span>
+        </div>
+      </div>
+
+      {isDeletable && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(block.id);
+          }}
+          className="opacity-0 group-hover:opacity-100 p-1 text-neutral-500 hover:text-rose-450 hover:bg-rose-500/10 rounded-md transition shrink-0"
+          title="Delete block"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -258,106 +294,129 @@ export function PromptAssemblerField({
   };
 
   return (
-    <div className="relative space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h4 className="text-[13.5px] font-medium text-neutral-200">{field.title}</h4>
-          {field.description && (
-            <p className="mt-0.5 text-[11.5px] leading-relaxed text-neutral-400/80">
-              {field.description}
-            </p>
-          )}
-          {helperText && (
-            <p
-              className={`mt-1 text-[11px] ${
-                fieldErrors[resolvedPath] || localError ? 'text-rose-400' : 'text-neutral-500'
-              }`}
-            >
-              {helperText}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={() => {
-              void handleAddBlock('system');
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#2b2b2d] bg-[#202022] px-2.5 py-1.5 text-[11px] text-neutral-200 transition hover:bg-[#2a2a2d] disabled:opacity-50"
+    <div className="relative space-y-2">
+      <div>
+        <h4 className="text-[13.5px] font-semibold text-neutral-200">{field.title}</h4>
+        {field.description && (
+          <p className="mt-0.5 text-[11.5px] leading-relaxed text-neutral-400/80">
+            {field.description}
+          </p>
+        )}
+        {helperText && (
+          <p
+            className={`mt-1 text-[11px] ${
+              fieldErrors[resolvedPath] || localError ? 'text-rose-400' : 'text-neutral-500'
+            }`}
           >
-            <Plus className="h-3.5 w-3.5" />
-            Add system
-          </button>
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={() => {
-              void handleAddBlock('developer');
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#2b2b2d] bg-[#202022] px-2.5 py-1.5 text-[11px] text-neutral-200 transition hover:bg-[#2a2a2d] disabled:opacity-50"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add developer
-          </button>
-          <button
-            type="button"
-            onClick={() => setPreviewOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-neutral-200 px-2.5 py-1.5 text-[11px] font-medium text-neutral-900 transition hover:bg-white"
-          >
-            <Eye className="h-3.5 w-3.5" />
-            Preview
-          </button>
-        </div>
+            {helperText}
+          </p>
+        )}
       </div>
 
-      <div className="grid min-h-[420px] grid-cols-[240px_minmax(0,1fr)_220px] gap-3 rounded-2xl border border-[#242426] bg-[#171718]/70 p-3">
-        <div className="space-y-3 rounded-2xl border border-[#242426] bg-[#141415]/80 p-3">
-          {(['system', 'developer'] as const).map((role) => {
-            const blocks = role === 'system' ? systemBlocks : developerBlocks;
-            return (
-              <div key={role} className="space-y-2">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
-                  {laneIcon(role)}
-                  <span>{laneLabel(role)}</span>
-                </div>
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={(event) => {
-                    void handleDragEnd(event, role);
-                  }}
-                >
-                  <SortableContext
-                    items={blocks.map((block) => block.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-2">
-                      {blocks.length === 0 && (
-                        <div className="rounded-xl border border-dashed border-[#2b2b2d] px-3 py-4 text-[11px] text-neutral-500">
-                          No {role} blocks yet.
-                        </div>
-                      )}
-                      {blocks.map((block) => (
-                        <SortableBlockItem
-                          key={block.id}
-                          block={block}
-                          selected={block.id === selectedBlock?.id}
-                          onSelect={setSelectedBlockId}
-                        />
-                      ))}
+      <div className="grid min-h-[500px] grid-cols-[300px_minmax(0,1fr)] gap-3.5 rounded-2xl border border-[#242426] bg-[#171718]/60 p-3.5">
+        {/* Left Column: Sidebar with blocks and summary stats */}
+        <div className="flex flex-col gap-3 rounded-2xl border border-[#242426] bg-[#121213]/80 p-3.5 min-w-0">
+          <div className="flex-1 space-y-4 overflow-y-auto pr-0.5 scrollbar-thin">
+            {(['system', 'developer'] as const).map((role) => {
+              const blocks = role === 'system' ? systemBlocks : developerBlocks;
+              return (
+                <div key={role} className="space-y-2">
+                  <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+                    <div className="flex items-center gap-1.5">
+                      {laneIcon(role)}
+                      <span>{laneLabel(role)}</span>
                     </div>
-                  </SortableContext>
-                </DndContext>
+                    <button
+                      type="button"
+                      disabled={isSaving}
+                      onClick={() => {
+                        void handleAddBlock(role);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-md border border-[#2b2b2d] bg-[#1d1d1f] hover:bg-[#28282b] px-1.5 py-0.5 text-[10px] text-neutral-350 transition disabled:opacity-50"
+                      title={role === 'system' ? 'Add system block' : 'Add developer message'}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add
+                    </button>
+                  </div>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(event) => {
+                      void handleDragEnd(event, role);
+                    }}
+                  >
+                    <SortableContext
+                      items={blocks.map((block) => block.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="space-y-2">
+                        {blocks.length === 0 && (
+                          <div className="rounded-xl border border-dashed border-[#242426] bg-neutral-900/10 px-3 py-4 text-center text-[11px] text-neutral-500">
+                            No {role} blocks.
+                          </div>
+                        )}
+                        {blocks.map((block) => (
+                          <SortableBlockItem
+                            key={block.id}
+                            block={block}
+                            selected={block.id === selectedBlock?.id}
+                            onSelect={setSelectedBlockId}
+                            onToggleEnabled={handleToggleEnabled}
+                            onDelete={handleDeleteBlock}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Bottom Summary & Stats Panel */}
+          <div className="mt-2 rounded-xl border border-[#242426] bg-[#18181a]/60 p-3 space-y-2 shrink-0">
+            <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-neutral-500 font-semibold">
+              <span>Assembly Stats</span>
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            </div>
+            <div className="text-[11px] leading-relaxed text-neutral-400 space-y-1">
+              <div className="flex justify-between">
+                <span>Active instructions:</span>
+                <span className="font-mono text-neutral-200">
+                  {systemBlocks.filter((b) => b.enabled).length} blocks
+                </span>
               </div>
-            );
-          })}
+              <div className="flex justify-between">
+                <span>Developer messages:</span>
+                <span className="font-mono text-neutral-200">
+                  {developerBlocks.filter((b) => b.enabled).length} blocks
+                </span>
+              </div>
+              <div className="flex justify-between border-t border-[#242426] pt-1 mt-1 font-medium">
+                <span>Estimated size:</span>
+                <span className="font-mono text-cyan-400">
+                  {preview.instructionsText ? `${preview.instructionsText.split(/\s+/).filter(Boolean).length} words` : '0 words'}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(true)}
+              className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-neutral-200 hover:bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-900 transition"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              Preview compiled prompt
+            </button>
+          </div>
         </div>
 
-        <div className="flex min-w-0 flex-col rounded-2xl border border-[#242426] bg-[#141415]/70">
+        {/* Right Column: Unified Editor & Inspector workspace */}
+        <div className="flex min-w-0 flex-col rounded-2xl border border-[#242426] bg-[#121213]/60 overflow-hidden">
           {selectedBlock ? (
-            <>
-              <div className="border-b border-[#242426] px-4 py-3">
+            <div className="flex h-full flex-col">
+              {/* Editor Header: Title Input + Role Selector + Metadata & Actions */}
+              <div className="border-b border-[#242426] bg-[#161617]/40 px-4 py-3.5 space-y-2">
                 <div className="flex items-center justify-between gap-3">
                   <input
                     value={selectedBlock.title}
@@ -366,14 +425,89 @@ export function PromptAssemblerField({
                     onBlur={() => {
                       void saveCurrentComposer();
                     }}
-                    className="min-w-0 flex-1 rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/50 px-3 py-2 text-sm font-medium text-white outline-none transition focus:border-neutral-500 disabled:opacity-60"
+                    placeholder="Block Title..."
+                    className="min-w-0 flex-1 rounded-lg border border-transparent bg-transparent hover:bg-[#1a1b1d]/40 focus:bg-[#1a1b1d]/75 focus:border-[#2b2b2d] px-2.5 py-1.5 text-[14px] font-semibold text-white outline-none transition disabled:opacity-60"
                   />
-                  <span className="rounded-full border border-[#2b2b2d] px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-neutral-500">
-                    {selectedBlock.role}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="flex items-center gap-1 rounded-full border border-[#242426] bg-[#18191b] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-neutral-400">
+                      {selectedBlock.source === 'builtin' && <Shield className="h-2.5 w-2.5 text-blue-400" />}
+                      {selectedBlock.source === 'plugin' && <Wrench className="h-2.5 w-2.5 text-amber-400" />}
+                      {selectedBlock.source === 'user' && <Sparkles className="h-2.5 w-2.5 text-cyan-400" />}
+                      <span>{selectedBlock.source}</span>
+                    </span>
+                  </div>
                 </div>
+
+                {/* Sub-toolbar with role & direct details */}
+                <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1 border-t border-[#242426]/50">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-wider text-neutral-500 font-medium">Role:</span>
+                    <select
+                      value={selectedBlock.role}
+                      disabled={selectedBlock.locked || isSaving}
+                      onChange={(event) => {
+                        void handleRoleChange(
+                          selectedBlock.id,
+                          event.target.value === 'developer' ? 'developer' : 'system'
+                        );
+                      }}
+                      className="rounded-lg border border-[#2b2b2d] bg-[#18191b] px-2 py-1 text-[11px] font-medium text-neutral-200 outline-none transition hover:border-[#3c3c40] focus:border-neutral-500 disabled:opacity-60"
+                    >
+                      <option value="system">system</option>
+                      <option value="developer">developer</option>
+                    </select>
+                  </div>
+
+                  {selectedBlock.source_id && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-neutral-500">
+                      <span className="text-[10px] uppercase tracking-wider">Source ID:</span>
+                      <span className="font-mono rounded border border-[#2b2b2d] bg-[#18191b]/80 px-1.5 py-0.5 text-[10px] text-neutral-400">
+                        {selectedBlock.source_id}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <label className="inline-flex items-center gap-1.5 rounded-lg border border-[#2b2b2d] bg-[#18191b] px-2 py-1 cursor-pointer select-none text-[11px] text-neutral-350 hover:bg-[#202022] transition">
+                      <span>Active</span>
+                      <input
+                        type="checkbox"
+                        checked={selectedBlock.enabled}
+                        disabled={isSaving}
+                        onChange={(event) => {
+                          void handleToggleEnabled(selectedBlock.id, event.target.checked);
+                        }}
+                        className="h-3.5 w-3.5 rounded border-[#2e2e30] bg-[#111112] text-cyan-400 focus:ring-cyan-400/40 transition cursor-pointer"
+                      />
+                    </label>
+
+                    {canDeleteBlock(selectedBlock) && (
+                      <button
+                        type="button"
+                        disabled={isSaving}
+                        onClick={() => {
+                          void handleDeleteBlock(selectedBlock.id);
+                        }}
+                        className="inline-flex items-center justify-center gap-1 rounded-lg border border-rose-500/20 bg-rose-500/10 px-2 py-1 text-[11px] font-medium text-rose-350 hover:bg-rose-500/15 transition disabled:opacity-40"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Locked Banner / Info Message */}
+                {selectedBlock.locked && (
+                  <div className="flex items-center gap-1.5 rounded-lg border border-amber-500/10 bg-amber-500/[0.04] px-2.5 py-1.5 text-[11px] text-amber-450 leading-relaxed">
+                    <span className="font-semibold text-amber-400 shrink-0">🔒 Managed block:</span>
+                    <span>Reorder and toggle are allowed, but content cannot be edited.</span>
+                  </div>
+                )}
               </div>
-              <div className="flex-1 p-4">
+
+              {/* Editor area with counting statistics */}
+              <div className="relative flex-1 p-3.5 bg-[#0f0f10]/40 flex flex-col min-h-0">
                 <textarea
                   value={selectedBlock.content}
                   disabled={selectedBlock.locked || isSaving}
@@ -383,118 +517,28 @@ export function PromptAssemblerField({
                   }}
                   placeholder={
                     selectedBlock.role === 'system'
-                      ? 'Write high-priority instructions here…'
-                      : 'Write a developer message block here…'
+                      ? 'Write high-priority system instructions here…'
+                      : 'Write developer block context and message guidelines here…'
                   }
-                  className="h-full min-h-[260px] w-full resize-none rounded-xl border border-[#2b2b2d] bg-[#101011] px-3 py-3 font-mono text-[12px] leading-6 text-neutral-200 outline-none transition focus:border-neutral-500 disabled:opacity-60"
+                  className="w-full flex-1 resize-none rounded-xl border border-[#242426] bg-[#0c0c0d]/90 px-3.5 py-3 font-mono text-[11.5px] leading-6 text-neutral-200 outline-none transition focus:border-neutral-500 focus:bg-[#070708] disabled:opacity-60 placeholder-neutral-600"
                 />
-              </div>
-            </>
-          ) : (
-            <div className="flex h-full items-center justify-center text-sm text-neutral-500">
-              Select a block to edit it.
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-3 rounded-2xl border border-[#242426] bg-[#141415]/80 p-3">
-          {selectedBlock ? (
-            <>
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
-                  Block metadata
-                </p>
-                <div className="mt-2 rounded-xl border border-[#242426] bg-[#111112]/80 p-3 text-[12px] text-neutral-300">
-                  <div className="space-y-2">
-                    <label className="block">
-                      <span className="mb-1 block text-[10px] uppercase tracking-[0.16em] text-neutral-500">
-                        Role
-                      </span>
-                      <select
-                        value={selectedBlock.role}
-                        disabled={selectedBlock.locked || isSaving}
-                        onChange={(event) => {
-                          void handleRoleChange(
-                            selectedBlock.id,
-                            event.target.value === 'developer' ? 'developer' : 'system'
-                          );
-                        }}
-                        className="w-full rounded-lg border border-[#2b2b2d] bg-[#18191b] px-2.5 py-2 text-[12px] text-neutral-200 outline-none transition focus:border-neutral-500 disabled:opacity-60"
-                      >
-                        <option value="system">system</option>
-                        <option value="developer">developer</option>
-                      </select>
-                    </label>
-
-                    <div>
-                      <span className="mb-1 block text-[10px] uppercase tracking-[0.16em] text-neutral-500">
-                        Source
-                      </span>
-                      <div className="rounded-lg border border-[#2b2b2d] bg-[#18191b] px-2.5 py-2 text-[12px] text-neutral-200">
-                        {selectedBlock.source}
-                      </div>
-                    </div>
-
-                    <div>
-                      <span className="mb-1 block text-[10px] uppercase tracking-[0.16em] text-neutral-500">
-                        Source ID
-                      </span>
-                      <div className="rounded-lg border border-[#2b2b2d] bg-[#18191b] px-2.5 py-2 text-[12px] text-neutral-400">
-                        {selectedBlock.source_id || 'User-defined'}
-                      </div>
-                    </div>
-
-                    <label className="flex items-center justify-between rounded-lg border border-[#2b2b2d] bg-[#18191b] px-2.5 py-2">
-                      <span className="text-[12px] text-neutral-200">Enabled</span>
-                      <input
-                        type="checkbox"
-                        checked={selectedBlock.enabled}
-                        disabled={isSaving}
-                        onChange={(event) => {
-                          void handleToggleEnabled(selectedBlock.id, event.target.checked);
-                        }}
-                        className="h-4 w-4 rounded border-[#3c3c40] bg-[#111112] text-cyan-400 focus:ring-cyan-400/40"
-                      />
-                    </label>
-
-                    <div className="rounded-lg border border-[#2b2b2d] bg-[#18191b] px-2.5 py-2 text-[11px] leading-5 text-neutral-400">
-                      {selectedBlock.locked
-                        ? 'This block is managed by the framework or a plugin. You can reorder it and toggle it, but not edit its content.'
-                        : 'This user block is fully editable and can be removed.'}
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={!canDeleteBlock(selectedBlock) || isSaving}
-                      onClick={() => {
-                        void handleDeleteBlock(selectedBlock.id);
-                      }}
-                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 px-2.5 py-2 text-[12px] text-rose-200 transition hover:bg-rose-500/15 disabled:opacity-40"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete block
-                    </button>
-                  </div>
+                
+                {/* Word & Character Counter */}
+                <div className="absolute bottom-5 right-6 flex items-center gap-2 rounded-md bg-[#131416]/90 border border-[#242426] px-2 py-1 text-[10px] font-mono text-neutral-500 select-none">
+                  <span>{selectedBlock.content.length} chars</span>
+                  <span className="h-2 w-px bg-[#242426]" />
+                  <span>{selectedBlock.content.split(/\s+/).filter(Boolean).length} words</span>
                 </div>
               </div>
-
-              <div className="rounded-xl border border-[#242426] bg-[#111112]/80 p-3">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-neutral-500">
-                  Current assembly
-                </p>
-                <p className="mt-2 text-[11px] leading-5 text-neutral-400">
-                  {preview.instructionsText
-                    ? `${preview.instructionsText.split(/\s+/).length} instruction words across ${systemBlocks.filter((block) => block.enabled).length} active system blocks.`
-                    : 'No active system instructions yet.'}
-                </p>
-                <p className="mt-1 text-[11px] leading-5 text-neutral-400">
-                  {preview.developerMessages.length} active developer message
-                  {preview.developerMessages.length === 1 ? '' : 's'}.
-                </p>
-              </div>
-            </>
+            </div>
           ) : (
-            <div className="text-[12px] text-neutral-500">Select a block to inspect its metadata.</div>
+            <div className="flex flex-col h-full items-center justify-center text-center p-6 text-neutral-500">
+              <Sparkles className="h-8 w-8 text-neutral-600 mb-2 animate-pulse" />
+              <p className="text-sm font-medium text-neutral-400">No block selected</p>
+              <p className="mt-1 text-[11px] text-neutral-500 max-w-[240px]">
+                Select an existing prompt block from the sidebar or click "+ Add" to create a new one.
+              </p>
+            </div>
           )}
         </div>
       </div>
