@@ -1,6 +1,7 @@
 use crate::tools::{
-    CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool, Tool, ToolExecutionContext,
-    ToolSchemaFormat,
+    ApplyPatchTool, CalculatorTool, FileReaderTool, FileWriterTool, InsertAfterTool,
+    InsertBeforeTool, ListFilesTool, MkdirTool, ReplaceBlockTool, ReplaceTextTool, StatFileTool,
+    SystemTimeTool, Tool, ToolExecutionContext, ToolSchemaFormat,
 };
 use serde_json::Value;
 
@@ -16,6 +17,14 @@ impl ToolRegistry {
                 Box::new(SystemTimeTool),
                 Box::new(FileReaderTool),
                 Box::new(FileWriterTool),
+                Box::new(ListFilesTool),
+                Box::new(StatFileTool),
+                Box::new(MkdirTool),
+                Box::new(ReplaceTextTool),
+                Box::new(ReplaceBlockTool),
+                Box::new(ApplyPatchTool),
+                Box::new(InsertAfterTool),
+                Box::new(InsertBeforeTool),
             ],
         }
     }

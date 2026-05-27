@@ -1,4 +1,5 @@
 mod catalog;
+mod files;
 mod math;
 mod native;
 mod registry;
@@ -11,7 +12,11 @@ pub use catalog::{
     MountedMcpServerSession, MountedMcpServerSessions, MountedMcpToolDefinition, ToolCatalog,
     ToolCatalogSnapshot, ToolCatalogStateChange,
 };
-pub use native::{CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool};
+pub use files::{
+    ApplyPatchTool, FileReaderTool, FileWriterTool, InsertAfterTool, InsertBeforeTool,
+    ListFilesTool, MkdirTool, ReplaceBlockTool, ReplaceTextTool, StatFileTool,
+};
+pub use native::{CalculatorTool, SystemTimeTool};
 pub use registry::ToolRegistry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

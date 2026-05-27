@@ -11,6 +11,8 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
+    const DEFAULT_NATIVE_TOOL_COUNT: usize = 12;
+
     struct TestHomeGuard {
         home: std::path::PathBuf,
     }
@@ -178,20 +180,16 @@ mod tests {
             conversation_id: Some(conversation_b.clone()),
         };
 
-        let filename = "same_name.txt";
+        let filename = "nested/same_name.txt";
         writer
-            .execute(&json!({"filename": filename, "content": "from-a"}), &ctx_a)
+            .execute(&json!({"path": filename, "content": "from-a"}), &ctx_a)
             .unwrap();
         writer
-            .execute(&json!({"filename": filename, "content": "from-b"}), &ctx_b)
+            .execute(&json!({"path": filename, "content": "from-b"}), &ctx_b)
             .unwrap();
 
-        let read_a = reader
-            .execute(&json!({"filename": filename}), &ctx_a)
-            .unwrap();
-        let read_b = reader
-            .execute(&json!({"filename": filename}), &ctx_b)
-            .unwrap();
+        let read_a = reader.execute(&json!({"path": filename}), &ctx_a).unwrap();
+        let read_b = reader.execute(&json!({"path": filename}), &ctx_b).unwrap();
         assert_eq!(read_a["content"], "from-a");
         assert_eq!(read_b["content"], "from-b");
 
@@ -200,10 +198,424 @@ mod tests {
     }
 
     #[test]
+    fn test_file_tools_support_nested_paths_and_reject_workspace_escape() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let registry = ToolRegistry::new_with_defaults();
+        let conversation_id = format!("test-file-paths-{}", uuid::Uuid::new_v4());
+        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(conversation_id.clone()),
+        };
+
+        registry
+            .execute(
+                "write_file",
+                &json!({"path": "src/components/Sidebar.tsx", "content": "export const sidebar = true;\n"}),
+                &ctx,
+            )
+            .unwrap();
+
+        let read_res = registry
+            .execute(
+                "read_file",
+                &json!({"path": "src/components/Sidebar.tsx"}),
+                &ctx,
+            )
+            .unwrap();
+        assert_eq!(read_res["content"], "export const sidebar = true;\n");
+
+        let err = registry
+            .execute("read_file", &json!({"path": "../outside.txt"}), &ctx)
+            .unwrap_err();
+        assert!(err.contains("escapes the conversation workspace"));
+
+        conversation_store::delete_conversation(&conversation_id).unwrap();
+    }
+
+    #[test]
+    fn test_directory_tools_list_stat_and_mkdir() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let registry = ToolRegistry::new_with_defaults();
+        let conversation_id = format!("test-directory-tools-{}", uuid::Uuid::new_v4());
+        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(conversation_id.clone()),
+        };
+
+        registry
+            .execute("mkdir", &json!({"path": "src/components"}), &ctx)
+            .unwrap();
+        registry
+            .execute(
+                "write_file",
+                &json!({"path": "src/components/Button.tsx", "content": "export const Button = () => null;\n"}),
+                &ctx,
+            )
+            .unwrap();
+        registry
+            .execute(
+                "write_file",
+                &json!({"path": "README.md", "content": "# Demo\n"}),
+                &ctx,
+            )
+            .unwrap();
+
+        let root_listing = registry.execute("list_files", &json!({}), &ctx).unwrap();
+        let root_entries = root_listing["entries"].as_array().unwrap();
+        assert!(root_entries
+            .iter()
+            .any(|entry| entry["path"] == "README.md"));
+        assert!(root_entries.iter().any(|entry| entry["path"] == "src"));
+
+        let recursive_listing = registry
+            .execute(
+                "list_files",
+                &json!({"path": "src", "recursive": true}),
+                &ctx,
+            )
+            .unwrap();
+        let recursive_entries = recursive_listing["entries"].as_array().unwrap();
+        assert!(recursive_entries
+            .iter()
+            .any(|entry| entry["path"] == "src/components/Button.tsx"));
+
+        let file_stat = registry
+            .execute(
+                "stat_file",
+                &json!({"path": "src/components/Button.tsx"}),
+                &ctx,
+            )
+            .unwrap();
+        assert_eq!(file_stat["isFile"], true);
+        assert_eq!(file_stat["kind"], "file");
+
+        let dir_stat = registry
+            .execute("stat_file", &json!({"path": "src/components"}), &ctx)
+            .unwrap();
+        assert_eq!(dir_stat["isDirectory"], true);
+        assert_eq!(dir_stat["kind"], "directory");
+
+        conversation_store::delete_conversation(&conversation_id).unwrap();
+    }
+
+    #[test]
+    fn test_read_file_truncates_large_text_preview() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let registry = ToolRegistry::new_with_defaults();
+        let conversation_id = format!("test-read-truncation-{}", uuid::Uuid::new_v4());
+        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(conversation_id.clone()),
+        };
+
+        let content = "0123456789abcdef".repeat(4_096);
+        registry
+            .execute(
+                "write_file",
+                &json!({"path": "logs/large.txt", "content": content}),
+                &ctx,
+            )
+            .unwrap();
+
+        let preview = registry
+            .execute(
+                "read_file",
+                &json!({"path": "logs/large.txt", "max_bytes": 1024}),
+                &ctx,
+            )
+            .unwrap();
+
+        assert_eq!(preview["truncated"], true);
+        assert_eq!(preview["maxBytes"], 1024);
+        assert_eq!(preview["bytesRead"], 1024);
+        assert!(preview["totalBytes"].as_u64().unwrap() > 1024);
+        let preview_content = preview["content"].as_str().unwrap();
+        assert_eq!(preview_content.len(), 1024);
+        assert_eq!(preview_content, &"0123456789abcdef".repeat(64));
+
+        conversation_store::delete_conversation(&conversation_id).unwrap();
+    }
+
+    #[test]
+    fn test_list_files_truncates_by_output_size() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let registry = ToolRegistry::new_with_defaults();
+        let conversation_id = format!("test-list-truncation-{}", uuid::Uuid::new_v4());
+        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(conversation_id.clone()),
+        };
+
+        for index in 0..400 {
+            registry
+                .execute(
+                    "write_file",
+                    &json!({
+                        "path": format!("many/nested_directory_with_a_very_long_name_{index:03}/file_name_that_is_also_quite_long_{index:03}.txt"),
+                        "content": format!("file-{index}\n"),
+                    }),
+                    &ctx,
+                )
+                .unwrap();
+        }
+
+        let listing = registry
+            .execute(
+                "list_files",
+                &json!({"path": "many", "recursive": true, "max_entries": 1000}),
+                &ctx,
+            )
+            .unwrap();
+
+        assert_eq!(listing["truncated"], true);
+        assert!(listing["entryCount"].as_u64().unwrap() < 1000);
+        let reasons = listing["truncationReasons"].as_array().unwrap();
+        assert!(reasons.iter().any(|reason| reason == "max_output_chars"));
+        assert!(listing["approxOutputChars"].as_u64().unwrap() > 0);
+
+        conversation_store::delete_conversation(&conversation_id).unwrap();
+    }
+
+    #[test]
+    fn test_binary_files_are_rejected_by_text_tools() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let registry = ToolRegistry::new_with_defaults();
+        let conversation_id = format!("test-binary-guards-{}", uuid::Uuid::new_v4());
+        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(conversation_id.clone()),
+        };
+
+        let workspace = conversation_store::conversation_workspace_path(&conversation_id).unwrap();
+        let binary_path = workspace.join("assets/image.bin");
+        std::fs::create_dir_all(binary_path.parent().unwrap()).unwrap();
+        std::fs::write(&binary_path, [0_u8, 159, 146, 150, 0]).unwrap();
+
+        let read_err = registry
+            .execute("read_file", &json!({"path": "assets/image.bin"}), &ctx)
+            .unwrap_err();
+        assert!(read_err.contains("non-text/binary"));
+
+        let replace_err = registry
+            .execute(
+                "replace_text",
+                &json!({
+                    "path": "assets/image.bin",
+                    "old_text": "a",
+                    "new_text": "b"
+                }),
+                &ctx,
+            )
+            .unwrap_err();
+        assert!(replace_err.contains("Refusing to edit"));
+
+        let write_err = registry
+            .execute(
+                "write_file",
+                &json!({"path": "assets/image.bin", "content": "hello"}),
+                &ctx,
+            )
+            .unwrap_err();
+        assert!(write_err.contains("Refusing to write"));
+
+        let new_binary_err = registry
+            .execute(
+                "write_file",
+                &json!({"path": "assets/new-image.png", "content": "not a real png"}),
+                &ctx,
+            )
+            .unwrap_err();
+        assert!(new_binary_err.contains(".png"));
+
+        let stat = registry
+            .execute("stat_file", &json!({"path": "assets/image.bin"}), &ctx)
+            .unwrap();
+        assert_eq!(stat["contentKind"], "binary");
+        assert_eq!(stat["textReadable"], false);
+
+        conversation_store::delete_conversation(&conversation_id).unwrap();
+    }
+
+    #[test]
+    fn test_text_edit_tools_and_structured_patch_are_deterministic() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let registry = ToolRegistry::new_with_defaults();
+        let conversation_id = format!("test-text-edits-{}", uuid::Uuid::new_v4());
+        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(conversation_id.clone()),
+        };
+
+        registry
+            .execute(
+                "write_file",
+                &json!({
+                    "path": "src/main.rs",
+                    "content": "fn main() {\n    println!(\"hello\");\n}\n"
+                }),
+                &ctx,
+            )
+            .unwrap();
+
+        registry
+            .execute(
+                "replace_text",
+                &json!({
+                    "path": "src/main.rs",
+                    "old_text": "hello",
+                    "new_text": "hi"
+                }),
+                &ctx,
+            )
+            .unwrap();
+
+        registry
+            .execute(
+                "insert_after",
+                &json!({
+                    "path": "src/main.rs",
+                    "anchor": "fn main() {",
+                    "content": "\n    let value = 1;"
+                }),
+                &ctx,
+            )
+            .unwrap();
+
+        registry
+            .execute(
+                "insert_before",
+                &json!({
+                    "path": "src/main.rs",
+                    "anchor": "    println!(\"hi\");",
+                    "content": "    // greeting\n"
+                }),
+                &ctx,
+            )
+            .unwrap();
+
+        registry
+            .execute(
+                "replace_block",
+                &json!({
+                    "path": "src/main.rs",
+                    "old_block": "    let value = 1;\n    // greeting\n    println!(\"hi\");",
+                    "new_block": "    let value = 2;\n    // greeting\n    println!(\"hi\");"
+                }),
+                &ctx,
+            )
+            .unwrap();
+
+        registry
+            .execute(
+                "apply_patch",
+                &json!({
+                    "path": "src/main.rs",
+                    "edits": [
+                        {
+                            "op": "replace_text",
+                            "old_text": "value = 2",
+                            "new_text": "value = 3"
+                        },
+                        {
+                            "op": "insert_before",
+                            "anchor": "}\n",
+                            "content": "    println!(\"done\");\n"
+                        }
+                    ]
+                }),
+                &ctx,
+            )
+            .unwrap();
+
+        let final_file = registry
+            .execute("read_file", &json!({"path": "src/main.rs"}), &ctx)
+            .unwrap();
+        assert_eq!(
+            final_file["content"],
+            "fn main() {\n    let value = 3;\n    // greeting\n    println!(\"hi\");\n    println!(\"done\");\n}\n"
+        );
+
+        conversation_store::delete_conversation(&conversation_id).unwrap();
+    }
+
+    #[test]
+    fn test_apply_patch_is_atomic_when_a_later_edit_fails() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let registry = ToolRegistry::new_with_defaults();
+        let conversation_id = format!("test-apply-patch-atomic-{}", uuid::Uuid::new_v4());
+        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(conversation_id.clone()),
+        };
+
+        registry
+            .execute(
+                "write_file",
+                &json!({
+                    "path": "notes/example.txt",
+                    "content": "alpha\nbeta\ngamma\n"
+                }),
+                &ctx,
+            )
+            .unwrap();
+
+        let err = registry
+            .execute(
+                "apply_patch",
+                &json!({
+                    "path": "notes/example.txt",
+                    "edits": [
+                        {
+                            "op": "replace_text",
+                            "old_text": "alpha",
+                            "new_text": "ALPHA"
+                        },
+                        {
+                            "op": "insert_after",
+                            "anchor": "missing\n",
+                            "content": "delta\n"
+                        }
+                    ]
+                }),
+                &ctx,
+            )
+            .unwrap_err();
+        assert!(err.contains("Patch edit 2 failed"));
+
+        let final_file = registry
+            .execute("read_file", &json!({"path": "notes/example.txt"}), &ctx)
+            .unwrap();
+        assert_eq!(final_file["content"], "alpha\nbeta\ngamma\n");
+
+        conversation_store::delete_conversation(&conversation_id).unwrap();
+    }
+
+    #[test]
     fn test_tool_registry() {
         let registry = ToolRegistry::new_with_defaults();
         let schemas = registry.list_schemas();
-        assert_eq!(schemas.len(), 4);
+        assert_eq!(schemas.len(), DEFAULT_NATIVE_TOOL_COUNT);
 
         // Execute via registry
         let args = json!({ "expression": "100 * 2.5" });
@@ -220,8 +632,8 @@ mod tests {
         let responses_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Responses);
         let cc_schemas = registry.list_schemas_with_format(ToolSchemaFormat::ChatCompletions);
 
-        assert_eq!(responses_schemas.len(), 4);
-        assert_eq!(cc_schemas.len(), 4);
+        assert_eq!(responses_schemas.len(), DEFAULT_NATIVE_TOOL_COUNT);
+        assert_eq!(cc_schemas.len(), DEFAULT_NATIVE_TOOL_COUNT);
 
         let first_responses = &responses_schemas[0];
         assert_eq!(first_responses["type"], "function");
@@ -242,9 +654,10 @@ mod tests {
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
-        assert_eq!(snapshot.schemas().len(), 4);
+        assert_eq!(snapshot.schemas().len(), DEFAULT_NATIVE_TOOL_COUNT);
         assert!(snapshot.active_tool_names().contains("calculator"));
         assert!(snapshot.active_tool_names().contains("get_system_time"));
+        assert!(snapshot.active_tool_names().contains("list_files"));
 
         let result = snapshot
             .execute(

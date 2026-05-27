@@ -1,6 +1,8 @@
 use crate::tools::{
-    format_tool_schema, humanize_tool_name, CalculatorTool, FileReaderTool, FileWriterTool,
-    SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation, ToolSchemaFormat,
+    format_tool_schema, humanize_tool_name, ApplyPatchTool, CalculatorTool, FileReaderTool,
+    FileWriterTool, InsertAfterTool, InsertBeforeTool, ListFilesTool, MkdirTool, ReplaceBlockTool,
+    ReplaceTextTool, StatFileTool, SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation,
+    ToolSchemaFormat,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -409,6 +411,14 @@ impl ToolCatalog {
                 Arc::new(SystemTimeTool),
                 Arc::new(FileReaderTool),
                 Arc::new(FileWriterTool),
+                Arc::new(ListFilesTool),
+                Arc::new(StatFileTool),
+                Arc::new(MkdirTool),
+                Arc::new(ReplaceTextTool),
+                Arc::new(ReplaceBlockTool),
+                Arc::new(ApplyPatchTool),
+                Arc::new(InsertAfterTool),
+                Arc::new(InsertBeforeTool),
             ],
             mcp_manager,
             mcp_runtime: config.mcp_runtime.clone(),
