@@ -1,4 +1,8 @@
-use super::file_io::{read_conversation_file, summary_from_meta, write_conversation_file};
+use super::file_io::{
+    append_conversation_line, apply_line_to_meta, conversation_file_contains_line_id,
+    read_conversation_file, read_conversation_meta, summary_from_meta, write_conversation_file,
+    write_conversation_metadata,
+};
 use super::locks::with_conversation_lock;
 use super::paths::{
     conversation_dir_path, conversation_messages_path, conversation_metadata_path,
@@ -78,10 +82,10 @@ pub fn update_line(input: UpdateLineInput) -> Result<(), String> {
 fn append_line_inner(input: AppendLineInput) -> Result<(), String> {
     let metadata_path = conversation_metadata_path(&input.conversation_id)?;
     let messages_path = conversation_messages_path(&input.conversation_id)?;
-    let mut data = load_or_create_inner(&input.conversation_id, &metadata_path, &messages_path)?;
+    let mut meta = load_or_create_meta(&input.conversation_id, &metadata_path, &messages_path)?;
 
     // Deduplicate: skip if line with same id already exists.
-    if data.lines.iter().any(|l| l.id() == input.line.id()) {
+    if conversation_file_contains_line_id(&messages_path, input.line.id())? {
         log::warn!(
             "append_line: skipping duplicate line id={} kind={:?}",
             input.line.id(),
@@ -91,14 +95,14 @@ fn append_line_inner(input: AppendLineInput) -> Result<(), String> {
     }
 
     log::info!(
-        "append_line: conv={} id={} lines_before={}",
+        "append_line: conv={} id={} append_only=true",
         input.conversation_id,
         input.line.id(),
-        data.lines.len()
     );
 
-    data.lines.push(input.line);
-    write_conversation_file(&metadata_path, &messages_path, &data)
+    append_conversation_line(&messages_path, &input.line)?;
+    apply_line_to_meta(&mut meta, &input.line);
+    write_conversation_metadata(&metadata_path, &meta)
 }
 
 fn update_line_inner(input: UpdateLineInput) -> Result<(), String> {
@@ -205,6 +209,25 @@ fn load_or_create_inner(
         meta,
         lines: Vec::new(),
     })
+}
+
+fn load_or_create_meta(
+    conversation_id: &str,
+    metadata_path: &std::path::Path,
+    messages_path: &std::path::Path,
+) -> Result<ConversationMeta, String> {
+    if let Some(meta) = read_conversation_meta(metadata_path)? {
+        return Ok(meta);
+    }
+
+    if messages_path.exists() {
+        let Some(data) = read_conversation_file(metadata_path, messages_path)? else {
+            return ensure_conversation_inner(conversation_id);
+        };
+        return Ok(data.meta);
+    }
+
+    ensure_conversation_inner(conversation_id)
 }
 
 fn merge_updated_line(existing: &ConversationLine, next: ConversationLine) -> ConversationLine {

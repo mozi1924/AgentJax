@@ -19,23 +19,9 @@ pub fn read_conversation_file(
         return Ok(None);
     }
 
-    let raw_meta = fs::read_to_string(metadata_path).map_err(|e| {
-        format!(
-            "Failed to read metadata file {}: {e}",
-            metadata_path.display()
-        )
-    })?;
-    let mut meta: ConversationMeta = serde_json::from_str(&raw_meta).map_err(|e| {
-        format!(
-            "Failed to parse metadata file {}: {e}",
-            metadata_path.display()
-        )
-    })?;
-    meta.conversation_id = sanitize_conversation_id(&meta.conversation_id);
-    if meta.conversation_id.is_empty() {
+    let Some(mut meta) = read_conversation_meta(metadata_path)? else {
         return Ok(None);
-    }
-    sanitize_meta_basics(&mut meta);
+    };
 
     let file = fs::File::open(messages_path).map_err(|e| {
         format!(
@@ -76,7 +62,32 @@ pub fn read_conversation_file(
     Ok(Some(ConversationData { meta, lines }))
 }
 
-// ── Write (full file rewrite — conversation files are small) ──────────────
+pub fn read_conversation_meta(metadata_path: &Path) -> Result<Option<ConversationMeta>, String> {
+    if !metadata_path.exists() {
+        return Ok(None);
+    }
+
+    let raw_meta = fs::read_to_string(metadata_path).map_err(|e| {
+        format!(
+            "Failed to read metadata file {}: {e}",
+            metadata_path.display()
+        )
+    })?;
+    let mut meta: ConversationMeta = serde_json::from_str(&raw_meta).map_err(|e| {
+        format!(
+            "Failed to parse metadata file {}: {e}",
+            metadata_path.display()
+        )
+    })?;
+    meta.conversation_id = sanitize_conversation_id(&meta.conversation_id);
+    if meta.conversation_id.is_empty() {
+        return Ok(None);
+    }
+    sanitize_meta_basics(&mut meta);
+    Ok(Some(meta))
+}
+
+// ── Write ─────────────────────────────────────────────────────────────────
 
 pub fn write_conversation_file(
     metadata_path: &Path,
@@ -95,13 +106,7 @@ pub fn write_conversation_file(
     }
 
     // metadata.json — pretty-printed
-    let meta_json = serde_json::to_string_pretty(&data.meta)
-        .map_err(|e| format!("Failed to serialize metadata: {e}"))?;
-    write_file_atomically(
-        metadata_path,
-        format!("{meta_json}\n").as_bytes(),
-        "metadata",
-    )?;
+    write_conversation_metadata(metadata_path, &data.meta)?;
 
     // messages.jsonl — one compact JSON line per item
     let mut buf = String::with_capacity(data.lines.len() * 256);
@@ -114,7 +119,125 @@ pub fn write_conversation_file(
     write_file_atomically(messages_path, buf.as_bytes(), "messages")
 }
 
-fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> Result<(), String> {
+pub fn append_conversation_line(
+    messages_path: &Path,
+    line: &ConversationLine,
+) -> Result<(), String> {
+    ensure_parent_dir(messages_path, "messages")?;
+
+    let json = serde_json::to_string(line)
+        .map_err(|e| format!("Failed to serialize conversation line: {e}"))?;
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(messages_path)
+        .map_err(|e| {
+            format!(
+                "Failed to open messages file {} for append: {e}",
+                messages_path.display()
+            )
+        })?;
+    file.write_all(json.as_bytes()).map_err(|e| {
+        format!(
+            "Failed to append conversation line to {}: {e}",
+            messages_path.display()
+        )
+    })?;
+    file.write_all(b"\n").map_err(|e| {
+        format!(
+            "Failed to append newline to messages file {}: {e}",
+            messages_path.display()
+        )
+    })?;
+    file.sync_data().map_err(|e| {
+        format!(
+            "Failed to sync appended messages file {}: {e}",
+            messages_path.display()
+        )
+    })
+}
+
+pub fn write_conversation_metadata(
+    metadata_path: &Path,
+    meta: &ConversationMeta,
+) -> Result<(), String> {
+    ensure_parent_dir(metadata_path, "metadata")?;
+    let meta_json = serde_json::to_string_pretty(meta)
+        .map_err(|e| format!("Failed to serialize metadata: {e}"))?;
+    write_file_atomically(
+        metadata_path,
+        format!("{meta_json}\n").as_bytes(),
+        "metadata",
+    )
+}
+
+pub fn conversation_file_contains_line_id(
+    messages_path: &Path,
+    target_line_id: &str,
+) -> Result<bool, String> {
+    if !messages_path.exists() {
+        return Ok(false);
+    }
+
+    let file = fs::File::open(messages_path).map_err(|e| {
+        format!(
+            "Failed to open messages file {} while checking for duplicates: {e}",
+            messages_path.display()
+        )
+    })?;
+    let reader = BufReader::new(file);
+    for (idx, raw) in reader.lines().enumerate() {
+        let raw = raw.map_err(|e| {
+            format!(
+                "Failed to read line {} from {} while checking for duplicates: {e}",
+                idx + 1,
+                messages_path.display()
+            )
+        })?;
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        match serde_json::from_str::<ConversationLine>(trimmed) {
+            Ok(line) if line.id() == target_line_id => return Ok(true),
+            Ok(_) => {}
+            Err(err) => {
+                log::warn!(
+                    "Skipping malformed line {} in {} while checking for duplicates: {}",
+                    idx + 1,
+                    messages_path.display(),
+                    err
+                );
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+pub fn apply_line_to_meta(meta: &mut ConversationMeta, line: &ConversationLine) {
+    meta.updated_at_unix_ms = meta.updated_at_unix_ms.max(line.ts());
+
+    if !line.is_message() {
+        return;
+    }
+
+    meta.message_count += 1;
+    match line {
+        ConversationLine::User(user) => {
+            meta.last_message_preview = compact_preview(&user.text);
+        }
+        ConversationLine::Assistant(assistant) => {
+            if !assistant.text.trim().is_empty() {
+                meta.last_message_preview = compact_preview(&assistant.text);
+            }
+        }
+        ConversationLine::Tool(_) => {}
+    }
+}
+
+fn ensure_parent_dir(path: &Path, label: &str) -> Result<(), String> {
     let Some(parent) = path.parent() else {
         return Err(format!(
             "Failed to resolve parent directory for {} file {}",
@@ -132,6 +255,18 @@ fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> Result<()
             )
         })?;
     }
+
+    Ok(())
+}
+
+fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> Result<(), String> {
+    let parent = path.parent().ok_or_else(|| {
+        format!(
+            "Failed to resolve parent directory for {} file {}",
+            label,
+            path.display()
+        )
+    })?;
 
     let file_name = path
         .file_name()

@@ -392,6 +392,7 @@ impl AgentRuntime {
                 conversation_id,
                 tools_catalog,
                 collected.pending_tools,
+                provider_capabilities.supports_parallel_tool_calls,
                 cancel_rx,
                 &mut repeated_failed_tool_signatures,
                 &mut on_event,
