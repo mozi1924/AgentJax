@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import {
   buildFallbackModelOption,
@@ -10,6 +9,7 @@ import {
 } from '../features/models/modelCatalog';
 import type { ModelCatalogResponse, ModelOption } from '../features/conversations/types';
 import type { SettingsSnapshot, SettingsSnapshotEvent } from '../features/settings/types';
+import { tryGetCurrentWindow } from '../features/tauri/runtime';
 
 const isModelOption = (option: ModelOption | null): option is ModelOption =>
   option !== null;
@@ -132,7 +132,11 @@ export function useAppConfig() {
     let unlisten: (() => void) | null = null;
 
     const setup = async () => {
-      const currentWindow = getCurrentWindow();
+      const currentWindow = tryGetCurrentWindow();
+      if (!currentWindow) {
+        return;
+      }
+
       unlisten = await currentWindow.listen<SettingsSnapshotEvent>(
         'config_snapshot_changed',
         (event) => {

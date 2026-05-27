@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import type { Dispatch, SetStateAction } from 'react';
 import type { ChatStreamEventPayload, Conversation } from '../features/conversations/types';
@@ -13,6 +12,7 @@ import {
   applyToolExecution,
   normalizeAssistantPhase,
 } from '../features/conversations/sessionState';
+import { tryGetCurrentWindow } from '../features/tauri/runtime';
 
 interface StreamRequestMapping {
   conversationId: string;
@@ -167,7 +167,11 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
     let unlisten: (() => void) | null = null;
 
     const setup = async () => {
-      const currentWindow = getCurrentWindow();
+      const currentWindow = tryGetCurrentWindow();
+      if (!currentWindow) {
+        return;
+      }
+
       unlisten = await currentWindow.listen<ChatStreamEventPayload>(
         'chat_stream_event',
         (event) => {

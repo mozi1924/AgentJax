@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { tryGetCurrentWindow } from '../features/tauri/runtime';
 
 export function useTitlebarDragging(titlebarRef: React.RefObject<HTMLElement | null>) {
   useEffect(() => {
@@ -8,7 +8,11 @@ export function useTitlebarDragging(titlebarRef: React.RefObject<HTMLElement | n
       return undefined;
     }
 
-    const appWindow = getCurrentWindow();
+    const appWindow = tryGetCurrentWindow();
+    if (!appWindow) {
+      return undefined;
+    }
+
     const handleMouseDown = async (event: MouseEvent) => {
       if (event.buttons !== 1) return;
       if ((event.target as HTMLElement | null)?.closest('[data-no-drag="true"]')) return;
@@ -21,4 +25,3 @@ export function useTitlebarDragging(titlebarRef: React.RefObject<HTMLElement | n
     };
   }, []);
 }
-

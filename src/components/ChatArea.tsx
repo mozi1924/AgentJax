@@ -1,16 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  CheckCircle2,
-  Copy,
-  Loader2,
-  MessageSquare,
-  Sparkles,
-} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, Copy, Loader2, MessageSquare } from 'lucide-react';
+import WorkLogPanel from './chat/WorkLogPanel';
 import { renderMarkdown } from './chat/markdownRenderer';
+import {
+  buildConversationTurns,
+  hasTurnWorkLog,
+  joinAssistantTexts,
+  shouldCollapseTurnWorkLog,
+} from './chat/transcriptGrouping';
 import type {
-  ConversationLine,
   AssistantLine,
-  ToolLine,
+  ConversationLine,
   UserLine,
 } from '../features/conversations/types';
 
@@ -21,26 +21,21 @@ interface ChatAreaProps {
   activeChatTitle: string;
 }
 
-const formatToolOutput = (val: unknown): string => {
-  if (!val) return '';
-  try {
-    const parsed = typeof val === 'string' ? JSON.parse(val) : val;
-    return JSON.stringify(parsed, null, 2);
-  } catch {
-    return String(val);
-  }
-};
+const createAssistantTextClassName = (isCommentary: boolean) =>
+  [
+    'prose prose-invert max-w-none',
+    '[&_code]:!rounded-md [&_code]:!bg-[#101112] [&_code]:!px-1.5 [&_code]:!py-0.5',
+    '[&_code]:!text-[11px] [&_code]:!text-slate-200 [&_pre]:!rounded-xl',
+    '[&_pre]:!border [&_pre]:!border-white/8 [&_pre]:!bg-[#101112]',
+    isCommentary
+      ? 'prose-sm text-slate-300 [&_p]:!my-1.5'
+      : '[&_p]:!my-2.5 text-[15px] leading-7 text-slate-100',
+  ].join(' ');
 
-const resolveToolDisplayName = (name: string) => {
-  if (name.startsWith('mcp__')) {
-    const parts = name.split('__');
-    if (parts.length >= 3) {
-      return { displayName: parts.slice(2).join('__'), origin: `MCP: ${parts[1]}` };
-    }
-  }
-  return { displayName: name, origin: '\u5185\u7F6E' };
-};
-
+/**
+ * Renders the conversation as request-scoped turns so final answers can stay
+ * prominent while intermediate work remains available on demand.
+ */
 export default function ChatArea({
   lines,
   isGenerating,
@@ -49,7 +44,24 @@ export default function ChatArea({
 }: ChatAreaProps) {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  const [manualWorkLogState, setManualWorkLogState] = useState<Record<string, boolean>>({});
+
+  const turns = useMemo(() => buildConversationTurns(lines), [lines]);
+
+  useEffect(() => {
+    const requestIds = new Set(turns.map((turn) => turn.requestId));
+    setManualWorkLogState((prev) => {
+      const entries = Object.entries(prev).filter(([requestId]) => requestIds.has(requestId));
+      if (entries.length === Object.keys(prev).length) {
+        return prev;
+      }
+      return Object.fromEntries(entries);
+    });
+  }, [turns]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [lines, isGenerating, isThinking]);
 
   const handleCopy = async (id: string, text: string) => {
     await navigator.clipboard.writeText(text);
@@ -57,171 +69,147 @@ export default function ChatArea({
     window.setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const toggleToolExpanded = (callId: string) => {
-    setExpandedTools((prev) => {
-      const next = new Set(prev);
-      if (next.has(callId)) next.delete(callId);
-      else next.add(callId);
-      return next;
-    });
+  const toggleWorkLog = (requestId: string, nextOpen: boolean) => {
+    setManualWorkLogState((prev) => ({
+      ...prev,
+      [requestId]: nextOpen,
+    }));
   };
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [lines, isGenerating, isThinking]);
 
   if (lines.length === 0) return null;
 
   return (
     <div className="scrollbar-thin flex flex-1 flex-col overflow-y-auto px-4 py-6 md:px-8 lg:px-12">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 py-4">
-        <div className="mb-2 flex items-center gap-2 border-b border-[#2d2f31]/60 pb-3 text-xs font-semibold tracking-widest text-slate-500 uppercase">
-          <MessageSquare className="h-4 w-4 text-cyan-400" />
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 py-4">
+        <div className="mb-1 flex items-center gap-2 border-b border-white/6 pb-3 text-xs font-semibold tracking-[0.18em] text-slate-500 uppercase">
+          <MessageSquare className="h-4 w-4 text-slate-400" />
           <span>{activeChatTitle}</span>
         </div>
 
-        {lines.map((line) => {
-          // ── user message ──────────────────────────────────────────
-          if (line.kind === 'user') {
-            return (
-              <div key={line.id} className="flex justify-end">
-                <div
-                  data-native-context-menu="true"
-                  className="max-w-[80%] break-words rounded-3xl border border-[#2d2f31]/30 bg-[#1e1f20] px-5 py-3.5 text-sm leading-relaxed text-slate-200 transition hover:border-slate-500/30 select-text"
-                >
-                  {(line as UserLine).text && String((line as UserLine).text)}
-                </div>
-              </div>
-            );
-          }
+        {turns.map((turn) => {
+          const joinedFinalText = joinAssistantTexts(turn.finalLines);
+          const defaultWorkLogOpen = !shouldCollapseTurnWorkLog(turn);
+          const isWorkLogOpen =
+            manualWorkLogState[turn.requestId] ?? defaultWorkLogOpen;
 
-          // ── tool card ─────────────────────────────────────────────
-          if (line.kind === 'tool') {
-            const t = line as ToolLine;
-            const { displayName, origin } = resolveToolDisplayName(t.name);
-            const expanded = expandedTools.has(t.callId);
-            const statusColor =
-              t.status === 'done'
-                ? 'border-emerald-500/20 bg-emerald-500/5'
-                : t.status === 'failed'
-                  ? 'border-rose-500/20 bg-rose-500/5'
-                  : 'border-amber-500/20 bg-amber-500/5';
+          return (
+            <section key={turn.requestId} className="space-y-3">
+              {turn.userLines.map((line) => (
+                <UserMessageBubble key={line.id} line={line} />
+              ))}
 
-            return (
-              <div key={line.id} className="flex justify-start">
-                <div className={`max-w-xl rounded-xl border px-4 py-2.5 text-xs ${statusColor}`}>
-                  <button
-                    className="flex w-full items-center gap-2 text-left"
-                    onClick={() => toggleToolExpanded(t.callId)}
-                  >
-                    {t.status === 'done' ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                    ) : t.status === 'failed' ? (
-                      <span className="h-3.5 w-3.5 text-rose-400">{'\u2717'}</span>
-                    ) : (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
-                    )}
-                    <span className="font-medium text-slate-300">{displayName}</span>
-                    <span className="text-slate-500">{'\u00B7'}</span>
-                    <span className="text-slate-500">{origin}</span>
-                    <span className="ml-auto text-[10px] text-slate-500">
-                      {t.status === 'done' ? '\u5B8C\u6210' : t.status === 'failed' ? '\u5931\u8D25' : '\u6267\u884C\u4E2D'}
-                    </span>
-                  </button>
-                  {expanded && (
-                    <div className="mt-2 space-y-2 border-t border-white/5 pt-2">
-                      {t.args != null && (
-                        <div>
-                          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{'\u53C2\u6570'}</span>
-                          <pre className="mt-0.5 overflow-x-auto rounded bg-black/20 p-2 text-[11px] text-slate-300 max-h-24">
-                            {typeof t.args === 'string' ? t.args : JSON.stringify(t.args, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                      {t.output != null && (
-                        <div>
-                          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{'\u8F93\u51FA'}</span>
-                          <pre className="mt-0.5 overflow-x-auto rounded bg-black/20 p-2 text-[11px] text-slate-300 max-h-32">
-                            {formatToolOutput(t.output)}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          }
+              {hasTurnWorkLog(turn) && (
+                <WorkLogPanel
+                  isOpen={isWorkLogOpen}
+                  onToggle={() => toggleWorkLog(turn.requestId, !isWorkLogOpen)}
+                  turn={turn}
+                />
+              )}
 
-          // ── assistant message ─────────────────────────────────────
-          if (line.kind === 'assistant') {
-            const a = line as AssistantLine;
-            const isDraft = a.status === 'draft';
-            const isEmpty = !a.text || (typeof a.text === 'string' && !a.text.trim());
-            const isCommentary = a.phase === 'commentary';
-            if (isEmpty && !isDraft) return null;
-
-            return (
-              <div key={line.id} className={`flex gap-4 justify-start ${isCommentary ? 'pl-6' : ''}`}>
-                {!isCommentary && (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 text-white shadow-md shadow-purple-500/20">
-                    <Sparkles className={`h-4.5 w-4.5 ${isDraft ? 'animate-pulse' : ''}`} />
-                  </div>
-                )}
-                {isCommentary && (
-                  <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 text-amber-300">
-                    <Loader2 className={`h-3.5 w-3.5 ${isDraft ? 'animate-spin' : ''}`} />
-                  </div>
-                )}
-                <div className="flex-1 space-y-1.5 overflow-hidden">
-                  <div className="group flex items-start gap-2">
-                    <div className={`flex-1 leading-relaxed select-text prose prose-invert max-w-none [&_pre]:!bg-[#0d0d0e] [&_pre]:!border [&_pre]:!border-[#2d2f31]/30 [&_pre]:!rounded-xl [&_code]:!bg-[#0d0d0e] [&_code]:!text-pink-300 [&_code]:!px-1.5 [&_code]:!py-0.5 [&_code]:!rounded-md [&_code]:!text-xs ${isCommentary ? 'text-xs prose-sm text-amber-100/90' : 'text-sm text-slate-200'}`}>
-                      {isEmpty ? (
-                        <span className="inline-flex items-center gap-1.5 text-slate-500 text-xs">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          {'\u601D\u8003\u4E2D...'}
-                        </span>
-                      ) : (
-                        <>{renderMarkdown(String(a.text))}</>
-                      )}
-                      {isDraft && !isEmpty && (
-                        <span className="inline-block ml-1 w-1.5 h-4 bg-cyan-400 animate-pulse rounded-sm align-middle" />
-                      )}
-                    </div>
-                    {!isEmpty && !isCommentary && (
-                      <button
-                        className="mt-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition p-1 rounded hover:bg-white/5"
-                        onClick={() => handleCopy(a.id, a.text)}
-                        title="\u590D\u5236"
-                      >
-                        {copiedId === a.id ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5 text-slate-500" />
-                        )}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          }
-
-          return null;
+              {turn.finalLines.length > 0 && (
+                <AssistantFinalCard
+                  copiedId={copiedId}
+                  lines={turn.finalLines}
+                  onCopy={handleCopy}
+                  turnText={joinedFinalText}
+                />
+              )}
+            </section>
+          );
         })}
 
         {isThinking && (
           <div className="flex items-center gap-3 py-1">
-            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-purple-500/30 to-transparent" />
-            <span className="flex items-center gap-1.5 text-xs font-medium text-purple-400 whitespace-nowrap">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+            <span className="flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-slate-400">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {'\u6A21\u578B\u601D\u8003\u4E2D...'}
+              模型思考中...
             </span>
-            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-purple-500/30 to-transparent" />
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
           </div>
         )}
 
         <div ref={messagesEndRef} />
+      </div>
+    </div>
+  );
+}
+
+function UserMessageBubble({ line }: { line: UserLine }) {
+  return (
+    <div className="flex justify-end">
+      <div
+        data-native-context-menu="true"
+        className="max-w-[85%] break-words rounded-[26px] border border-white/6 bg-[#232425] px-5 py-3.5 text-sm leading-7 text-slate-100 shadow-[0_16px_40px_-32px_rgba(0,0,0,0.95)] select-text"
+      >
+        {line.text && String(line.text)}
+      </div>
+    </div>
+  );
+}
+
+interface AssistantFinalCardProps {
+  copiedId: string | null;
+  lines: AssistantLine[];
+  onCopy: (id: string, text: string) => Promise<void>;
+  turnText: string;
+}
+
+function AssistantFinalCard({
+  copiedId,
+  lines,
+  onCopy,
+  turnText,
+}: AssistantFinalCardProps) {
+  return (
+    <div className="group rounded-[28px] border border-white/6 bg-transparent px-1 py-1">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1 overflow-hidden">
+          {lines.map((line) => {
+            const isDraft = line.status === 'draft';
+            const isEmpty = !line.text || !line.text.trim();
+
+            if (isEmpty && !isDraft) {
+              return null;
+            }
+
+            return (
+              <div
+                key={line.id}
+                className="rounded-[24px] bg-transparent px-1 py-0.5 text-slate-100"
+              >
+                <div className={createAssistantTextClassName(false)}>
+                  {isEmpty ? (
+                    <span className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Thinking...
+                    </span>
+                  ) : (
+                    renderMarkdown(String(line.text))
+                  )}
+                  {isDraft && !isEmpty && (
+                    <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-300 align-middle" />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {turnText && (
+          <button
+            type="button"
+            className="mt-1 shrink-0 rounded-lg p-1.5 opacity-0 transition hover:bg-white/5 group-hover:opacity-100"
+            onClick={() => void onCopy(lines[0]?.id || 'assistant-final', turnText)}
+            title="复制最终回答"
+          >
+            {copiedId === (lines[0]?.id || 'assistant-final') ? (
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+            ) : (
+              <Copy className="h-3.5 w-3.5 text-slate-500" />
+            )}
+          </button>
+        )}
       </div>
     </div>
   );

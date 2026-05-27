@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import * as LucideIcons from 'lucide-react';
 import { LoaderCircle, Settings2, X } from 'lucide-react';
 import SettingsRenderer from './settings/SettingsRenderer';
@@ -15,6 +14,7 @@ import {
   buildOptimisticSnapshot,
   findFirstSection,
 } from '../features/settings/utils';
+import { tryGetCurrentWindow } from '../features/tauri/runtime';
 
 const getSectionIcon = (iconName?: string) => {
   if (!iconName) return Settings2;
@@ -90,25 +90,27 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         }
       });
 
-    const currentWindow = getCurrentWindow();
+    const currentWindow = tryGetCurrentWindow();
     let unlisten: (() => void) | null = null;
 
-    void currentWindow
-      .listen<SettingsSnapshotEvent>('config_snapshot_changed', (event) => {
-        const payload = event.payload;
-        if (!payload) return;
-        setSnapshot(payload);
-        setSavingPath(null);
-        setFieldErrors({});
-        setStatusMessage(
-          payload.origin === 'external'
-            ? 'Configuration reloaded from disk.'
-            : 'Settings saved.'
-        );
-      })
-      .then((dispose) => {
-        unlisten = dispose;
-      });
+    if (currentWindow) {
+      void currentWindow
+        .listen<SettingsSnapshotEvent>('config_snapshot_changed', (event) => {
+          const payload = event.payload;
+          if (!payload) return;
+          setSnapshot(payload);
+          setSavingPath(null);
+          setFieldErrors({});
+          setStatusMessage(
+            payload.origin === 'external'
+              ? 'Configuration reloaded from disk.'
+              : 'Settings saved.'
+          );
+        })
+        .then((dispose) => {
+          unlisten = dispose;
+        });
+    }
 
     return () => {
       disposed = true;
