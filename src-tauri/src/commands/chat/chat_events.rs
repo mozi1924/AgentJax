@@ -15,6 +15,9 @@ pub struct ChatStreamEvent {
     pub error: Option<String>,
     pub tool_call_id: Option<String>,
     pub tool_name: Option<String>,
+    pub tool_display_name: Option<String>,
+    pub tool_description: Option<String>,
+    pub tool_icon: Option<String>,
     pub tool_arguments: Option<String>,
     pub tool_output: Option<String>,
     /// When `kind == "delta"`, signals whether this text belongs to the
@@ -46,6 +49,9 @@ pub fn emit_mapped_stream_event(
         error: None,
         tool_call_id: None,
         tool_name: None,
+        tool_display_name: None,
+        tool_description: None,
+        tool_icon: None,
         tool_arguments: None,
         tool_output: None,
         phase: None,
@@ -67,10 +73,20 @@ pub fn emit_mapped_stream_event(
             item_id: _,
             call_id,
             name,
+            presentation,
         } => {
             chat_event.kind = "tool_call_started".to_string();
             chat_event.tool_call_id = Some(call_id);
             chat_event.tool_name = Some(name);
+            if let Some(presentation) = presentation {
+                if !presentation.display_name.trim().is_empty() {
+                    chat_event.tool_display_name = Some(presentation.display_name);
+                }
+                if !presentation.description.trim().is_empty() {
+                    chat_event.tool_description = Some(presentation.description);
+                }
+                chat_event.tool_icon = presentation.icon;
+            }
         }
         ProviderStreamEvent::ToolCallArgumentsDelta {
             item_id: _,
@@ -86,21 +102,41 @@ pub fn emit_mapped_stream_event(
             call_id,
             name,
             arguments,
+            presentation,
         } => {
             chat_event.kind = "tool_call_done".to_string();
             chat_event.tool_call_id = Some(call_id);
             chat_event.tool_name = Some(name);
             chat_event.tool_arguments = Some(arguments);
+            if let Some(presentation) = presentation {
+                if !presentation.display_name.trim().is_empty() {
+                    chat_event.tool_display_name = Some(presentation.display_name);
+                }
+                if !presentation.description.trim().is_empty() {
+                    chat_event.tool_description = Some(presentation.description);
+                }
+                chat_event.tool_icon = presentation.icon;
+            }
         }
         ProviderStreamEvent::ToolCallExecuted {
             call_id,
             name,
             output,
+            presentation,
         } => {
             chat_event.kind = "tool_call_exec".to_string();
             chat_event.tool_call_id = Some(call_id);
             chat_event.tool_name = Some(name);
             chat_event.tool_output = Some(output);
+            if let Some(presentation) = presentation {
+                if !presentation.display_name.trim().is_empty() {
+                    chat_event.tool_display_name = Some(presentation.display_name);
+                }
+                if !presentation.description.trim().is_empty() {
+                    chat_event.tool_description = Some(presentation.description);
+                }
+                chat_event.tool_icon = presentation.icon;
+            }
         }
         ProviderStreamEvent::AssistantMessageCompleted { .. } => {
             return Ok(());

@@ -68,6 +68,9 @@ fn t(
         request_id: req.into(),
         call_id: call.into(),
         name: name.into(),
+        display_name: None,
+        description: None,
+        icon: None,
         args,
         output: out,
         status: st,
@@ -809,7 +812,9 @@ fn conversation_dynamic_tools_round_trip_through_metadata() {
         &cid,
         vec![ConversationDynamicTool {
             name: "math_alias".to_string(),
+            display_name: None,
             description: "Alias".to_string(),
+            icon: None,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -854,7 +859,9 @@ fn conversation_mounted_mcp_servers_round_trip_through_metadata() {
             server_id: "openai_docs".to_string(),
             tools: vec![ConversationMountedMcpToolDefinition {
                 tool_name: "search_openai_docs".to_string(),
+                display_name: "Search Openai Docs".to_string(),
                 description: "Search docs".to_string(),
+                icon: Some("LayoutGrid".to_string()),
                 input_schema: json!({
                     "type": "object",
                     "properties": {

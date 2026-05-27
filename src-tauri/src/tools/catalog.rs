@@ -1,6 +1,6 @@
 use crate::tools::{
-    format_tool_schema, CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool, Tool,
-    ToolExecutionContext, ToolSchemaFormat,
+    format_tool_schema, humanize_tool_name, CalculatorTool, FileReaderTool, FileWriterTool,
+    SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation, ToolSchemaFormat,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -9,7 +9,9 @@ use std::sync::Arc;
 #[derive(Debug, Clone, PartialEq)]
 pub struct MountedMcpToolDefinition {
     pub tool_name: String,
+    pub display_name: String,
     pub description: String,
+    pub icon: Option<String>,
     pub input_schema: Value,
 }
 
@@ -82,18 +84,31 @@ fn prefixed_mcp_tool_name(server_id: &str, tool_name: &str) -> String {
 }
 
 fn display_name_for_server(server_id: &str) -> String {
-    server_id
-        .split(['_', '-'])
-        .filter(|part| !part.trim().is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    humanize_tool_name(server_id)
+}
+
+fn presentation_for_manage_mcp_server(server_id: &str) -> ToolPresentation {
+    let display_name = display_name_for_server(server_id);
+    ToolPresentation::new(
+        format!("Manage {}", display_name),
+        format!("Controls the MCP server '{}'.", display_name),
+        Some("LayoutGrid"),
+    )
+}
+
+fn fallback_icon_for_dynamic_binding(
+    binding: &crate::conversation_store::ConversationDynamicToolBinding,
+    native_tools: &[Arc<dyn Tool>],
+) -> Option<String> {
+    match binding {
+        crate::conversation_store::ConversationDynamicToolBinding::Native { tool } => native_tools
+            .iter()
+            .find(|candidate| candidate.name() == tool)
+            .and_then(|candidate| candidate.icon().map(str::to_string)),
+        crate::conversation_store::ConversationDynamicToolBinding::Mcp { .. } => {
+            Some("LayoutGrid".to_string())
+        }
+    }
 }
 
 fn build_manage_mcp_server_tool_schema(
@@ -142,6 +157,22 @@ fn normalize_mcp_tool_definitions(raw_tools: Vec<Value>) -> Vec<MountedMcpToolDe
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
+        let display_name = raw_tool
+            .get("title")
+            .or_else(|| raw_tool.get("displayName"))
+            .or_else(|| raw_tool.get("display_name"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| humanize_tool_name(&tool_name));
+        let icon = raw_tool
+            .get("icon")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .or(Some("LayoutGrid".to_string()));
         let input_schema = raw_tool
             .get("inputSchema")
             .or_else(|| raw_tool.get("input_schema"))
@@ -153,7 +184,9 @@ fn normalize_mcp_tool_definitions(raw_tools: Vec<Value>) -> Vec<MountedMcpToolDe
 
         normalized.push(MountedMcpToolDefinition {
             tool_name,
+            display_name,
             description,
+            icon,
             input_schema,
         });
     }
@@ -169,6 +202,7 @@ pub struct ToolCatalogSnapshot {
     schemas: Vec<Value>,
     active_tool_names: HashSet<String>,
     entries: HashMap<String, ToolSnapshotEntry>,
+    presentations: HashMap<String, ToolPresentation>,
     mcp_manager: Arc<crate::mcp::McpManager>,
     mcp_runtime: crate::config::McpRuntimeConfig,
 }
@@ -180,6 +214,10 @@ impl ToolCatalogSnapshot {
 
     pub fn active_tool_names(&self) -> &HashSet<String> {
         &self.active_tool_names
+    }
+
+    pub fn presentation_for(&self, tool_name: &str) -> Option<&ToolPresentation> {
+        self.presentations.get(tool_name)
     }
 
     pub async fn execute(
@@ -407,15 +445,18 @@ impl ToolCatalog {
         let mut schemas = Vec::new();
         let mut active_tool_names = HashSet::new();
         let mut entries = HashMap::new();
+        let mut presentations = HashMap::new();
 
         for tool in &self.native_tools {
             let schema = tool.to_schema_with_format(format);
+            let tool_name = tool.name().to_string();
+            presentations.insert(tool_name.clone(), tool.presentation());
             insert_snapshot_tool(
                 &mut schemas,
                 schema,
                 &mut active_tool_names,
                 &mut entries,
-                tool.name().to_string(),
+                tool_name,
                 ToolSnapshotEntry::Native(tool.clone()),
             );
         }
@@ -429,6 +470,10 @@ impl ToolCatalog {
                 self.resolve_server_config_with_workspace_fallback(server_config, context);
             let mounted_session = mounted_servers.get(server_id).cloned();
             let control_tool_name = mount_tool_name_for_server(server_id);
+            presentations.insert(
+                control_tool_name.clone(),
+                presentation_for_manage_mcp_server(server_id),
+            );
             insert_snapshot_tool(
                 &mut schemas,
                 build_manage_mcp_server_tool_schema(format, server_id, mounted_session.is_some()),
@@ -445,6 +490,14 @@ impl ToolCatalog {
             if let Some(mounted) = mounted_servers.get(server_id) {
                 for tool in &mounted.tools {
                     let prefixed_name = prefixed_mcp_tool_name(server_id, &tool.tool_name);
+                    presentations.insert(
+                        prefixed_name.clone(),
+                        ToolPresentation {
+                            display_name: tool.display_name.clone(),
+                            description: tool.description.clone(),
+                            icon: tool.icon.clone(),
+                        },
+                    );
                     insert_snapshot_tool(
                         &mut schemas,
                         format_tool_schema(
@@ -472,6 +525,7 @@ impl ToolCatalog {
             &mut schemas,
             &mut active_tool_names,
             &mut entries,
+            &mut presentations,
         ) {
             log::warn!(
                 "Failed to apply conversation dynamic tools for {:?}: {}",
@@ -484,6 +538,7 @@ impl ToolCatalog {
             schemas,
             active_tool_names,
             entries,
+            presentations,
             mcp_manager: self.mcp_manager.clone(),
             mcp_runtime: self.mcp_runtime.clone(),
         }
@@ -569,10 +624,19 @@ impl ToolCatalog {
                     tools: stored_server
                         .tools
                         .into_iter()
-                        .map(|tool| MountedMcpToolDefinition {
-                            tool_name: tool.tool_name,
-                            description: tool.description,
-                            input_schema: tool.input_schema,
+                        .map(|tool| {
+                            let fallback_name = humanize_tool_name(&tool.tool_name);
+                            MountedMcpToolDefinition {
+                                tool_name: tool.tool_name,
+                                display_name: if tool.display_name.trim().is_empty() {
+                                    fallback_name
+                                } else {
+                                    tool.display_name
+                                },
+                                description: tool.description,
+                                icon: tool.icon.or(Some("LayoutGrid".to_string())),
+                                input_schema: tool.input_schema,
+                            }
                         })
                         .collect(),
                 },
@@ -598,7 +662,9 @@ impl ToolCatalog {
                         .map(|tool| {
                             crate::conversation_store::ConversationMountedMcpToolDefinition {
                                 tool_name: tool.tool_name.clone(),
+                                display_name: tool.display_name.clone(),
                                 description: tool.description.clone(),
+                                icon: tool.icon.clone(),
                                 input_schema: tool.input_schema.clone(),
                             }
                         })
@@ -655,6 +721,7 @@ impl ToolCatalog {
         schemas: &mut Vec<Value>,
         active_tool_names: &mut HashSet<String>,
         entries: &mut HashMap<String, ToolSnapshotEntry>,
+        presentations: &mut HashMap<String, ToolPresentation>,
     ) -> Result<(), String> {
         let conversation_id = context
             .conversation_id
@@ -670,10 +737,13 @@ impl ToolCatalog {
         for dynamic_tool in dynamic_tools {
             let crate::conversation_store::ConversationDynamicTool {
                 name,
+                display_name,
                 description,
+                icon,
                 parameters,
                 binding,
             } = dynamic_tool;
+            let fallback_icon = fallback_icon_for_dynamic_binding(&binding, &self.native_tools);
             let entry = match binding {
                 crate::conversation_store::ConversationDynamicToolBinding::Native { tool } => {
                     let Some(native_tool) = self
@@ -720,6 +790,14 @@ impl ToolCatalog {
                 }
             };
 
+            presentations.insert(
+                name.clone(),
+                ToolPresentation {
+                    display_name: display_name.unwrap_or_else(|| humanize_tool_name(&name)),
+                    description: description.clone(),
+                    icon: icon.or(fallback_icon),
+                },
+            );
             insert_snapshot_tool(
                 schemas,
                 format_tool_schema(format, &name, &description, parameters),

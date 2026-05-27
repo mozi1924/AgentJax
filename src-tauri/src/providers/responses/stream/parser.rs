@@ -225,6 +225,7 @@ pub(crate) fn handle_stream_event_json(
                         item_id,
                         call_id,
                         name,
+                        presentation: None,
                     })?;
                 }
             }
@@ -290,6 +291,7 @@ pub(crate) fn handle_stream_event_json(
                 call_id,
                 name,
                 arguments,
+                presentation: None,
             })?;
         }
     }
@@ -363,6 +365,7 @@ pub(crate) fn handle_stream_event_json(
                         call_id,
                         name,
                         arguments,
+                        presentation: None,
                     })?;
                 }
             }

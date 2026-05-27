@@ -228,6 +228,7 @@ where
             call_id: call_id.clone(),
             name: name.clone(),
             output: output_str.clone(),
+            presentation: tool_snapshot.presentation_for(&name).cloned(),
         })?;
 
         let output_val: Value =

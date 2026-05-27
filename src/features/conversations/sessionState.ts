@@ -342,6 +342,9 @@ export const appendPendingToolCall = (
   requestId: string,
   toolCallId?: string,
   toolName?: string,
+  toolDisplayName?: string,
+  toolDescription?: string,
+  toolIcon?: string,
   toolArguments?: string
 ): Conversation[] =>
   updateConversation(conversations, conversationId, (conversation) => ({
@@ -355,6 +358,9 @@ export const appendPendingToolCall = (
         requestId,
         callId: toolCallId || '',
         name: toolName || '',
+        displayName: toolDisplayName || null,
+        description: toolDescription || null,
+        icon: toolIcon || null,
         args: parsePossiblyJson(toolArguments),
         status: 'pending' as const,
       },
@@ -365,7 +371,10 @@ export const applyToolExecution = (
   conversations: Conversation[],
   conversationId: string,
   toolCallId?: string,
-  toolOutput?: string
+  toolOutput?: string,
+  toolDisplayName?: string,
+  toolDescription?: string,
+  toolIcon?: string
 ): Conversation[] =>
   updateConversation(conversations, conversationId, (conversation) => {
     const lines = conversation.lines.map((line) => {
@@ -373,6 +382,9 @@ export const applyToolExecution = (
         const toolLine = line as ToolLine;
         return {
           ...toolLine,
+          displayName: toolDisplayName || toolLine.displayName || null,
+          description: toolDescription || toolLine.description || null,
+          icon: toolIcon || toolLine.icon || null,
           output: parsePossiblyJson(toolOutput),
           status: 'done' as const,
         } satisfies ToolLine;

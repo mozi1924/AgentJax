@@ -247,6 +247,7 @@ pub async fn chat_stream(
                     call_id,
                     name,
                     arguments,
+                    presentation,
                     ..
                 } => {
                     let _ = persist_tool_progress_event(
@@ -255,6 +256,9 @@ pub async fn chat_stream(
                         "tool_call_done",
                         call_id,
                         Some(name),
+                        presentation.as_ref().map(|meta| meta.display_name.as_str()),
+                        presentation.as_ref().map(|meta| meta.description.as_str()),
+                        presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
                         Some(arguments),
                     );
                 }
@@ -262,6 +266,7 @@ pub async fn chat_stream(
                     call_id,
                     name,
                     output,
+                    presentation,
                 } => {
                     let _ = persist_tool_progress_event(
                         &callback_conversation_id,
@@ -269,6 +274,9 @@ pub async fn chat_stream(
                         "tool_call_exec",
                         call_id,
                         Some(name),
+                        presentation.as_ref().map(|meta| meta.display_name.as_str()),
+                        presentation.as_ref().map(|meta| meta.description.as_str()),
+                        presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
                         Some(output),
                     );
                 }
@@ -357,6 +365,9 @@ pub async fn chat_stream(
                 error: None,
                 tool_call_id: None,
                 tool_name: None,
+                tool_display_name: None,
+                tool_description: None,
+                tool_icon: None,
                 tool_arguments: None,
                 tool_output: None,
                 phase: None,
@@ -530,7 +541,9 @@ mod tests {
     fn dynamic_tool_validation_rejects_invalid_name() {
         let err = validate_conversation_dynamic_tools(&[ConversationDynamicTool {
             name: "bad.name".to_string(),
+            display_name: None,
             description: "Alias".to_string(),
+            icon: None,
             parameters: json!({"type":"object","properties":{}}),
             binding: ConversationDynamicToolBinding::Native {
                 tool: "calculator".to_string(),
@@ -552,7 +565,9 @@ mod tests {
             conversation_id: conversation_id.clone(),
             tools: vec![ConversationDynamicTool {
                 name: "math_alias".to_string(),
+                display_name: None,
                 description: "Alias to calculator".to_string(),
+                icon: None,
                 parameters: json!({
                     "type": "object",
                     "properties": { "expression": { "type": "string" } }
@@ -569,7 +584,9 @@ mod tests {
             conversation_id: conversation_id.clone(),
             tool: ConversationDynamicTool {
                 name: "time_alias".to_string(),
+                display_name: None,
                 description: "Alias to time tool".to_string(),
+                icon: None,
                 parameters: json!({
                     "type": "object",
                     "properties": {}

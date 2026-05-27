@@ -20,6 +20,9 @@ export interface ToolLine {
   requestId: string;
   callId: string;
   name: string;
+  displayName?: string | null;
+  description?: string | null;
+  icon?: string | null;
   args: unknown;
   output?: unknown;
   status: 'pending' | 'done' | 'failed';
@@ -139,6 +142,9 @@ export interface ChatStreamEventPayload {
   responseId?: string | null;
   toolCallId?: string;
   toolName?: string;
+  toolDisplayName?: string;
+  toolDescription?: string;
+  toolIcon?: string;
   toolArguments?: string;
   toolOutput?: string;
   /** Phase hint for assistant text events. */

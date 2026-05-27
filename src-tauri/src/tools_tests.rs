@@ -233,7 +233,9 @@ mod tests {
             &conversation_id,
             vec![conversation_store::ConversationDynamicTool {
                 name: "math_alias".to_string(),
+                display_name: None,
                 description: "Alias to the native calculator tool".to_string(),
+                icon: None,
                 parameters: json!({
                     "type": "object",
                     "properties": {
@@ -260,6 +262,12 @@ mod tests {
         assert!(snapshot.schemas().iter().any(|schema| {
             schema.get("name").and_then(|value| value.as_str()) == Some("math_alias")
         }));
+        assert_eq!(
+            snapshot
+                .presentation_for("math_alias")
+                .and_then(|presentation| presentation.icon.as_deref()),
+            Some("Calculator")
+        );
 
         let result = snapshot
             .execute(
@@ -272,6 +280,57 @@ mod tests {
             .await
             .expect("execute aliased tool");
         assert_eq!(result["result"].as_f64(), Some(19.0));
+
+        conversation_store::delete_conversation(&conversation_id).ok();
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_mcp_tool_alias_defaults_to_layout_grid_icon() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let conversation_id = format!("test-dynamic-mcp-tools-{}", uuid::Uuid::new_v4());
+        conversation_store::ensure_conversation(&conversation_id).expect("ensure conversation");
+        conversation_store::update_conversation_dynamic_tools(
+            &conversation_id,
+            vec![conversation_store::ConversationDynamicTool {
+                name: "docs_search".to_string(),
+                display_name: Some("Docs Search".to_string()),
+                description: "Alias to an MCP docs search tool".to_string(),
+                icon: None,
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string" }
+                    },
+                    "required": ["query"]
+                }),
+                binding: conversation_store::ConversationDynamicToolBinding::Mcp {
+                    server_id: "openai_docs".to_string(),
+                    tool: "search_openai_docs".to_string(),
+                },
+            }],
+        )
+        .expect("persist dynamic tools");
+
+        let mut config = AppConfig::default();
+        config
+            .mcp_servers
+            .insert("openai_docs".to_string(), McpServerConfig::default());
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog
+            .snapshot(&ToolExecutionContext {
+                conversation_id: Some(conversation_id.clone()),
+            })
+            .await;
+
+        assert_eq!(
+            snapshot
+                .presentation_for("docs_search")
+                .and_then(|presentation| presentation.icon.as_deref()),
+            Some("LayoutGrid")
+        );
 
         conversation_store::delete_conversation(&conversation_id).ok();
     }
@@ -325,7 +384,9 @@ mod tests {
                 server_config: McpServerConfig::default(),
                 tools: vec![MountedMcpToolDefinition {
                     tool_name: "search_openai_docs".to_string(),
+                    display_name: "Search Openai Docs".to_string(),
                     description: "Search docs".to_string(),
+                    icon: Some("LayoutGrid".to_string()),
                     input_schema: json!({
                         "type": "object",
                         "properties": {
@@ -367,7 +428,9 @@ mod tests {
                 server_id: "openai_docs".to_string(),
                 tools: vec![conversation_store::ConversationMountedMcpToolDefinition {
                     tool_name: "search_openai_docs".to_string(),
+                    display_name: "Search Openai Docs".to_string(),
                     description: "Search docs".to_string(),
+                    icon: Some("LayoutGrid".to_string()),
                     input_schema: json!({
                         "type": "object",
                         "properties": {

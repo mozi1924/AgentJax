@@ -8,7 +8,8 @@ use crate::config::AppConfig;
 use crate::message_phase::AssistantPhase;
 use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
 use crate::tools::{
-    MountedMcpServerSessions, ToolCatalog, ToolCatalogStateChange, ToolExecutionContext,
+    MountedMcpServerSessions, ToolCatalog, ToolCatalogSnapshot, ToolCatalogStateChange,
+    ToolExecutionContext, ToolPresentation,
 };
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -129,6 +130,75 @@ fn resolve_hop_phase(
     } else {
         AssistantPhase::Commentary
     }))
+}
+
+fn merge_tool_presentations(
+    existing: Option<ToolPresentation>,
+    fallback: Option<ToolPresentation>,
+) -> Option<ToolPresentation> {
+    match (existing, fallback) {
+        (Some(mut existing), Some(fallback)) => {
+            if existing.display_name.trim().is_empty() {
+                existing.display_name = fallback.display_name;
+            }
+            if existing.description.trim().is_empty() {
+                existing.description = fallback.description;
+            }
+            let icon_missing = existing
+                .icon
+                .as_deref()
+                .map(str::trim)
+                .map(|icon| icon.is_empty())
+                .unwrap_or(true);
+            if icon_missing {
+                existing.icon = fallback.icon;
+            }
+            Some(existing)
+        }
+        (Some(existing), None) => Some(existing),
+        (None, fallback) => fallback,
+    }
+}
+
+fn enrich_tool_presentation(
+    existing: Option<ToolPresentation>,
+    snapshot: &ToolCatalogSnapshot,
+    tool_name: &str,
+) -> Option<ToolPresentation> {
+    merge_tool_presentations(existing, snapshot.presentation_for(tool_name).cloned())
+}
+
+fn enrich_tool_stream_event(
+    event: ProviderStreamEvent,
+    snapshot: &ToolCatalogSnapshot,
+) -> ProviderStreamEvent {
+    match event {
+        ProviderStreamEvent::ToolCallStarted {
+            item_id,
+            call_id,
+            name,
+            presentation,
+        } => ProviderStreamEvent::ToolCallStarted {
+            presentation: enrich_tool_presentation(presentation, snapshot, &name),
+            item_id,
+            call_id,
+            name,
+        },
+        ProviderStreamEvent::ToolCallCompleted {
+            item_id,
+            call_id,
+            name,
+            arguments,
+            presentation,
+        } => ProviderStreamEvent::ToolCallCompleted {
+            presentation: enrich_tool_presentation(presentation, snapshot, &name),
+            item_id,
+            call_id,
+            name,
+            arguments,
+        },
+        other => other,
+    }
 }
 
 fn select_final_output_text(
@@ -341,7 +411,7 @@ impl AgentRuntime {
                 &resolved_model.provider_key,
                 &stream_request,
                 cancel_rx,
-                &mut on_event,
+                &mut |event| on_event(enrich_tool_stream_event(event, &tool_snapshot)),
             )
             .await?;
 
@@ -508,12 +578,12 @@ fn apply_tool_state_changes(
 mod tests {
     use super::{
         apply_tool_state_changes, build_base_context, ensure_tool_call_output_pairs,
-        select_final_output_text, strip_commentary_prefixes,
+        merge_tool_presentations, select_final_output_text, strip_commentary_prefixes,
     };
     use crate::config::McpServerConfig;
     use crate::tools::{
         MountedMcpServerSession, MountedMcpServerSessions, MountedMcpToolDefinition,
-        ToolCatalogStateChange,
+        ToolCatalogStateChange, ToolPresentation,
     };
     use serde_json::json;
 
@@ -572,6 +642,27 @@ mod tests {
     }
 
     #[test]
+    fn merges_missing_tool_presentation_fields_from_snapshot() {
+        let merged = merge_tool_presentations(
+            Some(ToolPresentation {
+                display_name: "Calculator".to_string(),
+                description: String::new(),
+                icon: None,
+            }),
+            Some(ToolPresentation {
+                display_name: "Fallback Calculator".to_string(),
+                description: "Performs math".to_string(),
+                icon: Some("Calculator".to_string()),
+            }),
+        )
+        .expect("merged tool presentation");
+
+        assert_eq!(merged.display_name, "Calculator");
+        assert_eq!(merged.description, "Performs math");
+        assert_eq!(merged.icon.as_deref(), Some("Calculator"));
+    }
+
+    #[test]
     fn base_context_places_developer_blocks_before_recovery_and_history() {
         let base_context = build_base_context(
             vec![json!({"role":"developer","content":[{"type":"input_text","text":"dev"}]})],
@@ -615,7 +706,9 @@ mod tests {
                     server_config: McpServerConfig::default(),
                     tools: vec![MountedMcpToolDefinition {
                         tool_name: "search_openai_docs".to_string(),
+                        display_name: "Search Openai Docs".to_string(),
                         description: "Search docs".to_string(),
+                        icon: Some("LayoutGrid".to_string()),
                         input_schema: json!({"type":"object","properties":{}}),
                     }],
                 },
@@ -639,7 +732,9 @@ mod tests {
                 server_config: McpServerConfig::default(),
                 tools: vec![MountedMcpToolDefinition {
                     tool_name: "search_openai_docs".to_string(),
+                    display_name: "Search Openai Docs".to_string(),
                     description: "Search docs".to_string(),
+                    icon: Some("LayoutGrid".to_string()),
                     input_schema: json!({"type":"object","properties":{}}),
                 }],
             },

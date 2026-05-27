@@ -1,5 +1,6 @@
 use super::capabilities::ProviderCapabilities;
 use crate::message_phase::AssistantPhase;
+use crate::tools::ToolPresentation;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -31,6 +32,7 @@ pub enum ProviderStreamEvent {
         item_id: String,
         call_id: String,
         name: String,
+        presentation: Option<ToolPresentation>,
     },
     ToolCallArgumentsDelta {
         item_id: String,
@@ -42,11 +44,13 @@ pub enum ProviderStreamEvent {
         call_id: String,
         name: String,
         arguments: String,
+        presentation: Option<ToolPresentation>,
     },
     ToolCallExecuted {
         call_id: String,
         name: String,
         output: String,
+        presentation: Option<ToolPresentation>,
     },
     /// Emitted when the provider finishes an assistant message item.
     /// This preserves the provider's original item ordering for persistence.

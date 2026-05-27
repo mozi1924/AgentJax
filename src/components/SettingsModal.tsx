@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import * as LucideIcons from 'lucide-react';
 import { LoaderCircle, Settings2, X } from 'lucide-react';
 import { useI18n } from '../features/i18n';
 import SettingsRenderer from './settings/SettingsRenderer';
@@ -15,15 +14,10 @@ import {
   buildOptimisticSnapshot,
   findFirstSection,
 } from '../features/settings/utils';
+import { resolveLucideIcon } from '../features/icons/lucide';
 import { tryGetCurrentWindow } from '../features/tauri/runtime';
 
-const getSectionIcon = (iconName?: string) => {
-  if (!iconName) return Settings2;
-  const candidate = (LucideIcons as Record<string, unknown>)[iconName];
-  return candidate && (typeof candidate === 'function' || typeof candidate === 'object')
-    ? (candidate as typeof Settings2)
-    : Settings2;
-};
+const getSectionIcon = (iconName?: string) => resolveLucideIcon(iconName, Settings2);
 
 interface SettingsModalProps {
   isOpen: boolean;

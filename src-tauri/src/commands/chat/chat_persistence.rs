@@ -19,6 +19,9 @@ pub fn persist_tool_progress_event(
     event_kind: &str,
     tool_call_id: &str,
     tool_name: Option<&str>,
+    tool_display_name: Option<&str>,
+    tool_description: Option<&str>,
+    tool_icon: Option<&str>,
     payload: Option<&str>,
 ) -> Result<(), String> {
     if tool_call_id.trim().is_empty() {
@@ -46,6 +49,9 @@ pub fn persist_tool_progress_event(
                     request_id: request_id.to_string(),
                     call_id: tool_call_id.to_string(),
                     name: name.to_string(),
+                    display_name: tool_display_name.map(str::to_string),
+                    description: tool_description.map(str::to_string),
+                    icon: tool_icon.map(str::to_string),
                     args,
                     output: None,
                     status: ToolStatus::Pending,
@@ -70,6 +76,9 @@ pub fn persist_tool_progress_event(
                         .filter(|s| !s.is_empty())
                         .unwrap_or("unknown_tool")
                         .to_string(),
+                    display_name: tool_display_name.map(str::to_string),
+                    description: tool_description.map(str::to_string),
+                    icon: tool_icon.map(str::to_string),
                     args: Value::Null, // preserved from the Pending entry; not overwritten
                     output: Some(output),
                     status: ToolStatus::Done,

@@ -3,13 +3,11 @@ import {
   CheckCircle2,
   ChevronDown,
   Copy,
-  FilePenLine,
   Loader2,
-  Search,
   Sparkles,
-  Wrench,
 } from 'lucide-react';
 import type { ToolLine } from '../../features/conversations/types';
+import { resolveToolLucideIcon } from '../../features/icons/lucide';
 import { renderMarkdown } from './markdownRenderer';
 import {
   formatTurnDuration,
@@ -35,41 +33,48 @@ const formatToolOutput = (val: unknown): string => {
   }
 };
 
-const resolveToolDisplayName = (name: string) => {
-  if (name.startsWith('mcp__')) {
-    const parts = name.split('__');
+const humanizeToolName = (name: string) =>
+  name
+    .split(/[_.-]+/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+
+const resolveToolDisplayName = (toolLine: ToolLine) => {
+  const explicitDisplayName = (toolLine.displayName || '').trim();
+  if (explicitDisplayName) {
+    return explicitDisplayName;
+  }
+
+  if (toolLine.name.startsWith('mcp__')) {
+    const parts = toolLine.name.split('__');
     if (parts.length >= 3) {
-      return { displayName: parts.slice(2).join('__'), origin: `MCP: ${parts[1]}` };
+      return humanizeToolName(parts.slice(2).join('_'));
     }
   }
 
-  return { displayName: name, origin: 'Built-in' };
+  return humanizeToolName(toolLine.name || 'tool');
 };
 
-const resolveToolAccent = (toolName: string) => {
-  if (/search|find|glob|\brg\b|\bgrep\b/i.test(toolName)) {
-    return {
-      icon: Search,
-      badge: 'Explored',
-      className: 'border-[#26292e] bg-[#17181c] text-slate-200',
-      iconClassName: 'text-indigo-400/90',
-    };
+const resolveToolOriginLabel = (toolLine: ToolLine) => {
+  if (toolLine.name.startsWith('mcp__')) {
+    const parts = toolLine.name.split('__');
+    return parts.length >= 2 ? `MCP: ${parts[1]}` : 'MCP';
   }
-
-  if (/apply_patch|edit|write|push_files|create_or_update_file|delete_file/i.test(toolName)) {
-    return {
-      icon: FilePenLine,
-      badge: 'Edited',
-      className: 'border-[#26292e] bg-[#17181c] text-slate-200',
-      iconClassName: 'text-emerald-400/90',
-    };
+  if (toolLine.name.startsWith('mcp_server__')) {
+    return 'MCP';
   }
+  return 'Built-in';
+};
 
+const resolveToolAccent = (toolLine: ToolLine) => {
+  const isMcpTool =
+    toolLine.name.startsWith('mcp__') || toolLine.name.startsWith('mcp_server__');
   return {
-    icon: Wrench,
-    badge: 'Tool',
+    icon: resolveToolLucideIcon(toolLine.name, toolLine.icon),
+    badge: isMcpTool ? 'MCP' : 'Tool',
     className: 'border-[#26292e] bg-[#17181c] text-slate-200',
-    iconClassName: 'text-slate-400',
+    iconClassName: isMcpTool ? 'text-cyan-300/90' : 'text-slate-400',
   };
 };
 
@@ -191,8 +196,9 @@ export default function WorkLogPanel({
                 }
 
                 const toolLine = item.line;
-                const toolMeta = resolveToolDisplayName(toolLine.name || '');
-                const accent = resolveToolAccent(toolLine.name || '');
+                const toolDisplayName = resolveToolDisplayName(toolLine);
+                const toolOrigin = resolveToolOriginLabel(toolLine);
+                const accent = resolveToolAccent(toolLine);
                 const expanded = expandedTools.has(toolLine.callId);
                 const AccentIcon = accent.icon;
                 const statusLabel =
@@ -215,8 +221,8 @@ export default function WorkLogPanel({
                         <span className="rounded bg-[#202226] border border-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
                           {accent.badge}
                         </span>
-                        <span className="truncate text-xs font-semibold text-slate-300">{toolMeta.displayName}</span>
-                        <span className="truncate text-[10px] text-slate-500">{toolMeta.origin}</span>
+                        <span className="truncate text-xs font-semibold text-slate-300">{toolDisplayName}</span>
+                        <span className="truncate text-[10px] text-slate-500">{toolOrigin}</span>
                         <span className={`ml-auto text-[10px] ${
                           toolLine.status === 'done'
                             ? 'text-emerald-400/80'
@@ -235,6 +241,7 @@ export default function WorkLogPanel({
                         <div className="grid-collapse-content">
                           <ToolPayload
                             copiedToolId={copiedToolId}
+                            description={toolLine.description || ''}
                             onCopy={handleCopyToolPayload}
                             toolLine={toolLine}
                           />
@@ -254,12 +261,14 @@ export default function WorkLogPanel({
 
 interface ToolPayloadProps {
   copiedToolId: string | null;
+  description: string;
   onCopy: (toolId: string, value: unknown) => Promise<void>;
   toolLine: ToolLine;
 }
 
 function ToolPayload({
   copiedToolId,
+  description,
   onCopy,
   toolLine,
 }: ToolPayloadProps) {
@@ -268,6 +277,9 @@ function ToolPayload({
 
   return (
     <div className="space-y-2 border-t border-black/10 bg-black/10 px-3 py-3">
+      {description.trim() && (
+        <p className="text-xs leading-relaxed text-slate-400">{description}</p>
+      )}
       {toolLine.args != null && (
         <ToolPayloadBlock
           copied={copiedToolId === `${payloadId}:args`}

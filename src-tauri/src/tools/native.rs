@@ -13,6 +13,14 @@ impl Tool for CalculatorTool {
         "calculator"
     }
 
+    fn display_name(&self) -> &'static str {
+        "Calculator"
+    }
+
+    fn icon(&self) -> Option<&'static str> {
+        Some("Calculator")
+    }
+
     fn description(&self) -> &'static str {
         "Safely evaluates basic mathematical expressions. Supports addition (+), subtraction (-), multiplication (*), division (/), exponentiation (^), square root (sqrt), and parentheses ()."
     }
@@ -51,6 +59,14 @@ pub struct SystemTimeTool;
 impl Tool for SystemTimeTool {
     fn name(&self) -> &'static str {
         "get_system_time"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Get System Time"
+    }
+
+    fn icon(&self) -> Option<&'static str> {
+        Some("Clock3")
     }
 
     fn description(&self) -> &'static str {
@@ -176,6 +192,14 @@ impl Tool for FileReaderTool {
         "read_file"
     }
 
+    fn display_name(&self) -> &'static str {
+        "Read File"
+    }
+
+    fn icon(&self) -> Option<&'static str> {
+        Some("FileSearch")
+    }
+
     fn description(&self) -> &'static str {
         "Reads the text content of a file located in the current conversation workspace."
     }
@@ -262,6 +286,14 @@ impl FileWriterTool {
 impl Tool for FileWriterTool {
     fn name(&self) -> &'static str {
         "write_file"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Write File"
+    }
+
+    fn icon(&self) -> Option<&'static str> {
+        Some("FilePenLine")
     }
 
     fn description(&self) -> &'static str {

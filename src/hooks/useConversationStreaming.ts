@@ -249,6 +249,9 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
                 requestId || '',
                 payload.toolCallId,
                 payload.toolName,
+                payload.toolDisplayName,
+                payload.toolDescription,
+                payload.toolIcon,
                 payload.toolArguments
               )
             );
@@ -257,7 +260,15 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
 
           if (payload.kind === 'tool_call_exec') {
             setConversations((prev) =>
-              applyToolExecution(prev, mapping.conversationId, payload.toolCallId, payload.toolOutput)
+              applyToolExecution(
+                prev,
+                mapping.conversationId,
+                payload.toolCallId,
+                payload.toolOutput,
+                payload.toolDisplayName,
+                payload.toolDescription,
+                payload.toolIcon
+              )
             );
             return;
           }

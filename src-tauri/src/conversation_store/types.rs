@@ -37,7 +37,11 @@ pub struct ConversationMeta {
 #[serde(rename_all = "camelCase")]
 pub struct ConversationDynamicTool {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     pub parameters: Value,
     pub binding: ConversationDynamicToolBinding,
 }
@@ -65,7 +69,11 @@ pub struct ConversationMountedMcpServer {
 #[serde(rename_all = "camelCase")]
 pub struct ConversationMountedMcpToolDefinition {
     pub tool_name: String,
+    #[serde(default)]
+    pub display_name: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     pub input_schema: Value,
 }
 
@@ -154,6 +162,12 @@ pub struct ToolLine {
     pub request_id: String,
     pub call_id: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     pub args: Value,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub output: Option<Value>,

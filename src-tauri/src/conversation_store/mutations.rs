@@ -389,6 +389,15 @@ fn line_id_exists(
 fn merge_updated_line(existing: &ConversationLine, next: ConversationLine) -> ConversationLine {
     match (existing, next) {
         (ConversationLine::Tool(current), ConversationLine::Tool(mut updated)) => {
+            if updated.display_name.is_none() {
+                updated.display_name = current.display_name.clone();
+            }
+            if updated.description.is_none() {
+                updated.description = current.description.clone();
+            }
+            if updated.icon.is_none() {
+                updated.icon = current.icon.clone();
+            }
             if updated.args.is_null() {
                 updated.args = current.args.clone();
             }
