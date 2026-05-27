@@ -8,7 +8,9 @@ mod chat_utils;
 pub use chat_registry::ChatRequestRegistry;
 pub use chat_types::{
     CancelChatRequest, ChatRequest, ChatResponse, DeleteConversationRequest,
-    LoadConversationRequest, RenameConversationRequest,
+    LoadConversationDynamicToolsRequest, LoadConversationRequest,
+    RemoveConversationDynamicToolRequest, RenameConversationRequest,
+    ReplaceConversationDynamicToolsRequest, UpsertConversationDynamicToolRequest,
 };
 
 use crate::config;
@@ -20,6 +22,7 @@ use chat_title::schedule_title_generation;
 use chat_utils::{chrono_like_now_id, now_unix_ms, run_blocking};
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::HashSet;
 use tauri::{Emitter, Manager, State};
 use tokio::sync::watch;
 
@@ -54,6 +57,7 @@ fn split_local_client_metadata(
 
     let local: LocalClientMetadataEnvelope = serde_json::from_value(local_value)
         .map_err(|err| format!("Invalid agentjax_local client metadata: {err}"))?;
+    validate_conversation_dynamic_tools(&local.dynamic_tools)?;
     let dynamic_tools = Some(local.dynamic_tools);
 
     let sanitized = if metadata.is_empty() {
@@ -62,6 +66,73 @@ fn split_local_client_metadata(
         Some(Value::Object(metadata))
     };
     Ok((sanitized, dynamic_tools))
+}
+
+fn validate_dynamic_tool_name(name: &str) -> bool {
+    let trimmed = name.trim();
+    !trimmed.is_empty()
+        && trimmed.len() <= 64
+        && trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+}
+
+/// Validate conversation-scoped dynamic tools before they are persisted.
+///
+/// Keeping the validation local and deterministic makes plugin-driven tool
+/// registration easier to reason about and avoids storing malformed tool specs
+/// that would later disappear from snapshots.
+fn validate_conversation_dynamic_tools(
+    tools: &[conversation_store::ConversationDynamicTool],
+) -> Result<(), String> {
+    let mut seen_names = HashSet::new();
+    for tool in tools {
+        if !validate_dynamic_tool_name(&tool.name) {
+            return Err(format!(
+                "Dynamic tool name '{}' must match [A-Za-z0-9_-] and be at most 64 characters",
+                tool.name
+            ));
+        }
+        if !seen_names.insert(tool.name.clone()) {
+            return Err(format!("Duplicate dynamic tool name '{}'", tool.name));
+        }
+        if tool.description.trim().is_empty() {
+            return Err(format!(
+                "Dynamic tool '{}' must have a non-empty description",
+                tool.name
+            ));
+        }
+        if !tool.parameters.is_object() {
+            return Err(format!(
+                "Dynamic tool '{}' parameters must be a JSON object schema",
+                tool.name
+            ));
+        }
+
+        match &tool.binding {
+            conversation_store::ConversationDynamicToolBinding::Native { tool: native_tool } => {
+                if native_tool.trim().is_empty() {
+                    return Err(format!(
+                        "Dynamic tool '{}' has an empty native binding target",
+                        tool.name
+                    ));
+                }
+            }
+            conversation_store::ConversationDynamicToolBinding::Mcp {
+                server_id,
+                tool: mcp_tool,
+            } => {
+                if server_id.trim().is_empty() || mcp_tool.trim().is_empty() {
+                    return Err(format!(
+                        "Dynamic tool '{}' must include non-empty MCP server_id and tool target",
+                        tool.name
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -314,6 +385,46 @@ pub fn load_conversation(
 }
 
 #[tauri::command]
+pub fn load_conversation_dynamic_tools(
+    req: LoadConversationDynamicToolsRequest,
+) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
+    conversation_store::load_conversation_dynamic_tools(&req.conversation_id)
+}
+
+#[tauri::command]
+pub fn replace_conversation_dynamic_tools(
+    req: ReplaceConversationDynamicToolsRequest,
+) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
+    validate_conversation_dynamic_tools(&req.tools)?;
+    conversation_store::ensure_conversation(&req.conversation_id)?;
+    conversation_store::update_conversation_dynamic_tools(&req.conversation_id, req.tools)?;
+    conversation_store::load_conversation_dynamic_tools(&req.conversation_id)
+}
+
+#[tauri::command]
+pub fn upsert_conversation_dynamic_tool(
+    req: UpsertConversationDynamicToolRequest,
+) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
+    validate_conversation_dynamic_tools(std::slice::from_ref(&req.tool))?;
+    conversation_store::ensure_conversation(&req.conversation_id)?;
+    conversation_store::upsert_conversation_dynamic_tool(&req.conversation_id, req.tool)?;
+    conversation_store::load_conversation_dynamic_tools(&req.conversation_id)
+}
+
+#[tauri::command]
+pub fn remove_conversation_dynamic_tool(
+    req: RemoveConversationDynamicToolRequest,
+) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
+    let tool_name = req.tool_name.trim();
+    if tool_name.is_empty() {
+        return Err("toolName cannot be empty".to_string());
+    }
+    conversation_store::ensure_conversation(&req.conversation_id)?;
+    conversation_store::remove_conversation_dynamic_tool(&req.conversation_id, tool_name)?;
+    conversation_store::load_conversation_dynamic_tools(&req.conversation_id)
+}
+
+#[tauri::command]
 pub fn rename_conversation(
     registry: State<'_, ChatRequestRegistry>,
     req: RenameConversationRequest,
@@ -344,9 +455,41 @@ pub fn cancel_chat_stream(
 
 #[cfg(test)]
 mod tests {
-    use super::split_local_client_metadata;
+    use super::{
+        load_conversation_dynamic_tools, remove_conversation_dynamic_tool,
+        replace_conversation_dynamic_tools, split_local_client_metadata,
+        upsert_conversation_dynamic_tool, validate_conversation_dynamic_tools,
+        LoadConversationDynamicToolsRequest, RemoveConversationDynamicToolRequest,
+        ReplaceConversationDynamicToolsRequest, UpsertConversationDynamicToolRequest,
+    };
+    use crate::agentjax_home::AGENTJAX_HOME_ENV;
+    use crate::config;
+    use crate::conversation_store::ConversationDynamicTool;
     use crate::conversation_store::ConversationDynamicToolBinding;
     use serde_json::json;
+    use uuid::Uuid;
+
+    struct TestHomeGuard {
+        home: std::path::PathBuf,
+    }
+
+    impl Drop for TestHomeGuard {
+        fn drop(&mut self) {
+            unsafe {
+                std::env::remove_var(AGENTJAX_HOME_ENV);
+            }
+            let _ = std::fs::remove_dir_all(&self.home);
+        }
+    }
+
+    fn setup_test_home() -> TestHomeGuard {
+        let home = std::env::temp_dir().join(format!("agentjax-chat-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&home).expect("create test home");
+        unsafe {
+            std::env::set_var(AGENTJAX_HOME_ENV, &home);
+        }
+        TestHomeGuard { home }
+    }
 
     #[test]
     fn local_dynamic_tools_are_extracted_and_removed_from_forwarded_metadata() {
@@ -381,5 +524,76 @@ mod tests {
                 tool: "calculator".to_string()
             }
         );
+    }
+
+    #[test]
+    fn dynamic_tool_validation_rejects_invalid_name() {
+        let err = validate_conversation_dynamic_tools(&[ConversationDynamicTool {
+            name: "bad.name".to_string(),
+            description: "Alias".to_string(),
+            parameters: json!({"type":"object","properties":{}}),
+            binding: ConversationDynamicToolBinding::Native {
+                tool: "calculator".to_string(),
+            },
+        }])
+        .expect_err("invalid tool name should fail");
+        assert!(err.contains("Dynamic tool name"));
+    }
+
+    #[test]
+    fn dynamic_tool_commands_support_replace_upsert_and_remove() {
+        let _guard = config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let conversation_id = format!("conv-dtool-cmd-{}", Uuid::new_v4());
+
+        let replaced = replace_conversation_dynamic_tools(ReplaceConversationDynamicToolsRequest {
+            conversation_id: conversation_id.clone(),
+            tools: vec![ConversationDynamicTool {
+                name: "math_alias".to_string(),
+                description: "Alias to calculator".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": { "expression": { "type": "string" } }
+                }),
+                binding: ConversationDynamicToolBinding::Native {
+                    tool: "calculator".to_string(),
+                },
+            }],
+        })
+        .expect("replace dynamic tools");
+        assert_eq!(replaced.len(), 1);
+
+        let upserted = upsert_conversation_dynamic_tool(UpsertConversationDynamicToolRequest {
+            conversation_id: conversation_id.clone(),
+            tool: ConversationDynamicTool {
+                name: "time_alias".to_string(),
+                description: "Alias to time tool".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+                binding: ConversationDynamicToolBinding::Native {
+                    tool: "get_system_time".to_string(),
+                },
+            },
+        })
+        .expect("upsert dynamic tool");
+        assert_eq!(upserted.len(), 2);
+
+        let loaded = load_conversation_dynamic_tools(LoadConversationDynamicToolsRequest {
+            conversation_id: conversation_id.clone(),
+        })
+        .expect("load dynamic tools");
+        assert_eq!(loaded.len(), 2);
+
+        let after_remove = remove_conversation_dynamic_tool(RemoveConversationDynamicToolRequest {
+            conversation_id: conversation_id.clone(),
+            tool_name: "math_alias".to_string(),
+        })
+        .expect("remove dynamic tool");
+        assert_eq!(after_remove.len(), 1);
+        assert_eq!(after_remove[0].name, "time_alias");
     }
 }

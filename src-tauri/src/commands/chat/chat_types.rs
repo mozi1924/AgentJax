@@ -42,6 +42,33 @@ pub struct DeleteConversationRequest {
     pub conversation_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadConversationDynamicToolsRequest {
+    pub conversation_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceConversationDynamicToolsRequest {
+    pub conversation_id: String,
+    pub tools: Vec<crate::conversation_store::ConversationDynamicTool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertConversationDynamicToolRequest {
+    pub conversation_id: String,
+    pub tool: crate::conversation_store::ConversationDynamicTool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveConversationDynamicToolRequest {
+    pub conversation_id: String,
+    pub tool_name: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatResponse {

@@ -207,6 +207,55 @@ fn update_conversation_dynamic_tools_inner(
     Ok(())
 }
 
+pub fn upsert_conversation_dynamic_tool(
+    conversation_id: &str,
+    tool: ConversationDynamicTool,
+) -> Result<(), String> {
+    with_conversation_lock(conversation_id, || {
+        let metadata_path = conversation_metadata_path(conversation_id)?;
+        let messages_path = conversation_messages_path(conversation_id)?;
+        let meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
+        let mut tools = meta
+            .metadata
+            .get(CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY)
+            .cloned()
+            .map(serde_json::from_value::<Vec<ConversationDynamicTool>>)
+            .transpose()
+            .map_err(|err| format!("Failed to parse stored dynamic tools: {err}"))?
+            .unwrap_or_default();
+
+        if let Some(existing) = tools.iter_mut().find(|existing| existing.name == tool.name) {
+            *existing = tool;
+        } else {
+            tools.push(tool);
+        }
+
+        update_conversation_dynamic_tools_inner(conversation_id, tools)
+    })
+}
+
+pub fn remove_conversation_dynamic_tool(
+    conversation_id: &str,
+    tool_name: &str,
+) -> Result<(), String> {
+    with_conversation_lock(conversation_id, || {
+        let metadata_path = conversation_metadata_path(conversation_id)?;
+        let messages_path = conversation_messages_path(conversation_id)?;
+        let meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
+        let mut tools = meta
+            .metadata
+            .get(CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY)
+            .cloned()
+            .map(serde_json::from_value::<Vec<ConversationDynamicTool>>)
+            .transpose()
+            .map_err(|err| format!("Failed to parse stored dynamic tools: {err}"))?
+            .unwrap_or_default();
+
+        tools.retain(|tool| tool.name != tool_name);
+        update_conversation_dynamic_tools_inner(conversation_id, tools)
+    })
+}
+
 fn update_auto_title_inner(
     conversation_id: &str,
     title: &str,
