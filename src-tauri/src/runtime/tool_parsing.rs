@@ -1,6 +1,5 @@
 use crate::providers::types::ProviderPendingToolCall;
 use serde_json::{json, Value};
-use std::collections::HashSet;
 
 pub(super) fn describe_item_shape(item: &Value) -> String {
     if let Some(kind) = item.get("type").and_then(Value::as_str) {
@@ -55,8 +54,11 @@ pub(super) fn is_valid_pending_tool_call(call: &ProviderPendingToolCall) -> bool
     !call.call_id.trim().is_empty() && !call.name.trim().is_empty()
 }
 
-pub(super) fn extract_active_tool_names(tools_schemas: &[Value]) -> HashSet<String> {
-    let mut names = HashSet::new();
+#[cfg(test)]
+pub(super) fn extract_active_tool_names(
+    tools_schemas: &[Value],
+) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
     for schema in tools_schemas {
         if let Some(name) = schema.get("name").and_then(Value::as_str) {
             let trimmed = name.trim();

@@ -3,10 +3,11 @@ mod tests {
     use crate::agentjax_home::AGENTJAX_HOME_ENV;
     use crate::conversation_store;
     use crate::tools::{
-        CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool, Tool, ToolExecutionContext,
-        ToolRegistry, ToolSchemaFormat,
+        CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool, Tool, ToolCatalog,
+        ToolExecutionContext, ToolRegistry, ToolSchemaFormat,
     };
     use serde_json::json;
+    use std::sync::Arc;
 
     struct TestHomeGuard {
         home: std::path::PathBuf,
@@ -195,5 +196,26 @@ mod tests {
         assert!(first_cc.get("function").is_some());
         assert!(first_cc["function"].get("name").is_some());
         assert!(first_cc["function"].get("parameters").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_tool_catalog_snapshot_freezes_native_tool_view() {
+        let config = crate::config::AppConfig::default();
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+
+        assert_eq!(snapshot.schemas().len(), 4);
+        assert!(snapshot.active_tool_names().contains("calculator"));
+        assert!(snapshot.active_tool_names().contains("get_system_time"));
+
+        let result = snapshot
+            .execute(
+                "calculator",
+                &json!({ "expression": "6 * 7" }),
+                &ToolExecutionContext::default(),
+            )
+            .await
+            .expect("execute calculator from snapshot");
+        assert_eq!(result["result"].as_f64(), Some(42.0));
     }
 }

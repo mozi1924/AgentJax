@@ -1,7 +1,7 @@
 use super::stream_collection::collect_provider_turn;
 use super::tool_archiving::archive_unavailable_historical_tool_calls;
 use super::tool_execution::execute_pending_tools;
-use super::tool_parsing::{describe_item_shape, extract_active_tool_names};
+use super::tool_parsing::describe_item_shape;
 use super::AgentRuntime;
 use crate::commands::chat::ChatRequest;
 use crate::config::AppConfig;
@@ -269,17 +269,18 @@ impl AgentRuntime {
         let provider_kind = &resolved_model.provider.kind;
         let mut developer_items = resolved_model.prompt_assembly.developer_items.clone();
 
-        let tools_schemas = tools_catalog
-            .list_schemas_with_format(
+        let tool_snapshot = tools_catalog
+            .snapshot_with_format(
                 tool_schema_format,
                 &ToolExecutionContext {
                     conversation_id: Some(conversation_id.to_string()),
                 },
             )
             .await;
-        let active_tool_names = extract_active_tool_names(&tools_schemas);
-        context_items =
-            archive_unavailable_historical_tool_calls(context_items, &active_tool_names);
+        context_items = archive_unavailable_historical_tool_calls(
+            context_items,
+            tool_snapshot.active_tool_names(),
+        );
 
         let mut accumulator = TurnAccumulator::new();
         let mut accumulated_context: Vec<Value> = Vec::new();
@@ -315,7 +316,7 @@ impl AgentRuntime {
                 accumulated_context.clone()
             };
 
-            let stream_request = build_request(req, input_items, tools_schemas.clone());
+            let stream_request = build_request(req, input_items, tool_snapshot.schemas().to_vec());
             let collected = collect_provider_turn(
                 config,
                 provider_kind,
@@ -390,7 +391,7 @@ impl AgentRuntime {
             let executed_batch = execute_pending_tools(
                 provider_kind,
                 conversation_id,
-                tools_catalog,
+                &tool_snapshot,
                 collected.pending_tools,
                 provider_capabilities.supports_parallel_tool_calls,
                 cancel_rx,

@@ -1,7 +1,7 @@
 use super::tool_parsing::describe_item_shape;
 use super::{MAX_REPEATED_FAILED_SIGNATURES, MAX_TOOL_EXEC_RETRIES};
 use crate::providers::types::{ProviderPendingToolCall, ProviderStreamEvent};
-use crate::tools::{ToolCatalog, ToolExecutionContext};
+use crate::tools::{ToolCatalogSnapshot, ToolExecutionContext};
 use futures_util::stream::{self, StreamExt};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -40,7 +40,7 @@ struct PreparedToolExecution {
 pub(super) async fn execute_pending_tools<F>(
     provider_kind: &str,
     conversation_id: &str,
-    tools_catalog: &ToolCatalog,
+    tool_snapshot: &ToolCatalogSnapshot,
     pending_tools: Vec<ProviderPendingToolCall>,
     supports_parallel_tool_calls: bool,
     cancel_rx: &mut watch::Receiver<bool>,
@@ -136,7 +136,7 @@ where
                     break;
                 }
                 attempt += 1;
-                let exec_result = tools_catalog.execute(&name, &args, &context).await;
+                let exec_result = tool_snapshot.execute(&name, &args, &context).await;
                 match exec_result {
                     Ok(res) => {
                         success_result = Some(res);

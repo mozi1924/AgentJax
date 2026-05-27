@@ -5,7 +5,7 @@ mod registry;
 
 use serde_json::{json, Value};
 
-pub use catalog::ToolCatalog;
+pub use catalog::{ToolCatalog, ToolCatalogSnapshot};
 pub use native::{CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool};
 pub use registry::ToolRegistry;
 
