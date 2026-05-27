@@ -35,6 +35,7 @@ import {
 } from '../../../features/settings/promptComposer';
 import { getValueAtPath, resolvePath } from '../../../features/settings/utils';
 import type { FieldRendererProps } from './types';
+import { renderMarkdown } from '../../chat/markdownRenderer';
 
 interface SortableBlockItemProps {
   block: PromptBlock;
@@ -138,8 +139,8 @@ function PromptPreviewModal({
   const { t } = useI18n();
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm">
-      <div className="flex h-[min(70vh,720px)] w-[min(760px,100%)] flex-col overflow-hidden rounded-2xl border border-[#2b2b2d] bg-[#131314] shadow-2xl shadow-black/70">
-        <div className="flex items-center justify-between border-b border-[#242426] px-4 py-3">
+      <div className="flex h-[min(70vh,720px)] w-[min(760px,100%)] flex-col overflow-hidden rounded-2xl border border-[#25282d] bg-[#131314] shadow-2xl shadow-black/80">
+        <div className="flex items-center justify-between border-b border-[#242426] px-4 py-3 bg-[#17181a]/55">
           <div>
             <h4 className="text-sm font-semibold text-white">{t('assembler.preview.title')}</h4>
             <p className="mt-0.5 text-[11px] text-neutral-500">
@@ -153,10 +154,10 @@ function PromptPreviewModal({
             {t('settings.modal.close')}
           </button>
         </div>
-        <div className="scrollbar-thin flex-1 overflow-auto px-4 py-4">
-          <pre className="whitespace-pre-wrap font-mono text-[12px] leading-6 text-neutral-200">
-            {markdown}
-          </pre>
+        <div className="scrollbar-thin flex-1 overflow-auto px-6 py-5 bg-[#0c0d0e]/30 select-text">
+          <div className="prose prose-invert prose-sm max-w-none text-slate-350">
+            {renderMarkdown(markdown)}
+          </div>
         </div>
       </div>
     </div>

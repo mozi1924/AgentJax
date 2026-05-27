@@ -31,25 +31,16 @@ export function CollectionEditor({
   const { t } = useI18n();
   const resolvedPath = resolvePath(collection.path, contextPath);
   const items = getCollectionItems(collection, snapshot, contextPath);
-  const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});
+  const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    if (items.length > 0) {
+      initial[items[0][0]] = true; // Expand first item by default
+    }
+    return initial;
+  });
   const [adding, setAdding] = useState(false);
   const [newKey, setNewKey] = useState('');
   const [newKeyError, setNewKeyError] = useState('');
-
-  useEffect(() => {
-    if (items.length === 1) {
-      setExpandedKeys({ [items[0][0]]: true });
-      return;
-    }
-
-    setExpandedKeys((current) => {
-      const next: Record<string, boolean> = {};
-      items.forEach(([key], index) => {
-        next[key] = current[key] ?? index === 0;
-      });
-      return next;
-    });
-  }, [items]);
 
   return (
     <div className="space-y-3.5">

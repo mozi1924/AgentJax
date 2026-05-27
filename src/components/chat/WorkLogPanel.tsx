@@ -170,7 +170,7 @@ export default function WorkLogPanel({
 
                   return (
                     <div key={item.line.id} className="relative pl-2">
-                      <span className="absolute -left-[21px] top-2.5 h-1.5 w-1.5 rounded-full bg-slate-600/80" />
+                      <span className="absolute -left-[19px] top-2.5 h-1.5 w-1.5 rounded-full bg-slate-600/80" />
                       <div className="rounded-xl bg-transparent py-0.5 text-sm text-slate-300">
                         {text ? (
                           <div className="prose prose-invert prose-sm max-w-none [&_code]:!rounded-md [&_code]:!bg-[#1b1c1d] [&_code]:!px-1.5 [&_code]:!py-0.5 [&_code]:!text-[11px] [&_code]:!text-slate-200 [&_p]:!my-1 [&_pre]:!rounded-xl [&_pre]:!border [&_pre]:!border-zinc-800 [&_pre]:!bg-[#0c0d0e]">
@@ -204,7 +204,7 @@ export default function WorkLogPanel({
 
                 return (
                   <div key={toolLine.id || `${toolLine.callId}-${index}`} className="relative pl-2">
-                    <span className="absolute -left-[21px] top-3.5 h-1.5 w-1.5 rounded-full bg-slate-600/80" />
+                    <span className="absolute -left-[19px] top-3.5 h-1.5 w-1.5 rounded-full bg-slate-600/80" />
                     <div className={`overflow-hidden rounded-xl border ${accent.className} shadow-sm transition-all hover:border-[#343840]`}>
                       <button
                         type="button"
