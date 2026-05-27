@@ -9,7 +9,7 @@ use crate::message_phase::AssistantPhase;
 use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
 use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
 use crate::tools::{
-    MountedMcpServerSessions, ToolCatalog, ToolCatalogSnapshot, ToolCatalogStateChange,
+    MountedToolSourceSessions, ToolCatalog, ToolCatalogSnapshot, ToolCatalogStateChange,
     ToolExecutionContext, ToolPresentation,
 };
 use serde_json::Value;
@@ -569,16 +569,16 @@ impl AgentRuntime {
 }
 
 fn apply_tool_state_changes(
-    mounted_mcp_servers: &mut MountedMcpServerSessions,
+    mounted_tool_sources: &mut MountedToolSourceSessions,
     state_changes: Vec<ToolCatalogStateChange>,
 ) {
     for state_change in state_changes {
         match state_change {
-            ToolCatalogStateChange::MountMcpServer(server_session) => {
-                mounted_mcp_servers.insert(server_session.server_id.clone(), server_session);
+            ToolCatalogStateChange::MountToolSource(source_session) => {
+                mounted_tool_sources.insert(source_session.source_id.clone(), source_session);
             }
-            ToolCatalogStateChange::UnmountMcpServer(server_id) => {
-                mounted_mcp_servers.remove(&server_id);
+            ToolCatalogStateChange::UnmountToolSource { source_id, .. } => {
+                mounted_tool_sources.remove(&source_id);
             }
         }
     }
@@ -592,7 +592,7 @@ mod tests {
     };
     use crate::config::McpServerConfig;
     use crate::tools::{
-        MountedMcpServerSession, MountedMcpServerSessions, MountedMcpToolDefinition,
+        MountedToolSourceSession, MountedToolSourceSessions, MountedToolDefinition,
         ToolCatalogStateChange, ToolPresentation,
     };
     use serde_json::json;
@@ -707,20 +707,21 @@ mod tests {
 
     #[test]
     fn applies_mounted_mcp_server_state_changes_between_hops() {
-        let mut mounted_servers = MountedMcpServerSessions::new();
+        let mut mounted_servers = MountedToolSourceSessions::new();
         apply_tool_state_changes(
             &mut mounted_servers,
-            vec![ToolCatalogStateChange::MountMcpServer(
-                MountedMcpServerSession {
-                    server_id: "openai_docs".to_string(),
-                    server_config: McpServerConfig::default(),
-                    tools: vec![MountedMcpToolDefinition {
+            vec![ToolCatalogStateChange::MountToolSource(
+                MountedToolSourceSession {
+                    source_id: "openai_docs".to_string(),
+                    source_type: "mcp".to_string(),
+                    tools: vec![MountedToolDefinition {
                         tool_name: "search_openai_docs".to_string(),
                         display_name: "Search Openai Docs".to_string(),
                         description: "Search docs".to_string(),
                         icon: Some("LayoutGrid".to_string()),
                         input_schema: json!({"type":"object","properties":{}}),
                     }],
+                    mcp_config: Some(McpServerConfig::default()),
                 },
             )],
         );
@@ -734,27 +735,29 @@ mod tests {
 
     #[test]
     fn removes_mounted_mcp_server_after_unmount_state_change() {
-        let mut mounted_servers = MountedMcpServerSessions::new();
+        let mut mounted_servers = MountedToolSourceSessions::new();
         mounted_servers.insert(
             "openai_docs".to_string(),
-            MountedMcpServerSession {
-                server_id: "openai_docs".to_string(),
-                server_config: McpServerConfig::default(),
-                tools: vec![MountedMcpToolDefinition {
+            MountedToolSourceSession {
+                source_id: "openai_docs".to_string(),
+                source_type: "mcp".to_string(),
+                tools: vec![MountedToolDefinition {
                     tool_name: "search_openai_docs".to_string(),
                     display_name: "Search Openai Docs".to_string(),
                     description: "Search docs".to_string(),
                     icon: Some("LayoutGrid".to_string()),
                     input_schema: json!({"type":"object","properties":{}}),
                 }],
+                mcp_config: Some(McpServerConfig::default()),
             },
         );
 
         apply_tool_state_changes(
             &mut mounted_servers,
-            vec![ToolCatalogStateChange::UnmountMcpServer(
-                "openai_docs".to_string(),
-            )],
+            vec![ToolCatalogStateChange::UnmountToolSource {
+                source_id: "openai_docs".to_string(),
+                source_type: "mcp".to_string(),
+            }],
         );
 
         assert!(!mounted_servers.contains_key("openai_docs"));

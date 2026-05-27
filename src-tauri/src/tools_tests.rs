@@ -4,8 +4,8 @@ mod tests {
     use crate::config::{AppConfig, McpServerConfig};
     use crate::conversation_store;
     use crate::tools::{
-        CalculatorTool, FileReaderTool, FileWriterTool, MountedMcpServerSession,
-        MountedMcpServerSessions, MountedMcpToolDefinition, SystemTimeTool, Tool, ToolCatalog,
+        CalculatorTool, FileReaderTool, FileWriterTool, MountedToolSourceSession,
+        MountedToolSourceSessions, MountedToolDefinition, SystemTimeTool, Tool, ToolCatalog,
         ToolExecutionContext, ToolRegistry, ToolSchemaFormat,
     };
     use serde_json::json;
@@ -978,13 +978,13 @@ mod tests {
             .insert("openai_docs".to_string(), McpServerConfig::default());
 
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
-        let mut mounted_servers = MountedMcpServerSessions::new();
+        let mut mounted_servers = MountedToolSourceSessions::new();
         mounted_servers.insert(
             "openai_docs".to_string(),
-            MountedMcpServerSession {
-                server_id: "openai_docs".to_string(),
-                server_config: McpServerConfig::default(),
-                tools: vec![MountedMcpToolDefinition {
+            MountedToolSourceSession {
+                source_id: "openai_docs".to_string(),
+                source_type: "mcp".to_string(),
+                tools: vec![MountedToolDefinition {
                     tool_name: "search_openai_docs".to_string(),
                     display_name: "Search Openai Docs".to_string(),
                     description: "Search docs".to_string(),
@@ -996,6 +996,7 @@ mod tests {
                         }
                     }),
                 }],
+                mcp_config: Some(McpServerConfig::default()),
             },
         );
 
@@ -1024,11 +1025,12 @@ mod tests {
         let _home = setup_test_home();
         let conversation_id = format!("test-mounted-mcp-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).expect("ensure conversation");
-        conversation_store::update_conversation_mounted_mcp_servers(
+        conversation_store::update_conversation_mounted_tool_sources(
             &conversation_id,
-            vec![conversation_store::ConversationMountedMcpServer {
-                server_id: "openai_docs".to_string(),
-                tools: vec![conversation_store::ConversationMountedMcpToolDefinition {
+            vec![conversation_store::ConversationMountedToolSource {
+                source_id: "openai_docs".to_string(),
+                source_type: "mcp".to_string(),
+                tools: vec![conversation_store::ConversationMountedToolDefinition {
                     tool_name: "search_openai_docs".to_string(),
                     display_name: "Search Openai Docs".to_string(),
                     description: "Search docs".to_string(),
@@ -1042,7 +1044,7 @@ mod tests {
                 }],
             }],
         )
-        .expect("persist mounted MCP servers");
+        .expect("persist mounted tool sources");
 
         let mut config = AppConfig::default();
         config
@@ -1063,5 +1065,28 @@ mod tests {
             .contains("mcp__openai_docs__search_openai_docs"));
 
         conversation_store::delete_conversation(&conversation_id).ok();
+    }
+
+    #[tokio::test]
+    async fn test_unfolded_mcp_server_bypasses_control_tool_and_exposes_tools() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+
+        let mut config = AppConfig::default();
+        config.mcp_servers.insert(
+            "unfolded_server".to_string(),
+            McpServerConfig {
+                enabled: true,
+                unfolded: true,
+                ..McpServerConfig::default()
+            },
+        );
+
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+
+        assert!(!snapshot.active_tool_names().contains("mcp_server__unfolded_server"));
     }
 }

@@ -3,8 +3,9 @@ use super::locks::{cached_summary, replace_cached_summary, with_conversation_loc
 use super::paths::{conversation_messages_path, conversation_metadata_path, list_conversation_ids};
 use super::types::{
     ConversationDetail, ConversationDynamicTool, ConversationLine, ConversationMountedMcpServer,
-    ConversationSummary, TitleGenerationCandidate, CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY,
-    CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
+    ConversationMountedToolSource, ConversationMountedToolDefinition, ConversationSummary, TitleGenerationCandidate,
+    CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY, CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
+    CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY,
 };
 // ── List all conversations ────────────────────────────────────────────────
 
@@ -128,23 +129,52 @@ pub fn load_conversation_dynamic_tools(
     })
 }
 
-pub fn load_conversation_mounted_mcp_servers(
+pub fn load_conversation_mounted_tool_sources(
     conversation_id: &str,
-) -> Result<Vec<ConversationMountedMcpServer>, String> {
+) -> Result<Vec<ConversationMountedToolSource>, String> {
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(conversation_id)?;
         let Some(meta) = read_conversation_meta(&metadata_path)? else {
             return Ok(Vec::new());
         };
 
-        let Some(value) = meta
+        if let Some(value) = meta
+            .metadata
+            .get(CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY)
+        {
+            return serde_json::from_value::<Vec<ConversationMountedToolSource>>(value.clone())
+                .map_err(|err| format!("Failed to parse mounted tool sources metadata: {err}"));
+        }
+
+        // Fallback to legacy MCP servers key
+        if let Some(value) = meta
             .metadata
             .get(CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY)
-        else {
-            return Ok(Vec::new());
-        };
+        {
+            let legacy_servers = serde_json::from_value::<Vec<ConversationMountedMcpServer>>(value.clone())
+                .map_err(|err| format!("Failed to parse legacy mounted MCP server metadata: {err}"))?;
+            
+            let generic_sources = legacy_servers
+                .into_iter()
+                .map(|server| ConversationMountedToolSource {
+                    source_id: server.server_id,
+                    source_type: "mcp".to_string(),
+                    tools: server
+                        .tools
+                        .into_iter()
+                        .map(|tool| ConversationMountedToolDefinition {
+                            tool_name: tool.tool_name,
+                            display_name: tool.display_name,
+                            description: tool.description,
+                            icon: tool.icon,
+                            input_schema: tool.input_schema,
+                        })
+                        .collect(),
+                })
+                .collect();
+            return Ok(generic_sources);
+        }
 
-        serde_json::from_value::<Vec<ConversationMountedMcpServer>>(value.clone())
-            .map_err(|err| format!("Failed to parse mounted MCP server metadata: {err}"))
+        Ok(Vec::new())
     })
 }

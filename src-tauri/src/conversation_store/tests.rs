@@ -851,19 +851,20 @@ fn conversation_dynamic_tools_round_trip_through_metadata() {
 }
 
 #[test]
-fn conversation_mounted_mcp_servers_round_trip_through_metadata() {
+fn conversation_mounted_tool_sources_round_trip_through_metadata() {
     let _g = crate::config::test_env_lock()
         .lock()
         .unwrap_or_else(|p| p.into_inner());
     let _h = setup_test_home();
-    let cid = format!("tmountedmcp-{}", Uuid::new_v4());
+    let cid = format!("tmountedtools-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
 
-    update_conversation_mounted_mcp_servers(
+    update_conversation_mounted_tool_sources(
         &cid,
-        vec![ConversationMountedMcpServer {
-            server_id: "openai_docs".to_string(),
-            tools: vec![ConversationMountedMcpToolDefinition {
+        vec![ConversationMountedToolSource {
+            source_id: "openai_docs".to_string(),
+            source_type: "mcp".to_string(),
+            tools: vec![ConversationMountedToolDefinition {
                 tool_name: "search_openai_docs".to_string(),
                 display_name: "Search Openai Docs".to_string(),
                 description: "Search docs".to_string(),
@@ -877,18 +878,65 @@ fn conversation_mounted_mcp_servers_round_trip_through_metadata() {
             }],
         }],
     )
-    .expect("persist mounted MCP servers");
+    .expect("persist mounted tool sources");
 
-    let loaded = load_conversation_mounted_mcp_servers(&cid).expect("load mounted MCP servers");
+    let loaded = load_conversation_mounted_tool_sources(&cid).expect("load mounted tool sources");
     assert_eq!(loaded.len(), 1);
-    assert_eq!(loaded[0].server_id, "openai_docs");
+    assert_eq!(loaded[0].source_id, "openai_docs");
+    assert_eq!(loaded[0].source_type, "mcp");
     assert_eq!(loaded[0].tools.len(), 1);
     assert_eq!(loaded[0].tools[0].tool_name, "search_openai_docs");
 
-    update_conversation_mounted_mcp_servers(&cid, Vec::new()).expect("clear mounted MCP servers");
-    assert!(load_conversation_mounted_mcp_servers(&cid)
-        .expect("reload mounted MCP servers")
+    update_conversation_mounted_tool_sources(&cid, Vec::new()).expect("clear mounted tool sources");
+    assert!(load_conversation_mounted_tool_sources(&cid)
+        .expect("reload mounted tool sources")
         .is_empty());
+}
+
+#[test]
+fn conversation_mounted_mcp_servers_legacy_fallback() {
+    use super::paths::conversation_metadata_path;
+    use super::file_io::{read_conversation_meta, write_conversation_metadata};
+
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("tlegacyfallback-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+
+    // Manually insert legacy format under old key in metadata
+    let metadata_path = conversation_metadata_path(&cid).expect("metadata path");
+    let mut meta = read_conversation_meta(&metadata_path).expect("read meta").expect("meta exists");
+    let legacy_data = json!([
+        {
+            "serverId": "openai_docs",
+            "tools": [
+                {
+                    "toolName": "search_openai_docs",
+                    "displayName": "Search Openai Docs",
+                    "description": "Search docs",
+                    "icon": "LayoutGrid",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": { "type": "string" }
+                        }
+                    }
+                }
+            ]
+        }
+    ]);
+    meta.metadata.insert("mounted_mcp_servers".to_string(), legacy_data);
+    write_conversation_metadata(&metadata_path, &meta).expect("write legacy meta");
+
+    // Load using generic loader and assert mapped fields
+    let loaded = load_conversation_mounted_tool_sources(&cid).expect("load mounted tool sources");
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].source_id, "openai_docs");
+    assert_eq!(loaded[0].source_type, "mcp");
+    assert_eq!(loaded[0].tools.len(), 1);
+    assert_eq!(loaded[0].tools[0].tool_name, "search_openai_docs");
 }
 
 #[test]

@@ -7,6 +7,7 @@ pub const LOG_VERSION: u32 = 6;
 pub const DEFAULT_CONVERSATION_TITLE: &str = "新对话";
 pub const CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY: &str = "dynamic_tools";
 pub const CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY: &str = "mounted_mcp_servers";
+pub const CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY: &str = "mounted_tool_sources";
 
 // ── Metadata (metadata.json) ──────────────────────────────────────────────
 
@@ -68,6 +69,27 @@ pub struct ConversationMountedMcpServer {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationMountedMcpToolDefinition {
+    pub tool_name: String,
+    #[serde(default)]
+    pub display_name: String,
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    pub input_schema: Value,
+}
+
+/// Conversation-scoped generic tool source mount state persisted in metadata.json.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationMountedToolSource {
+    pub source_id: String,
+    pub source_type: String, // e.g. "mcp" or "plugin"
+    pub tools: Vec<ConversationMountedToolDefinition>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationMountedToolDefinition {
     pub tool_name: String,
     #[serde(default)]
     pub display_name: String,

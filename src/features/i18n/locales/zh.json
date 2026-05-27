@@ -159,6 +159,8 @@
   "settings.mcp_servers.channel_buffer.title": "通道缓冲区容量",
   "settings.mcp_servers.channel_buffer.description": "留空表示使用默认值。",
   "settings.mcp_servers.reinit.title": "会话过期重新初始化",
+  "settings.mcp_servers.unfolded.title": "工具不折叠",
+  "settings.mcp_servers.unfolded.description": "直接激活该服务器提供的所有工具，不生成单独的挂载/卸载管理工具。",
 
   "settings.renderer.advanced": "高级",
   "settings.renderer.secret.configured": "当前密钥已存储在 {source} 中。留空以保持不变。",

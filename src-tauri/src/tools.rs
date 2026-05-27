@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 pub(crate) use catalog::ToolCatalogExecution;
 pub use catalog::{
-    MountedMcpServerSession, MountedMcpServerSessions, MountedMcpToolDefinition, ToolCatalog,
+    MountedToolSourceSession, MountedToolSourceSessions, MountedToolDefinition, ToolCatalog,
     ToolCatalogSnapshot, ToolCatalogStateChange,
 };
 pub use files::{

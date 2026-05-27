@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct MountedMcpToolDefinition {
+pub struct MountedToolDefinition {
     pub tool_name: String,
     pub display_name: String,
     pub description: String,
@@ -17,18 +17,19 @@ pub struct MountedMcpToolDefinition {
 }
 
 #[derive(Debug, Clone)]
-pub struct MountedMcpServerSession {
-    pub server_id: String,
-    pub server_config: crate::config::McpServerConfig,
-    pub tools: Vec<MountedMcpToolDefinition>,
+pub struct MountedToolSourceSession {
+    pub source_id: String,
+    pub source_type: String,
+    pub tools: Vec<MountedToolDefinition>,
+    pub mcp_config: Option<crate::config::McpServerConfig>,
 }
 
-pub type MountedMcpServerSessions = BTreeMap<String, MountedMcpServerSession>;
+pub type MountedToolSourceSessions = BTreeMap<String, MountedToolSourceSession>;
 
 #[derive(Debug, Clone)]
 pub enum ToolCatalogStateChange {
-    MountMcpServer(MountedMcpServerSession),
-    UnmountMcpServer(String),
+    MountToolSource(MountedToolSourceSession),
+    UnmountToolSource { source_id: String, source_type: String },
 }
 
 #[derive(Debug, Clone)]
@@ -47,7 +48,7 @@ enum ToolSnapshotEntry {
     ManageMcpServer {
         server_id: String,
         server_config: crate::config::McpServerConfig,
-        mounted_session: Option<MountedMcpServerSession>,
+        mounted_session: Option<MountedToolSourceSession>,
     },
 }
 
@@ -140,7 +141,7 @@ fn build_manage_mcp_server_tool_schema(
     )
 }
 
-fn normalize_mcp_tool_definitions(raw_tools: Vec<Value>) -> Vec<MountedMcpToolDefinition> {
+fn normalize_mcp_tool_definitions(raw_tools: Vec<Value>) -> Vec<MountedToolDefinition> {
     let mut normalized = Vec::new();
     for raw_tool in raw_tools {
         let tool_name = raw_tool
@@ -183,7 +184,7 @@ fn normalize_mcp_tool_definitions(raw_tools: Vec<Value>) -> Vec<MountedMcpToolDe
                 "properties": {}
             }));
 
-        normalized.push(MountedMcpToolDefinition {
+        normalized.push(MountedToolDefinition {
             tool_name,
             display_name,
             description,
@@ -360,11 +361,12 @@ impl ToolCatalogSnapshot {
                                     "status": { "action": "status" }
                                 }
                             }),
-                            state_changes: vec![ToolCatalogStateChange::MountMcpServer(
-                                MountedMcpServerSession {
-                                    server_id: server_id.clone(),
-                                    server_config: server_config.clone(),
+                            state_changes: vec![ToolCatalogStateChange::MountToolSource(
+                                MountedToolSourceSession {
+                                    source_id: server_id.clone(),
+                                    source_type: "mcp".to_string(),
                                     tools: mounted_tools,
+                                    mcp_config: Some(server_config.clone()),
                                 },
                             )],
                         })
@@ -377,7 +379,10 @@ impl ToolCatalogSnapshot {
                             "status": if mounted_session.is_some() { "unmounted" } else { "already_unmounted" },
                         }),
                         state_changes: if mounted_session.is_some() {
-                            vec![ToolCatalogStateChange::UnmountMcpServer(server_id.clone())]
+                            vec![ToolCatalogStateChange::UnmountToolSource {
+                                source_id: server_id.clone(),
+                                source_type: "mcp".to_string(),
+                            }]
                         } else {
                             Vec::new()
                         },
@@ -444,7 +449,7 @@ impl ToolCatalog {
         &self,
         format: ToolSchemaFormat,
         context: &ToolExecutionContext,
-        mounted_servers: &MountedMcpServerSessions,
+        mounted_servers: &MountedToolSourceSessions,
     ) -> ToolCatalogSnapshot {
         let mut schemas = Vec::new();
         let mut active_tool_names = HashSet::new();
@@ -472,53 +477,105 @@ impl ToolCatalog {
 
             let resolved_server_config =
                 self.resolve_server_config_with_workspace_fallback(server_config, context);
-            let mounted_session = mounted_servers.get(server_id).cloned();
-            let control_tool_name = mount_tool_name_for_server(server_id);
-            presentations.insert(
-                control_tool_name.clone(),
-                presentation_for_manage_mcp_server(server_id),
-            );
-            insert_snapshot_tool(
-                &mut schemas,
-                build_manage_mcp_server_tool_schema(format, server_id, mounted_session.is_some()),
-                &mut active_tool_names,
-                &mut entries,
-                control_tool_name,
-                ToolSnapshotEntry::ManageMcpServer {
-                    server_id: server_id.clone(),
-                    server_config: resolved_server_config.clone(),
-                    mounted_session: mounted_session.clone(),
-                },
-            );
 
-            if let Some(mounted) = mounted_servers.get(server_id) {
-                for tool in &mounted.tools {
-                    let prefixed_name = prefixed_mcp_tool_name(server_id, &tool.tool_name);
-                    presentations.insert(
-                        prefixed_name.clone(),
-                        ToolPresentation {
-                            display_name: tool.display_name.clone(),
-                            description: tool.description.clone(),
-                            icon: tool.icon.clone(),
-                        },
-                    );
-                    insert_snapshot_tool(
-                        &mut schemas,
-                        format_tool_schema(
-                            format,
-                            &prefixed_name,
-                            &tool.description,
-                            tool.input_schema.clone(),
-                        ),
-                        &mut active_tool_names,
-                        &mut entries,
-                        prefixed_name,
-                        ToolSnapshotEntry::Mcp {
-                            server_id: mounted.server_id.clone(),
-                            tool_name: tool.tool_name.clone(),
-                            server_config: mounted.server_config.clone(),
-                        },
-                    );
+            if server_config.unfolded {
+                match self
+                    .mcp_manager
+                    .list_tools(server_id, &resolved_server_config, &self.mcp_runtime)
+                    .await
+                {
+                    Ok(raw_tools) => {
+                        let mounted_tools = normalize_mcp_tool_definitions(raw_tools);
+                        for tool in mounted_tools {
+                            let prefixed_name = prefixed_mcp_tool_name(server_id, &tool.tool_name);
+                            presentations.insert(
+                                prefixed_name.clone(),
+                                ToolPresentation {
+                                    display_name: tool.display_name.clone(),
+                                    description: tool.description.clone(),
+                                    icon: tool.icon.clone(),
+                                },
+                            );
+                            insert_snapshot_tool(
+                                &mut schemas,
+                                format_tool_schema(
+                                    format,
+                                    &prefixed_name,
+                                    &tool.description,
+                                    tool.input_schema.clone(),
+                                ),
+                                &mut active_tool_names,
+                                &mut entries,
+                                prefixed_name,
+                                ToolSnapshotEntry::Mcp {
+                                    server_id: server_id.clone(),
+                                    tool_name: tool.tool_name.clone(),
+                                    server_config: resolved_server_config.clone(),
+                                },
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        log::error!(
+                            "Failed to list tools for unfolded MCP server '{}': {}",
+                            server_id,
+                            err
+                        );
+                    }
+                }
+            } else {
+                let mounted_session = mounted_servers.get(server_id).cloned();
+                let control_tool_name = mount_tool_name_for_server(server_id);
+                presentations.insert(
+                    control_tool_name.clone(),
+                    presentation_for_manage_mcp_server(server_id),
+                );
+                insert_snapshot_tool(
+                    &mut schemas,
+                    build_manage_mcp_server_tool_schema(format, server_id, mounted_session.is_some()),
+                    &mut active_tool_names,
+                    &mut entries,
+                    control_tool_name,
+                    ToolSnapshotEntry::ManageMcpServer {
+                        server_id: server_id.clone(),
+                        server_config: resolved_server_config.clone(),
+                        mounted_session: mounted_session.clone(),
+                    },
+                );
+
+                if let Some(mounted) = mounted_servers.get(server_id) {
+                    for tool in &mounted.tools {
+                        let prefixed_name = prefixed_mcp_tool_name(server_id, &tool.tool_name);
+                        presentations.insert(
+                            prefixed_name.clone(),
+                            ToolPresentation {
+                                display_name: tool.display_name.clone(),
+                                description: tool.description.clone(),
+                                icon: tool.icon.clone(),
+                            },
+                        );
+                        insert_snapshot_tool(
+                            &mut schemas,
+                            format_tool_schema(
+                                format,
+                                &prefixed_name,
+                                &tool.description,
+                                tool.input_schema.clone(),
+                            ),
+                            &mut active_tool_names,
+                            &mut entries,
+                            prefixed_name,
+                            ToolSnapshotEntry::Mcp {
+                                server_id: mounted.source_id.clone(),
+                                tool_name: tool.tool_name.clone(),
+                                server_config: mounted
+                                    .mcp_config
+                                    .as_ref()
+                                    .cloned()
+                                    .unwrap_or_else(|| resolved_server_config.clone()),
+                            },
+                        );
+                    }
                 }
             }
         }
@@ -578,73 +635,75 @@ impl ToolCatalog {
     pub fn load_persisted_mounted_servers(
         &self,
         context: &ToolExecutionContext,
-    ) -> MountedMcpServerSessions {
+    ) -> MountedToolSourceSessions {
         let conversation_id = context
             .conversation_id
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty());
         let Some(conversation_id) = conversation_id else {
-            return MountedMcpServerSessions::new();
+            return MountedToolSourceSessions::new();
         };
 
-        let stored_servers =
-            match crate::conversation_store::load_conversation_mounted_mcp_servers(conversation_id)
+        let stored_sources =
+            match crate::conversation_store::load_conversation_mounted_tool_sources(conversation_id)
             {
-                Ok(servers) => servers,
+                Ok(sources) => sources,
                 Err(err) => {
                     log::warn!(
-                        "Failed to load mounted MCP servers for conversation '{}': {}",
+                        "Failed to load mounted tool sources for conversation '{}': {}",
                         conversation_id,
                         err
                     );
-                    return MountedMcpServerSessions::new();
+                    return MountedToolSourceSessions::new();
                 }
             };
 
-        let mut mounted_servers = MountedMcpServerSessions::new();
-        for stored_server in stored_servers {
-            let Some(server_config) = self.mcp_config.get(&stored_server.server_id) else {
-                log::warn!(
-                    "Skipping persisted mounted MCP server '{}' because its config was not found",
-                    stored_server.server_id
-                );
-                continue;
-            };
-            if !server_config.enabled {
-                log::warn!(
-                    "Skipping persisted mounted MCP server '{}' because it is disabled",
-                    stored_server.server_id
-                );
-                continue;
-            }
+        let mut mounted_servers = MountedToolSourceSessions::new();
+        for stored_source in stored_sources {
+            if stored_source.source_type == "mcp" {
+                let Some(server_config) = self.mcp_config.get(&stored_source.source_id) else {
+                    log::warn!(
+                        "Skipping persisted mounted MCP server '{}' because its config was not found",
+                        stored_source.source_id
+                    );
+                    continue;
+                };
+                if !server_config.enabled {
+                    log::warn!(
+                        "Skipping persisted mounted MCP server '{}' because it is disabled",
+                        stored_source.source_id
+                    );
+                    continue;
+                }
 
-            mounted_servers.insert(
-                stored_server.server_id.clone(),
-                MountedMcpServerSession {
-                    server_id: stored_server.server_id,
-                    server_config: self
-                        .resolve_server_config_with_workspace_fallback(server_config, context),
-                    tools: stored_server
-                        .tools
-                        .into_iter()
-                        .map(|tool| {
-                            let fallback_name = humanize_tool_name(&tool.tool_name);
-                            MountedMcpToolDefinition {
-                                tool_name: tool.tool_name,
-                                display_name: if tool.display_name.trim().is_empty() {
-                                    fallback_name
-                                } else {
-                                    tool.display_name
-                                },
-                                description: tool.description,
-                                icon: tool.icon.or(Some("LayoutGrid".to_string())),
-                                input_schema: tool.input_schema,
-                            }
-                        })
-                        .collect(),
-                },
-            );
+                mounted_servers.insert(
+                    stored_source.source_id.clone(),
+                    MountedToolSourceSession {
+                        source_id: stored_source.source_id,
+                        source_type: "mcp".to_string(),
+                        tools: stored_source
+                            .tools
+                            .into_iter()
+                            .map(|tool| {
+                                let fallback_name = humanize_tool_name(&tool.tool_name);
+                                MountedToolDefinition {
+                                    tool_name: tool.tool_name,
+                                    display_name: if tool.display_name.trim().is_empty() {
+                                        fallback_name
+                                    } else {
+                                        tool.display_name
+                                    },
+                                    description: tool.description,
+                                    icon: tool.icon.or(Some("LayoutGrid".to_string())),
+                                    input_schema: tool.input_schema,
+                                }
+                            })
+                            .collect(),
+                        mcp_config: Some(self.resolve_server_config_with_workspace_fallback(server_config, context)),
+                    },
+                );
+            }
         }
 
         mounted_servers
@@ -653,18 +712,19 @@ impl ToolCatalog {
     pub fn persist_mounted_servers(
         &self,
         conversation_id: &str,
-        mounted_servers: &MountedMcpServerSessions,
+        mounted_servers: &MountedToolSourceSessions,
     ) -> Result<(), String> {
-        let persisted_servers = mounted_servers
+        let persisted_sources = mounted_servers
             .values()
             .map(
-                |server| crate::conversation_store::ConversationMountedMcpServer {
-                    server_id: server.server_id.clone(),
+                |server| crate::conversation_store::ConversationMountedToolSource {
+                    source_id: server.source_id.clone(),
+                    source_type: server.source_type.clone(),
                     tools: server
                         .tools
                         .iter()
                         .map(|tool| {
-                            crate::conversation_store::ConversationMountedMcpToolDefinition {
+                            crate::conversation_store::ConversationMountedToolDefinition {
                                 tool_name: tool.tool_name.clone(),
                                 display_name: tool.display_name.clone(),
                                 description: tool.description.clone(),
@@ -676,9 +736,9 @@ impl ToolCatalog {
                 },
             )
             .collect::<Vec<_>>();
-        crate::conversation_store::update_conversation_mounted_mcp_servers(
+        crate::conversation_store::update_conversation_mounted_tool_sources(
             conversation_id,
-            persisted_servers,
+            persisted_sources,
         )
     }
 

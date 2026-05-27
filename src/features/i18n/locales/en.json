@@ -159,6 +159,8 @@
   "settings.mcp_servers.channel_buffer.title": "Channel buffer capacity",
   "settings.mcp_servers.channel_buffer.description": "Falls back to default value when left blank.",
   "settings.mcp_servers.reinit.title": "Reinit on expired session",
+  "settings.mcp_servers.unfolded.title": "Unfolded",
+  "settings.mcp_servers.unfolded.description": "Directly expose all tools from this server without a separate mount/unmount tool.",
 
   "settings.renderer.advanced": "Advanced",
   "settings.renderer.secret.configured": "Current secret stored via {source}. Leave blank to keep it unchanged.",

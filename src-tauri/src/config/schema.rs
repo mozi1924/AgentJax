@@ -52,6 +52,8 @@ pub struct McpServerConfig {
     #[serde(default = "default_true")]
     pub reinit_on_expired_session: bool,
     pub enabled: bool,
+    #[serde(default)]
+    pub unfolded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,6 +180,7 @@ impl Default for McpServerConfig {
             channel_buffer_capacity: None,
             reinit_on_expired_session: true,
             enabled: true,
+            unfolded: false,
         }
     }
 }
