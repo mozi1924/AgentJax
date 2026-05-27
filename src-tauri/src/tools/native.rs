@@ -24,7 +24,7 @@ impl Tool for CalculatorTool {
     }
 
     fn description(&self) -> &'static str {
-        "Safely evaluates basic mathematical expressions. Supports addition (+), subtraction (-), multiplication (*), division (/), exponentiation (^), square root (sqrt), and parentheses ()."
+        "Safely evaluates mathematical expressions with arithmetic, powers, remainder (%), constants (pi, e, tau, phi), standard functions (sqrt, abs, exp, ln, trig, rounding, min/max), and advanced helpers like gamma, beta, erf, factorial, ncr, npr, logistic, harmonic, sum, mean, and product."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -33,7 +33,7 @@ impl Tool for CalculatorTool {
             "properties": {
                 "expression": {
                     "type": "string",
-                    "description": "The mathematical expression to evaluate, e.g. '2 * (3.5 + 4) / sqrt(16)'"
+                    "description": "The mathematical expression to evaluate, e.g. '2 * (3.5 + 4) / sqrt(16)' or 'mean(2, 4, 6) + gamma(5) - ncr(6, 2)'"
                 }
             },
             "required": ["expression"]

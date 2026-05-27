@@ -15,6 +15,13 @@ mod tests {
         home: std::path::PathBuf,
     }
 
+    fn assert_approx_eq(actual: f64, expected: f64, tolerance: f64) {
+        assert!(
+            (actual - expected).abs() <= tolerance,
+            "expected {expected}, got {actual} (tolerance {tolerance})"
+        );
+    }
+
     impl Drop for TestHomeGuard {
         fn drop(&mut self) {
             unsafe {
@@ -58,6 +65,32 @@ mod tests {
         let args = json!({ "expression": "-3 + 5" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 2.0);
+
+        // Built-in constants and trigonometric functions
+        let args = json!({ "expression": "sin(pi / 2) + cos(0)" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_approx_eq(res["result"].as_f64().unwrap(), 2.0, 1e-12);
+
+        // Statistical and special functions backed by external math crates
+        let args = json!({ "expression": "gamma(5) + ncr(6, 2) + mean(2, 4, 6)" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_approx_eq(res["result"].as_f64().unwrap(), 43.0, 1e-12);
+
+        let args = json!({ "expression": "beta(2, 3) + harmonic(4) + logistic(0)" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_approx_eq(
+            res["result"].as_f64().unwrap(),
+            2.666_666_666_666_666_5,
+            1e-12,
+        );
+
+        let args = json!({ "expression": "erf(1)" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_approx_eq(
+            res["result"].as_f64().unwrap(),
+            0.842_700_792_949_714_9,
+            1e-11,
+        );
     }
 
     #[test]
@@ -68,28 +101,31 @@ mod tests {
         // Division by zero
         let args = json!({ "expression": "5 / 0" });
         let err = calc.execute(&args, &ctx).unwrap_err();
-        assert!(err.contains("Division by zero"));
+        assert!(err.contains("non-finite result"));
 
         // Sqrt of negative
         let args = json!({ "expression": "sqrt(-4)" });
         let err = calc.execute(&args, &ctx).unwrap_err();
-        assert!(err.contains("Cannot compute square root of a negative number"));
+        assert!(err.contains("non-finite result"));
 
         // Unbalanced parentheses
         let args = json!({ "expression": "(2 + 3" });
         let err = calc.execute(&args, &ctx).unwrap_err();
         assert!(
-            err.contains("Missing matching closing parenthesis")
+            err.contains("Failed to parse expression")
+                || err.contains("Missing matching closing parenthesis")
                 || err.contains("Unexpected end of expression")
         );
 
-        // Missing sqrt parentheses
-        let args = json!({ "expression": "sqrt 16" });
+        // Invalid factorial domain
+        let args = json!({ "expression": "factorial(3.2)" });
         let err = calc.execute(&args, &ctx).unwrap_err();
-        assert!(
-            err.contains("sqrt function requires parenthesis")
-                || err.contains("Unsupported function")
-        );
+        assert!(err.contains("factorial requires an integer input"));
+
+        // Invalid logit domain
+        let args = json!({ "expression": "logit(1)" });
+        let err = calc.execute(&args, &ctx).unwrap_err();
+        assert!(err.contains("logit requires 0 < p < 1"));
     }
 
     #[test]

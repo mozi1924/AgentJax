@@ -34,3 +34,5 @@ rmcp = { version = "1.7.0", features = ["client", "transport-child-process", "tr
 notify = "6.1.1"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 chrono = { version = "0.4", features = ["clock", "serde"] }
+meval = "0.2"
+statrs = { version = "0.18", default-features = false }
