@@ -128,6 +128,21 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
     return stoppedRequestIdsRef.current.has(requestId);
   }, []);
 
+  const isConversationGenerating = useCallback(
+    (conversationId: string) => generatingConversationIds.has(conversationId),
+    [generatingConversationIds]
+  );
+
+  const isConversationStopping = useCallback(
+    (conversationId: string) => stoppingConversationIds.has(conversationId),
+    [stoppingConversationIds]
+  );
+
+  const isConversationThinking = useCallback(
+    (conversationId: string) => thinkingConversationIds.has(conversationId),
+    [thinkingConversationIds]
+  );
+
   const stopConversationRequest = useCallback(
     async (conversationId: string) => {
       const requestId = activeConversationRequestRef.current[conversationId];
@@ -296,12 +311,9 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
     generatingConversationIds,
     hasPendingRequest,
     hasAnyGenerating: generatingConversationIds.size > 0,
-    isConversationGenerating: (conversationId: string) =>
-      generatingConversationIds.has(conversationId),
-    isConversationStopping: (conversationId: string) =>
-      stoppingConversationIds.has(conversationId),
-    isConversationThinking: (conversationId: string) =>
-      thinkingConversationIds.has(conversationId),
+    isConversationGenerating,
+    isConversationStopping,
+    isConversationThinking,
     markConversationThinking,
     stopConversationRequest,
     stoppingConversationIds,

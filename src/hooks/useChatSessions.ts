@@ -1,37 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import {
-  createLocalConversation,
-  getConversationDisplayTitle,
-  hydrateConversationLines,
-  isConversationEmpty,
-  shouldShowConversationInSidebar,
-} from '../features/conversations/conversationUtils';
 import type {
   ChatRequestOptions,
   ChatStreamResponse,
-  Conversation,
-  ConversationDetail,
-  ConversationSummary,
   ModelOption,
 } from '../features/conversations/types';
 import { DEFAULT_REASONING_MODE } from '../features/models/modelCatalog';
 import {
-  applyLoadedConversationDetail,
-  applyManualConversationRename,
   applyOptimisticUserMessage,
   applySendFailure,
   applySendResponse,
-  mergeStoredConversationsWithDrafts,
-  parseAdvancedRequestOptions,
-  rebuildConversationListAfterDeletion,
 } from '../features/conversations/sessionState';
+import { useChatComposerState } from './useChatComposerState';
+import { useConversationRegistry } from './useConversationRegistry';
 import { useConversationStreaming } from './useConversationStreaming';
-
-interface ComposerAttachment {
-  name: string;
-  type: string;
-}
 
 interface SendMessageOptions {
   appendUserMessage?: boolean;
@@ -52,36 +34,34 @@ export function useChatSessions({
   selectedReasoningMode,
   showAdvancedRequestOptionsButton,
 }: UseChatSessionsOptions) {
-  const initialConversation = useMemo(() => createLocalConversation(), []);
-  const [input, setInput] = useState('');
-  const [advancedRequestOptionsInput, setAdvancedRequestOptionsInput] = useState('');
-  const [advancedRequestOptionsError, setAdvancedRequestOptionsError] = useState<string | null>(
-    null
-  );
-  const [attachment, setAttachment] = useState<ComposerAttachment | null>(null);
-  const [conversations, setConversations] = useState<Conversation[]>(() => [initialConversation]);
-  const [conversationToDelete, setConversationToDelete] = useState<Conversation | null>(null);
-  const [activeConversationId, setActiveConversationId] = useState(
-    initialConversation.conversationId
-  );
-
-  const activeConversation = useMemo(
-    () =>
-      conversations.find(
-        (conversation) => conversation.conversationId === activeConversationId
-      ) || conversations[0],
-    [activeConversationId, conversations]
-  );
-
-  const sidebarConversations = useMemo(
-    () => conversations.filter(shouldShowConversationInSidebar),
-    [conversations]
-  );
-
-  const activeChatTitle = useMemo(
-    () => getConversationDisplayTitle(activeConversation),
-    [activeConversation]
-  );
+  const {
+    advancedRequestOptionsError,
+    advancedRequestOptionsInput,
+    attachment,
+    attachPlaceholderFile,
+    clearComposerDraft,
+    input,
+    removeAttachment,
+    resolveRequestOptions,
+    setInput,
+    updateAdvancedRequestOptionsInput,
+  } = useChatComposerState();
+  const {
+    activeChatTitle,
+    activeConversation,
+    activeConversationId,
+    cancelDeleteConversation,
+    confirmDeleteConversation,
+    conversationToDelete,
+    conversations,
+    createNewChat,
+    isEmptyConversation,
+    renameConversation,
+    requestDeleteConversation,
+    setActiveConversationId,
+    setConversations,
+    sidebarConversations,
+  } = useConversationRegistry();
 
   const {
     beginConversationRequest,
@@ -96,8 +76,9 @@ export function useChatSessions({
     markConversationThinking,
     stopConversationRequest,
     wasRequestStopped,
-  } = useConversationStreaming({ setConversations });
-
+  } = useConversationStreaming({
+    setConversations,
+  });
   const activeConversationIsGenerating = Boolean(
     activeConversation?.conversationId &&
       isConversationGenerating(activeConversation.conversationId)
@@ -110,63 +91,6 @@ export function useChatSessions({
     activeConversation?.conversationId &&
       isConversationThinking(activeConversation.conversationId)
   );
-  const isEmptyConversation = (activeConversation?.lines?.length ?? 0) === 0;
-
-  useEffect(() => {
-    let mounted = true;
-
-    invoke<ConversationSummary[]>('list_conversations')
-      .then((storedConversations) => {
-        if (!mounted || !Array.isArray(storedConversations) || storedConversations.length === 0) {
-          return;
-        }
-
-        setConversations((prevConversations) =>
-          mergeStoredConversationsWithDrafts(prevConversations, storedConversations)
-        );
-      })
-      .catch(() => {
-        // Keep local fallback conversation list when backend history is unavailable.
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    const selectedConversation = conversations.find(
-      (conversation) => conversation.conversationId === activeConversationId
-    );
-    if (!selectedConversation || selectedConversation.isLoaded) {
-      return undefined;
-    }
-
-    let disposed = false;
-    invoke<ConversationDetail>('load_conversation', {
-      req: { conversationId: selectedConversation.conversationId },
-    })
-      .then((detail) => {
-        if (disposed || !detail) return;
-
-        const hydratedDetail = {
-          ...detail,
-          lines: hydrateConversationLines(detail.lines || []),
-        };
-        setConversations((prevConversations) =>
-          applyLoadedConversationDetail(
-            prevConversations,
-            selectedConversation.conversationId,
-            hydratedDetail
-          )
-        );
-      })
-      .catch(() => {});
-
-    return () => {
-      disposed = true;
-    };
-  }, [activeConversationId, conversations]);
 
   const sendMessage = useCallback(
     async (
@@ -177,26 +101,13 @@ export function useChatSessions({
       const text = (textToSend ?? input).trim();
       if (!text || !activeConversation) return;
 
-      let advancedRequestOptions: ChatRequestOptions = requestOptions || {};
-      if (!requestOptions && showAdvancedRequestOptionsButton) {
-        try {
-          advancedRequestOptions = parseAdvancedRequestOptions(advancedRequestOptionsInput);
-          if (advancedRequestOptionsError) {
-            setAdvancedRequestOptionsError(null);
-          }
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : '高级请求参数解析失败，请检查 JSON 格式。';
-          setAdvancedRequestOptionsError(message);
-          return;
-        }
-      } else if (!requestOptions && advancedRequestOptionsError) {
-        setAdvancedRequestOptionsError(null);
+      const advancedRequestOptions = resolveRequestOptions(showAdvancedRequestOptionsButton, requestOptions);
+      if (!advancedRequestOptions) {
+        return;
       }
 
       if (appendUserMessage) {
-        setInput('');
-        setAttachment(null);
+        clearComposerDraft();
       }
 
       const currentConversationId = conversationIdOverride ?? activeConversation.conversationId;
@@ -265,17 +176,18 @@ export function useChatSessions({
     },
     [
       activeConversation,
-      advancedRequestOptionsError,
-      advancedRequestOptionsInput,
       beginConversationRequest,
+      clearComposerDraft,
       finishConversationRequest,
       hasPendingRequest,
       input,
       isConversationGenerating,
       markConversationThinking,
+      resolveRequestOptions,
       selectedModel,
       selectedModelOption,
       selectedReasoningMode,
+      setConversations,
       showAdvancedRequestOptionsButton,
       wasRequestStopped,
     ]
@@ -287,180 +199,9 @@ export function useChatSessions({
     await stopConversationRequest(currentConversationId);
   }, [activeConversation, stopConversationRequest]);
 
-  const createNewChat = useCallback(() => {
-    if (activeConversation && isConversationEmpty(activeConversation)) {
-      setActiveConversationId(activeConversation.conversationId);
-      return;
-    }
-
-    const newConversation = createLocalConversation();
-    setConversations((prevConversations) => [newConversation, ...prevConversations]);
-    setActiveConversationId(newConversation.conversationId);
-  }, [activeConversation]);
-
-  const renameConversation = useCallback(
-    async (conversationId: string, title: string) => {
-      const nextTitle = (title || '').trim();
-      if (!nextTitle) return;
-
-      const previousConversation = conversations.find(
-        (conversation) => conversation.conversationId === conversationId
-      );
-      if (!previousConversation) return;
-
-      setConversations((prevConversations) =>
-        applyManualConversationRename(prevConversations, conversationId, nextTitle)
-      );
-
-      try {
-        const updatedSummary = await invoke<ConversationSummary>('rename_conversation', {
-          req: {
-            conversationId,
-            title: nextTitle,
-          },
-        });
-
-        if (updatedSummary?.title) {
-          setConversations((prevConversations) =>
-            applyManualConversationRename(
-              prevConversations,
-              conversationId,
-              updatedSummary.title || nextTitle
-            )
-          );
-        }
-      } catch {
-        setConversations((prevConversations) =>
-          prevConversations.map((conversation) =>
-            conversation.conversationId === conversationId ? previousConversation : conversation
-          )
-        );
-      }
-    },
-    [conversations]
-  );
-
-  const requestDeleteConversation = useCallback(
-    (conversationId: string) => {
-      const targetConversation = conversations.find(
-        (conversation) => conversation.conversationId === conversationId
-      );
-      if (!targetConversation) return;
-      setConversationToDelete(targetConversation);
-    },
-    [conversations]
-  );
-
-  const cancelDeleteConversation = useCallback(() => {
-    setConversationToDelete(null);
-  }, []);
-
-  const confirmDeleteConversation = useCallback(async () => {
-    if (!conversationToDelete) return;
-    const conversationId = conversationToDelete.conversationId;
-    const targetConversation = conversationToDelete;
-    setConversationToDelete(null);
-    clearConversationRequestState(conversationId);
-
-    let rollbackConversation = targetConversation;
-    let optimisticNextActiveId: string | null = null;
-
-    setConversations((prevConversations) => {
-      const currentTarget = prevConversations.find(
-        (conversation) => conversation.conversationId === conversationId
-      );
-      if (!currentTarget) {
-        return prevConversations;
-      }
-
-      rollbackConversation = currentTarget;
-      const remainingConversations = prevConversations.filter(
-        (conversation) => conversation.conversationId !== conversationId
-      );
-
-      if (remainingConversations.length > 0) {
-        optimisticNextActiveId = remainingConversations[0].conversationId;
-        return remainingConversations;
-      }
-
-      const fallbackConversation = createLocalConversation();
-      optimisticNextActiveId = fallbackConversation.conversationId;
-      return [fallbackConversation];
-    });
-
-    setActiveConversationId((prevActiveConversationId) =>
-      prevActiveConversationId === conversationId
-        ? optimisticNextActiveId || prevActiveConversationId
-        : prevActiveConversationId
-    );
-
-    try {
-      const deleted = await invoke<boolean>('delete_conversation', {
-        req: { conversationId },
-      });
-
-      if (deleted === false) {
-        console.warn('[delete_conversation] conversation file not found for id:', conversationId);
-      }
-
-      const storedConversations = await invoke<ConversationSummary[]>('list_conversations');
-      if (Array.isArray(storedConversations)) {
-        let nextConversationIds = new Set<string>();
-        let fallbackActiveId: string | null = null;
-
-        setConversations((prevConversations) => {
-          const rebuilt = rebuildConversationListAfterDeletion(
-            prevConversations,
-            storedConversations
-          );
-          nextConversationIds = rebuilt.conversationIds;
-          fallbackActiveId = rebuilt.activeConversationId;
-          return rebuilt.conversations;
-        });
-
-        setActiveConversationId((prevActiveConversationId) => {
-          if (nextConversationIds.has(prevActiveConversationId)) {
-            return prevActiveConversationId;
-          }
-          return fallbackActiveId || prevActiveConversationId;
-        });
-      }
-    } catch {
-      setConversations((prevConversations) => {
-        const exists = prevConversations.some(
-          (conversation) => conversation.conversationId === conversationId
-        );
-        if (exists) return prevConversations;
-        return [rollbackConversation, ...prevConversations];
-      });
-      setActiveConversationId((prevActiveConversationId) =>
-        prevActiveConversationId === optimisticNextActiveId
-          ? conversationId
-          : prevActiveConversationId
-      );
-      console.error('[delete_conversation] invoke failed for id:', conversationId);
-    }
-  }, [clearConversationRequestState, conversationToDelete]);
-
-  const attachPlaceholderFile = useCallback(() => {
-    setAttachment({
-      name: 'screenshot_data.png',
-      type: 'image',
-    });
-  }, []);
-
-  const removeAttachment = useCallback(() => {
-    setAttachment(null);
-  }, []);
-
-  const updateAdvancedRequestOptionsInput = useCallback(
-    (value: string) => {
-      setAdvancedRequestOptionsInput(value);
-      if (advancedRequestOptionsError) {
-        setAdvancedRequestOptionsError(null);
-      }
-    },
-    [advancedRequestOptionsError]
+  const confirmDeleteActiveConversation = useCallback(
+    () => confirmDeleteConversation(clearConversationRequestState),
+    [clearConversationRequestState, confirmDeleteConversation]
   );
 
   return {
@@ -475,7 +216,7 @@ export function useChatSessions({
     attachment,
     attachPlaceholderFile,
     cancelDeleteConversation,
-    confirmDeleteConversation,
+    confirmDeleteConversation: confirmDeleteActiveConversation,
     conversationToDelete,
     conversations,
     createNewChat,
