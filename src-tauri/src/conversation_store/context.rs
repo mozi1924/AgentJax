@@ -52,17 +52,20 @@ pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationCon
 }
 
 fn build_assistant_input_item(line: &AssistantLine) -> Value {
-    json!({
+    let mut item = json!({
         "type": "message",
         "role": "assistant",
         "status": "completed",
-        "phase": line.phase.as_str(),
         "content": [{
             "type": "output_text",
             "text": line.text,
             "annotations": []
         }]
-    })
+    });
+    if let Some(phase) = line.phase {
+        item["phase"] = Value::String(phase.as_str().to_string());
+    }
+    item
 }
 
 fn build_tool_input_items(line: &ToolLine) -> Vec<Value> {

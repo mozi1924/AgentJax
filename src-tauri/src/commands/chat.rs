@@ -154,7 +154,7 @@ pub async fn chat_stream(
                     phase,
                     response_id,
                 } => {
-                    if *phase == crate::message_phase::AssistantPhase::Commentary {
+                    if *phase == Some(crate::message_phase::AssistantPhase::Commentary) {
                         let _ = persist_assistant_line(
                             &callback_conversation_id,
                             &callback_request_id,
@@ -169,7 +169,7 @@ pub async fn chat_stream(
                     phase,
                     response_id,
                 } => {
-                    if *phase == crate::message_phase::AssistantPhase::FinalAnswer {
+                    if *phase != Some(crate::message_phase::AssistantPhase::Commentary) {
                         let _ = persist_assistant_line(
                             &callback_conversation_id,
                             &callback_request_id,

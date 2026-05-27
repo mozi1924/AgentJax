@@ -118,11 +118,18 @@ pub struct AssistantLine {
     pub request_id: String,
     #[serde(rename = "responseId")]
     pub response_id: String,
-    pub phase: AssistantPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<AssistantPhase>,
     /// The assistant's text for this line.
     pub text: String,
     #[serde(default = "default_assistant_status")]
     pub status: AssistantStatus,
+}
+
+impl AssistantLine {
+    pub fn is_final_or_unknown(&self) -> bool {
+        self.phase != Some(AssistantPhase::Commentary)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

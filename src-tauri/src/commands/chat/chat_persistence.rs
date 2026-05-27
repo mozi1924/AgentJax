@@ -85,7 +85,7 @@ pub fn persist_assistant_line(
     conversation_id: &str,
     request_id: &str,
     response_id: &str,
-    phase: AssistantPhase,
+    phase: Option<AssistantPhase>,
     text: &str,
 ) -> Result<(), String> {
     let text = text.trim().to_string();

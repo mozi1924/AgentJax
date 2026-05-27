@@ -118,6 +118,32 @@ fn extract_assistant_messages_from_items(items: &[Value]) -> Vec<(String, Option
         .collect()
 }
 
+fn resolve_hop_phase(
+    explicit_phase: Option<AssistantPhase>,
+    is_final_hop: bool,
+) -> Option<AssistantPhase> {
+    explicit_phase.or(Some(if is_final_hop {
+        AssistantPhase::FinalAnswer
+    } else {
+        AssistantPhase::Commentary
+    }))
+}
+
+fn select_final_output_text(
+    hop_messages: &[(String, Option<AssistantPhase>)],
+    fallback_output_text: &str,
+    commentary_history: &[String],
+) -> String {
+    let preferred = hop_messages
+        .iter()
+        .rev()
+        .find(|(_, phase)| *phase != Some(AssistantPhase::Commentary))
+        .map(|(text, _)| text.as_str())
+        .unwrap_or(fallback_output_text);
+
+    strip_commentary_prefixes(preferred, commentary_history)
+}
+
 // ── Request builder ───────────────────────────────────────────────────────
 
 fn build_request(
@@ -296,49 +322,39 @@ impl AgentRuntime {
             let hop_messages =
                 extract_assistant_messages_from_items(&collected.response_result.output_items);
             if hop_messages.is_empty() && !collected.response_result.output_text.is_empty() {
-                let phase = if is_final_hop {
-                    AssistantPhase::FinalAnswer
+                let phase = resolve_hop_phase(None, is_final_hop);
+                let emitted_text = if phase == Some(AssistantPhase::Commentary) {
+                    collected.response_result.output_text.clone()
                 } else {
-                    AssistantPhase::Commentary
-                };
-                let emitted_text = if phase == AssistantPhase::FinalAnswer {
                     strip_commentary_prefixes(
                         &collected.response_result.output_text,
                         &commentary_history,
                     )
-                } else {
-                    collected.response_result.output_text.clone()
                 };
                 on_event(ProviderStreamEvent::HopAssistantText {
                     text: emitted_text.clone(),
                     phase,
                     response_id: collected.response_result.response_id.clone(),
                 })?;
-                if phase == AssistantPhase::FinalAnswer {
+                if phase != Some(AssistantPhase::Commentary) {
                     final_output_text = emitted_text;
                 } else {
                     commentary_history.push(emitted_text);
                 }
             } else {
                 for (text, phase) in hop_messages {
-                    let resolved_phase = phase.unwrap_or_else(|| {
-                        if is_final_hop {
-                            AssistantPhase::FinalAnswer
-                        } else {
-                            AssistantPhase::Commentary
-                        }
-                    });
-                    let emitted_text = if resolved_phase == AssistantPhase::FinalAnswer {
-                        strip_commentary_prefixes(&text, &commentary_history)
-                    } else {
+                    let resolved_phase = resolve_hop_phase(phase, is_final_hop);
+                    let emitted_text = if resolved_phase == Some(AssistantPhase::Commentary) {
                         text.clone()
+                    } else {
+                        strip_commentary_prefixes(&text, &commentary_history)
                     };
                     on_event(ProviderStreamEvent::HopAssistantText {
                         text: emitted_text.clone(),
                         phase: resolved_phase,
                         response_id: collected.response_result.response_id.clone(),
                     })?;
-                    if resolved_phase == AssistantPhase::FinalAnswer {
+                    if resolved_phase != Some(AssistantPhase::Commentary) {
                         final_output_text = emitted_text;
                     } else {
                         commentary_history.push(text);
@@ -349,7 +365,11 @@ impl AgentRuntime {
             // ── No tools → final response reached ─────────────────────────
             if is_final_hop {
                 if final_output_text.is_empty() {
-                    final_output_text = collected.response_result.output_text.clone();
+                    final_output_text = select_final_output_text(
+                        &extract_assistant_messages_from_items(&collected.response_result.output_items),
+                        &collected.response_result.output_text,
+                        &commentary_history,
+                    );
                 }
                 break;
             }
@@ -428,7 +448,9 @@ impl AgentRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_tool_call_output_pairs, strip_commentary_prefixes};
+    use super::{
+        ensure_tool_call_output_pairs, select_final_output_text, strip_commentary_prefixes,
+    };
     use serde_json::json;
 
     #[test]
@@ -467,5 +489,18 @@ mod tests {
             ],
         );
         assert_eq!(cleaned, "Applied the fix.");
+    }
+
+    #[test]
+    fn selects_unknown_phase_message_as_final_output_when_no_final_phase_exists() {
+        let final_text = select_final_output_text(
+            &[
+                ("Still checking.".to_string(), Some(crate::message_phase::AssistantPhase::Commentary)),
+                ("Applied the fix.".to_string(), None),
+            ],
+            "Still checking.\nApplied the fix.",
+            &["Still checking.".to_string()],
+        );
+        assert_eq!(final_text, "Applied the fix.");
     }
 }

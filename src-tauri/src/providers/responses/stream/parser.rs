@@ -311,25 +311,23 @@ pub(crate) fn handle_stream_event_json(
                             .insert(item_id.to_string(), phase);
                     }
                 }
-                if let Some(phase) = phase {
-                    let text = item
-                        .get("content")
-                        .and_then(Value::as_array)
-                        .map(|content| {
-                            content
-                                .iter()
-                                .filter_map(|part| part.get("text").and_then(Value::as_str))
-                                .collect::<Vec<_>>()
-                                .join("")
-                        })
-                        .unwrap_or_default();
-                    if !text.trim().is_empty() {
-                        on_delta(ProviderStreamEvent::AssistantMessageCompleted {
-                            text,
-                            phase,
-                            response_id: response_id.clone(),
-                        })?;
-                    }
+                let text = item
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .map(|content| {
+                        content
+                            .iter()
+                            .filter_map(|part| part.get("text").and_then(Value::as_str))
+                            .collect::<Vec<_>>()
+                            .join("")
+                    })
+                    .unwrap_or_default();
+                if !text.trim().is_empty() {
+                    on_delta(ProviderStreamEvent::AssistantMessageCompleted {
+                        text,
+                        phase,
+                        response_id: response_id.clone(),
+                    })?;
                 }
             }
             if item_type == "function_call" {
@@ -433,7 +431,7 @@ pub(crate) fn extract_final_output_text(root: &Value) -> String {
     if let Some(final_text) = assistant_messages
         .iter()
         .rev()
-        .find(|message| message.phase == Some(AssistantPhase::FinalAnswer))
+        .find(|message| message.phase != Some(AssistantPhase::Commentary))
         .map(|message| message.text.clone())
     {
         return final_text;

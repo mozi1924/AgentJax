@@ -39,7 +39,7 @@ fn a(
     id: &str,
     req: &str,
     resp: &str,
-    phase: AssistantPhase,
+    phase: Option<AssistantPhase>,
     text: &str,
     st: AssistantStatus,
 ) -> ConversationLine {
@@ -107,7 +107,7 @@ fn load_context_merges_user_and_assistant() {
             "a1",
             "r1",
             "resp1",
-            AssistantPhase::FinalAnswer,
+            Some(AssistantPhase::FinalAnswer),
             "hey",
             AssistantStatus::Done,
         ),
@@ -140,7 +140,7 @@ fn load_context_replays_commentary_and_final_with_phase() {
             "a1",
             "r1",
             "resp1",
-            AssistantPhase::Commentary,
+            Some(AssistantPhase::Commentary),
             "checking files",
             AssistantStatus::Done,
         ),
@@ -152,7 +152,7 @@ fn load_context_replays_commentary_and_final_with_phase() {
             "a2",
             "r1",
             "resp1",
-            AssistantPhase::FinalAnswer,
+            Some(AssistantPhase::FinalAnswer),
             "done",
             AssistantStatus::Done,
         ),
@@ -167,6 +167,30 @@ fn load_context_replays_commentary_and_final_with_phase() {
         .filter_map(|item| item.get("phase").and_then(|v| v.as_str()))
         .collect();
     assert_eq!(assistant_phases, vec!["commentary", "final_answer"]);
+    delete_conversation(&cid).ok();
+}
+
+#[test]
+fn load_context_omits_phase_field_for_unknown_assistant_phase() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("tphase-unknown-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: a("a1", "r1", "resp1", None, "done", AssistantStatus::Done),
+    })
+    .expect("assistant");
+
+    let ctx = load_context_for_request(&cid).expect("ctx");
+    let assistant_item = ctx
+        .input_items
+        .iter()
+        .find(|item| item.get("role").and_then(|v| v.as_str()) == Some("assistant"))
+        .expect("assistant input item");
+    assert!(assistant_item.get("phase").is_none());
     delete_conversation(&cid).ok();
 }
 
@@ -418,7 +442,7 @@ fn load_conversation_returns_all_lines() {
             "a1",
             "r1",
             "resp1",
-            AssistantPhase::FinalAnswer,
+            Some(AssistantPhase::FinalAnswer),
             "done",
             AssistantStatus::Done,
         ),
@@ -496,7 +520,7 @@ fn fault_injection_recovery_clears_after_completion() {
             "a1",
             "req-f",
             "resp-f",
-            AssistantPhase::FinalAnswer,
+            Some(AssistantPhase::FinalAnswer),
             "found",
             AssistantStatus::Done,
         ),
@@ -509,5 +533,29 @@ fn fault_injection_recovery_clears_after_completion() {
         "recovery note should be None after completion"
     );
 
+    delete_conversation(&cid).ok();
+}
+
+#[test]
+fn recovery_treats_unknown_assistant_phase_as_completed_answer() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("trecovery-unknown-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: u("u1", "req-1", "hello"),
+    })
+    .expect("user");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: a("a1", "req-1", "resp-1", None, "done", AssistantStatus::Done),
+    })
+    .expect("assistant");
+
+    let note = build_recovery_developer_note(&cid).expect("recovery note");
+    assert!(note.is_none(), "unknown assistant phase should count as completed");
     delete_conversation(&cid).ok();
 }

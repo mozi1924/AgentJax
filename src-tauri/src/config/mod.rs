@@ -113,9 +113,7 @@ mod tests {
         let cfg = AppConfig::default().normalize();
         let resolved = cfg.resolve_model_profile(None).expect("resolve");
         assert!(resolved.system_prompt.contains("agentic coding assistant"));
-        assert!(resolved
-            .system_prompt
-            .contains("Commentary and final answers"));
+        assert!(resolved.system_prompt.contains("Commentary protocol"));
         assert_ne!(
             resolved.system_prompt,
             crate::config::constants::DEFAULT_SYSTEM_PROMPT

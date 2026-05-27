@@ -112,7 +112,7 @@ pub fn emit_mapped_stream_event(
         } => {
             chat_event.kind = "assistant_message".to_string();
             chat_event.delta = Some(text);
-            chat_event.phase = Some(phase.as_str().to_string());
+            chat_event.phase = phase.map(|phase| phase.as_str().to_string());
             if !response_id.trim().is_empty() {
                 chat_event.response_id = Some(response_id);
             }

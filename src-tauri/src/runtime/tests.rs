@@ -30,6 +30,10 @@ fn real_gateway_test_enabled() -> bool {
     true
 }
 
+fn normalize_for_overlap_check(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 async fn run_real_gateway_turn(
     input: &str,
 ) -> (
@@ -195,7 +199,7 @@ async fn real_gateway_multihop_commentary_and_multi_tool_smoke_test_from_local_c
         .iter()
         .filter_map(|event| match event {
             ProviderStreamEvent::HopAssistantText { text, phase, .. }
-                if *phase == AssistantPhase::Commentary =>
+                if *phase == Some(AssistantPhase::Commentary) =>
             {
                 Some(text.clone())
             }
@@ -209,7 +213,7 @@ async fn real_gateway_multihop_commentary_and_multi_tool_smoke_test_from_local_c
         .iter()
         .filter_map(|event| match event {
             ProviderStreamEvent::HopAssistantText { text, phase, .. }
-                if *phase == AssistantPhase::FinalAnswer =>
+                if *phase != Some(AssistantPhase::Commentary) =>
             {
                 Some(text.clone())
             }
@@ -218,6 +222,7 @@ async fn real_gateway_multihop_commentary_and_multi_tool_smoke_test_from_local_c
         .collect();
     eprintln!("final_messages={:?}", final_messages);
     eprintln!("final_output_text={}", response.output_text);
+    eprintln!("final_output_text_debug={:?}", response.output_text);
     assert!(
         commentary_messages.len() >= 2,
         "Expected at least two commentary hop messages. Actual: {:?}",
@@ -241,6 +246,29 @@ async fn real_gateway_multihop_commentary_and_multi_tool_smoke_test_from_local_c
         !final_messages.is_empty(),
         "Expected at least one final-answer hop message"
     );
+    let last_final_message = final_messages
+        .last()
+        .expect("expected at least one final message");
+    assert_eq!(
+        response.output_text.trim(),
+        last_final_message.trim(),
+        "Response output_text should match the final streamed assistant message"
+    );
+    let commentary_norms: Vec<String> = commentary_messages
+        .iter()
+        .map(|text| normalize_for_overlap_check(text))
+        .collect();
+    for final_message in &final_messages {
+        for final_line in final_message.lines() {
+            let normalized = normalize_for_overlap_check(final_line);
+            assert!(
+                commentary_norms.iter().all(|commentary| commentary != &normalized),
+                "Final message should not repeat a commentary line verbatim. final={:?} commentary={:?}",
+                final_messages,
+                commentary_messages
+            );
+        }
+    }
 
     let executed_tool_names: Vec<&str> = stream_events
         .iter()

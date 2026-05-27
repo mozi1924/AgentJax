@@ -1,7 +1,6 @@
 use super::file_io::read_conversation_file;
 use super::paths::{conversation_messages_path, conversation_metadata_path};
 use super::types::{AssistantStatus, ConversationLine, ToolStatus};
-use crate::message_phase::AssistantPhase;
 use serde_json::{json, Value};
 
 /// Check whether the most recent request in this conversation completed
@@ -59,7 +58,7 @@ pub fn build_recovery_developer_note(conversation_id: &str) -> Result<Option<Val
                 }
             },
             ConversationLine::Assistant(a) => {
-                if a.phase != AssistantPhase::FinalAnswer {
+                if !a.is_final_or_unknown() {
                     continue;
                 }
                 match a.status {
