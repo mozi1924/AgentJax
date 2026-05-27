@@ -7,7 +7,9 @@ use crate::commands::chat::ChatRequest;
 use crate::config::AppConfig;
 use crate::message_phase::AssistantPhase;
 use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
-use crate::tools::{ToolCatalog, ToolExecutionContext};
+use crate::tools::{
+    MountedMcpServerSessions, ToolCatalog, ToolCatalogStateChange, ToolExecutionContext,
+};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::watch;
@@ -269,17 +271,19 @@ impl AgentRuntime {
         let provider_kind = &resolved_model.provider.kind;
         let mut developer_items = resolved_model.prompt_assembly.developer_items.clone();
 
-        let tool_snapshot = tools_catalog
-            .snapshot_with_format(
+        let tool_context = ToolExecutionContext {
+            conversation_id: Some(conversation_id.to_string()),
+        };
+        let initial_snapshot = tools_catalog
+            .snapshot_with_format_and_mounted_servers(
                 tool_schema_format,
-                &ToolExecutionContext {
-                    conversation_id: Some(conversation_id.to_string()),
-                },
+                &tool_context,
+                &MountedMcpServerSessions::new(),
             )
             .await;
         context_items = archive_unavailable_historical_tool_calls(
             context_items,
-            tool_snapshot.active_tool_names(),
+            initial_snapshot.active_tool_names(),
         );
 
         let mut accumulator = TurnAccumulator::new();
@@ -287,6 +291,10 @@ impl AgentRuntime {
         let mut repeated_failed_tool_signatures = std::collections::HashMap::new();
         let mut final_output_text = String::new();
         let mut commentary_history: Vec<String> = Vec::new();
+        // MCP server mounts are scoped to the current assistant turn. This lets
+        // us keep the default tool list compact while still allowing later hops
+        // in the same turn to see tools that were explicitly mounted.
+        let mut mounted_mcp_servers = MountedMcpServerSessions::new();
         let mut turn_idx = 0usize;
         let max_turns = 10usize;
 
@@ -316,6 +324,16 @@ impl AgentRuntime {
                 accumulated_context.clone()
             };
 
+            // Freeze tool visibility per hop. A tool execution may mount an MCP
+            // server, and those newly available tools should appear only on the
+            // next hop, never halfway through the current provider response.
+            let tool_snapshot = tools_catalog
+                .snapshot_with_format_and_mounted_servers(
+                    tool_schema_format,
+                    &tool_context,
+                    &mounted_mcp_servers,
+                )
+                .await;
             let stream_request = build_request(req, input_items, tool_snapshot.schemas().to_vec());
             let collected = collect_provider_turn(
                 config,
@@ -402,6 +420,7 @@ impl AgentRuntime {
             accumulator
                 .timeline_events
                 .extend(executed_batch.timeline_events);
+            apply_tool_state_changes(&mut mounted_mcp_servers, executed_batch.state_changes);
 
             // ── Build this hop's delta items ──────────────────────────────
             let hop_delta = crate::providers::compose_tool_continuation_input(
@@ -460,11 +479,29 @@ impl AgentRuntime {
     }
 }
 
+fn apply_tool_state_changes(
+    mounted_mcp_servers: &mut MountedMcpServerSessions,
+    state_changes: Vec<ToolCatalogStateChange>,
+) {
+    for state_change in state_changes {
+        match state_change {
+            ToolCatalogStateChange::MountMcpServer(server_session) => {
+                mounted_mcp_servers.insert(server_session.server_id.clone(), server_session);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_base_context, ensure_tool_call_output_pairs, select_final_output_text,
-        strip_commentary_prefixes,
+        apply_tool_state_changes, build_base_context, ensure_tool_call_output_pairs,
+        select_final_output_text, strip_commentary_prefixes,
+    };
+    use crate::config::McpServerConfig;
+    use crate::tools::{
+        MountedMcpServerSession, MountedMcpServerSessions, MountedMcpToolDefinition,
+        ToolCatalogStateChange,
     };
     use serde_json::json;
 
@@ -553,5 +590,30 @@ mod tests {
             base_context[3]["content"][0]["text"].as_str(),
             Some("current")
         );
+    }
+
+    #[test]
+    fn applies_mounted_mcp_server_state_changes_between_hops() {
+        let mut mounted_servers = MountedMcpServerSessions::new();
+        apply_tool_state_changes(
+            &mut mounted_servers,
+            vec![ToolCatalogStateChange::MountMcpServer(
+                MountedMcpServerSession {
+                    server_id: "openai_docs".to_string(),
+                    server_config: McpServerConfig::default(),
+                    tools: vec![MountedMcpToolDefinition {
+                        tool_name: "search_openai_docs".to_string(),
+                        description: "Search docs".to_string(),
+                        input_schema: json!({"type":"object","properties":{}}),
+                    }],
+                },
+            )],
+        );
+
+        let mounted = mounted_servers
+            .get("openai_docs")
+            .expect("mounted server should exist");
+        assert_eq!(mounted.tools.len(), 1);
+        assert_eq!(mounted.tools[0].tool_name, "search_openai_docs");
     }
 }

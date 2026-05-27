@@ -5,7 +5,11 @@ mod registry;
 
 use serde_json::{json, Value};
 
-pub use catalog::{ToolCatalog, ToolCatalogSnapshot};
+pub(crate) use catalog::ToolCatalogExecution;
+pub use catalog::{
+    MountedMcpServerSession, MountedMcpServerSessions, MountedMcpToolDefinition, ToolCatalog,
+    ToolCatalogSnapshot, ToolCatalogStateChange,
+};
 pub use native::{CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool};
 pub use registry::ToolRegistry;
 

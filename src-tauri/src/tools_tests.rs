@@ -1,9 +1,11 @@
 #[cfg(test)]
 mod tests {
     use crate::agentjax_home::AGENTJAX_HOME_ENV;
+    use crate::config::{AppConfig, McpServerConfig};
     use crate::conversation_store;
     use crate::tools::{
-        CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool, Tool, ToolCatalog,
+        CalculatorTool, FileReaderTool, FileWriterTool, MountedMcpServerSession,
+        MountedMcpServerSessions, MountedMcpToolDefinition, SystemTimeTool, Tool, ToolCatalog,
         ToolExecutionContext, ToolRegistry, ToolSchemaFormat,
     };
     use serde_json::json;
@@ -272,5 +274,70 @@ mod tests {
         assert_eq!(result["result"].as_f64(), Some(19.0));
 
         conversation_store::delete_conversation(&conversation_id).ok();
+    }
+
+    #[tokio::test]
+    async fn test_unmounted_mcp_server_exposes_only_mount_tool() {
+        let mut config = AppConfig::default();
+        config
+            .mcp_servers
+            .insert("openai_docs".to_string(), McpServerConfig::default());
+
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+
+        assert!(snapshot.schemas().iter().any(|schema| {
+            schema.get("name").and_then(|value| value.as_str()) == Some("mcp_server__openai_docs")
+        }));
+        assert!(!snapshot.schemas().iter().any(|schema| {
+            schema
+                .get("name")
+                .and_then(|value| value.as_str())
+                .is_some_and(|name| name.starts_with("mcp__openai_docs__"))
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_mounted_mcp_server_exposes_server_tools_instead_of_mount_tool() {
+        let mut config = AppConfig::default();
+        config
+            .mcp_servers
+            .insert("openai_docs".to_string(), McpServerConfig::default());
+
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let mut mounted_servers = MountedMcpServerSessions::new();
+        mounted_servers.insert(
+            "openai_docs".to_string(),
+            MountedMcpServerSession {
+                server_id: "openai_docs".to_string(),
+                server_config: McpServerConfig::default(),
+                tools: vec![MountedMcpToolDefinition {
+                    tool_name: "search_openai_docs".to_string(),
+                    description: "Search docs".to_string(),
+                    input_schema: json!({
+                        "type": "object",
+                        "properties": {
+                            "query": { "type": "string" }
+                        }
+                    }),
+                }],
+            },
+        );
+
+        let snapshot = catalog
+            .snapshot_with_format_and_mounted_servers(
+                ToolSchemaFormat::Responses,
+                &ToolExecutionContext::default(),
+                &mounted_servers,
+            )
+            .await;
+
+        assert!(snapshot.schemas().iter().any(|schema| {
+            schema.get("name").and_then(|value| value.as_str())
+                == Some("mcp__openai_docs__search_openai_docs")
+        }));
+        assert!(!snapshot.schemas().iter().any(|schema| {
+            schema.get("name").and_then(|value| value.as_str()) == Some("mcp_server__openai_docs")
+        }));
     }
 }

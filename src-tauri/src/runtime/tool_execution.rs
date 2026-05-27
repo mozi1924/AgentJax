@@ -1,7 +1,9 @@
 use super::tool_parsing::describe_item_shape;
 use super::{MAX_REPEATED_FAILED_SIGNATURES, MAX_TOOL_EXEC_RETRIES};
 use crate::providers::types::{ProviderPendingToolCall, ProviderStreamEvent};
-use crate::tools::{ToolCatalogSnapshot, ToolExecutionContext};
+use crate::tools::{
+    ToolCatalogExecution, ToolCatalogSnapshot, ToolCatalogStateChange, ToolExecutionContext,
+};
 use futures_util::stream::{self, StreamExt};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -14,6 +16,7 @@ pub(super) struct ExecutedToolBatch {
     pub tool_results_items: Vec<Value>,
     pub executed_tool_call_items: Vec<Value>,
     pub timeline_events: Vec<Value>,
+    pub state_changes: Vec<ToolCatalogStateChange>,
 }
 
 struct ExecutedToolRecord {
@@ -25,6 +28,7 @@ struct ExecutedToolRecord {
     output_str: String,
     is_success: bool,
     duration_ms: u64,
+    state_changes: Vec<ToolCatalogStateChange>,
 }
 
 struct PreparedToolExecution {
@@ -53,6 +57,7 @@ where
     let mut tool_results_items = Vec::new();
     let mut executed_tool_call_items = Vec::new();
     let mut timeline_events = Vec::new();
+    let mut state_changes = Vec::new();
 
     let parallelism = if supports_parallel_tool_calls {
         MAX_PARALLEL_TOOL_EXECUTIONS.max(1)
@@ -123,7 +128,7 @@ where
 
             let start_time = Instant::now();
             let mut last_error: Option<String> = None;
-            let mut success_result: Option<Value> = None;
+            let mut success_result: Option<ToolCatalogExecution> = None;
             let mut attempt = 0usize;
             let mut max_attempts = MAX_TOOL_EXEC_RETRIES;
             if is_repeated_failure_guarded {
@@ -136,7 +141,7 @@ where
                     break;
                 }
                 attempt += 1;
-                let exec_result = tool_snapshot.execute(&name, &args, &context).await;
+                let exec_result = tool_snapshot.execute_with_effects(&name, &args, &context).await;
                 match exec_result {
                     Ok(res) => {
                         success_result = Some(res);
@@ -149,15 +154,16 @@ where
             }
             let duration_ms = start_time.elapsed().as_millis() as u64;
 
-            let (output_str, is_success) = if let Some(res) = success_result {
+            let (output_str, is_success, state_changes) = if let Some(res) = success_result {
                 let output_payload = json!({
                     "ok": true,
                     "tool": name,
-                    "result": res,
+                    "result": res.output,
                 });
                 (
                     serde_json::to_string(&output_payload).unwrap_or_default(),
                     true,
+                    res.state_changes,
                 )
             } else {
                 let error_message = if is_repeated_failure_guarded {
@@ -180,6 +186,7 @@ where
                 (
                     serde_json::to_string(&output_payload).unwrap_or_default(),
                     false,
+                    Vec::new(),
                 )
             };
 
@@ -192,6 +199,7 @@ where
                 output_str,
                 is_success,
                 duration_ms,
+                state_changes,
             })
         }
     });
@@ -212,6 +220,7 @@ where
             output_str,
             is_success,
             duration_ms,
+            state_changes: record_state_changes,
             ..
         } = record;
 
@@ -244,6 +253,7 @@ where
         let tool_input_item =
             crate::providers::build_tool_result_input_item(provider_kind, &call_id, &output_str)?;
         tool_results_items.push(tool_input_item);
+        state_changes.extend(record_state_changes);
 
         executed_tool_call_items.push(json!({
             "type": "function_call",
@@ -257,5 +267,6 @@ where
         tool_results_items,
         executed_tool_call_items,
         timeline_events,
+        state_changes,
     })
 }

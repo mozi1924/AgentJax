@@ -6,11 +6,42 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct MountedMcpToolDefinition {
+    pub tool_name: String,
+    pub description: String,
+    pub input_schema: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct MountedMcpServerSession {
+    pub server_id: String,
+    pub server_config: crate::config::McpServerConfig,
+    pub tools: Vec<MountedMcpToolDefinition>,
+}
+
+pub type MountedMcpServerSessions = BTreeMap<String, MountedMcpServerSession>;
+
+#[derive(Debug, Clone)]
+pub enum ToolCatalogStateChange {
+    MountMcpServer(MountedMcpServerSession),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ToolCatalogExecution {
+    pub output: Value,
+    pub state_changes: Vec<ToolCatalogStateChange>,
+}
+
 enum ToolSnapshotEntry {
     Native(Arc<dyn Tool>),
     Mcp {
         server_id: String,
         tool_name: String,
+        server_config: crate::config::McpServerConfig,
+    },
+    MountMcpServer {
+        server_id: String,
         server_config: crate::config::McpServerConfig,
     },
 }
@@ -38,6 +69,78 @@ fn insert_snapshot_tool(
     } else {
         schemas.push(schema);
     }
+}
+
+fn mount_tool_name_for_server(server_id: &str) -> String {
+    format!("mcp_server__{server_id}")
+}
+
+fn display_name_for_server(server_id: &str) -> String {
+    server_id
+        .split(['_', '-'])
+        .filter(|part| !part.trim().is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn build_mount_tool_schema(format: ToolSchemaFormat, server_id: &str) -> Value {
+    let display_name = display_name_for_server(server_id);
+    let name = mount_tool_name_for_server(server_id);
+    let description = format!(
+        "Activates the tools provided by the MCP server '{display_name}' ({server_id}) for the rest of the current assistant turn. After activation, its individual tools become available in the next step. These mounted tools are automatically unloaded when the current assistant turn ends."
+    );
+    format_tool_schema(
+        format,
+        &name,
+        &description,
+        json!({
+            "type": "object",
+            "properties": {}
+        }),
+    )
+}
+
+fn normalize_mcp_tool_definitions(raw_tools: Vec<Value>) -> Vec<MountedMcpToolDefinition> {
+    let mut normalized = Vec::new();
+    for raw_tool in raw_tools {
+        let tool_name = raw_tool
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if tool_name.is_empty() {
+            continue;
+        }
+
+        let description = raw_tool
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let input_schema = raw_tool
+            .get("inputSchema")
+            .or_else(|| raw_tool.get("input_schema"))
+            .cloned()
+            .unwrap_or(json!({
+                "type": "object",
+                "properties": {}
+            }));
+
+        normalized.push(MountedMcpToolDefinition {
+            tool_name,
+            description,
+            input_schema,
+        });
+    }
+    normalized
 }
 
 /// Turn-scoped tool snapshot.
@@ -68,19 +171,35 @@ impl ToolCatalogSnapshot {
         arguments: &Value,
         context: &ToolExecutionContext,
     ) -> Result<Value, String> {
+        Ok(self
+            .execute_with_effects(tool_name, arguments, context)
+            .await?
+            .output)
+    }
+
+    pub(crate) async fn execute_with_effects(
+        &self,
+        tool_name: &str,
+        arguments: &Value,
+        context: &ToolExecutionContext,
+    ) -> Result<ToolCatalogExecution, String> {
         let entry = self
             .entries
             .get(tool_name)
             .ok_or_else(|| format!("Tool '{}' not found in turn snapshot", tool_name))?;
 
         match entry {
-            ToolSnapshotEntry::Native(tool) => tool.execute(arguments, context),
+            ToolSnapshotEntry::Native(tool) => Ok(ToolCatalogExecution {
+                output: tool.execute(arguments, context)?,
+                state_changes: Vec::new(),
+            }),
             ToolSnapshotEntry::Mcp {
                 server_id,
                 tool_name,
                 server_config,
-            } => {
-                self.mcp_manager
+            } => Ok(ToolCatalogExecution {
+                output: self
+                    .mcp_manager
                     .call_tool(
                         server_id,
                         server_config,
@@ -88,7 +207,43 @@ impl ToolCatalogSnapshot {
                         tool_name,
                         arguments.clone(),
                     )
-                    .await
+                    .await?,
+                state_changes: Vec::new(),
+            }),
+            ToolSnapshotEntry::MountMcpServer {
+                server_id,
+                server_config,
+            } => {
+                let raw_tools = self
+                    .mcp_manager
+                    .list_tools(server_id, server_config, &self.mcp_runtime)
+                    .await?;
+                let mounted_tools = normalize_mcp_tool_definitions(raw_tools);
+                if mounted_tools.is_empty() {
+                    return Err(format!(
+                        "MCP server '{}' did not expose any tools to mount",
+                        server_id
+                    ));
+                }
+
+                Ok(ToolCatalogExecution {
+                    output: json!({
+                        "serverId": server_id,
+                        "mountedToolCount": mounted_tools.len(),
+                        "mountedTools": mounted_tools
+                            .iter()
+                            .map(|tool| tool.tool_name.clone())
+                            .collect::<Vec<_>>(),
+                        "status": "mounted"
+                    }),
+                    state_changes: vec![ToolCatalogStateChange::MountMcpServer(
+                        MountedMcpServerSession {
+                            server_id: server_id.clone(),
+                            server_config: server_config.clone(),
+                            tools: mounted_tools,
+                        },
+                    )],
+                })
             }
         }
     }
@@ -120,14 +275,32 @@ impl ToolCatalog {
     }
 
     pub async fn snapshot(&self, context: &ToolExecutionContext) -> ToolCatalogSnapshot {
-        self.snapshot_with_format(ToolSchemaFormat::Responses, context)
-            .await
+        self.snapshot_with_format_and_mounted_servers(
+            ToolSchemaFormat::Responses,
+            context,
+            &MountedMcpServerSessions::new(),
+        )
+        .await
     }
 
     pub async fn snapshot_with_format(
         &self,
         format: ToolSchemaFormat,
         context: &ToolExecutionContext,
+    ) -> ToolCatalogSnapshot {
+        self.snapshot_with_format_and_mounted_servers(
+            format,
+            context,
+            &MountedMcpServerSessions::new(),
+        )
+        .await
+    }
+
+    pub(crate) async fn snapshot_with_format_and_mounted_servers(
+        &self,
+        format: ToolSchemaFormat,
+        context: &ToolExecutionContext,
+        mounted_servers: &MountedMcpServerSessions,
     ) -> ToolCatalogSnapshot {
         let mut schemas = Vec::new();
         let mut active_tool_names = HashSet::new();
@@ -150,61 +323,42 @@ impl ToolCatalog {
                 continue;
             }
 
-            let resolved_server_config =
-                self.resolve_server_config_with_workspace_fallback(server_config, context);
-            match self
-                .mcp_manager
-                .list_tools(server_id, &resolved_server_config, &self.mcp_runtime)
-                .await
-            {
-                Ok(mcp_tools) => {
-                    for raw_tool in mcp_tools {
-                        let raw_name = raw_tool
-                            .get("name")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .trim()
-                            .to_string();
-                        if raw_name.is_empty() {
-                            continue;
-                        }
-
-                        let prefixed_name = format!("mcp__{}__{}", server_id, raw_name);
-                        let description = raw_tool
-                            .get("description")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_string();
-                        let input_schema = raw_tool
-                            .get("inputSchema")
-                            .or_else(|| raw_tool.get("input_schema"))
-                            .cloned()
-                            .unwrap_or(json!({
-                                "type": "object",
-                                "properties": {}
-                            }));
-
-                        insert_snapshot_tool(
-                            &mut schemas,
-                            format_tool_schema(format, &prefixed_name, &description, input_schema),
-                            &mut active_tool_names,
-                            &mut entries,
-                            prefixed_name,
-                            ToolSnapshotEntry::Mcp {
-                                server_id: server_id.clone(),
-                                tool_name: raw_name,
-                                server_config: resolved_server_config.clone(),
-                            },
-                        );
-                    }
-                }
-                Err(err) => {
-                    log::warn!(
-                        "Failed to list tools from MCP server '{}': {}",
-                        server_id,
-                        err
+            if let Some(mounted) = mounted_servers.get(server_id) {
+                for tool in &mounted.tools {
+                    let prefixed_name = format!("mcp__{}__{}", server_id, tool.tool_name);
+                    insert_snapshot_tool(
+                        &mut schemas,
+                        format_tool_schema(
+                            format,
+                            &prefixed_name,
+                            &tool.description,
+                            tool.input_schema.clone(),
+                        ),
+                        &mut active_tool_names,
+                        &mut entries,
+                        prefixed_name,
+                        ToolSnapshotEntry::Mcp {
+                            server_id: mounted.server_id.clone(),
+                            tool_name: tool.tool_name.clone(),
+                            server_config: mounted.server_config.clone(),
+                        },
                     );
                 }
+            } else {
+                let resolved_server_config =
+                    self.resolve_server_config_with_workspace_fallback(server_config, context);
+                let mount_tool_name = mount_tool_name_for_server(server_id);
+                insert_snapshot_tool(
+                    &mut schemas,
+                    build_mount_tool_schema(format, server_id),
+                    &mut active_tool_names,
+                    &mut entries,
+                    mount_tool_name,
+                    ToolSnapshotEntry::MountMcpServer {
+                        server_id: server_id.clone(),
+                        server_config: resolved_server_config,
+                    },
+                );
             }
         }
 
