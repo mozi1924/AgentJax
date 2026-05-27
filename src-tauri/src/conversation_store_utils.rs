@@ -20,12 +20,6 @@ pub(crate) fn normalize_title(raw: &str) -> String {
     }
 }
 
-pub(crate) fn sanitize_optional(value: Option<String>) -> Option<String> {
-    value
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
 pub(crate) fn sanitize_conversation_id(conversation_id: &str) -> String {
     let trimmed = conversation_id.trim();
     let safe = trimmed

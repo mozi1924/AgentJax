@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { isNodeVisible } from '../../../features/settings/utils';
 import { CollectionEditor } from './CollectionEditor';
-import { FieldRow } from './FieldRow';
+import { renderField } from './customFields';
 import type { NodeListProps } from './types';
 
 export function NodeList({
@@ -24,15 +24,16 @@ export function NodeList({
       {visibleNodes.map((node) => {
         if (node.kind === 'field') {
           return (
-            <FieldRow
-              key={`${contextPath || 'root'}:${node.id}`}
-              field={node}
-              snapshot={snapshot}
-              savingPath={savingPath}
-              fieldErrors={fieldErrors}
-              contextPath={contextPath}
-              onSaveField={onSaveField}
-            />
+            <div key={`${contextPath || 'root'}:${node.id}`}>
+              {renderField({
+                field: node,
+                snapshot,
+                savingPath,
+                fieldErrors,
+                contextPath,
+                onSaveField,
+              })}
+            </div>
           );
         }
 
@@ -82,4 +83,3 @@ export function NodeList({
     </div>
   );
 }
-

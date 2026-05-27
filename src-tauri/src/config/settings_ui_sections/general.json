@@ -60,17 +60,6 @@
           "path": "show_advanced_request_options",
           "valueType": "boolean",
           "control": "switch"
-        },
-        {
-          "kind": "field",
-          "id": "system-prompt",
-          "title": "System prompt",
-          "description": "应用的全局默认系统提示词。",
-          "path": "system_prompt",
-          "valueType": "string",
-          "control": "textarea",
-          "rows": 5,
-          "placeholder": "Enter default system prompt…"
         }
       ]
     }

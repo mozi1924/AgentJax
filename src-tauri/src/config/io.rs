@@ -1,6 +1,7 @@
 use crate::config::constants::{
-    CONFIG_FILE_NAME, DEFAULT_DEFAULT_MODEL_REF, DEFAULT_SYSTEM_PROMPT, DEFAULT_TIMEOUT_SECONDS,
-    DEFAULT_UTILITY_SMALL_MODEL_REF,
+    BUILTIN_CORE_SYSTEM_BLOCK_CONTENT, BUILTIN_CORE_SYSTEM_BLOCK_ID, BUILTIN_CORE_SYSTEM_SOURCE_ID,
+    BUILTIN_CORE_SYSTEM_TITLE, CONFIG_FILE_NAME, DEFAULT_DEFAULT_MODEL_REF,
+    DEFAULT_TIMEOUT_SECONDS, DEFAULT_UTILITY_SMALL_MODEL_REF,
 };
 use crate::config::schema::AppConfig;
 use serde::Serialize;
@@ -102,7 +103,17 @@ fn default_config_yaml() -> String {
         ),
         &format!("request_timeout_seconds: {}", DEFAULT_TIMEOUT_SECONDS),
         "show_advanced_request_options: false",
-        &format!("system_prompt: \"{}\"", DEFAULT_SYSTEM_PROMPT),
+        "prompt_composer:",
+        "  blocks:",
+        &format!("    - id: \"{}\"", BUILTIN_CORE_SYSTEM_BLOCK_ID),
+        &format!("      title: \"{}\"", BUILTIN_CORE_SYSTEM_TITLE),
+        "      role: \"system\"",
+        "      enabled: true",
+        "      source: \"builtin\"",
+        &format!("      source_id: \"{}\"", BUILTIN_CORE_SYSTEM_SOURCE_ID),
+        "      locked: true",
+        "      content: |",
+        &indent_block(BUILTIN_CORE_SYSTEM_BLOCK_CONTENT, 8),
         "",
         "providers:",
         "  openai-responses:",
@@ -156,6 +167,15 @@ fn default_config_yaml() -> String {
         "",
     ]
     .join("\n")
+}
+
+fn indent_block(value: &str, spaces: usize) -> String {
+    let indent = " ".repeat(spaces);
+    value
+        .lines()
+        .map(|line| format!("{indent}{line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn read_config_file(path: &Path) -> Result<String, String> {

@@ -1,8 +1,6 @@
-use crate::config::constants::{
-    BUILTIN_AGENT_SYSTEM_PROMPT, DEFAULT_DEFAULT_MODEL_REF, DEFAULT_SYSTEM_PROMPT,
-    DEFAULT_TIMEOUT_SECONDS,
-};
+use crate::config::constants::{DEFAULT_DEFAULT_MODEL_REF, DEFAULT_TIMEOUT_SECONDS};
 use crate::config::model_ref::{model_ref, parse_model_ref};
+use crate::config::prompt_composer::{compile_prompt_composer, normalize_prompt_composer};
 use crate::config::schema::{
     AppConfig, McpRuntimeConfig, McpServerConfig, McpTransportKind, ModelRequestConfig,
     ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
@@ -230,16 +228,15 @@ fn normalize_string_map(map: BTreeMap<String, String>) -> BTreeMap<String, Strin
 }
 
 impl AppConfig {
-    fn compose_runtime_system_prompt(&self) -> String {
-        compose_runtime_system_prompt(&self.system_prompt)
+    pub fn compile_prompt_assembly(
+        &self,
+    ) -> crate::config::prompt_composer::CompiledPromptAssembly {
+        compile_prompt_composer(&self.prompt_composer)
     }
 
     pub fn normalize(mut self) -> Self {
         self.active_provider = self.active_provider.trim().to_lowercase();
-        self.system_prompt = self.system_prompt.trim().to_string();
-        if self.system_prompt.is_empty() {
-            self.system_prompt = DEFAULT_SYSTEM_PROMPT.to_string();
-        }
+        self.prompt_composer = normalize_prompt_composer(self.prompt_composer);
 
         if self.request_timeout_seconds == 0 {
             self.request_timeout_seconds = DEFAULT_TIMEOUT_SECONDS;
@@ -376,6 +373,7 @@ impl AppConfig {
             })?;
 
         let (provider_key, provider, model_key, model_cfg) = resolved;
+        let prompt_assembly = self.compile_prompt_assembly();
 
         let resolved_ref = model_ref(&provider_key, &model_key);
         Ok(ResolvedModelConfig {
@@ -384,7 +382,8 @@ impl AppConfig {
             provider: provider.clone(),
             model_id: model_cfg.model.clone(),
             model_ref: resolved_ref,
-            system_prompt: self.compose_runtime_system_prompt(),
+            system_prompt: prompt_assembly.instructions_text.clone(),
+            prompt_assembly,
             request: model_cfg.request.clone(),
             timeout_seconds: provider.resolved_timeout_seconds(self.request_timeout_seconds),
         })
@@ -407,18 +406,4 @@ impl AppConfig {
             .cloned()
             .ok_or_else(|| format!("Provider '{}' not found in config", provider_key))
     }
-}
-
-fn compose_runtime_system_prompt(configured_prompt: &str) -> String {
-    let trimmed = configured_prompt.trim();
-    if trimmed.is_empty()
-        || trimmed == DEFAULT_SYSTEM_PROMPT
-        || trimmed == BUILTIN_AGENT_SYSTEM_PROMPT
-    {
-        return BUILTIN_AGENT_SYSTEM_PROMPT.to_string();
-    }
-
-    format!(
-        "{BUILTIN_AGENT_SYSTEM_PROMPT}\n\nAdditional project instructions from config:\n{trimmed}"
-    )
 }

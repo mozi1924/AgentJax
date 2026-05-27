@@ -3,6 +3,7 @@ use super::{
     tool_parsing::extract_active_tool_names, AgentRuntime,
 };
 use crate::commands::chat::ChatRequest;
+use crate::config::{AppConfig, PromptBlock, PromptBlockRole, PromptBlockSource};
 use crate::message_phase::AssistantPhase;
 use crate::providers::types::ProviderStreamEvent;
 use crate::tools::ToolCatalog;
@@ -44,6 +45,18 @@ async fn run_real_gateway_turn(
     ensure_rustls_crypto_provider();
 
     let config = crate::config::load_config().expect("load local config");
+    run_real_gateway_turn_with_config(config, input).await
+}
+
+async fn run_real_gateway_turn_with_config(
+    config: AppConfig,
+    input: &str,
+) -> (
+    crate::providers::types::ResponseStreamResult,
+    Vec<serde_json::Value>,
+    Vec<ProviderStreamEvent>,
+) {
+    ensure_rustls_crypto_provider();
     let resolved_model = config
         .resolve_model_profile(None)
         .expect("resolve default model profile");
@@ -82,6 +95,7 @@ async fn run_real_gateway_turn(
             &req,
             &conversation_id,
             Vec::new(),
+            None,
             &tools_catalog,
             &mut cancel_rx,
             move |event| {
@@ -287,6 +301,84 @@ async fn real_gateway_multihop_commentary_and_multi_tool_smoke_test_from_local_c
     assert!(
         response.output_text.contains("多段旁白验证通过") && response.output_text.contains("84"),
         "Final answer should contain the expected verification text. Actual: {}",
+        response.output_text
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires a real provider credential and network access"]
+async fn real_gateway_prompt_composer_blocks_smoke_test_from_local_config() {
+    if !real_gateway_test_enabled() {
+        return;
+    }
+
+    let mut config = crate::config::load_config().expect("load local config");
+    config.prompt_composer.blocks.push(PromptBlock {
+        id: "test-system-block".to_string(),
+        title: "Test system block".to_string(),
+        role: PromptBlockRole::System,
+        content: "Keep the final answer to exactly one Chinese sentence.".to_string(),
+        enabled: true,
+        source: PromptBlockSource::User,
+        source_id: None,
+        locked: false,
+    });
+    config.prompt_composer.blocks.push(PromptBlock {
+        id: "test-developer-block".to_string(),
+        title: "Test developer block".to_string(),
+        role: PromptBlockRole::Developer,
+        content:
+            "Before any tool call, output one short Chinese commentary line containing the exact phrase 来自developer块."
+                .to_string(),
+        enabled: true,
+        source: PromptBlockSource::User,
+        source_id: None,
+        locked: false,
+    });
+    config = config.normalize();
+
+    let (response, timeline_events, stream_events) = run_real_gateway_turn_with_config(
+        config,
+        "请调用 get_system_time，然后用中文给出最终结论，并包含“组合提示词验证通过”。",
+    )
+    .await;
+
+    let has_system_time_tool = timeline_events.iter().any(|event| {
+        event.get("type").and_then(|v| v.as_str()) == Some("toolCall")
+            && event.get("name").and_then(|v| v.as_str()) == Some("get_system_time")
+    });
+    assert!(
+        has_system_time_tool,
+        "Expected get_system_time tool call in timeline events"
+    );
+
+    let commentary_messages: Vec<String> = stream_events
+        .iter()
+        .filter_map(|event| match event {
+            ProviderStreamEvent::HopAssistantText { text, phase, .. }
+                if *phase == Some(AssistantPhase::Commentary) =>
+            {
+                Some(text.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        commentary_messages
+            .iter()
+            .any(|text| text.contains("来自developer块")),
+        "Expected at least one commentary message influenced by developer prompt blocks. Actual: {:?}",
+        commentary_messages
+    );
+    assert!(
+        response.output_text.contains("组合提示词验证通过"),
+        "Expected final output to contain verification phrase. Actual: {}",
+        response.output_text
+    );
+    assert_eq!(
+        response.output_text.lines().count(),
+        1,
+        "System prompt block should encourage a single-sentence final answer. Actual: {:?}",
         response.output_text
     );
 }

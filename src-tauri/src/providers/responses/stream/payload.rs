@@ -71,32 +71,36 @@ pub(crate) fn build_streaming_request_payload(
     if let Some(generate) = req.generate {
         payload["generate"] = Value::Bool(generate);
     }
-    // previous_response_id is intentionally NOT sent because store=false:
-    // the API cannot resolve prior response items when nothing is persisted,
-    // and would return an error like "Item with id 'rs_xxx' not found".
-    // The full accumulated input items are always replayed locally instead.
-
     payload
 }
 
 #[cfg(test)]
 mod tests {
     use super::build_streaming_request_payload;
-    use crate::config::{ModelRequestConfig, ProviderConfig, ResolvedModelConfig};
+    use crate::config::{
+        compile_prompt_composer, ModelRequestConfig, PromptComposerConfig, ProviderConfig,
+        ResolvedModelConfig,
+    };
     use crate::providers::types::ResponseStreamRequest;
 
-    #[test]
-    fn websocket_payload_can_omit_stream_field() {
-        let resolved = ResolvedModelConfig {
+    fn test_resolved(system_prompt: &str) -> ResolvedModelConfig {
+        let prompt_assembly = compile_prompt_composer(&PromptComposerConfig::default());
+        ResolvedModelConfig {
             profile_key: "test".to_string(),
             provider_key: "openai-responses".to_string(),
             provider: ProviderConfig::default(),
             model_id: "gpt-5-mini".to_string(),
             model_ref: "openai-responses/gpt-5-mini".to_string(),
-            system_prompt: "test prompt".to_string(),
+            system_prompt: system_prompt.to_string(),
+            prompt_assembly,
             request: ModelRequestConfig::default(),
             timeout_seconds: 60,
-        };
+        }
+    }
+
+    #[test]
+    fn websocket_payload_can_omit_stream_field() {
+        let resolved = test_resolved("test prompt");
         let req = ResponseStreamRequest {
             input_items: Vec::new(),
             model: Some("gpt-5-mini".to_string()),
@@ -110,7 +114,6 @@ mod tests {
             generate: None,
             tools: None,
             tool_choice: None,
-            previous_response_id: None,
         };
 
         let payload = build_streaming_request_payload(&resolved, &req, false);
@@ -120,16 +123,7 @@ mod tests {
 
     #[test]
     fn sse_payload_includes_stream_field() {
-        let resolved = ResolvedModelConfig {
-            profile_key: "test".to_string(),
-            provider_key: "openai-responses".to_string(),
-            provider: ProviderConfig::default(),
-            model_id: "gpt-5-mini".to_string(),
-            model_ref: "openai-responses/gpt-5-mini".to_string(),
-            system_prompt: "test prompt".to_string(),
-            request: ModelRequestConfig::default(),
-            timeout_seconds: 60,
-        };
+        let resolved = test_resolved("test prompt");
         let req = ResponseStreamRequest {
             input_items: Vec::new(),
             model: Some("gpt-5-mini".to_string()),
@@ -143,27 +137,16 @@ mod tests {
             generate: None,
             tools: None,
             tool_choice: None,
-            previous_response_id: None,
         };
 
         let payload = build_streaming_request_payload(&resolved, &req, true);
         assert_eq!(payload.get("stream").and_then(|v| v.as_bool()), Some(true));
         assert_eq!(payload.get("store").and_then(|v| v.as_bool()), Some(false));
-        assert!(payload.get("previous_response_id").is_none());
     }
 
     #[test]
     fn payload_includes_optional_compatibility_fields() {
-        let resolved = ResolvedModelConfig {
-            profile_key: "test".to_string(),
-            provider_key: "openai-responses".to_string(),
-            provider: ProviderConfig::default(),
-            model_id: "gpt-5-mini".to_string(),
-            model_ref: "openai-responses/gpt-5-mini".to_string(),
-            system_prompt: "test prompt".to_string(),
-            request: ModelRequestConfig::default(),
-            timeout_seconds: 60,
-        };
+        let resolved = test_resolved("test prompt");
         let req = ResponseStreamRequest {
             input_items: Vec::new(),
             model: Some("gpt-5-mini".to_string()),
@@ -177,7 +160,6 @@ mod tests {
             generate: Some(false),
             tools: None,
             tool_choice: None,
-            previous_response_id: None,
         };
 
         let payload = build_streaming_request_payload(&resolved, &req, false);
@@ -225,16 +207,8 @@ mod tests {
             .extra_body
             .insert("custom_flag".to_string(), serde_json::json!(true));
 
-        let resolved = ResolvedModelConfig {
-            profile_key: "test".to_string(),
-            provider_key: "openai-responses".to_string(),
-            provider: ProviderConfig::default(),
-            model_id: "gpt-5-mini".to_string(),
-            model_ref: "openai-responses/gpt-5-mini".to_string(),
-            system_prompt: "test prompt".to_string(),
-            request: request_config,
-            timeout_seconds: 60,
-        };
+        let mut resolved = test_resolved("test prompt");
+        resolved.request = request_config;
         let req = ResponseStreamRequest {
             input_items: Vec::new(),
             model: Some("gpt-5-mini".to_string()),
@@ -248,7 +222,6 @@ mod tests {
             generate: None,
             tools: None,
             tool_choice: None,
-            previous_response_id: None,
         };
 
         let payload = build_streaming_request_payload(&resolved, &req, false);
@@ -257,35 +230,6 @@ mod tests {
         assert_eq!(
             payload.get("custom_flag").and_then(|v| v.as_bool()),
             Some(true)
-        );
-    }
-
-    #[test]
-    fn payload_never_sends_previous_response_id() {
-        // previous_response_id must NEVER appear in the payload because
-        // store=false means the API cannot resolve prior response items.
-        // Sending it would cause "Item with id 'rs_xxx' not found" errors.
-        let resolved = ResolvedModelConfig {
-            profile_key: "test".to_string(),
-            provider_key: "openai-responses".to_string(),
-            provider: ProviderConfig::default(),
-            model_id: "gpt-5-mini".to_string(),
-            model_ref: "openai-responses/gpt-5-mini".to_string(),
-            system_prompt: "test prompt".to_string(),
-            request: ModelRequestConfig::default(),
-            timeout_seconds: 60,
-        };
-        let req = ResponseStreamRequest {
-            input_items: Vec::new(),
-            model: Some("gpt-5-mini".to_string()),
-            previous_response_id: Some("resp_should_be_ignored".to_string()),
-            ..Default::default()
-        };
-
-        let payload = build_streaming_request_payload(&resolved, &req, false);
-        assert!(
-            payload.get("previous_response_id").is_none(),
-            "previous_response_id must not appear in payload when store=false"
         );
     }
 }

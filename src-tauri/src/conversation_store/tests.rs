@@ -556,6 +556,9 @@ fn recovery_treats_unknown_assistant_phase_as_completed_answer() {
     .expect("assistant");
 
     let note = build_recovery_developer_note(&cid).expect("recovery note");
-    assert!(note.is_none(), "unknown assistant phase should count as completed");
+    assert!(
+        note.is_none(),
+        "unknown assistant phase should count as completed"
+    );
     delete_conversation(&cid).ok();
 }

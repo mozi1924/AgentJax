@@ -14,6 +14,8 @@ pub struct SettingsUiSnapshot {
 }
 
 const GENERAL_SECTION_JSON: &str = include_str!("settings_ui_sections/general.json");
+const PROMPT_COMPOSER_SECTION_JSON: &str =
+    include_str!("settings_ui_sections/prompt_composer.json");
 const PROVIDERS_SECTION_JSON: &str = include_str!("settings_ui_sections/providers.json");
 const MODEL_PROFILES_SECTION_JSON: &str = include_str!("settings_ui_sections/model_profiles.json");
 const MCP_RUNTIME_SECTION_JSON: &str = include_str!("settings_ui_sections/mcp_runtime.json");
@@ -22,6 +24,7 @@ const MCP_SERVERS_SECTION_JSON: &str = include_str!("settings_ui_sections/mcp_se
 pub fn build_settings_sections() -> Result<Vec<Value>, String> {
     let section_sources = [
         GENERAL_SECTION_JSON,
+        PROMPT_COMPOSER_SECTION_JSON,
         PROVIDERS_SECTION_JSON,
         MODEL_PROFILES_SECTION_JSON,
         MCP_RUNTIME_SECTION_JSON,

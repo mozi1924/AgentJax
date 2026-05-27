@@ -172,9 +172,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className="animate-modal-content flex h-[min(80vh,600px)] w-[min(760px,100%)] overflow-hidden rounded-[20px] border border-[#2b2b2d] bg-[#171717] shadow-2xl shadow-black/80"
+        className="animate-modal-content flex h-[min(86vh,860px)] w-[min(1200px,100%)] overflow-hidden rounded-[20px] border border-[#2b2b2d] bg-[#171717] shadow-2xl shadow-black/80"
       >
-        <aside className="flex w-[210px] shrink-0 flex-col border-r border-[#242426]/50 bg-[#171717]">
+        <aside className="flex w-[220px] shrink-0 flex-col border-r border-[#242426]/50 bg-[#171717]">
           <div className="px-4.5 pt-4 pb-2 flex items-center justify-start">
             <button
               onClick={onClose}

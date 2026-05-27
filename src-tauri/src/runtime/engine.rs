@@ -144,13 +144,28 @@ fn select_final_output_text(
     strip_commentary_prefixes(preferred, commentary_history)
 }
 
+fn build_base_context(
+    developer_items: Vec<Value>,
+    recovery_note: Option<Value>,
+    context_items: Vec<Value>,
+    current_user_item: Value,
+) -> Vec<Value> {
+    let mut base_context = Vec::new();
+    base_context.extend(developer_items);
+    if let Some(note_item) = recovery_note {
+        base_context.push(note_item);
+    }
+    base_context.extend(context_items);
+    base_context.push(current_user_item);
+    base_context
+}
+
 // ── Request builder ───────────────────────────────────────────────────────
 
 fn build_request(
     req: &ChatRequest,
     input_items: Vec<Value>,
     tools_schemas: Vec<Value>,
-    previous_response_id: Option<&str>,
 ) -> ResponseStreamRequest {
     ResponseStreamRequest {
         input_items,
@@ -165,7 +180,6 @@ fn build_request(
         generate: req.generate,
         tools: Some(tools_schemas),
         tool_choice: Some(serde_json::Value::String("auto".to_string())),
-        previous_response_id: previous_response_id.map(ToOwned::to_owned),
     }
 }
 
@@ -239,6 +253,7 @@ impl AgentRuntime {
         req: &ChatRequest,
         conversation_id: &str,
         mut context_items: Vec<Value>,
+        recovery_note: Option<Value>,
         tools_catalog: &ToolCatalog,
         cancel_rx: &mut watch::Receiver<bool>,
         mut on_event: F,
@@ -252,6 +267,7 @@ impl AgentRuntime {
         let tool_schema_format =
             crate::providers::get_tool_schema_format(&resolved_model.provider.kind)?;
         let provider_kind = &resolved_model.provider.kind;
+        let mut developer_items = resolved_model.prompt_assembly.developer_items.clone();
 
         let tools_schemas = tools_catalog
             .list_schemas_with_format(
@@ -277,11 +293,12 @@ impl AgentRuntime {
         // This is the *base* context that every subsequent continuation
         // will carry forward so the model never loses sight of the original
         // question or prior conversation.
-        let mut base_context = context_items;
-        base_context.push(crate::providers::build_user_input_item(
-            provider_kind,
-            req.input.trim(),
-        )?);
+        let base_context = build_base_context(
+            std::mem::take(&mut developer_items),
+            recovery_note,
+            std::mem::take(&mut context_items),
+            crate::providers::build_user_input_item(provider_kind, req.input.trim())?,
+        );
 
         'turn_loop: loop {
             if turn_idx >= max_turns {
@@ -298,14 +315,7 @@ impl AgentRuntime {
                 accumulated_context.clone()
             };
 
-            let prev_response_id = if accumulator.last_response_id.is_empty() {
-                None
-            } else {
-                Some(accumulator.last_response_id.as_str())
-            };
-
-            let stream_request =
-                build_request(req, input_items, tools_schemas.clone(), prev_response_id);
+            let stream_request = build_request(req, input_items, tools_schemas.clone());
             let collected = collect_provider_turn(
                 config,
                 provider_kind,
@@ -366,7 +376,9 @@ impl AgentRuntime {
             if is_final_hop {
                 if final_output_text.is_empty() {
                     final_output_text = select_final_output_text(
-                        &extract_assistant_messages_from_items(&collected.response_result.output_items),
+                        &extract_assistant_messages_from_items(
+                            &collected.response_result.output_items,
+                        ),
                         &collected.response_result.output_text,
                         &commentary_history,
                     );
@@ -449,7 +461,8 @@ impl AgentRuntime {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_tool_call_output_pairs, select_final_output_text, strip_commentary_prefixes,
+        build_base_context, ensure_tool_call_output_pairs, select_final_output_text,
+        strip_commentary_prefixes,
     };
     use serde_json::json;
 
@@ -495,12 +508,48 @@ mod tests {
     fn selects_unknown_phase_message_as_final_output_when_no_final_phase_exists() {
         let final_text = select_final_output_text(
             &[
-                ("Still checking.".to_string(), Some(crate::message_phase::AssistantPhase::Commentary)),
+                (
+                    "Still checking.".to_string(),
+                    Some(crate::message_phase::AssistantPhase::Commentary),
+                ),
                 ("Applied the fix.".to_string(), None),
             ],
             "Still checking.\nApplied the fix.",
             &["Still checking.".to_string()],
         );
         assert_eq!(final_text, "Applied the fix.");
+    }
+
+    #[test]
+    fn base_context_places_developer_blocks_before_recovery_and_history() {
+        let base_context = build_base_context(
+            vec![json!({"role":"developer","content":[{"type":"input_text","text":"dev"}]})],
+            Some(json!({"role":"developer","content":[{"type":"input_text","text":"recovery"}]})),
+            vec![json!({"role":"user","content":[{"type":"input_text","text":"history"}]})],
+            json!({"role":"user","content":[{"type":"input_text","text":"current"}]}),
+        );
+
+        assert_eq!(
+            base_context
+                .first()
+                .and_then(|item| item.get("content"))
+                .and_then(|value| value.as_array())
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("text"))
+                .and_then(|value| value.as_str()),
+            Some("dev")
+        );
+        assert_eq!(
+            base_context[1]["content"][0]["text"].as_str(),
+            Some("recovery")
+        );
+        assert_eq!(
+            base_context[2]["content"][0]["text"].as_str(),
+            Some("history")
+        );
+        assert_eq!(
+            base_context[3]["content"][0]["text"].as_str(),
+            Some("current")
+        );
     }
 }

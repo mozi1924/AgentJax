@@ -20,7 +20,8 @@ export type SettingsControlType =
   | 'secret'
   | 'tags'
   | 'key_value'
-  | 'json';
+  | 'json'
+  | 'prompt_assembler';
 
 export interface SettingsOption {
   label: string;

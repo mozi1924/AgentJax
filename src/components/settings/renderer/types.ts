@@ -1,4 +1,5 @@
 import type {
+  SettingsFieldSchema,
   SettingsSchemaNode,
   SettingsSectionSchema,
   SettingsSnapshot,
@@ -23,9 +24,17 @@ export interface NodeListProps extends Omit<SettingsRendererProps, 'section'> {
   contextPath?: string;
 }
 
+export interface FieldRendererProps {
+  field: SettingsFieldSchema;
+  snapshot: SettingsSnapshot;
+  savingPath: string | null;
+  fieldErrors: Record<string, string>;
+  contextPath?: string;
+  onSaveField: (path: string, value: unknown) => Promise<void>;
+}
+
 export interface KeyValueEntry {
   id: string;
   key: string;
   value: string;
 }
-

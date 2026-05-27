@@ -156,11 +156,13 @@ pub async fn fetch_remote_models(
     provider_key: &str,
 ) -> Result<Vec<ProviderModelDescriptor>, String> {
     let provider = config.resolved_provider(provider_key)?;
+    let prompt_assembly = config.compile_prompt_assembly();
     let resolved = ResolvedModelConfig {
         profile_key: "<catalog-sync>".to_string(),
         provider_key: provider_key.to_string(),
         model_ref: format!("{}/<catalog-sync>", provider_key),
-        system_prompt: config.system_prompt.clone(),
+        system_prompt: prompt_assembly.instructions_text.clone(),
+        prompt_assembly,
         timeout_seconds: provider.resolved_timeout_seconds(config.request_timeout_seconds),
         provider,
         model_id: "".to_string(),

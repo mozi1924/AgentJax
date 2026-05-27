@@ -59,7 +59,7 @@ pub async fn chat_stream(
 
     registry.clear_conversation_deleted(&conversation_id)?;
 
-    let mut context = match {
+    let context = match {
         let conversation_id = conversation_id.clone();
         run_blocking(move || {
             conversation_store::ensure_conversation(&conversation_id)?;
@@ -81,9 +81,6 @@ pub async fn chat_stream(
             .ok()
             .flatten()
     };
-    if let Some(note_item) = recovery_note {
-        context.input_items.push(note_item);
-    }
 
     let tools_catalog = ToolCatalog::new(mcp_manager.inner().clone(), &config);
 
@@ -116,6 +113,7 @@ pub async fn chat_stream(
         &req,
         &conversation_id,
         context.input_items,
+        recovery_note,
         &tools_catalog,
         &mut cancel_rx,
         move |event| {

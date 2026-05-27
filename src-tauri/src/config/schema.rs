@@ -1,8 +1,8 @@
 use crate::config::constants::{
     default_mcp_startup_timeout_ms, default_mcp_tool_timeout_ms, default_true,
-    DEFAULT_DEFAULT_MODEL_REF, DEFAULT_SYSTEM_PROMPT, DEFAULT_TIMEOUT_SECONDS,
-    DEFAULT_UTILITY_SMALL_MODEL_REF,
+    DEFAULT_DEFAULT_MODEL_REF, DEFAULT_TIMEOUT_SECONDS, DEFAULT_UTILITY_SMALL_MODEL_REF,
 };
+use crate::config::prompt_composer::{CompiledPromptAssembly, PromptComposerConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -14,7 +14,8 @@ pub struct AppConfig {
     pub providers: BTreeMap<String, ProviderConfig>,
     pub default_model: String,
     pub utility_small_model: String,
-    pub system_prompt: String,
+    #[serde(default)]
+    pub prompt_composer: PromptComposerConfig,
     pub request_timeout_seconds: u64,
     pub show_advanced_request_options: bool,
     #[serde(default)]
@@ -129,6 +130,7 @@ pub struct ResolvedModelConfig {
     pub model_id: String,
     pub model_ref: String,
     pub system_prompt: String,
+    pub prompt_assembly: CompiledPromptAssembly,
     pub request: ModelRequestConfig,
     pub timeout_seconds: u64,
 }
@@ -143,7 +145,7 @@ impl Default for AppConfig {
             providers,
             default_model: DEFAULT_DEFAULT_MODEL_REF.to_string(),
             utility_small_model: DEFAULT_UTILITY_SMALL_MODEL_REF.to_string(),
-            system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
+            prompt_composer: PromptComposerConfig::default(),
             request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
             show_advanced_request_options: false,
             mcp_runtime: McpRuntimeConfig::default(),
