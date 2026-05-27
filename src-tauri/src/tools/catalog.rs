@@ -25,6 +25,7 @@ pub type MountedMcpServerSessions = BTreeMap<String, MountedMcpServerSession>;
 #[derive(Debug, Clone)]
 pub enum ToolCatalogStateChange {
     MountMcpServer(MountedMcpServerSession),
+    UnmountMcpServer(String),
 }
 
 #[derive(Debug, Clone)]
@@ -40,9 +41,10 @@ enum ToolSnapshotEntry {
         tool_name: String,
         server_config: crate::config::McpServerConfig,
     },
-    MountMcpServer {
+    ManageMcpServer {
         server_id: String,
         server_config: crate::config::McpServerConfig,
+        mounted_session: Option<MountedMcpServerSession>,
     },
 }
 
@@ -75,6 +77,10 @@ fn mount_tool_name_for_server(server_id: &str) -> String {
     format!("mcp_server__{server_id}")
 }
 
+fn prefixed_mcp_tool_name(server_id: &str, tool_name: &str) -> String {
+    format!("mcp__{server_id}__{tool_name}")
+}
+
 fn display_name_for_server(server_id: &str) -> String {
     server_id
         .split(['_', '-'])
@@ -90,11 +96,16 @@ fn display_name_for_server(server_id: &str) -> String {
         .join(" ")
 }
 
-fn build_mount_tool_schema(format: ToolSchemaFormat, server_id: &str) -> Value {
+fn build_manage_mcp_server_tool_schema(
+    format: ToolSchemaFormat,
+    server_id: &str,
+    is_mounted: bool,
+) -> Value {
     let display_name = display_name_for_server(server_id);
     let name = mount_tool_name_for_server(server_id);
     let description = format!(
-        "Activates the tools provided by the MCP server '{display_name}' ({server_id}) for the rest of the current assistant turn. After activation, its individual tools become available in the next step. These mounted tools are automatically unloaded when the current assistant turn ends."
+        "Controls the MCP server '{display_name}' ({server_id}). Use action='mount' to load its tools for later steps in the current assistant turn, action='unmount' to remove them again, and action='status' to inspect whether it is currently mounted. If action is omitted, it defaults to '{}' for compatibility. Mounted tools remain available until you unmount them or the current assistant turn ends automatically.",
+        if is_mounted { "status" } else { "mount" }
     );
     format_tool_schema(
         format,
@@ -102,7 +113,13 @@ fn build_mount_tool_schema(format: ToolSchemaFormat, server_id: &str) -> Value {
         &description,
         json!({
             "type": "object",
-            "properties": {}
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["mount", "unmount", "status"],
+                    "description": "Use 'mount' to expose this server's tools in the next step, 'unmount' to hide them again, or 'status' to inspect the current state."
+                }
+            }
         }),
     )
 }
@@ -210,40 +227,126 @@ impl ToolCatalogSnapshot {
                     .await?,
                 state_changes: Vec::new(),
             }),
-            ToolSnapshotEntry::MountMcpServer {
+            ToolSnapshotEntry::ManageMcpServer {
                 server_id,
                 server_config,
+                mounted_session,
             } => {
-                let raw_tools = self
-                    .mcp_manager
-                    .list_tools(server_id, server_config, &self.mcp_runtime)
-                    .await?;
-                let mounted_tools = normalize_mcp_tool_definitions(raw_tools);
-                if mounted_tools.is_empty() {
-                    return Err(format!(
-                        "MCP server '{}' did not expose any tools to mount",
-                        server_id
-                    ));
-                }
+                let requested_action = arguments
+                    .get("action")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.to_ascii_lowercase());
+                let action = requested_action
+                    .as_deref()
+                    .unwrap_or(if mounted_session.is_some() {
+                        "status"
+                    } else {
+                        "mount"
+                    });
+                let control_tool = mount_tool_name_for_server(server_id);
 
-                Ok(ToolCatalogExecution {
-                    output: json!({
-                        "serverId": server_id,
-                        "mountedToolCount": mounted_tools.len(),
-                        "mountedTools": mounted_tools
+                match action {
+                    "status" => {
+                        let mounted_tools = mounted_session
+                            .as_ref()
+                            .map(|session| {
+                                session
+                                    .tools
+                                    .iter()
+                                    .map(|tool| prefixed_mcp_tool_name(server_id, &tool.tool_name))
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
+                        Ok(ToolCatalogExecution {
+                            output: json!({
+                                "serverId": server_id,
+                                "controlTool": control_tool,
+                                "mounted": mounted_session.is_some(),
+                                "mountedTools": mounted_tools,
+                                "status": if mounted_session.is_some() { "mounted" } else { "unmounted" },
+                            }),
+                            state_changes: Vec::new(),
+                        })
+                    }
+                    "mount" => {
+                        if let Some(session) = mounted_session {
+                            let mounted_tools = session
+                                .tools
+                                .iter()
+                                .map(|tool| prefixed_mcp_tool_name(server_id, &tool.tool_name))
+                                .collect::<Vec<_>>();
+                            return Ok(ToolCatalogExecution {
+                                output: json!({
+                                    "serverId": server_id,
+                                    "controlTool": control_tool,
+                                    "mounted": true,
+                                    "mountedToolCount": mounted_tools.len(),
+                                    "mountedTools": mounted_tools,
+                                    "status": "already_mounted",
+                                }),
+                                state_changes: Vec::new(),
+                            });
+                        }
+
+                        let raw_tools = self
+                            .mcp_manager
+                            .list_tools(server_id, server_config, &self.mcp_runtime)
+                            .await?;
+                        let mounted_tools = normalize_mcp_tool_definitions(raw_tools);
+                        if mounted_tools.is_empty() {
+                            return Err(format!(
+                                "MCP server '{}' did not expose any tools to mount",
+                                server_id
+                            ));
+                        }
+
+                        let mounted_tool_names = mounted_tools
                             .iter()
-                            .map(|tool| tool.tool_name.clone())
-                            .collect::<Vec<_>>(),
-                        "status": "mounted"
-                    }),
-                    state_changes: vec![ToolCatalogStateChange::MountMcpServer(
-                        MountedMcpServerSession {
-                            server_id: server_id.clone(),
-                            server_config: server_config.clone(),
-                            tools: mounted_tools,
+                            .map(|tool| prefixed_mcp_tool_name(server_id, &tool.tool_name))
+                            .collect::<Vec<_>>();
+                        Ok(ToolCatalogExecution {
+                            output: json!({
+                                "serverId": server_id,
+                                "controlTool": control_tool,
+                                "mounted": true,
+                                "mountedToolCount": mounted_tool_names.len(),
+                                "mountedTools": mounted_tool_names,
+                                "status": "mounted",
+                                "usage": {
+                                    "mount": { "action": "mount" },
+                                    "unmount": { "action": "unmount" },
+                                    "status": { "action": "status" }
+                                }
+                            }),
+                            state_changes: vec![ToolCatalogStateChange::MountMcpServer(
+                                MountedMcpServerSession {
+                                    server_id: server_id.clone(),
+                                    server_config: server_config.clone(),
+                                    tools: mounted_tools,
+                                },
+                            )],
+                        })
+                    }
+                    "unmount" => Ok(ToolCatalogExecution {
+                        output: json!({
+                            "serverId": server_id,
+                            "controlTool": control_tool,
+                            "mounted": false,
+                            "status": if mounted_session.is_some() { "unmounted" } else { "already_unmounted" },
+                        }),
+                        state_changes: if mounted_session.is_some() {
+                            vec![ToolCatalogStateChange::UnmountMcpServer(server_id.clone())]
+                        } else {
+                            Vec::new()
                         },
-                    )],
-                })
+                    }),
+                    _ => Err(format!(
+                        "Unsupported action '{}' for MCP server control tool '{}'. Use one of: mount, unmount, status.",
+                        action, control_tool
+                    )),
+                }
             }
         }
     }
@@ -323,9 +426,26 @@ impl ToolCatalog {
                 continue;
             }
 
+            let resolved_server_config =
+                self.resolve_server_config_with_workspace_fallback(server_config, context);
+            let mounted_session = mounted_servers.get(server_id).cloned();
+            let control_tool_name = mount_tool_name_for_server(server_id);
+            insert_snapshot_tool(
+                &mut schemas,
+                build_manage_mcp_server_tool_schema(format, server_id, mounted_session.is_some()),
+                &mut active_tool_names,
+                &mut entries,
+                control_tool_name,
+                ToolSnapshotEntry::ManageMcpServer {
+                    server_id: server_id.clone(),
+                    server_config: resolved_server_config.clone(),
+                    mounted_session: mounted_session.clone(),
+                },
+            );
+
             if let Some(mounted) = mounted_servers.get(server_id) {
                 for tool in &mounted.tools {
-                    let prefixed_name = format!("mcp__{}__{}", server_id, tool.tool_name);
+                    let prefixed_name = prefixed_mcp_tool_name(server_id, &tool.tool_name);
                     insert_snapshot_tool(
                         &mut schemas,
                         format_tool_schema(
@@ -344,21 +464,6 @@ impl ToolCatalog {
                         },
                     );
                 }
-            } else {
-                let resolved_server_config =
-                    self.resolve_server_config_with_workspace_fallback(server_config, context);
-                let mount_tool_name = mount_tool_name_for_server(server_id);
-                insert_snapshot_tool(
-                    &mut schemas,
-                    build_mount_tool_schema(format, server_id),
-                    &mut active_tool_names,
-                    &mut entries,
-                    mount_tool_name,
-                    ToolSnapshotEntry::MountMcpServer {
-                        server_id: server_id.clone(),
-                        server_config: resolved_server_config,
-                    },
-                );
             }
         }
 

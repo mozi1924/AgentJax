@@ -289,6 +289,18 @@ mod tests {
         assert!(snapshot.schemas().iter().any(|schema| {
             schema.get("name").and_then(|value| value.as_str()) == Some("mcp_server__openai_docs")
         }));
+        let control_schema = snapshot
+            .schemas()
+            .iter()
+            .find(|schema| {
+                schema.get("name").and_then(|value| value.as_str())
+                    == Some("mcp_server__openai_docs")
+            })
+            .expect("control schema should exist");
+        assert_eq!(
+            control_schema["parameters"]["properties"]["action"]["enum"],
+            json!(["mount", "unmount", "status"])
+        );
         assert!(!snapshot.schemas().iter().any(|schema| {
             schema
                 .get("name")
@@ -298,7 +310,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mounted_mcp_server_exposes_server_tools_instead_of_mount_tool() {
+    async fn test_mounted_mcp_server_exposes_server_tools_and_control_tool() {
         let mut config = AppConfig::default();
         config
             .mcp_servers
@@ -336,7 +348,7 @@ mod tests {
             schema.get("name").and_then(|value| value.as_str())
                 == Some("mcp__openai_docs__search_openai_docs")
         }));
-        assert!(!snapshot.schemas().iter().any(|schema| {
+        assert!(snapshot.schemas().iter().any(|schema| {
             schema.get("name").and_then(|value| value.as_str()) == Some("mcp_server__openai_docs")
         }));
     }

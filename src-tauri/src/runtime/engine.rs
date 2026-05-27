@@ -488,6 +488,9 @@ fn apply_tool_state_changes(
             ToolCatalogStateChange::MountMcpServer(server_session) => {
                 mounted_mcp_servers.insert(server_session.server_id.clone(), server_session);
             }
+            ToolCatalogStateChange::UnmountMcpServer(server_id) => {
+                mounted_mcp_servers.remove(&server_id);
+            }
         }
     }
 }
@@ -615,5 +618,31 @@ mod tests {
             .expect("mounted server should exist");
         assert_eq!(mounted.tools.len(), 1);
         assert_eq!(mounted.tools[0].tool_name, "search_openai_docs");
+    }
+
+    #[test]
+    fn removes_mounted_mcp_server_after_unmount_state_change() {
+        let mut mounted_servers = MountedMcpServerSessions::new();
+        mounted_servers.insert(
+            "openai_docs".to_string(),
+            MountedMcpServerSession {
+                server_id: "openai_docs".to_string(),
+                server_config: McpServerConfig::default(),
+                tools: vec![MountedMcpToolDefinition {
+                    tool_name: "search_openai_docs".to_string(),
+                    description: "Search docs".to_string(),
+                    input_schema: json!({"type":"object","properties":{}}),
+                }],
+            },
+        );
+
+        apply_tool_state_changes(
+            &mut mounted_servers,
+            vec![ToolCatalogStateChange::UnmountMcpServer(
+                "openai_docs".to_string(),
+            )],
+        );
+
+        assert!(!mounted_servers.contains_key("openai_docs"));
     }
 }
