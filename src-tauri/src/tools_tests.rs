@@ -79,14 +79,7 @@ mod tests {
         let args = json!({ "expression": "gamma(5) + ncr(6, 2) + mean(2, 4, 6)" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_approx_eq(res["result"].as_f64().unwrap(), 43.0, 1e-12);
-        assert!(res["warnings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|warning| warning
-                .as_str()
-                .unwrap_or_default()
-                .contains("legacy numeric evaluator")));
+        assert!(res["warnings"].as_array().unwrap().is_empty());
 
         let args = json!({ "expression": "beta(2, 3) + harmonic(4) + logistic(0)" });
         let res = calc.execute(&args, &ctx).unwrap();
@@ -100,14 +93,13 @@ mod tests {
         let args = json!({ "expression": "mean(2, 4, 6)" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 4.0);
-        assert!(res["warnings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|warning| warning
-                .as_str()
-                .unwrap_or_default()
-                .contains("legacy numeric evaluator")));
+        assert!(res["warnings"].as_array().unwrap().is_empty());
+
+        // New capability check: legacy helper functions now natively support unit-awareness and arbitrary-precision thanks to fend preprocessing!
+        let args = json!({ "expression": "mean(2 km, 4 km, 6 km)" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["result"].as_str().unwrap(), "4 km");
+        assert_eq!(res["unit"].as_str().unwrap(), "km");
 
         let args = json!({ "expression": "erf(1)" });
         let res = calc.execute(&args, &ctx).unwrap();

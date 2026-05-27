@@ -1,4 +1,4 @@
-use crate::tools::math::evaluate_math_expression;
+use crate::tools::math::*;
 use fend_core::{evaluate_with_interrupt, Context as FendContext, Interrupt as FendInterrupt};
 use num_rational::Ratio;
 use serde_json::{json, Map, Value};
@@ -440,17 +440,7 @@ fn dispatch_top_level_call(
             "{name}(...) is not wired into the calculator tool yet. The current symbolic engine supports simplify, differentiate, integrate, solve, and limit. As a fallback, try simplify(...) or solve(...) depending on your goal."
         )),
         _ => {
-            if is_legacy_numeric_function(name) {
-                let fallback_expression =
-                    normalize_expression(original_expression.as_deref().unwrap_or_default())
-                        .unwrap_or_else(|_| original_expression.clone().unwrap_or_default());
-                evaluate_legacy_numeric_expression(
-                    original_expression,
-                    Some(fallback_expression),
-                    "Used the legacy numeric evaluator because this expression relies on compatibility-only helper functions.",
-                    request.precision,
-                )
-            } else if is_passthrough_expression_function(name) {
+            if is_legacy_numeric_function(name) || is_passthrough_expression_function(name) {
                 let fallback_expression =
                     normalize_expression(original_expression.as_deref().unwrap_or_default())
                         .unwrap_or_else(|_| original_expression.clone().unwrap_or_default());
@@ -523,16 +513,9 @@ fn evaluate_plain_expression(
     normalized: &str,
     original_expression: Option<String>,
 ) -> Result<CalculatorResponse, String> {
-    if contains_legacy_numeric_function_call(normalized) {
-        return evaluate_legacy_numeric_expression(
-            original_expression,
-            Some(normalized.to_string()),
-            "Used the legacy numeric evaluator because this expression relies on compatibility-only helper functions.",
-            request.precision,
-        );
-    }
+    let resolved = resolve_legacy_functions(normalized)?;
 
-    match evaluate_with_fend(normalized, request.precision) {
+    match evaluate_with_fend(&resolved, request.precision) {
         Ok(fend) => Ok(CalculatorResponse {
             expression: original_expression,
             normalized_expression: Some(normalized.to_string()),
@@ -546,30 +529,206 @@ fn evaluate_plain_expression(
             used_approximation: fend.used_approximation,
             capabilities: None,
         }),
-        Err(fend_error) => Err(format_evaluation_error(normalized, &fend_error)),
+        Err(fend_error) => Err(format_evaluation_error(&resolved, &fend_error)),
     }
 }
 
-/// Routes compatibility-only helper functions through the old numeric engine
-/// while we continue migrating the rest of the calculator to the new stack.
-fn evaluate_legacy_numeric_expression(
-    expression: Option<String>,
-    normalized_expression: Option<String>,
-    warning: &str,
-    precision: u32,
-) -> Result<CalculatorResponse, String> {
-    let normalized = normalized_expression.clone().unwrap_or_default();
-    let value = evaluate_math_expression(&normalized.replace(' ', ""))
-        .map_err(|legacy_error| format_evaluation_error(&normalized, &legacy_error))?;
-    Ok(numeric_response(
-        expression,
-        normalized_expression,
-        "evaluate",
-        value,
-        Vec::new(),
-        vec![warning.to_string()],
-        precision,
-    ))
+fn resolve_legacy_functions(expression: &str) -> Result<String, String> {
+    let mut current_expr = expression.to_string();
+    let legacy_names = [
+        "gamma", "ln_gamma", "digamma", "erf", "erfc", "erf_inv", "erfc_inv",
+        "beta", "ln_beta", "factorial", "ln_factorial", "ncr", "npr",
+        "logistic", "logit", "harmonic", "gen_harmonic", "sum", "mean", "product"
+    ];
+
+    loop {
+        let mut innermost_call: Option<(usize, usize, String, String)> = None;
+
+        for &name in &legacy_names {
+            let search_pattern = format!("{name}(");
+            let mut start_idx = 0;
+            while let Some(pos) = current_expr[start_idx..].find(&search_pattern) {
+                let actual_pos = start_idx + pos;
+                let open_paren = actual_pos + name.len();
+                
+                let mut close_paren = None;
+                let mut has_inner_paren = false;
+                for (offset, ch) in current_expr[open_paren + 1..].char_indices() {
+                    if ch == '(' {
+                        has_inner_paren = true;
+                        break;
+                    }
+                    if ch == ')' {
+                        close_paren = Some(open_paren + 1 + offset);
+                        break;
+                    }
+                }
+
+                if let Some(end_pos) = close_paren {
+                    if !has_inner_paren {
+                        let content = current_expr[open_paren + 1..end_pos].to_string();
+                        innermost_call = Some((actual_pos, end_pos, name.to_string(), content));
+                        break;
+                    }
+                }
+
+                start_idx = open_paren + 1;
+            }
+            if innermost_call.is_some() {
+                break;
+            }
+        }
+
+        if let Some((start, end, name, content)) = innermost_call {
+            let args = split_top_level_arguments(&content);
+            let resolved = evaluate_legacy_function(&name, &args)?;
+            current_expr.replace_range(start..=end, &resolved);
+        } else {
+            break;
+        }
+    }
+
+    Ok(current_expr)
+}
+
+fn evaluate_legacy_function(name: &str, args: &[String]) -> Result<String, String> {
+    match name {
+        // Variable-argument syntactic translations
+        "sum" => {
+            if args.is_empty() {
+                return Ok("0".to_string());
+            }
+            let joined = args.iter().map(|a| format!("({a})")).collect::<Vec<_>>().join(" + ");
+            Ok(format!("({joined})"))
+        }
+        "product" => {
+            if args.is_empty() {
+                return Ok("1".to_string());
+            }
+            let joined = args.iter().map(|a| format!("({a})")).collect::<Vec<_>>().join(" * ");
+            Ok(format!("({joined})"))
+        }
+        "mean" => {
+            if args.is_empty() {
+                return Err("mean requires at least 1 argument".to_string());
+            }
+            let count = args.len();
+            let joined = args.iter().map(|a| format!("({a})")).collect::<Vec<_>>().join(" + ");
+            Ok(format!("(({joined}) / {count})"))
+        }
+
+        // Cleaned math evaluations in Rust with safe wrappers & domain validation
+        "factorial" => {
+            let arg_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "factorial requires 1 argument".to_string())?)?;
+            let res = clean_float(safe_factorial(arg_val)?);
+            Ok(res.to_string())
+        }
+        "ncr" => {
+            let n_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "ncr requires 2 arguments".to_string())?)?;
+            let r_val = evaluate_fend_to_float(args.get(1).ok_or_else(|| "ncr requires 2 arguments".to_string())?)?;
+            let res = clean_float(safe_ncr(n_val, r_val)?);
+            Ok(res.to_string())
+        }
+        "npr" => {
+            let n_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "npr requires 2 arguments".to_string())?)?;
+            let r_val = evaluate_fend_to_float(args.get(1).ok_or_else(|| "npr requires 2 arguments".to_string())?)?;
+            let res = clean_float(safe_npr(n_val, r_val)?);
+            Ok(res.to_string())
+        }
+        "logistic" => {
+            let arg_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "logistic requires 1 argument".to_string())?)?;
+            let res = clean_float(safe_logistic(arg_val)?);
+            Ok(res.to_string())
+        }
+        "logit" => {
+            let arg_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "logit requires 1 argument".to_string())?)?;
+            let res = clean_float(safe_logit(arg_val)?);
+            Ok(res.to_string())
+        }
+        "harmonic" => {
+            let arg_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "harmonic requires 1 argument".to_string())?)?;
+            let res = clean_float(safe_harmonic(arg_val)?);
+            Ok(res.to_string())
+        }
+        "gen_harmonic" => {
+            let n_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "gen_harmonic requires 2 arguments".to_string())?)?;
+            let order_val = evaluate_fend_to_float(args.get(1).ok_or_else(|| "gen_harmonic requires 2 arguments".to_string())?)?;
+            let res = clean_float(safe_gen_harmonic(n_val, order_val)?);
+            Ok(res.to_string())
+        }
+        "gamma" => {
+            let arg_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "gamma requires 1 argument".to_string())?)?;
+            let res = clean_float(safe_gamma(arg_val)?);
+            Ok(res.to_string())
+        }
+        "ln_gamma" => {
+            let arg_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "ln_gamma requires 1 argument".to_string())?)?;
+            let res = clean_float(safe_ln_gamma(arg_val)?);
+            Ok(res.to_string())
+        }
+        "digamma" => {
+            let arg_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "digamma requires 1 argument".to_string())?)?;
+            let res = clean_float(safe_digamma(arg_val)?);
+            Ok(res.to_string())
+        }
+        "erf" => {
+            let arg_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "erf requires 1 argument".to_string())?)?;
+            let res = clean_float(safe_erf(arg_val)?);
+            Ok(res.to_string())
+        }
+        "erfc" => {
+            let arg_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "erfc requires 1 argument".to_string())?)?;
+            let res = clean_float(safe_erfc(arg_val)?);
+            Ok(res.to_string())
+        }
+        "erf_inv" => {
+            let arg_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "erf_inv requires 1 argument".to_string())?)?;
+            let res = clean_float(safe_erf_inv(arg_val)?);
+            Ok(res.to_string())
+        }
+        "erfc_inv" => {
+            let arg_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "erfc_inv requires 1 argument".to_string())?)?;
+            let res = clean_float(safe_erfc_inv(arg_val)?);
+            Ok(res.to_string())
+        }
+        "beta" => {
+            let a_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "beta requires 2 arguments".to_string())?)?;
+            let b_val = evaluate_fend_to_float(args.get(1).ok_or_else(|| "beta requires 2 arguments".to_string())?)?;
+            let res = clean_float(safe_beta(a_val, b_val)?);
+            Ok(res.to_string())
+        }
+        "ln_beta" => {
+            let a_val = evaluate_fend_to_float(args.get(0).ok_or_else(|| "ln_beta requires 2 arguments".to_string())?)?;
+            let b_val = evaluate_fend_to_float(args.get(1).ok_or_else(|| "ln_beta requires 2 arguments".to_string())?)?;
+            let res = clean_float(safe_ln_beta(a_val, b_val)?);
+            Ok(res.to_string())
+        }
+        _ => Err(format!("Unknown legacy function: {name}")),
+    }
+}
+
+fn clean_float(val: f64) -> f64 {
+    let rounded = val.round();
+    if (val - rounded).abs() < 1e-12 {
+        rounded
+    } else {
+        val
+    }
+}
+
+fn evaluate_fend_to_float(expression: &str) -> Result<f64, String> {
+    let mut context = FendContext::new();
+    let interrupt = DeadlineInterrupt::new(Duration::from_millis(FEND_TIMEOUT_MS));
+    let result = evaluate_with_interrupt(expression, &mut context, &interrupt)
+        .map_err(|err| err.to_string())?;
+    let main_result = result.get_main_result();
+    let (rendered, _) = normalize_fend_output(main_result.trim());
+    let (approx_numeric, _) = split_numeric_result(&rendered);
+    approx_numeric.ok_or_else(|| {
+        format!(
+            "Could not evaluate expression '{expression}' to a finite number. Result: '{rendered}'"
+        )
+    })
 }
 
 fn simplify_expression(
@@ -1032,8 +1191,8 @@ fn calculator_capabilities() -> Value {
             "statistics": "legacy numeric helper functions only"
         },
         "compatibility": {
-            "legacyEvaluator": "meval + statrs",
-            "legacyFallbackPolicy": "Only documented compatibility helper functions use the legacy evaluator. Ordinary numeric, unit, and natural-language expressions no longer fall back implicitly.",
+            "legacyEvaluator": "fend-core + statrs (preprocessed)",
+            "legacyFallbackPolicy": "All legacy expressions are preprocessed and evaluated using fend-core. Ordinary numeric, unit, and natural-language expressions no longer fall back implicitly.",
             "exactValuePolicy": "exactValue is omitted when the calculator only has a decimal approximation; approximateValue carries the numeric estimate in those cases."
         },
         "syntax": {
@@ -1576,47 +1735,7 @@ fn looks_like_attached_unit_token(token: &str) -> bool {
             .all(|ch| ch.is_ascii_alphabetic() || matches!(ch, '/' | '°' | '%' | '^'))
 }
 
-/// Detect compatibility-only helper calls anywhere in the expression so we can
-/// bypass `fend` before it misinterprets names like `mean(...)`.
-fn contains_legacy_numeric_function_call(expression: &str) -> bool {
-    iter_identifier_tokens(expression)
-        .any(|(name, function_like)| function_like && is_legacy_numeric_function(name))
-}
 
-fn iter_identifier_tokens(expression: &str) -> impl Iterator<Item = (&str, bool)> {
-    let mut tokens = Vec::new();
-    let mut chars = expression.char_indices().peekable();
-
-    while let Some((start, ch)) = chars.next() {
-        if !(ch.is_ascii_alphabetic() || ch == '_') {
-            continue;
-        }
-
-        let mut end = start + ch.len_utf8();
-        while let Some((index, next)) = chars.peek().copied() {
-            if next.is_ascii_alphanumeric() || next == '_' {
-                end = index + next.len_utf8();
-                chars.next();
-            } else {
-                break;
-            }
-        }
-
-        let mut lookahead = end;
-        while let Some(next) = expression[lookahead..].chars().next() {
-            if next.is_whitespace() {
-                lookahead += next.len_utf8();
-            } else {
-                break;
-            }
-        }
-
-        let function_like = expression[lookahead..].starts_with('(');
-        tokens.push((&expression[start..end], function_like));
-    }
-
-    tokens.into_iter()
-}
 
 fn wrap_simple_function_argument(expression: &str) -> Option<String> {
     static SIMPLE_FUNCTIONS: OnceLock<Vec<&'static str>> = OnceLock::new();
