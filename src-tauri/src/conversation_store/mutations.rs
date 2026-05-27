@@ -13,7 +13,8 @@ use super::paths::{
 };
 use super::types::{
     AppendLineInput, ConversationData, ConversationDynamicTool, ConversationLine, ConversationMeta,
-    ConversationSummary, ToolStatus, UpdateLineInput, CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY,
+    ConversationMountedMcpServer, ConversationSummary, ToolStatus, UpdateLineInput,
+    CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY, CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
     DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
 };
 use crate::conversation_store_utils::{normalize_title, now_unix_ms};
@@ -253,6 +254,34 @@ pub fn remove_conversation_dynamic_tool(
 
         tools.retain(|tool| tool.name != tool_name);
         update_conversation_dynamic_tools_inner(conversation_id, tools)
+    })
+}
+
+pub fn update_conversation_mounted_mcp_servers(
+    conversation_id: &str,
+    servers: Vec<ConversationMountedMcpServer>,
+) -> Result<(), String> {
+    with_conversation_lock(conversation_id, || {
+        let metadata_path = conversation_metadata_path(conversation_id)?;
+        let messages_path = conversation_messages_path(conversation_id)?;
+        let mut meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
+
+        if servers.is_empty() {
+            meta.metadata
+                .remove(CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY);
+        } else {
+            let value = serde_json::to_value(&servers)
+                .map_err(|err| format!("Failed to serialize mounted MCP server metadata: {err}"))?;
+            meta.metadata.insert(
+                CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY.to_string(),
+                value,
+            );
+        }
+
+        meta.updated_at_unix_ms = now_unix_ms();
+        write_conversation_metadata(&metadata_path, &meta)?;
+        replace_cached_summary(conversation_id, summary_from_meta(&meta))?;
+        Ok(())
     })
 }
 

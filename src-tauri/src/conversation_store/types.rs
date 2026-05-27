@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 pub const LOG_VERSION: u32 = 6;
 pub const DEFAULT_CONVERSATION_TITLE: &str = "新对话";
 pub const CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY: &str = "dynamic_tools";
+pub const CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY: &str = "mounted_mcp_servers";
 
 // ── Metadata (metadata.json) ──────────────────────────────────────────────
 
@@ -46,6 +47,26 @@ pub struct ConversationDynamicTool {
 pub enum ConversationDynamicToolBinding {
     Native { tool: String },
     Mcp { server_id: String, tool: String },
+}
+
+/// Conversation-scoped MCP mount state persisted in metadata.json.
+///
+/// Each entry captures the logical tool surface exposed by a mounted MCP
+/// server so future turns, reloads, and app restarts can restore the same
+/// compact-yet-usable tool view without forcing the agent to remount first.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationMountedMcpServer {
+    pub server_id: String,
+    pub tools: Vec<ConversationMountedMcpToolDefinition>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationMountedMcpToolDefinition {
+    pub tool_name: String,
+    pub description: String,
+    pub input_schema: Value,
 }
 
 // ── Conversation lines (messages.jsonl) ───────────────────────────────────

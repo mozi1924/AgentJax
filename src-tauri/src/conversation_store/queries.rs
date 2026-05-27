@@ -2,8 +2,9 @@ use super::file_io::{read_conversation_file, read_conversation_meta, summary_fro
 use super::locks::{cached_summary, replace_cached_summary, with_conversation_lock};
 use super::paths::{conversation_messages_path, conversation_metadata_path, list_conversation_ids};
 use super::types::{
-    ConversationDetail, ConversationDynamicTool, ConversationLine, ConversationSummary,
-    TitleGenerationCandidate, CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY,
+    ConversationDetail, ConversationDynamicTool, ConversationLine, ConversationMountedMcpServer,
+    ConversationSummary, TitleGenerationCandidate, CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY,
+    CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
 };
 // ── List all conversations ────────────────────────────────────────────────
 
@@ -124,5 +125,26 @@ pub fn load_conversation_dynamic_tools(
 
         serde_json::from_value::<Vec<ConversationDynamicTool>>(value.clone())
             .map_err(|err| format!("Failed to parse conversation dynamic tools: {err}"))
+    })
+}
+
+pub fn load_conversation_mounted_mcp_servers(
+    conversation_id: &str,
+) -> Result<Vec<ConversationMountedMcpServer>, String> {
+    with_conversation_lock(conversation_id, || {
+        let metadata_path = conversation_metadata_path(conversation_id)?;
+        let Some(meta) = read_conversation_meta(&metadata_path)? else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = meta
+            .metadata
+            .get(CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY)
+        else {
+            return Ok(Vec::new());
+        };
+
+        serde_json::from_value::<Vec<ConversationMountedMcpServer>>(value.clone())
+            .map_err(|err| format!("Failed to parse mounted MCP server metadata: {err}"))
     })
 }

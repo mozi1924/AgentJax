@@ -751,6 +751,45 @@ fn conversation_dynamic_tools_round_trip_through_metadata() {
 }
 
 #[test]
+fn conversation_mounted_mcp_servers_round_trip_through_metadata() {
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("tmountedmcp-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+
+    update_conversation_mounted_mcp_servers(
+        &cid,
+        vec![ConversationMountedMcpServer {
+            server_id: "openai_docs".to_string(),
+            tools: vec![ConversationMountedMcpToolDefinition {
+                tool_name: "search_openai_docs".to_string(),
+                description: "Search docs".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string" }
+                    }
+                }),
+            }],
+        }],
+    )
+    .expect("persist mounted MCP servers");
+
+    let loaded = load_conversation_mounted_mcp_servers(&cid).expect("load mounted MCP servers");
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].server_id, "openai_docs");
+    assert_eq!(loaded[0].tools.len(), 1);
+    assert_eq!(loaded[0].tools[0].tool_name, "search_openai_docs");
+
+    update_conversation_mounted_mcp_servers(&cid, Vec::new()).expect("clear mounted MCP servers");
+    assert!(load_conversation_mounted_mcp_servers(&cid)
+        .expect("reload mounted MCP servers")
+        .is_empty());
+}
+
+#[test]
 fn concurrent_appends_preserve_all_lines_for_same_conversation() {
     let _g = crate::config::test_env_lock()
         .lock()

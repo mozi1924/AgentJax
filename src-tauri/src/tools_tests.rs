@@ -352,4 +352,51 @@ mod tests {
             schema.get("name").and_then(|value| value.as_str()) == Some("mcp_server__openai_docs")
         }));
     }
+
+    #[tokio::test]
+    async fn test_snapshot_restores_persisted_mounted_mcp_server_from_conversation_metadata() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _home = setup_test_home();
+        let conversation_id = format!("test-mounted-mcp-{}", uuid::Uuid::new_v4());
+        conversation_store::ensure_conversation(&conversation_id).expect("ensure conversation");
+        conversation_store::update_conversation_mounted_mcp_servers(
+            &conversation_id,
+            vec![conversation_store::ConversationMountedMcpServer {
+                server_id: "openai_docs".to_string(),
+                tools: vec![conversation_store::ConversationMountedMcpToolDefinition {
+                    tool_name: "search_openai_docs".to_string(),
+                    description: "Search docs".to_string(),
+                    input_schema: json!({
+                        "type": "object",
+                        "properties": {
+                            "query": { "type": "string" }
+                        }
+                    }),
+                }],
+            }],
+        )
+        .expect("persist mounted MCP servers");
+
+        let mut config = AppConfig::default();
+        config
+            .mcp_servers
+            .insert("openai_docs".to_string(), McpServerConfig::default());
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog
+            .snapshot(&ToolExecutionContext {
+                conversation_id: Some(conversation_id.clone()),
+            })
+            .await;
+
+        assert!(snapshot
+            .active_tool_names()
+            .contains("mcp_server__openai_docs"));
+        assert!(snapshot
+            .active_tool_names()
+            .contains("mcp__openai_docs__search_openai_docs"));
+
+        conversation_store::delete_conversation(&conversation_id).ok();
+    }
 }

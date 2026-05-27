@@ -274,11 +274,12 @@ impl AgentRuntime {
         let tool_context = ToolExecutionContext {
             conversation_id: Some(conversation_id.to_string()),
         };
+        let mut mounted_mcp_servers = tools_catalog.load_persisted_mounted_servers(&tool_context);
         let initial_snapshot = tools_catalog
             .snapshot_with_format_and_mounted_servers(
                 tool_schema_format,
                 &tool_context,
-                &MountedMcpServerSessions::new(),
+                &mounted_mcp_servers,
             )
             .await;
         context_items = archive_unavailable_historical_tool_calls(
@@ -291,10 +292,9 @@ impl AgentRuntime {
         let mut repeated_failed_tool_signatures = std::collections::HashMap::new();
         let mut final_output_text = String::new();
         let mut commentary_history: Vec<String> = Vec::new();
-        // MCP server mounts are scoped to the current assistant turn. This lets
-        // us keep the default tool list compact while still allowing later hops
-        // in the same turn to see tools that were explicitly mounted.
-        let mut mounted_mcp_servers = MountedMcpServerSessions::new();
+        // MCP server mounts are conversation-scoped and persisted in
+        // metadata.json so later turns and app restarts can recover the same
+        // mounted tool surface until the agent explicitly unmounts it.
         let mut turn_idx = 0usize;
         let max_turns = 10usize;
 
@@ -421,6 +421,15 @@ impl AgentRuntime {
                 .timeline_events
                 .extend(executed_batch.timeline_events);
             apply_tool_state_changes(&mut mounted_mcp_servers, executed_batch.state_changes);
+            if let Err(err) =
+                tools_catalog.persist_mounted_servers(conversation_id, &mounted_mcp_servers)
+            {
+                log::warn!(
+                    "Failed to persist mounted MCP servers for conversation '{}': {}",
+                    conversation_id,
+                    err
+                );
+            }
 
             // ── Build this hop's delta items ──────────────────────────────
             let hop_delta = crate::providers::compose_tool_continuation_input(

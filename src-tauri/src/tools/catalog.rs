@@ -104,7 +104,7 @@ fn build_manage_mcp_server_tool_schema(
     let display_name = display_name_for_server(server_id);
     let name = mount_tool_name_for_server(server_id);
     let description = format!(
-        "Controls the MCP server '{display_name}' ({server_id}). Use action='mount' to load its tools for later steps in the current assistant turn, action='unmount' to remove them again, and action='status' to inspect whether it is currently mounted. If action is omitted, it defaults to '{}' for compatibility. Mounted tools remain available until you unmount them or the current assistant turn ends automatically.",
+        "Controls the MCP server '{display_name}' ({server_id}). Use action='mount' to load its tools for this conversation, action='unmount' to remove them again, and action='status' to inspect whether it is currently mounted. If action is omitted, it defaults to '{}' for compatibility. Mounted tools remain available across future turns and app restarts until you explicitly unmount them.",
         if is_mounted { "status" } else { "mount" }
     );
     format_tool_schema(
@@ -117,7 +117,7 @@ fn build_manage_mcp_server_tool_schema(
                 "action": {
                     "type": "string",
                     "enum": ["mount", "unmount", "status"],
-                    "description": "Use 'mount' to expose this server's tools in the next step, 'unmount' to hide them again, or 'status' to inspect the current state."
+                    "description": "Use 'mount' to expose this server's tools in this conversation, 'unmount' to hide them again, or 'status' to inspect the current state."
                 }
             }
         }),
@@ -314,6 +314,7 @@ impl ToolCatalogSnapshot {
                                 "mountedToolCount": mounted_tool_names.len(),
                                 "mountedTools": mounted_tool_names,
                                 "status": "mounted",
+                                "scope": "conversation",
                                 "usage": {
                                     "mount": { "action": "mount" },
                                     "unmount": { "action": "unmount" },
@@ -378,10 +379,11 @@ impl ToolCatalog {
     }
 
     pub async fn snapshot(&self, context: &ToolExecutionContext) -> ToolCatalogSnapshot {
+        let mounted_servers = self.load_persisted_mounted_servers(context);
         self.snapshot_with_format_and_mounted_servers(
             ToolSchemaFormat::Responses,
             context,
-            &MountedMcpServerSessions::new(),
+            &mounted_servers,
         )
         .await
     }
@@ -391,12 +393,9 @@ impl ToolCatalog {
         format: ToolSchemaFormat,
         context: &ToolExecutionContext,
     ) -> ToolCatalogSnapshot {
-        self.snapshot_with_format_and_mounted_servers(
-            format,
-            context,
-            &MountedMcpServerSessions::new(),
-        )
-        .await
+        let mounted_servers = self.load_persisted_mounted_servers(context);
+        self.snapshot_with_format_and_mounted_servers(format, context, &mounted_servers)
+            .await
     }
 
     pub(crate) async fn snapshot_with_format_and_mounted_servers(
@@ -512,6 +511,105 @@ impl ToolCatalog {
             .await
             .execute(prefixed_name, arguments, context)
             .await
+    }
+
+    /// Rebuild the mounted MCP server set from conversation metadata so the
+    /// agent can resume previously mounted tool surfaces after later turns or
+    /// an application restart.
+    pub fn load_persisted_mounted_servers(
+        &self,
+        context: &ToolExecutionContext,
+    ) -> MountedMcpServerSessions {
+        let conversation_id = context
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let Some(conversation_id) = conversation_id else {
+            return MountedMcpServerSessions::new();
+        };
+
+        let stored_servers =
+            match crate::conversation_store::load_conversation_mounted_mcp_servers(conversation_id)
+            {
+                Ok(servers) => servers,
+                Err(err) => {
+                    log::warn!(
+                        "Failed to load mounted MCP servers for conversation '{}': {}",
+                        conversation_id,
+                        err
+                    );
+                    return MountedMcpServerSessions::new();
+                }
+            };
+
+        let mut mounted_servers = MountedMcpServerSessions::new();
+        for stored_server in stored_servers {
+            let Some(server_config) = self.mcp_config.get(&stored_server.server_id) else {
+                log::warn!(
+                    "Skipping persisted mounted MCP server '{}' because its config was not found",
+                    stored_server.server_id
+                );
+                continue;
+            };
+            if !server_config.enabled {
+                log::warn!(
+                    "Skipping persisted mounted MCP server '{}' because it is disabled",
+                    stored_server.server_id
+                );
+                continue;
+            }
+
+            mounted_servers.insert(
+                stored_server.server_id.clone(),
+                MountedMcpServerSession {
+                    server_id: stored_server.server_id,
+                    server_config: self
+                        .resolve_server_config_with_workspace_fallback(server_config, context),
+                    tools: stored_server
+                        .tools
+                        .into_iter()
+                        .map(|tool| MountedMcpToolDefinition {
+                            tool_name: tool.tool_name,
+                            description: tool.description,
+                            input_schema: tool.input_schema,
+                        })
+                        .collect(),
+                },
+            );
+        }
+
+        mounted_servers
+    }
+
+    pub fn persist_mounted_servers(
+        &self,
+        conversation_id: &str,
+        mounted_servers: &MountedMcpServerSessions,
+    ) -> Result<(), String> {
+        let persisted_servers = mounted_servers
+            .values()
+            .map(
+                |server| crate::conversation_store::ConversationMountedMcpServer {
+                    server_id: server.server_id.clone(),
+                    tools: server
+                        .tools
+                        .iter()
+                        .map(|tool| {
+                            crate::conversation_store::ConversationMountedMcpToolDefinition {
+                                tool_name: tool.tool_name.clone(),
+                                description: tool.description.clone(),
+                                input_schema: tool.input_schema.clone(),
+                            }
+                        })
+                        .collect(),
+                },
+            )
+            .collect::<Vec<_>>();
+        crate::conversation_store::update_conversation_mounted_mcp_servers(
+            conversation_id,
+            persisted_servers,
+        )
     }
 
     fn resolve_server_config_with_workspace_fallback(
