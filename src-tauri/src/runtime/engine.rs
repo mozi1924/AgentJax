@@ -7,6 +7,7 @@ use crate::commands::chat::ChatRequest;
 use crate::config::AppConfig;
 use crate::message_phase::AssistantPhase;
 use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
+use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
 use crate::tools::{
     MountedMcpServerSessions, ToolCatalog, ToolCatalogSnapshot, ToolCatalogStateChange,
     ToolExecutionContext, ToolPresentation,
@@ -324,6 +325,7 @@ impl AgentRuntime {
         config: &AppConfig,
         req: &ChatRequest,
         conversation_id: &str,
+        user_message_ts: i64,
         mut context_items: Vec<Value>,
         recovery_note: Option<Value>,
         tools_catalog: &ToolCatalog,
@@ -340,6 +342,11 @@ impl AgentRuntime {
             crate::providers::get_tool_schema_format(&resolved_model.provider.kind)?;
         let provider_kind = &resolved_model.provider.kind;
         let mut developer_items = resolved_model.prompt_assembly.developer_items.clone();
+        let request_started_at_unix_ms = crate::conversation_store_utils::now_unix_ms();
+        developer_items.push(build_temporal_context_developer_item(
+            request_started_at_unix_ms,
+            user_message_ts,
+        ));
 
         let tool_context = ToolExecutionContext {
             conversation_id: Some(conversation_id.to_string()),
@@ -376,7 +383,10 @@ impl AgentRuntime {
             std::mem::take(&mut developer_items),
             recovery_note,
             std::mem::take(&mut context_items),
-            crate::providers::build_user_input_item(provider_kind, req.input.trim())?,
+            crate::providers::build_user_input_item(
+                provider_kind,
+                &render_timed_message("Current user message", user_message_ts, req.input.trim()),
+            )?,
         );
 
         'turn_loop: loop {

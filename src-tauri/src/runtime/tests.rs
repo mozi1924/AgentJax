@@ -94,6 +94,7 @@ async fn run_real_gateway_turn_with_config(
             &config,
             &req,
             &conversation_id,
+            crate::conversation_store_utils::now_unix_ms(),
             Vec::new(),
             None,
             &tools_catalog,

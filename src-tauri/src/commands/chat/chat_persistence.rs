@@ -46,6 +46,8 @@ pub fn persist_tool_progress_event(
                 line: ConversationLine::Tool(ToolLine {
                     id: line_id.clone(),
                     ts,
+                    started_ts: ts,
+                    completed_ts: None,
                     request_id: request_id.to_string(),
                     call_id: tool_call_id.to_string(),
                     name: name.to_string(),
@@ -69,6 +71,8 @@ pub fn persist_tool_progress_event(
                 line: ConversationLine::Tool(ToolLine {
                     id: format!("tool-{request_id}-{tool_call_id}"),
                     ts,
+                    started_ts: 0,
+                    completed_ts: Some(ts),
                     request_id: request_id.to_string(),
                     call_id: tool_call_id.to_string(),
                     name: tool_name

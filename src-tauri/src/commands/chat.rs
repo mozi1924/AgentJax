@@ -207,16 +207,19 @@ pub async fn chat_stream(
 
     let tools_catalog = ToolCatalog::new(mcp_manager.inner().clone(), &config);
 
+    let user_message_ts = now_unix_ms();
+
     {
         let conversation_id = conversation_id.clone();
         let request_id = request_id.clone();
         let input_text = input_text.clone();
+        let user_message_ts = user_message_ts;
         run_blocking(move || {
             conversation_store::append_line(conversation_store::AppendLineInput {
                 conversation_id,
                 line: conversation_store::ConversationLine::User(conversation_store::UserLine {
                     id: format!("msg-user-{request_id}"),
-                    ts: now_unix_ms(),
+                    ts: user_message_ts,
                     request_id,
                     text: input_text,
                 }),
@@ -237,6 +240,7 @@ pub async fn chat_stream(
         &config,
         &runtime_req,
         &conversation_id,
+        user_message_ts,
         context.input_items,
         recovery_note,
         &tools_catalog,

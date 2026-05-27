@@ -10,6 +10,7 @@ mod message_phase;
 mod models;
 mod providers;
 pub mod runtime;
+mod time_context;
 pub mod tools;
 
 use tauri::Manager;

@@ -62,9 +62,12 @@ fn t(
     out: Option<serde_json::Value>,
     st: ToolStatus,
 ) -> ConversationLine {
+    let ts = now_unix_ms();
     ConversationLine::Tool(ToolLine {
         id: id.into(),
-        ts: now_unix_ms(),
+        ts,
+        started_ts: ts,
+        completed_ts: matches!(st, ToolStatus::Done | ToolStatus::Failed).then_some(ts),
         request_id: req.into(),
         call_id: call.into(),
         name: name.into(),
@@ -383,7 +386,10 @@ fn commentary_is_excluded_from_summary_metadata() {
         .find(|item| item.conversation_id == cid)
         .expect("conversation summary");
     assert_eq!(summary.message_count, 2);
-    assert_eq!(summary.last_message_preview, "已经定位到问题并完成第一轮修复。");
+    assert_eq!(
+        summary.last_message_preview,
+        "已经定位到问题并完成第一轮修复。"
+    );
 
     delete_conversation(&cid).ok();
 }

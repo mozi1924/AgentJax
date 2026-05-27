@@ -1,6 +1,8 @@
 use super::tool_parsing::describe_item_shape;
 use super::{MAX_REPEATED_FAILED_SIGNATURES, MAX_TOOL_EXEC_RETRIES};
+use crate::conversation_store_utils::now_unix_ms;
 use crate::providers::types::{ProviderPendingToolCall, ProviderStreamEvent};
+use crate::time_context::attach_tool_output_time_metadata;
 use crate::tools::{
     ToolCatalogExecution, ToolCatalogSnapshot, ToolCatalogStateChange, ToolExecutionContext,
 };
@@ -27,6 +29,8 @@ struct ExecutedToolRecord {
     signature: String,
     output_str: String,
     is_success: bool,
+    started_at_unix_ms: i64,
+    completed_at_unix_ms: i64,
     duration_ms: u64,
     state_changes: Vec<ToolCatalogStateChange>,
 }
@@ -127,6 +131,7 @@ where
             } = pending;
 
             let start_time = Instant::now();
+            let started_at_unix_ms = now_unix_ms();
             let mut last_error: Option<String> = None;
             let mut success_result: Option<ToolCatalogExecution> = None;
             let mut attempt = 0usize;
@@ -153,6 +158,7 @@ where
                 }
             }
             let duration_ms = start_time.elapsed().as_millis() as u64;
+            let completed_at_unix_ms = now_unix_ms();
 
             let (output_str, is_success, state_changes) = if let Some(res) = success_result {
                 let output_payload = json!({
@@ -160,6 +166,12 @@ where
                     "tool": name,
                     "result": res.output,
                 });
+                let output_payload = attach_tool_output_time_metadata(
+                    &output_payload,
+                    started_at_unix_ms,
+                    Some(completed_at_unix_ms),
+                    Some(duration_ms),
+                );
                 (
                     serde_json::to_string(&output_payload).unwrap_or_default(),
                     true,
@@ -183,6 +195,12 @@ where
                         "attempts": max_attempts,
                     }
                 });
+                let output_payload = attach_tool_output_time_metadata(
+                    &output_payload,
+                    started_at_unix_ms,
+                    Some(completed_at_unix_ms),
+                    Some(duration_ms),
+                );
                 (
                     serde_json::to_string(&output_payload).unwrap_or_default(),
                     false,
@@ -198,6 +216,8 @@ where
                 signature,
                 output_str,
                 is_success,
+                started_at_unix_ms,
+                completed_at_unix_ms,
                 duration_ms,
                 state_changes,
             })
@@ -219,6 +239,8 @@ where
             signature,
             output_str,
             is_success,
+            started_at_unix_ms,
+            completed_at_unix_ms,
             duration_ms,
             state_changes: record_state_changes,
             ..
@@ -240,6 +262,8 @@ where
             "arguments": args.clone(),
             "output": output_val,
             "status": if is_success { "success" } else { "failed" },
+            "startedAtUnixMs": started_at_unix_ms,
+            "completedAtUnixMs": completed_at_unix_ms,
             "durationMs": duration_ms
         }));
         if is_success {

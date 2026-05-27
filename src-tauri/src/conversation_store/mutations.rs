@@ -389,6 +389,12 @@ fn line_id_exists(
 fn merge_updated_line(existing: &ConversationLine, next: ConversationLine) -> ConversationLine {
     match (existing, next) {
         (ConversationLine::Tool(current), ConversationLine::Tool(mut updated)) => {
+            if updated.started_ts <= 0 {
+                updated.started_ts = current.started_ts.max(current.ts);
+            }
+            if updated.completed_ts.is_none() {
+                updated.completed_ts = current.completed_ts;
+            }
             if updated.display_name.is_none() {
                 updated.display_name = current.display_name.clone();
             }

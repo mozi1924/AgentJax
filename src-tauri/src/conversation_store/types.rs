@@ -159,6 +159,10 @@ pub struct UserLine {
 pub struct ToolLine {
     pub id: String,
     pub ts: i64,
+    #[serde(default)]
+    pub started_ts: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_ts: Option<i64>,
     pub request_id: String,
     pub call_id: String,
     pub name: String,
@@ -173,6 +177,23 @@ pub struct ToolLine {
     pub output: Option<Value>,
     #[serde(default = "default_tool_status")]
     pub status: ToolStatus,
+}
+
+impl ToolLine {
+    pub fn started_at_unix_ms(&self) -> i64 {
+        if self.started_ts > 0 {
+            self.started_ts
+        } else {
+            self.ts
+        }
+    }
+
+    pub fn completed_at_unix_ms(&self) -> Option<i64> {
+        self.completed_ts.or_else(|| match self.status {
+            ToolStatus::Done | ToolStatus::Failed => Some(self.ts),
+            ToolStatus::Pending => None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

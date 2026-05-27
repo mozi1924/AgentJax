@@ -4,6 +4,7 @@ use super::paths::{conversation_messages_path, conversation_metadata_path};
 use super::types::{
     AssistantLine, AssistantStatus, ConversationContext, ConversationLine, ToolLine,
 };
+use crate::time_context::{attach_tool_output_time_metadata, render_timed_message};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -29,7 +30,10 @@ pub fn load_context_for_request(conversation_id: &str) -> Result<ConversationCon
                 ConversationLine::User(u) => {
                     input_items.push(json!({
                         "role": "user",
-                        "content": [{"type": "input_text", "text": u.text}]
+                        "content": [{
+                            "type": "input_text",
+                            "text": render_timed_message("User message", u.ts, &u.text)
+                        }]
                     }));
                 }
                 ConversationLine::Assistant(a) => {
@@ -63,7 +67,7 @@ fn build_assistant_input_item(line: &AssistantLine) -> Value {
         "status": "completed",
         "content": [{
             "type": "output_text",
-            "text": line.text,
+            "text": render_timed_message("Assistant message", line.ts, &line.text),
             "annotations": []
         }]
     });
@@ -90,10 +94,17 @@ fn build_tool_input_items(line: &ToolLine) -> Vec<Value> {
     }));
 
     if let Some(output) = &line.output {
+        let timed_output = attach_tool_output_time_metadata(
+            output,
+            line.started_at_unix_ms(),
+            line.completed_at_unix_ms(),
+            line.completed_at_unix_ms()
+                .map(|completed_at| completed_at.saturating_sub(line.started_at_unix_ms()) as u64),
+        );
         items.push(json!({
             "type": "function_call_output",
             "call_id": call_id,
-            "output": serde_json::to_string(output).unwrap_or_else(|_| "{}".to_string()),
+            "output": serde_json::to_string(&timed_output).unwrap_or_else(|_| "{}".to_string()),
         }));
     }
 

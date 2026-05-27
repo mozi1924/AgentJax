@@ -1,6 +1,8 @@
 use crate::conversation_store;
+use crate::time_context::TimeSnapshot;
 use crate::tools::math::evaluate_math_expression;
 use crate::tools::{Tool, ToolExecutionContext};
+use chrono::Local;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -90,57 +92,16 @@ impl Tool for SystemTimeTool {
             .duration_since(UNIX_EPOCH)
             .map_err(|e| format!("System clock error: {e}"))?;
 
-        let seconds = duration.as_secs();
-        let minutes = seconds / 60;
-        let hours = minutes / 60;
-        let days = hours / 24;
-
-        let epoch_year = 1970;
-        let mut year = epoch_year;
-        let mut days_left = days;
-
-        loop {
-            let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-            let days_in_year = if is_leap { 366 } else { 365 };
-            if days_left >= days_in_year {
-                days_left -= days_in_year;
-                year += 1;
-            } else {
-                break;
-            }
-        }
-
-        let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-        let month_days = if is_leap {
-            [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        } else {
-            [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        };
-
-        let mut month = 1;
-        for &days_in_month in &month_days {
-            if days_left >= days_in_month {
-                days_left -= days_in_month;
-                month += 1;
-            } else {
-                break;
-            }
-        }
-
-        let day = days_left + 1;
-        let hour = (hours % 24) as u32;
-        let minute = (minutes % 60) as u32;
-        let second = (seconds % 60) as u32;
-
-        let formatted_time = format!(
-            "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
-            year, month, day, hour, minute, second
-        );
+        let unix_ms = duration.as_millis() as i64;
+        let snapshot = TimeSnapshot::from_unix_ms(unix_ms);
+        let local_timezone = Local::now().offset().to_string();
 
         Ok(json!({
-            "utcTime": formatted_time,
-            "localTime": formatted_time,
-            "unixTimestampMs": duration.as_millis() as i64
+            "utcTime": snapshot.utc_rfc3339,
+            "localTime": snapshot.local_rfc3339,
+            "localOffset": snapshot.local_offset,
+            "localTimezone": local_timezone,
+            "unixTimestampMs": unix_ms
         }))
     }
 }

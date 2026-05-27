@@ -33,3 +33,4 @@ uuid = { version = "1", features = ["v4"] }
 rmcp = { version = "1.7.0", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
 notify = "6.1.1"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+chrono = { version = "0.4", features = ["clock", "serde"] }

@@ -17,6 +17,8 @@ export interface ToolLine {
   kind: 'tool';
   id: string;
   ts: number;
+  startedTs?: number;
+  completedTs?: number | null;
   requestId: string;
   callId: string;
   name: string;
