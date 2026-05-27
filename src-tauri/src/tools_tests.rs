@@ -52,6 +52,8 @@ mod tests {
         let args = json!({ "expression": "2 + 3 * 4" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 14.0);
+        assert_eq!(res["mode"], "evaluate");
+        assert_eq!(res["exactValue"], "14");
 
         // Exponentiation
         let args = json!({ "expression": "2^3" });
@@ -93,6 +95,79 @@ mod tests {
             0.842_700_792_949_714_9,
             1e-11,
         );
+
+        // Symbolic simplification with structured output
+        let args = json!({ "expression": "2x + 3x" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["mode"], "evaluate");
+        assert_eq!(res["result"], "5 * x");
+        assert!(res["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning.as_str().unwrap_or_default().contains("unbound")));
+
+        // Symbolic differentiation
+        let args = json!({ "expression": "diff(x^3 + sin(x), x)", "steps": "summary" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["mode"], "differentiate");
+        assert_eq!(res["result"], "3 * x^2 + cos(x)");
+        assert!(res["steps"].as_array().unwrap().len() >= 2);
+
+        // Definite integration
+        let args = json!({ "expression": "integral(x^2, x, 0, 1)" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["mode"], "integrate");
+        assert!(res["result"].is_string() || res["result"].is_number());
+        assert_approx_eq(res["approximateValue"].as_f64().unwrap(), 1.0 / 3.0, 1e-9);
+
+        // Equation solving
+        let args = json!({ "expression": "solve(x^2 - 5x + 6 = 0, x)", "steps": "summary" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["mode"], "solve");
+        assert_eq!(res["result"], json!(["3", "2"]));
+        assert!(res["steps"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("Final result"));
+
+        // Unit-aware arithmetic
+        let args = json!({ "expression": "3 km + 500 m" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["mode"], "evaluate");
+        assert!(res["exactValue"].as_str().unwrap().contains("km"));
+        if let Some(unit) = res["unit"].as_str() {
+            assert!(unit.contains("km"));
+        }
+
+        // Capability discovery
+        let args = json!({ "mode": "capabilities" });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["mode"], "capabilities");
+        assert!(res["capabilities"]["supports"]["symbolicMath"]
+            .as_bool()
+            .unwrap());
+        assert!(res["capabilities"]["supports"]["units"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn test_calculator_system_solving() {
+        let calc = CalculatorTool;
+        let ctx = ToolExecutionContext::default();
+
+        let args = json!({
+            "mode": "solve_system",
+            "equations": ["x + y = 3", "x - y = 1"],
+            "steps": "summary"
+        });
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["mode"], "solve_system");
+        assert_eq!(res["result"]["x"], "2");
+        assert_eq!(res["result"]["y"], "1");
     }
 
     #[test]
@@ -103,20 +178,25 @@ mod tests {
         // Division by zero
         let args = json!({ "expression": "5 / 0" });
         let err = calc.execute(&args, &ctx).unwrap_err();
-        assert!(err.contains("non-finite result"));
+        assert!(err.contains("could not evaluate") || err.contains("failed"));
 
         // Sqrt of negative
         let args = json!({ "expression": "sqrt(-4)" });
-        let err = calc.execute(&args, &ctx).unwrap_err();
-        assert!(err.contains("non-finite result"));
+        let res = calc.execute(&args, &ctx).unwrap();
+        assert_eq!(res["result"], "2i");
+        assert!(res["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning.as_str().unwrap_or_default().contains("approximate")));
 
         // Unbalanced parentheses
         let args = json!({ "expression": "(2 + 3" });
         let err = calc.execute(&args, &ctx).unwrap_err();
         assert!(
-            err.contains("Failed to parse expression")
-                || err.contains("Missing matching closing parenthesis")
-                || err.contains("Unexpected end of expression")
+            err.contains("Failed to parse the expression")
+                || err.contains("Parentheses do not match")
+                || err.contains("Look for an unclosed parenthesis")
         );
 
         // Invalid factorial domain
@@ -128,6 +208,18 @@ mod tests {
         let args = json!({ "expression": "logit(1)" });
         let err = calc.execute(&args, &ctx).unwrap_err();
         assert!(err.contains("logit requires 0 < p < 1"));
+
+        // Unsupported symbolic helper should suggest alternatives
+        let args = json!({ "expression": "factor(x^2 - 1)" });
+        let err = calc.execute(&args, &ctx).unwrap_err();
+        assert!(err.contains("not wired into the calculator tool yet"));
+        assert!(err.contains("simplify"));
+
+        // Unknown function should surface a local suggestion
+        let args = json!({ "expression": "sni(x)" });
+        let err = calc.execute(&args, &ctx).unwrap_err();
+        assert!(err.contains("Unknown function 'sni'"));
+        assert!(err.contains("sin"));
     }
 
     #[test]

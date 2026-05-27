@@ -1,5 +1,5 @@
 use crate::time_context::TimeSnapshot;
-use crate::tools::math::evaluate_math_expression;
+use crate::tools::calculator;
 use crate::tools::{Tool, ToolExecutionContext};
 use chrono::Local;
 use serde_json::{json, Value};
@@ -21,7 +21,7 @@ impl Tool for CalculatorTool {
     }
 
     fn description(&self) -> &'static str {
-        "Safely evaluates mathematical expressions with arithmetic, powers, remainder (%), constants (pi, e, tau, phi), standard functions (sqrt, abs, exp, ln, trig, rounding, min/max), and advanced helpers like gamma, beta, erf, factorial, ncr, npr, logistic, harmonic, sum, mean, and product."
+        "A structured agent-friendly calculator with symbolic math, natural numeric input, unit-aware arithmetic, equation solving, limits, and legacy special-function support. Use mode='capabilities' to inspect supported syntax before generating expressions."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -30,26 +30,53 @@ impl Tool for CalculatorTool {
             "properties": {
                 "expression": {
                     "type": "string",
-                    "description": "The mathematical expression to evaluate, e.g. '2 * (3.5 + 4) / sqrt(16)' or 'mean(2, 4, 6) + gamma(5) - ncr(6, 2)'"
-                }
+                    "description": "Primary calculator input. Supports numeric expressions like '2 * (3.5 + 4) / sqrt(16)', symbolic calls like 'diff(x^3 + sin(x), x)', 'integral(x^2, x, 0, 1)', 'solve(x^2 - 5x + 6 = 0, x)', natural forms like 'sin pi/2', and unit-aware arithmetic like '3 km + 500 m' or '60 km/h * 2 h'."
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "capabilities", "evaluate", "simplify", "differentiate", "integrate", "solve", "solve_system", "limit"],
+                    "description": "Optional explicit mode. Defaults to 'auto'. Use 'capabilities' to ask the calculator what syntax and operations it supports."
+                },
+                "variable": {
+                    "type": "string",
+                    "description": "Target variable for differentiate/integrate/solve/limit modes when it cannot be inferred safely."
+                },
+                "lowerBound": {
+                    "type": "string",
+                    "description": "Optional lower bound. Used for definite integrals and as a limit target when mode='limit'."
+                },
+                "upperBound": {
+                    "type": "string",
+                    "description": "Optional upper bound. Used for definite integrals."
+                },
+                "precision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 32,
+                    "description": "Approximation precision in decimal digits for numeric fields. Exact symbolic strings are still returned separately when available."
+                },
+                "steps": {
+                    "type": "string",
+                    "enum": ["none", "summary", "detailed"],
+                    "description": "Controls how much derivation detail is returned in the structured 'steps' field."
+                },
+                "variables": {
+                    "type": "object",
+                    "description": "Optional variable bindings for numeric evaluation, for example {\"x\": 2.5, \"y\": 1}."
+                },
+                "equations": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional equation list for system solving, for example ['x+y=3', 'x-y=1']."
+                },
             },
-            "required": ["expression"]
+            "required": []
         })
     }
 
     fn execute(&self, arguments: &Value, _context: &ToolExecutionContext) -> Result<Value, String> {
-        let expression = arguments
-            .get("expression")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "Missing required parameter 'expression'".to_string())?;
-
-        let clean_expr = expression.replace(' ', "");
-        let result = evaluate_math_expression(&clean_expr)?;
-
-        Ok(json!({
-            "expression": expression,
-            "result": result
-        }))
+        let request = calculator::parse_request(arguments)?;
+        calculator::execute(request)
     }
 }
 
