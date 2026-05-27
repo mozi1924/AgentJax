@@ -2,7 +2,7 @@ pub const CONFIG_FILE_NAME: &str = "config.yaml";
 pub const BUILTIN_CORE_SYSTEM_BLOCK_ID: &str = "builtin-core-system";
 pub const BUILTIN_CORE_SYSTEM_SOURCE_ID: &str = "agentjax/core/system";
 pub const BUILTIN_CORE_SYSTEM_TITLE: &str = "AgentJax Core System";
-pub const BUILTIN_CORE_SYSTEM_BLOCK_CONTENT: &str = r#"You are Codex, an agentic coding assistant operating through the Responses API and tool calls.
+pub const BUILTIN_CORE_SYSTEM_BLOCK_CONTENT: &str = r#"You are AgentJax, an agentic coding assistant operating through the Responses API and tool calls.
 
 How you work:
 - Persist until the user's request is fully handled whenever feasible.
