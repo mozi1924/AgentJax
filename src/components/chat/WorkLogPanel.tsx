@@ -167,7 +167,7 @@ export default function WorkLogPanel({
       <div className={`grid-collapse-wrapper ${isOpen ? 'is-open' : ''}`}>
         <div className="grid-collapse-content">
           <div className="border-t border-[#25282d] px-4 py-3.5">
-            <div className="space-y-3.5 border-l border-zinc-800 pl-4">
+            <div className="flex flex-col">
               {turn.workItems.map((item, index) => {
                 if (item.kind === 'assistant') {
                   const text = (item.line.text || '').trim();
@@ -177,22 +177,36 @@ export default function WorkLogPanel({
                     <div
                       key={item.line.id}
                       data-native-context-menu="true"
-                      className="relative pl-2 select-text"
+                      className="relative pl-8 pb-3.5 select-text"
                     >
-                      <span className="absolute -left-[19px] top-2.5 h-1.5 w-1.5 rounded-full bg-slate-600/80" />
+                      {/* Timeline Line Segments */}
+                      {index > 0 && (
+                        <div className="absolute left-[18px] top-0 h-[10px] w-[1px] bg-zinc-800/60" />
+                      )}
+                      {index < turn.workItems.length - 1 && (
+                        <div className="absolute left-[18px] top-[24px] bottom-0 w-[1px] bg-zinc-800/60" />
+                      )}
+
+                      {/* Timeline Dot Node */}
+                      <span className="absolute left-[11px] top-[10px] flex h-3.5 w-3.5 items-center justify-center rounded-full border border-indigo-500/25 bg-indigo-950/40">
+                        <span className="h-1.5 w-1.5 rounded-full bg-indigo-400/80" />
+                      </span>
+
                       <div className="rounded-xl bg-transparent py-0.5 text-sm text-slate-300">
                         {text ? (
                           <div className="prose prose-invert prose-sm max-w-none [&_code]:!rounded-md [&_code]:!bg-[#1b1c1d] [&_code]:!px-1.5 [&_code]:!py-0.5 [&_code]:!text-[11px] [&_code]:!text-slate-200 [&_p]:!my-1 [&_pre]:!rounded-xl [&_pre]:!border [&_pre]:!border-zinc-800 [&_pre]:!bg-[#0c0d0e]">
-                            {renderMarkdown(text)}
+                            {renderMarkdown(
+                              text,
+                              isDraft ? (
+                                <span className="ml-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-white align-middle" />
+                              ) : undefined
+                            )}
                           </div>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
                             <Loader2 className="h-3 w-3 animate-spin" />
                             {t('chat.thinking')}
                           </span>
-                        )}
-                        {isDraft && text && (
-                          <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-400 align-middle" />
                         )}
                       </div>
                     </div>
@@ -213,8 +227,31 @@ export default function WorkLogPanel({
                       : t('chat.work_items.running');
 
                 return (
-                  <div key={toolLine.id || `${toolLine.callId}-${index}`} className="relative pl-2">
-                    <span className="absolute -left-[19px] top-3.5 h-1.5 w-1.5 rounded-full bg-slate-600/80" />
+                  <div key={toolLine.id || `${toolLine.callId}-${index}`} className="relative pl-8 pb-3.5">
+                    {/* Timeline Line Segments */}
+                    {index > 0 && (
+                      <div className="absolute left-[18px] top-0 h-[12px] w-[1px] bg-zinc-800/60" />
+                    )}
+                    {index < turn.workItems.length - 1 && (
+                      <div className="absolute left-[18px] top-[28px] bottom-0 w-[1px] bg-zinc-800/60" />
+                    )}
+
+                    {/* Timeline Dot Node */}
+                    {toolLine.status === 'done' ? (
+                      <span className="absolute left-[10px] top-[12px] flex h-4 w-4 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-950/30" title={statusLabel}>
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                      </span>
+                    ) : toolLine.status === 'failed' ? (
+                      <span className="absolute left-[10px] top-[12px] flex h-4 w-4 items-center justify-center rounded-full border border-rose-500/30 bg-rose-950/30 animate-pulse" title={statusLabel}>
+                        <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                      </span>
+                    ) : (
+                      <span className="absolute left-[10px] top-[12px] flex h-4 w-4 items-center justify-center rounded-full border border-indigo-500/30 bg-indigo-950/30" title={statusLabel}>
+                        <span className="absolute h-1.5 w-1.5 rounded-full bg-indigo-400/80 animate-ping" />
+                        <span className="relative h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                      </span>
+                    )}
+
                     <div className={`overflow-hidden rounded-xl border ${accent.className} shadow-sm transition-all hover:border-[#343840]`}>
                       <button
                         type="button"

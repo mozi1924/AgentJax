@@ -1,3 +1,4 @@
+import React, { cloneElement, isValidElement } from 'react';
 import type { ReactNode } from 'react';
 import CodeBlock from '../CodeBlock';
 
@@ -243,9 +244,40 @@ const parseParagraphs = (rawText: string) => {
   return elements;
 };
 
-export const renderMarkdown = (text: string) => {
+const injectSuffixIntoLastElement = (elements: ReactNode[], suffix: ReactNode): ReactNode[] => {
+  if (elements.length === 0 || !suffix) return elements;
+
+  const lastIdx = elements.length - 1;
+  const lastElement = elements[lastIdx];
+
+  if (isValidElement(lastElement)) {
+    const el = lastElement as React.ReactElement<any>;
+    const { children, ...props } = el.props;
+
+    if (el.type === 'p') {
+      return [
+        ...elements.slice(0, lastIdx),
+        cloneElement(el, props, [
+          ...(Array.isArray(children) ? children : [children]),
+          suffix,
+        ]),
+      ];
+    } else if (el.type === 'div' && el.props.className === 'my-1.5') {
+      const nestedChildren = Array.isArray(children) ? children : [children];
+      const updatedNested = injectSuffixIntoLastElement(nestedChildren, suffix);
+      return [
+        ...elements.slice(0, lastIdx),
+        cloneElement(el, props, updatedNested),
+      ];
+    }
+  }
+
+  return [...elements, suffix];
+};
+
+export const renderMarkdown = (text: string, inlineSuffix?: ReactNode) => {
   const parts = text.split(/(```[\s\S]*?```)/g);
-  return parts.map((part, index) => {
+  const elements = parts.map((part, index) => {
     if (part.startsWith('```')) {
       const match = part.match(/```(\w*)\n([\s\S]*?)```/);
       const lang = match ? match[1] : 'text';
@@ -259,4 +291,9 @@ export const renderMarkdown = (text: string) => {
       </div>
     );
   });
+
+  if (inlineSuffix) {
+    return injectSuffixIntoLastElement(elements, inlineSuffix);
+  }
+  return elements;
 };

@@ -142,7 +142,7 @@ export function hasTurnWorkLog(turn: ConversationTurn): boolean {
 }
 
 export function shouldCollapseTurnWorkLog(turn: ConversationTurn): boolean {
-  return hasTurnWorkLog(turn) && turn.finalLines.length > 0 && !turn.hasDraft;
+  return hasTurnWorkLog(turn) && turn.finalLines.length > 0;
 }
 
 export function getTurnActivitySummary(

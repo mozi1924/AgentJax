@@ -44,9 +44,22 @@ export default function ChatArea({
   activeChatTitle,
 }: ChatAreaProps) {
   const { t } = useI18n();
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const wasAtBottomRef = useRef(true);
+  const prevLinesLengthRef = useRef(lines.length);
+  const isThinkingRef = useRef(isThinking);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [manualWorkLogState, setManualWorkLogState] = useState<Record<string, boolean>>({});
+
+  const handleScroll = () => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const threshold = 15;
+    const isAtBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
+    wasAtBottomRef.current = isAtBottom;
+  };
 
   const turns = useMemo(() => buildConversationTurns(lines), [lines]);
 
@@ -62,7 +75,29 @@ export default function ChatArea({
   }, [turns]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = containerRef.current;
+    if (!container) return;
+
+    const currentLinesLength = lines.length;
+    const prevLinesLength = prevLinesLengthRef.current;
+    prevLinesLengthRef.current = currentLinesLength;
+
+    const isNewMessage = currentLinesLength > prevLinesLength;
+    const becameThinking = isThinking && !isThinkingRef.current;
+    isThinkingRef.current = isThinking;
+
+    if (isNewMessage || becameThinking) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      });
+      wasAtBottomRef.current = true;
+      return;
+    }
+
+    if (isGenerating && wasAtBottomRef.current) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [lines, isGenerating, isThinking]);
 
   const handleCopy = async (id: string, text: string) => {
@@ -81,7 +116,11 @@ export default function ChatArea({
   if (lines.length === 0) return null;
 
   return (
-    <div className="scrollbar-thin flex flex-1 flex-col overflow-y-auto px-4 py-6 md:px-8 lg:px-12">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="scrollbar-thin flex flex-1 flex-col overflow-y-auto px-4 py-6 md:px-8 lg:px-12"
+    >
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 py-4">
         <div className="mb-1 flex items-center gap-2 border-b border-white/6 pb-3 text-xs font-semibold tracking-[0.18em] text-slate-500 uppercase">
           <MessageSquare className="h-4 w-4 text-slate-400" />
@@ -130,8 +169,7 @@ export default function ChatArea({
             <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
           </div>
         )}
-
-        <div ref={messagesEndRef} />
+        {/* No more dummy div needed for scrollIntoView since container scroll handles it */}
       </div>
     </div>
   );
@@ -191,10 +229,12 @@ function AssistantFinalCard({
                       {t('chat.thinking')}
                     </span>
                   ) : (
-                    renderMarkdown(String(line.text))
-                  )}
-                  {isDraft && !isEmpty && (
-                    <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-slate-400 align-middle" />
+                    renderMarkdown(
+                      String(line.text),
+                      isDraft && !isEmpty ? (
+                        <span className="ml-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-white align-middle" />
+                      ) : undefined
+                    )
                   )}
                 </div>
               </div>
