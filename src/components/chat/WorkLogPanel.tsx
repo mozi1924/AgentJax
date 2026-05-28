@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   CheckCircle2,
   ChevronDown,
@@ -99,8 +99,28 @@ export default function WorkLogPanel({
   const { t } = useI18n();
   const [copiedToolId, setCopiedToolId] = useState<string | null>(null);
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+
+  // ── Live timer tick for in-progress turns ──────────────────────────────
+  const [liveElapsedMs, setLiveElapsedMs] = useState(0);
+
+  useEffect(() => {
+    if (!turn.hasDraft) {
+      setLiveElapsedMs(0);
+      return;
+    }
+
+    const startTs = turn.startedAt;
+    const tick = () => setLiveElapsedMs(Date.now() - startTs);
+    tick(); // immediate first tick
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [turn.hasDraft, turn.startedAt]);
+
+  const durationLabel = turn.hasDraft
+    ? formatTurnDuration(liveElapsedMs)
+    : formatTurnDuration(getTurnDurationMs(turn));
+
   const summaries = getTurnActivitySummary(turn);
-  const durationLabel = formatTurnDuration(getTurnDurationMs(turn));
 
   const handleCopyToolPayload = async (toolId: string, value: unknown) => {
     await navigator.clipboard.writeText(formatToolOutput(value));

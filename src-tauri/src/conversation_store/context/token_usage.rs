@@ -119,6 +119,19 @@ pub fn count_messages_tokens(
         .map_err(|err| err.to_string())
 }
 
+/// Count the tiktoken token count for a plain text string for the given model.
+///
+/// This is a lightweight helper exposed for the streaming event path so the
+/// backend can report the live token count without reloading the full
+/// conversation context on every event.
+pub fn count_text_tokens(model: &str, text: &str) -> Result<usize, String> {
+    if text.is_empty() {
+        return Ok(0);
+    }
+    let bpe = tokenizer_for_model(model)?;
+    Ok(bpe.count_with_special_tokens(text))
+}
+
 /// Count token usage for serialized tool schemas.
 ///
 /// The schema is tokenized from its compact JSON form so the count reflects

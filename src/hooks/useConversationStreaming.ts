@@ -211,23 +211,30 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
 
           if (payload.kind === 'delta' && payload.delta) {
             markConversationThinking(mapping.conversationId, false);
-            setConversations((prev) =>
-              applyAssistantDelta(
+            setConversations((prev) => {
+              const updated = applyAssistantDelta(
                 prev,
                 mapping.conversationId,
                 requestId || '',
                 String(payload.delta),
                 normalizeAssistantPhase(payload.phase),
                 payload.eventIndex
-              )
-            );
+              );
+              return typeof payload.contextTokenCount === 'number'
+                ? updated.map((conv) =>
+                    conv.conversationId === mapping.conversationId
+                      ? { ...conv, contextTokenCount: payload.contextTokenCount! }
+                      : conv
+                  )
+                : updated;
+            });
             return;
           }
 
           if (payload.kind === 'assistant_message') {
             markConversationThinking(mapping.conversationId, false);
-            setConversations((prev) =>
-              applyAssistantMessage(
+            setConversations((prev) => {
+              const updated = applyAssistantMessage(
                 prev,
                 mapping.conversationId,
                 requestId || '',
@@ -235,15 +242,22 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
                 normalizeAssistantPhase(payload.phase),
                 payload.responseId,
                 payload.eventIndex
-              )
-            );
+              );
+              return typeof payload.contextTokenCount === 'number'
+                ? updated.map((conv) =>
+                    conv.conversationId === mapping.conversationId
+                      ? { ...conv, contextTokenCount: payload.contextTokenCount! }
+                      : conv
+                  )
+                : updated;
+            });
             return;
           }
 
           if (payload.kind === 'tool_call_done') {
             markConversationThinking(mapping.conversationId, false);
-            setConversations((prev) =>
-              appendPendingToolCall(
+            setConversations((prev) => {
+              const updated = appendPendingToolCall(
                 prev,
                 mapping.conversationId,
                 requestId || '',
@@ -253,14 +267,21 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
                 payload.toolDescription,
                 payload.toolIcon,
                 payload.toolArguments
-              )
-            );
+              );
+              return typeof payload.contextTokenCount === 'number'
+                ? updated.map((conv) =>
+                    conv.conversationId === mapping.conversationId
+                      ? { ...conv, contextTokenCount: payload.contextTokenCount! }
+                      : conv
+                  )
+                : updated;
+            });
             return;
           }
 
           if (payload.kind === 'tool_call_exec') {
-            setConversations((prev) =>
-              applyToolExecution(
+            setConversations((prev) => {
+              const updated = applyToolExecution(
                 prev,
                 mapping.conversationId,
                 payload.toolCallId,
@@ -268,8 +289,15 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
                 payload.toolDisplayName,
                 payload.toolDescription,
                 payload.toolIcon
-              )
-            );
+              );
+              return typeof payload.contextTokenCount === 'number'
+                ? updated.map((conv) =>
+                    conv.conversationId === mapping.conversationId
+                      ? { ...conv, contextTokenCount: payload.contextTokenCount! }
+                      : conv
+                  )
+                : updated;
+            });
             return;
           }
 
@@ -292,7 +320,10 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
                 payload.responseId,
                 payload.delta,
                 payload.conversationTitle,
-                payload.contextTokenCount
+                // Keep the running estimated total — the backend's value was
+                // computed before this turn ran and is already reflected via
+                // incremental token estimates during streaming events.
+                undefined
               )
             );
           }

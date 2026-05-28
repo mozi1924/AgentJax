@@ -161,7 +161,9 @@ export function useChatSessions({
             response.responseId,
             response.conversationTitle,
             wasRequestStopped(requestId),
-            response.contextTokenCount
+            // Don't overwrite — the streaming event handlers already maintain
+            // a running token estimate that includes incremental additions.
+            undefined
           )
         );
       } catch (error: unknown) {

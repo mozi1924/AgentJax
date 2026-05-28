@@ -26,6 +26,8 @@ use chat_utils::{chrono_like_now_id, now_unix_ms, run_blocking};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use tauri::{Emitter, Manager, State};
 use tokio::sync::watch;
 
@@ -352,6 +354,7 @@ pub async fn chat_stream(
     }
 
     let resolved_model = resolve_prompt_counting_model(&config, req.model.as_deref());
+    let model_id: Option<String> = resolved_model.as_ref().map(|m| m.model_id.clone());
     let context_token_count = if let Some(resolved_model) = resolved_model.as_ref() {
         let tool_context = ToolExecutionContext {
             conversation_id: Some(conversation_id.clone()),
@@ -419,6 +422,8 @@ pub async fn chat_stream(
 
     let callback_request_id = request_id.clone();
     let callback_conversation_id = conversation_id.clone();
+    let running_token_count = Arc::new(AtomicUsize::new(context_token_count));
+    let stream_count = Arc::clone(&running_token_count);
     let mut runtime_req = req.clone();
     runtime_req.client_metadata = sanitized_client_metadata;
     let result = crate::runtime::AgentRuntime::run_turn(
@@ -450,6 +455,22 @@ pub async fn chat_stream(
                         presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
                         Some(arguments),
                     );
+                    // Count tokens for the persisted tool arguments and metadata
+                    if let Some(ref mid) = model_id {
+                        if let Ok(arg_tokens) = conversation_store::count_text_tokens(mid, &arguments) {
+                            // Lightweight estimate for name / display_name / description
+                            let meta_chars = name.len()
+                                + presentation.as_ref().map(|m| m.display_name.len()).unwrap_or(0)
+                                + presentation.as_ref().map(|m| m.description.len()).unwrap_or(0);
+                            let meta_tokens = meta_chars.saturating_div(4);
+                            stream_count.store(
+                                stream_count.load(Ordering::Relaxed)
+                                    .saturating_add(arg_tokens)
+                                    .saturating_add(meta_tokens),
+                                Ordering::Relaxed,
+                            );
+                        }
+                    }
                 }
                 crate::providers::types::ProviderStreamEvent::ToolCallExecuted {
                     call_id,
@@ -468,6 +489,15 @@ pub async fn chat_stream(
                         presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
                         Some(output),
                     );
+                    // Count tokens for the tool result output
+                    if let Some(ref mid) = model_id {
+                        if let Ok(additional) = conversation_store::count_text_tokens(mid, output) {
+                            stream_count.store(
+                                stream_count.load(Ordering::Relaxed).saturating_add(additional),
+                                Ordering::Relaxed,
+                            );
+                        }
+                    }
                 }
                 crate::providers::types::ProviderStreamEvent::AssistantMessageCompleted {
                     text,
@@ -482,6 +512,15 @@ pub async fn chat_stream(
                             *phase,
                             text,
                         );
+                        // Count tokens for persisted assistant commentary
+                        if let Some(ref mid) = model_id {
+                            if let Ok(additional) = conversation_store::count_text_tokens(mid, text) {
+                                stream_count.store(
+                                    stream_count.load(Ordering::Relaxed).saturating_add(additional),
+                                    Ordering::Relaxed,
+                                );
+                            }
+                        }
                     }
                 }
                 crate::providers::types::ProviderStreamEvent::HopAssistantText {
@@ -497,6 +536,15 @@ pub async fn chat_stream(
                             *phase,
                             text,
                         );
+                        // Count tokens for persisted final answer text
+                        if let Some(ref mid) = model_id {
+                            if let Ok(additional) = conversation_store::count_text_tokens(mid, text) {
+                                stream_count.store(
+                                    stream_count.load(Ordering::Relaxed).saturating_add(additional),
+                                    Ordering::Relaxed,
+                                );
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -508,6 +556,7 @@ pub async fn chat_stream(
                 &closure_conversation_id,
                 &mut event_index,
                 event,
+                Some(stream_count.load(Ordering::Relaxed)),
             )
         },
     )
@@ -551,7 +600,7 @@ pub async fn chat_stream(
                 response_id: Some(response.response_id.clone()),
                 conversation_id: Some(conversation_id.clone()),
                 conversation_title: conversation_title.clone(),
-                context_token_count: Some(context_token_count),
+                context_token_count: Some(running_token_count.load(Ordering::Relaxed)),
                 error: None,
                 tool_call_id: None,
                 tool_name: None,

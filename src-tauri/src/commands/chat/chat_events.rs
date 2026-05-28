@@ -39,6 +39,7 @@ pub fn emit_mapped_stream_event(
     conversation_id: &str,
     event_index: &mut u64,
     event: ProviderStreamEvent,
+    context_token_count: Option<usize>,
 ) -> Result<(), String> {
     let mut chat_event = ChatStreamEvent {
         request_id: request_id.to_string(),
@@ -160,6 +161,10 @@ pub fn emit_mapped_stream_event(
             return Ok(());
         }
     };
+
+    if let Some(count) = context_token_count {
+        chat_event.context_token_count = Some(count);
+    }
 
     window
         .emit("chat_stream_event", chat_event)
