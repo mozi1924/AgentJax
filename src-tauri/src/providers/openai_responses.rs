@@ -1,6 +1,6 @@
 use tokio::sync::watch;
 
-use super::capabilities::ProviderCapabilities;
+use super::registry;
 use super::responses;
 use super::types::{
     ModelReasoningCapability, ProviderEventSink, ProviderModelDescriptor, ResponseStreamRequest,
@@ -11,7 +11,8 @@ use crate::config::ResolvedModelConfig;
 fn stream_behavior() -> responses::stream::ResponsesStreamBehavior {
     responses::stream::ResponsesStreamBehavior {
         api_label: "OpenAI Responses",
-        capabilities: ProviderCapabilities::openai_responses(),
+        capabilities: registry::provider_capabilities("openai-responses")
+            .unwrap_or_else(|| registry::default_provider_definition().capabilities),
     }
 }
 

@@ -3,7 +3,7 @@ use crate::config::constants::{
     BUILTIN_CORE_SYSTEM_TITLE, CONFIG_FILE_NAME, DEFAULT_DEFAULT_MODEL_REF,
     DEFAULT_TIMEOUT_SECONDS, DEFAULT_UTILITY_SMALL_MODEL_REF,
 };
-use crate::config::schema::AppConfig;
+use crate::config::schema::{AppConfig, ProviderConfig};
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -90,85 +90,82 @@ pub fn get_config_info() -> Result<ConfigInfo, String> {
 }
 
 fn default_config_yaml() -> String {
-    [
-        "# AgentJax configuration",
-        "# Home directory: AGENTJAX_HOME (default: ~/.agentjax)",
-        "# Config path: $AGENTJAX_HOME/config.yaml",
-        "",
-        "active_provider: \"openai-responses\"",
-        &format!("default_model: \"{}\"", DEFAULT_DEFAULT_MODEL_REF),
-        &format!(
+    let provider = ProviderConfig::default();
+
+    let mut lines = vec![
+        "# AgentJax configuration".to_string(),
+        "# Home directory: AGENTJAX_HOME (default: ~/.agentjax)".to_string(),
+        "# Config path: $AGENTJAX_HOME/config.yaml".to_string(),
+        String::new(),
+        format!("active_provider: \"{}\"", provider.kind),
+        format!("default_model: \"{}\"", DEFAULT_DEFAULT_MODEL_REF),
+        format!(
             "utility_small_model: \"{}\"",
             DEFAULT_UTILITY_SMALL_MODEL_REF
         ),
-        &format!("request_timeout_seconds: {}", DEFAULT_TIMEOUT_SECONDS),
-        "show_advanced_request_options: false",
-        "enable_developer_tools: false",
-        "language: \"auto\"",
-        "prompt_composer:",
-        "  blocks:",
-        &format!("    - id: \"{}\"", BUILTIN_CORE_SYSTEM_BLOCK_ID),
-        &format!("      title: \"{}\"", BUILTIN_CORE_SYSTEM_TITLE),
-        "      role: \"system\"",
-        "      enabled: true",
-        "      source: \"builtin\"",
-        &format!("      source_id: \"{}\"", BUILTIN_CORE_SYSTEM_SOURCE_ID),
-        "      locked: true",
-        "      content: |",
-        &indent_block(BUILTIN_CORE_SYSTEM_BLOCK_CONTENT, 8),
-        "",
-        "providers:",
-        "  openai-responses:",
-        "    kind: \"openai-responses\"",
-        "    api_endpoint: \"https://api.openai.com/v1\"",
-        "    query_params: {}",
-        "    http_headers: {}",
-        "    env_http_headers: {}",
-        "    realtime_endpoint: \"\"",
-        "    supports_websockets: true",
-        "    stream_transport: \"websocket\"",
-        "    credential: \"\"",
-        "    credential_env: \"OPENAI_API_KEY\"",
-        "    request_timeout_seconds: 120",
-        "    request_max_retries: null",
-        "    stream_max_retries: null",
-        "    stream_idle_timeout_ms: null",
-        "    websocket_connect_timeout_ms: null",
-        "    models:",
-        "      gpt-5-mini:",
-        "        model: \"gpt-5-mini\"",
-        "        enabled: true",
-        "        request:",
-        "          temperature: null",
-        "          top_p: null",
-        "          top_k: null",
-        "          max_output_tokens: null",
-        "          frequency_penalty: null",
-        "          presence_penalty: null",
-        "          reasoning_effort: null",
-        "          extra_body: {}",
-        "      gpt-5:",
-        "        model: \"gpt-5\"",
-        "        enabled: true",
-        "        request:",
-        "          temperature: null",
-        "          top_p: null",
-        "          top_k: null",
-        "          max_output_tokens: null",
-        "          frequency_penalty: null",
-        "          presence_penalty: null",
-        "          reasoning_effort: null",
-        "          extra_body: {}",
-        "",
-        "mcp_runtime:",
-        "  stdio:",
-        "    inherit_parent_env: false",
-        "    env: {}",
-        "",
-        "mcp_servers: {}",
-        "",
-    ]
-    .join("\n")
+        format!("request_timeout_seconds: {}", DEFAULT_TIMEOUT_SECONDS),
+        "show_advanced_request_options: false".to_string(),
+        "enable_developer_tools: false".to_string(),
+        "language: \"auto\"".to_string(),
+        "prompt_composer:".to_string(),
+        "  blocks:".to_string(),
+        format!("    - id: \"{}\"", BUILTIN_CORE_SYSTEM_BLOCK_ID),
+        format!("      title: \"{}\"", BUILTIN_CORE_SYSTEM_TITLE),
+        "      role: \"system\"".to_string(),
+        "      enabled: true".to_string(),
+        "      source: \"builtin\"".to_string(),
+        format!("      source_id: \"{}\"", BUILTIN_CORE_SYSTEM_SOURCE_ID),
+        "      locked: true".to_string(),
+        "      content: |".to_string(),
+        indent_block(BUILTIN_CORE_SYSTEM_BLOCK_CONTENT, 8),
+        String::new(),
+        "providers:".to_string(),
+        format!("  {}:", provider.kind),
+        format!("    kind: \"{}\"", provider.kind),
+        format!("    api_endpoint: \"{}\"", provider.api_endpoint),
+        "    query_params: {}".to_string(),
+        "    http_headers: {}".to_string(),
+        "    env_http_headers: {}".to_string(),
+        "    realtime_endpoint: \"\"".to_string(),
+        format!("    supports_websockets: {}", provider.supports_websockets),
+        format!("    stream_transport: \"{}\"", provider.stream_transport),
+        "    credential: \"\"".to_string(),
+        format!("    credential_env: \"{}\"", provider.credential_env),
+        "    request_timeout_seconds: 120".to_string(),
+        "    request_max_retries: null".to_string(),
+        "    stream_max_retries: null".to_string(),
+        "    stream_idle_timeout_ms: null".to_string(),
+        "    websocket_connect_timeout_ms: null".to_string(),
+        "    models:".to_string(),
+    ];
+
+    for model_key in provider.models.keys() {
+        lines.push(format!("      {}:", model_key));
+        lines.push(format!("        model: \"{}\"", model_key));
+        lines.push("        enabled: true".to_string());
+        lines.push("        request:".to_string());
+        lines.push("          temperature: null".to_string());
+        lines.push("          top_p: null".to_string());
+        lines.push("          top_k: null".to_string());
+        lines.push("          max_output_tokens: null".to_string());
+        lines.push("          frequency_penalty: null".to_string());
+        lines.push("          presence_penalty: null".to_string());
+        lines.push("          reasoning_effort: null".to_string());
+        lines.push("          extra_body: {}".to_string());
+    }
+
+    lines.extend([
+        String::new(),
+        "mcp_runtime:".to_string(),
+        "  stdio:".to_string(),
+        "    inherit_parent_env: false".to_string(),
+        "    env: {}".to_string(),
+        String::new(),
+        "mcp_servers: {}".to_string(),
+        String::new(),
+    ]);
+
+    lines.join("\n")
 }
 
 fn indent_block(value: &str, spaces: usize) -> String {

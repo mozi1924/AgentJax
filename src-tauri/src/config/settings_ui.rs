@@ -1,5 +1,6 @@
 use super::{AppConfig, SettingsOption};
 use crate::models;
+use crate::providers::registry;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -76,12 +77,9 @@ pub fn build_dynamic_options(
 
     dynamic_options.insert(
         "provider_kind".to_string(),
-        ["openai-responses"]
+        registry::provider_kind_options()
             .into_iter()
-            .map(|entry| SettingsOption {
-                label: entry.to_string(),
-                value: entry.to_string(),
-            })
+            .map(|(label, value)| SettingsOption { label, value })
             .collect(),
     );
     dynamic_options.insert(

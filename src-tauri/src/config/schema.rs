@@ -3,6 +3,7 @@ use crate::config::constants::{
     DEFAULT_DEFAULT_MODEL_REF, DEFAULT_TIMEOUT_SECONDS, DEFAULT_UTILITY_SMALL_MODEL_REF,
 };
 use crate::config::prompt_composer::{CompiledPromptAssembly, PromptComposerConfig};
+use crate::providers::registry;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -147,10 +148,11 @@ pub struct ResolvedModelConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         let mut providers = BTreeMap::new();
-        providers.insert("openai-responses".to_string(), ProviderConfig::default());
+        let default_provider = registry::default_provider_definition();
+        providers.insert(default_provider.kind.to_string(), ProviderConfig::default());
 
         Self {
-            active_provider: "openai-responses".to_string(),
+            active_provider: default_provider.kind.to_string(),
             providers,
             default_model: DEFAULT_DEFAULT_MODEL_REF.to_string(),
             utility_small_model: DEFAULT_UTILITY_SMALL_MODEL_REF.to_string(),
@@ -208,43 +210,7 @@ impl Default for McpRuntimeConfig {
 
 impl Default for ProviderConfig {
     fn default() -> Self {
-        let mut models = BTreeMap::new();
-        models.insert(
-            "gpt-5-mini".to_string(),
-            ProviderModelConfig {
-                model: "gpt-5-mini".to_string(),
-                enabled: true,
-                request: ModelRequestConfig::default(),
-            },
-        );
-        models.insert(
-            "gpt-5".to_string(),
-            ProviderModelConfig {
-                model: "gpt-5".to_string(),
-                enabled: true,
-                request: ModelRequestConfig::default(),
-            },
-        );
-
-        Self {
-            kind: "openai-responses".to_string(),
-            api_endpoint: "https://api.openai.com/v1".to_string(),
-            models_endpoint_candidates: Vec::new(),
-            query_params: BTreeMap::new(),
-            http_headers: BTreeMap::new(),
-            env_http_headers: BTreeMap::new(),
-            realtime_endpoint: None,
-            supports_websockets: true,
-            stream_transport: "websocket".to_string(),
-            credential: None,
-            credential_env: "OPENAI_API_KEY".to_string(),
-            request_timeout_seconds: None,
-            request_max_retries: None,
-            stream_max_retries: None,
-            stream_idle_timeout_ms: None,
-            websocket_connect_timeout_ms: None,
-            models,
-        }
+        registry::default_provider_config()
     }
 }
 

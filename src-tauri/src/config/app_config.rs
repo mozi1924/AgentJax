@@ -5,6 +5,7 @@ use crate::config::schema::{
     AppConfig, McpRuntimeConfig, McpServerConfig, McpTransportKind, ModelRequestConfig,
     ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
 };
+use crate::providers::registry;
 use std::collections::BTreeMap;
 
 impl ProviderConfig {
@@ -14,9 +15,14 @@ impl ProviderConfig {
             self.kind = provider_key.to_string();
         }
 
+        let provider_definition = registry::provider_definition(&self.kind);
+
         self.api_endpoint = self.api_endpoint.trim().trim_end_matches('/').to_string();
         if self.api_endpoint.is_empty() {
-            self.api_endpoint = "https://api.openai.com/v1".to_string();
+            self.api_endpoint = provider_definition
+                .as_ref()
+                .map(|definition| definition.default_api_endpoint.to_string())
+                .unwrap_or_default();
         }
         self.models_endpoint_candidates = self
             .models_endpoint_candidates
@@ -30,7 +36,16 @@ impl ProviderConfig {
 
         self.stream_transport = self.stream_transport.trim().to_lowercase();
         if self.stream_transport != "websocket" && self.stream_transport != "sse" {
-            self.stream_transport = "websocket".to_string();
+            self.stream_transport = provider_definition
+                .as_ref()
+                .map(|definition| definition.default_stream_transport.to_string())
+                .unwrap_or_else(|| {
+                    if self.supports_websockets {
+                        "websocket".to_string()
+                    } else {
+                        "sse".to_string()
+                    }
+                });
         }
         if !self.supports_websockets && self.stream_transport == "websocket" {
             self.stream_transport = "sse".to_string();
@@ -42,17 +57,27 @@ impl ProviderConfig {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(|s| s.trim_end_matches('/').to_string());
+        if self.realtime_endpoint.is_none() {
+            self.realtime_endpoint = provider_definition
+                .as_ref()
+                .and_then(|definition| definition.default_realtime_endpoint.map(ToOwned::to_owned));
+        }
 
         self.credential_env = self.credential_env.trim().to_string();
         if self.credential_env.is_empty() {
-            self.credential_env = format!(
-                "{}_API_KEY",
-                provider_key
-                    .chars()
-                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-                    .collect::<String>()
-                    .to_uppercase()
-            );
+            self.credential_env = provider_definition
+                .as_ref()
+                .map(|definition| definition.default_credential_env.to_string())
+                .unwrap_or_else(|| {
+                    format!(
+                        "{}_API_KEY",
+                        provider_key
+                            .chars()
+                            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                            .collect::<String>()
+                            .to_uppercase()
+                    )
+                });
         }
 
         if matches!(self.request_timeout_seconds, Some(0)) {
@@ -255,7 +280,11 @@ impl AppConfig {
         }
 
         if normalized_providers.is_empty() {
-            normalized_providers.insert("openai-responses".to_string(), ProviderConfig::default());
+            let default_provider = registry::default_provider_definition();
+            normalized_providers.insert(
+                default_provider.kind.to_string(),
+                default_provider.build_default_config(),
+            );
         }
         self.providers = normalized_providers;
 
@@ -264,7 +293,7 @@ impl AppConfig {
                 .providers
                 .first_key_value()
                 .map(|(k, _)| k.clone())
-                .unwrap_or_else(|| "openai-responses".to_string());
+                .unwrap_or_else(|| registry::default_provider_kind().to_string());
         }
 
         let has_any_model = self
@@ -273,10 +302,13 @@ impl AppConfig {
             .any(|provider| provider.models.values().any(|model| model.enabled));
         if !has_any_model {
             if let Some(provider) = self.providers.get_mut(&self.active_provider) {
+                let fallback_model_id = registry::provider_definition(&provider.kind)
+                    .and_then(|definition| definition.default_model_ids.first().copied())
+                    .unwrap_or("gpt-5-mini");
                 provider.models.insert(
-                    "gpt-5-mini".to_string(),
+                    fallback_model_id.to_string(),
                     ProviderModelConfig {
-                        model: "gpt-5-mini".to_string(),
+                        model: fallback_model_id.to_string(),
                         enabled: true,
                         request: ModelRequestConfig::default(),
                     },

@@ -261,6 +261,68 @@ fn parse_supported_reasoning_levels(obj: &serde_json::Map<String, Value>) -> Opt
     Some(normalize_reasoning_levels(&levels))
 }
 
+pub(crate) fn infer_reasoning_levels_from_model_id(model_id: &str) -> Vec<String> {
+    let model = model_id.trim().to_lowercase();
+    if model.is_empty() {
+        return Vec::new();
+    }
+
+    if model.starts_with("gpt-5-pro") {
+        return vec!["high".to_string()];
+    }
+
+    if model.starts_with("gpt-5.2-pro") {
+        return vec![
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+        ];
+    }
+
+    if model.starts_with("gpt-5.2-codex") {
+        return vec![
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+        ];
+    }
+
+    if model.starts_with("gpt-5.2") {
+        return vec![
+            "none".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+            "xhigh".to_string(),
+        ];
+    }
+
+    if model.starts_with("gpt-5.1") {
+        return vec![
+            "none".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+        ];
+    }
+
+    if model.starts_with("gpt-5") {
+        return vec![
+            "minimal".to_string(),
+            "low".to_string(),
+            "medium".to_string(),
+            "high".to_string(),
+        ];
+    }
+
+    if model.starts_with("o1") || model.starts_with("o3") || model.starts_with("o4") {
+        return vec!["low".to_string(), "medium".to_string(), "high".to_string()];
+    }
+
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{parse_model_descriptors, ModelsFetchStrategy};

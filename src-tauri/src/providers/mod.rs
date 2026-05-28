@@ -1,5 +1,7 @@
 pub mod capabilities;
+pub mod core;
 mod openai_responses;
+pub mod registry;
 mod responses;
 pub mod types;
 
@@ -24,8 +26,6 @@ type ModelsFuture<'a> =
 
 trait ProviderAdapter: Send + Sync {
     fn matches_kind(&self, provider_kind: &str) -> bool;
-    fn capabilities(&self) -> ProviderCapabilities;
-    fn tool_schema_format(&self) -> ToolSchemaFormat;
     fn stream_response<'a>(
         &'a self,
         resolved: &'a ResolvedModelConfig,
@@ -39,14 +39,6 @@ trait ProviderAdapter: Send + Sync {
         model_id: &str,
         cached_levels: Option<&[String]>,
     ) -> ModelReasoningCapability;
-    fn extract_pending_tool_calls(&self, output_items: &[Value]) -> Vec<ProviderPendingToolCall>;
-    fn build_tool_result_input_item(&self, call_id: &str, output: &str) -> Value;
-    fn build_user_input_item(&self, text: &str) -> Value;
-    fn compose_tool_continuation_input(
-        &self,
-        output_items: &[Value],
-        tool_results_items: Vec<Value>,
-    ) -> Vec<Value>;
 }
 
 struct OpenAIResponsesAdapter;
@@ -54,14 +46,6 @@ struct OpenAIResponsesAdapter;
 impl ProviderAdapter for OpenAIResponsesAdapter {
     fn matches_kind(&self, provider_kind: &str) -> bool {
         matches!(provider_kind, "openai-responses")
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::openai_responses()
-    }
-
-    fn tool_schema_format(&self) -> ToolSchemaFormat {
-        ToolSchemaFormat::Responses
     }
 
     fn stream_response<'a>(
@@ -87,26 +71,6 @@ impl ProviderAdapter for OpenAIResponsesAdapter {
     ) -> ModelReasoningCapability {
         openai_responses::get_reasoning_capability(model_id, cached_levels)
     }
-
-    fn extract_pending_tool_calls(&self, output_items: &[Value]) -> Vec<ProviderPendingToolCall> {
-        responses::extract_pending_tool_calls_from_output(output_items)
-    }
-
-    fn build_tool_result_input_item(&self, call_id: &str, output: &str) -> Value {
-        responses::build_tool_result_input_item(call_id, output)
-    }
-
-    fn build_user_input_item(&self, text: &str) -> Value {
-        responses::build_user_input_item(text)
-    }
-
-    fn compose_tool_continuation_input(
-        &self,
-        output_items: &[Value],
-        tool_results_items: Vec<Value>,
-    ) -> Vec<Value> {
-        responses::compose_tool_continuation_input(output_items, tool_results_items)
-    }
 }
 
 static OPENAI_RESPONSES_ADAPTER: OpenAIResponsesAdapter = OpenAIResponsesAdapter;
@@ -128,11 +92,13 @@ fn adapter_for_kind(provider_kind: &str) -> Result<&'static dyn ProviderAdapter,
 }
 
 pub fn get_capabilities(provider_kind: &str) -> Result<ProviderCapabilities, String> {
-    Ok(adapter_for_kind(provider_kind)?.capabilities())
+    registry::provider_capabilities(provider_kind)
+        .ok_or_else(|| format!("Unsupported provider kind '{}'. Add an adapter under src-tauri/src/providers to enable it.", provider_kind))
 }
 
 pub fn get_tool_schema_format(provider_kind: &str) -> Result<ToolSchemaFormat, String> {
-    Ok(adapter_for_kind(provider_kind)?.tool_schema_format())
+    registry::provider_tool_schema_format(provider_kind)
+        .ok_or_else(|| format!("Unsupported provider kind '{}'. Add an adapter under src-tauri/src/providers to enable it.", provider_kind))
 }
 
 pub async fn stream_response<F>(
@@ -182,29 +148,31 @@ pub fn get_reasoning_capability(
 }
 
 pub fn extract_pending_tool_calls(
-    provider_kind: &str,
+    _provider_kind: &str,
     output_items: &[Value],
 ) -> Result<Vec<ProviderPendingToolCall>, String> {
-    Ok(adapter_for_kind(provider_kind)?.extract_pending_tool_calls(output_items))
+    Ok(core::extract_pending_tool_calls_from_output(output_items))
 }
 
 pub fn build_tool_result_input_item(
-    provider_kind: &str,
+    _provider_kind: &str,
     call_id: &str,
     output: &str,
 ) -> Result<Value, String> {
-    Ok(adapter_for_kind(provider_kind)?.build_tool_result_input_item(call_id, output))
+    Ok(core::build_tool_result_input_item(call_id, output))
 }
 
-pub fn build_user_input_item(provider_kind: &str, text: &str) -> Result<Value, String> {
-    Ok(adapter_for_kind(provider_kind)?.build_user_input_item(text))
+pub fn build_user_input_item(_provider_kind: &str, text: &str) -> Result<Value, String> {
+    Ok(core::build_user_input_item(text))
 }
 
 pub fn compose_tool_continuation_input(
-    provider_kind: &str,
+    _provider_kind: &str,
     output_items: &[Value],
     tool_results_items: Vec<Value>,
 ) -> Result<Vec<Value>, String> {
-    Ok(adapter_for_kind(provider_kind)?
-        .compose_tool_continuation_input(output_items, tool_results_items))
+    Ok(core::compose_tool_continuation_input(
+        output_items,
+        tool_results_items,
+    ))
 }
