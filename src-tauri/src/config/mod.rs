@@ -8,13 +8,13 @@ mod settings;
 mod settings_ui;
 
 pub use io::{
-    config_dir_path, get_config_info, init_config_if_missing, load_config, upgrade_config_file,
-    ConfigInfo, ConfigUpgradeResult,
+    ConfigInfo, ConfigUpgradeResult, config_dir_path, get_config_info, init_config_if_missing,
+    load_config, upgrade_config_file,
 };
 #[allow(unused_imports)]
 pub use prompt_composer::{
-    compile_prompt_composer, normalize_prompt_composer, CompiledPromptAssembly, PromptBlock,
-    PromptBlockRole, PromptBlockSource, PromptComposerConfig,
+    CompiledPromptAssembly, PromptBlock, PromptBlockRole, PromptBlockSource, PromptComposerConfig,
+    compile_prompt_composer, normalize_prompt_composer,
 };
 #[allow(unused_imports)]
 pub use schema::{
@@ -23,11 +23,11 @@ pub use schema::{
 };
 #[allow(unused_imports)]
 pub use settings::{
-    apply_settings_patch, get_settings_snapshot, get_settings_ui_snapshot, SecretStatus,
-    SettingsOption, SettingsPatch, SettingsPatchOperation, SettingsSnapshot,
+    SecretStatus, SettingsOption, SettingsPatch, SettingsPatchOperation, SettingsSnapshot,
+    apply_settings_patch, get_settings_snapshot, get_settings_ui_snapshot,
 };
 #[allow(unused_imports)]
-pub use settings_ui::{build_dynamic_options, build_settings_sections, SettingsUiSnapshot};
+pub use settings_ui::{SettingsUiSnapshot, build_dynamic_options, build_settings_sections};
 
 #[cfg(test)]
 pub(crate) fn test_env_lock() -> &'static std::sync::Mutex<()> {
@@ -85,10 +85,12 @@ mod tests {
             .resolve_model_profile(None)
             .expect("fallback to first enabled model");
 
-        assert!(normalized
-            .configured_models()
-            .into_iter()
-            .any(|entry| entry == resolved.model_ref));
+        assert!(
+            normalized
+                .configured_models()
+                .into_iter()
+                .any(|entry| entry == resolved.model_ref)
+        );
     }
 
     #[test]
@@ -151,9 +153,11 @@ mod tests {
             .resolve_model_profile(None)
             .expect("resolve");
         assert!(resolved.system_prompt.contains("agentic coding assistant"));
-        assert!(resolved
-            .system_prompt
-            .contains("Always prefer concise diffs."));
+        assert!(
+            resolved
+                .system_prompt
+                .contains("Always prefer concise diffs.")
+        );
         assert_eq!(resolved.prompt_assembly.developer_items.len(), 1);
     }
 
@@ -432,9 +436,11 @@ mod tests {
             compiled.developer_items[1]["content"][0]["text"].as_str(),
             Some("Second")
         );
-        assert!(compiled
-            .preview_markdown
-            .contains("## System / instructions"));
+        assert!(
+            compiled
+                .preview_markdown
+                .contains("## System / instructions")
+        );
         assert!(compiled.preview_markdown.contains("## Developer messages"));
     }
 }

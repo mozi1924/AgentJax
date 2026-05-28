@@ -31,7 +31,9 @@ fn truncate_context_items_preserves_tool_pair_boundaries() {
 
     let truncated = truncate_context_items_preserving_tool_pairs(items, 1);
     assert_eq!(truncated.len(), 2);
-    assert!(truncated
-        .iter()
-        .any(|item| item.get("call_id").and_then(|v| v.as_str()) == Some("keep")));
+    assert!(
+        truncated
+            .iter()
+            .any(|item| item.get("call_id").and_then(|v| v.as_str()) == Some("keep"))
+    );
 }

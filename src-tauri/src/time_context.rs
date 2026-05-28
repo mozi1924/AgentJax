@@ -1,6 +1,6 @@
 use chrono::{Local, TimeZone, Utc};
 use serde::Serialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 /// Canonicalized time snapshot shared across prompt assembly and tool results.
 ///

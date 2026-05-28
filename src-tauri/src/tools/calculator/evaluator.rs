@@ -3,8 +3,8 @@ use super::types::{
     CalculatorMode, CalculatorRequest, CalculatorResponse, CalculatorVariableBinding,
     FEND_TIMEOUT_MS,
 };
-use fend_core::{evaluate_with_interrupt, Context as FendContext, Interrupt as FendInterrupt};
-use serde_json::{json, Value};
+use fend_core::{Context as FendContext, Interrupt as FendInterrupt, evaluate_with_interrupt};
+use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
 /// Interrupt guard for fend-core computations.

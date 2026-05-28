@@ -100,11 +100,7 @@ async fn generate_title_and_emit(
     }
     .and_then(|summary| {
         let title = summary.title.trim().to_string();
-        if title.is_empty() {
-            None
-        } else {
-            Some(title)
-        }
+        if title.is_empty() { None } else { Some(title) }
     });
 
     if let Some(conversation_title) = updated_title {

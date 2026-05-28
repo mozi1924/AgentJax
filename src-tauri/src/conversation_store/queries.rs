@@ -2,10 +2,10 @@ use super::file_io::{read_conversation_file, read_conversation_meta, summary_fro
 use super::locks::{cached_summary, replace_cached_summary, with_conversation_lock};
 use super::paths::{conversation_messages_path, conversation_metadata_path, list_conversation_ids};
 use super::types::{
-    ConversationDetail, ConversationDynamicTool, ConversationLine, ConversationMountedMcpServer,
-    ConversationMountedToolDefinition, ConversationMountedToolSource, ConversationSummary,
-    TitleGenerationCandidate, CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY,
-    CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY, CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY,
+    CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY, CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
+    CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY, ConversationDetail, ConversationDynamicTool,
+    ConversationLine, ConversationMountedMcpServer, ConversationMountedToolDefinition,
+    ConversationMountedToolSource, ConversationSummary, TitleGenerationCandidate,
 };
 // ── List all conversations ────────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 use crate::providers::types::ProviderPendingToolCall;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(super) fn describe_item_shape(item: &Value) -> String {
     if let Some(kind) = item.get("type").and_then(Value::as_str) {

@@ -103,14 +103,17 @@ pub fn run() {
             )
             .map_err(std::io::Error::other)?;
 
-            std::thread::spawn(|| loop {
-                let sync_result = tauri::async_runtime::block_on(models::sync_remote_model_cache());
-                if let Err(err) = sync_result {
-                    log::warn!("Model cache sync skipped: {}", err);
+            std::thread::spawn(|| {
+                loop {
+                    let sync_result =
+                        tauri::async_runtime::block_on(models::sync_remote_model_cache());
+                    if let Err(err) = sync_result {
+                        log::warn!("Model cache sync skipped: {}", err);
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(
+                        models::MODEL_CACHE_SYNC_INTERVAL_SECONDS,
+                    ));
                 }
-                std::thread::sleep(std::time::Duration::from_secs(
-                    models::MODEL_CACHE_SYNC_INTERVAL_SECONDS,
-                ));
             });
 
             Ok(())

@@ -100,14 +100,12 @@ mod tests {
         let args = json!({ "expression": "x + y", "variables": { "x": 2, "y": 5 } });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 7.0);
-        assert!(res["warnings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|warning| warning
+        assert!(res["warnings"].as_array().unwrap().iter().any(|warning| {
+            warning
                 .as_str()
                 .unwrap_or_default()
-                .contains("native fend variable assignments")));
+                .contains("native fend variable assignments")
+        }));
 
         // Native assignment semantics should preserve precedence.
         let args = json!({ "expression": "x^2", "variables": { "x": -2 } });
@@ -137,18 +135,22 @@ mod tests {
         let args = json!({ "mode": "capabilities" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["mode"], "capabilities");
-        assert!(!res["capabilities"]["supports"]["symbolicMath"]
-            .as_bool()
-            .unwrap());
+        assert!(
+            !res["capabilities"]["supports"]["symbolicMath"]
+                .as_bool()
+                .unwrap()
+        );
         assert!(res["capabilities"]["supports"]["units"].as_bool().unwrap());
         assert_eq!(
             res["capabilities"]["engine"]["name"].as_str().unwrap(),
             "fend-core"
         );
-        assert!(res["capabilities"]["engine"]["policy"]
-            .as_str()
-            .unwrap()
-            .contains("fend-core"));
+        assert!(
+            res["capabilities"]["engine"]["policy"]
+                .as_str()
+                .unwrap()
+                .contains("fend-core")
+        );
     }
 
     #[test]
@@ -175,11 +177,13 @@ mod tests {
         let args = json!({ "expression": "sqrt(-4)" });
         let res = calc.execute(&args, &ctx).unwrap();
         assert_eq!(res["result"], "2i");
-        assert!(res["warnings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|warning| warning.as_str().unwrap_or_default().contains("approximate")));
+        assert!(
+            res["warnings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|warning| warning.as_str().unwrap_or_default().contains("approximate"))
+        );
 
         // fend-core should own parse behavior for malformed grouping.
         let args = json!({ "expression": "(2 + 3" });
@@ -336,9 +340,11 @@ mod tests {
 
         let root_listing = registry.execute("list_files", &json!({}), &ctx).unwrap();
         let root_entries = root_listing["entries"].as_array().unwrap();
-        assert!(root_entries
-            .iter()
-            .any(|entry| entry["path"] == "README.md"));
+        assert!(
+            root_entries
+                .iter()
+                .any(|entry| entry["path"] == "README.md")
+        );
         assert!(root_entries.iter().any(|entry| entry["path"] == "src"));
 
         let recursive_listing = registry
@@ -349,9 +355,11 @@ mod tests {
             )
             .unwrap();
         let recursive_entries = recursive_listing["entries"].as_array().unwrap();
-        assert!(recursive_entries
-            .iter()
-            .any(|entry| entry["path"] == "src/components/Button.tsx"));
+        assert!(
+            recursive_entries
+                .iter()
+                .any(|entry| entry["path"] == "src/components/Button.tsx")
+        );
 
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
@@ -1057,12 +1065,16 @@ mod tests {
             })
             .await;
 
-        assert!(snapshot
-            .active_tool_names()
-            .contains("mcp_server__openai_docs"));
-        assert!(snapshot
-            .active_tool_names()
-            .contains("mcp__openai_docs__search_openai_docs"));
+        assert!(
+            snapshot
+                .active_tool_names()
+                .contains("mcp_server__openai_docs")
+        );
+        assert!(
+            snapshot
+                .active_tool_names()
+                .contains("mcp__openai_docs__search_openai_docs")
+        );
 
         conversation_store::delete_conversation(&conversation_id).ok();
     }
@@ -1087,8 +1099,10 @@ mod tests {
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
-        assert!(!snapshot
-            .active_tool_names()
-            .contains("mcp_server__unfolded_server"));
+        assert!(
+            !snapshot
+                .active_tool_names()
+                .contains("mcp_server__unfolded_server")
+        );
     }
 }

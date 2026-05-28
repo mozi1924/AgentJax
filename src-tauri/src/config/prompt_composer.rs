@@ -3,7 +3,7 @@ use crate::config::constants::{
     BUILTIN_CORE_SYSTEM_TITLE,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]

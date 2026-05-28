@@ -2,7 +2,7 @@ use crate::conversation_store;
 use crate::tools::ToolExecutionContext;
 use file_format::{FileFormat, Kind as FileFormatKind};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -111,7 +111,7 @@ pub fn normalize_relative_path(
             Component::RootDir | Component::Prefix(_) => {
                 return Err(
                     "Absolute paths are not allowed; use a workspace-relative path".to_string(),
-                )
+                );
             }
         }
     }

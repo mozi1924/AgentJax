@@ -2,7 +2,7 @@ use crate::time_context::TimeSnapshot;
 use crate::tools::calculator;
 use crate::tools::{Tool, ToolExecutionContext};
 use chrono::Local;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct CalculatorTool;

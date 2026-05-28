@@ -121,10 +121,11 @@ fn load_context_merges_user_and_assistant() {
     .expect("a");
     let ctx = load_context_for_request(&cid).expect("ctx");
     assert!(ctx.input_items.len() >= 2);
-    assert!(ctx
-        .input_items
-        .iter()
-        .any(|i| i.get("role").and_then(|v| v.as_str()) == Some("user")));
+    assert!(
+        ctx.input_items
+            .iter()
+            .any(|i| i.get("role").and_then(|v| v.as_str()) == Some("user"))
+    );
     assert!(ctx.input_items.iter().any(|i| {
         i.get("role").and_then(|v| v.as_str()) == Some("assistant")
             && i.get("phase").and_then(|v| v.as_str()) == Some("final_answer")
@@ -227,17 +228,19 @@ fn load_context_includes_tool_calls_with_outputs() {
     })
     .expect("t");
     let ctx = load_context_for_request(&cid).expect("ctx");
-    assert!(ctx
-        .input_items
-        .iter()
-        .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c1")
-            && i.get("type").and_then(|v| v.as_str()) == Some("function_call")
-            && i.get("arguments").and_then(|v| v.as_str()) == Some("{\"e\":\"1+1\"}")));
-    assert!(ctx
-        .input_items
-        .iter()
-        .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c1")
-            && i.get("type").and_then(|v| v.as_str()) == Some("function_call_output")));
+    assert!(
+        ctx.input_items
+            .iter()
+            .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c1")
+                && i.get("type").and_then(|v| v.as_str()) == Some("function_call")
+                && i.get("arguments").and_then(|v| v.as_str()) == Some("{\"e\":\"1+1\"}"))
+    );
+    assert!(
+        ctx.input_items
+            .iter()
+            .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c1")
+                && i.get("type").and_then(|v| v.as_str()) == Some("function_call_output"))
+    );
     delete_conversation(&cid).ok();
 }
 
@@ -562,14 +565,16 @@ fn load_context_filters_orphan_tool_calls() {
     })
     .expect("orphan");
     let ctx = load_context_for_request(&cid).expect("ctx");
-    assert!(ctx
-        .input_items
-        .iter()
-        .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c_ok")));
-    assert!(!ctx
-        .input_items
-        .iter()
-        .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c_orphan")));
+    assert!(
+        ctx.input_items
+            .iter()
+            .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c_ok"))
+    );
+    assert!(
+        !ctx.input_items
+            .iter()
+            .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c_orphan"))
+    );
     delete_conversation(&cid).ok();
 }
 
@@ -603,10 +608,11 @@ fn load_context_truncates_without_splitting_tool_pairs() {
     .expect("t");
     let ctx = load_context_for_request(&cid).expect("ctx");
     assert!(ctx.input_items.len() <= TEST_MAX_CONTEXT_ITEMS_PER_REQUEST);
-    assert!(ctx
-        .input_items
-        .iter()
-        .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("call_tail")));
+    assert!(
+        ctx.input_items
+            .iter()
+            .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("call_tail"))
+    );
     delete_conversation(&cid).ok();
 }
 
@@ -692,10 +698,11 @@ fn load_conversation_returns_all_lines() {
     .expect("a");
     let d = load_conversation(&cid).expect("load").expect("detail");
     assert_eq!(d.lines.len(), 3);
-    assert!(d
-        .lines
-        .iter()
-        .any(|l| matches!(l, ConversationLine::Tool(tl) if tl.call_id == "c1")));
+    assert!(
+        d.lines
+            .iter()
+            .any(|l| matches!(l, ConversationLine::Tool(tl) if tl.call_id == "c1"))
+    );
     delete_conversation(&cid).ok();
 }
 
@@ -845,9 +852,11 @@ fn conversation_dynamic_tools_round_trip_through_metadata() {
     );
 
     update_conversation_dynamic_tools(&cid, Vec::new()).expect("clear dynamic tools");
-    assert!(load_conversation_dynamic_tools(&cid)
-        .expect("reload dynamic tools")
-        .is_empty());
+    assert!(
+        load_conversation_dynamic_tools(&cid)
+            .expect("reload dynamic tools")
+            .is_empty()
+    );
 }
 
 #[test]
@@ -888,9 +897,11 @@ fn conversation_mounted_tool_sources_round_trip_through_metadata() {
     assert_eq!(loaded[0].tools[0].tool_name, "search_openai_docs");
 
     update_conversation_mounted_tool_sources(&cid, Vec::new()).expect("clear mounted tool sources");
-    assert!(load_conversation_mounted_tool_sources(&cid)
-        .expect("reload mounted tool sources")
-        .is_empty());
+    assert!(
+        load_conversation_mounted_tool_sources(&cid)
+            .expect("reload mounted tool sources")
+            .is_empty()
+    );
 }
 
 #[test]

@@ -325,7 +325,7 @@ pub(crate) fn infer_reasoning_levels_from_model_id(model_id: &str) -> Vec<String
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_model_descriptors, ModelsFetchStrategy};
+    use super::{ModelsFetchStrategy, parse_model_descriptors};
     use serde_json::json;
 
     #[test]
@@ -404,9 +404,11 @@ mod tests {
         ]);
 
         assert_eq!(strategy.endpoint_candidates[0], "/custom-models");
-        assert!(strategy
-            .endpoint_candidates
-            .iter()
-            .any(|candidate| candidate == "/models"));
+        assert!(
+            strategy
+                .endpoint_candidates
+                .iter()
+                .any(|candidate| candidate == "/models")
+        );
     }
 }

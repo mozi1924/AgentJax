@@ -2,7 +2,7 @@ use super::file_io::read_conversation_file;
 use super::locks::with_conversation_lock;
 use super::paths::{conversation_messages_path, conversation_metadata_path};
 use super::types::{AssistantStatus, ConversationLine, ToolStatus};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Check whether the most recent request in this conversation completed
 /// cleanly.  Returns `Some(developer_note)` if recovery is needed, or

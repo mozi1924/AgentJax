@@ -2,7 +2,7 @@ use crate::conversation_store::{
     AssistantLine, AssistantStatus, ConversationLine, ToolLine, UserLine,
 };
 use crate::time_context::{attach_tool_output_time_metadata, render_timed_message};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Convert stored conversation lines into raw Responses-API input items.
 ///

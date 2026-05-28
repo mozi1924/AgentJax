@@ -1,6 +1,6 @@
 use super::{
-    tool_archiving::archive_unavailable_historical_tool_calls,
-    tool_parsing::extract_active_tool_names, AgentRuntime,
+    AgentRuntime, tool_archiving::archive_unavailable_historical_tool_calls,
+    tool_parsing::extract_active_tool_names,
 };
 use crate::commands::chat::ChatRequest;
 use crate::config::{AppConfig, PromptBlock, PromptBlockRole, PromptBlockSource};
@@ -277,7 +277,9 @@ async fn real_gateway_multihop_commentary_and_multi_tool_smoke_test_from_local_c
         for final_line in final_message.lines() {
             let normalized = normalize_for_overlap_check(final_line);
             assert!(
-                commentary_norms.iter().all(|commentary| commentary != &normalized),
+                commentary_norms
+                    .iter()
+                    .all(|commentary| commentary != &normalized),
                 "Final message should not repeat a commentary line verbatim. final={:?} commentary={:?}",
                 final_messages,
                 commentary_messages

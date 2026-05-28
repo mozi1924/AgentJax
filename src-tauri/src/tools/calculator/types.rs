@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) const DEFAULT_PRECISION: u32 = 12;
 pub(crate) const MAX_PRECISION: u32 = 32;

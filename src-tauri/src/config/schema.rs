@@ -1,6 +1,6 @@
 use crate::config::constants::{
-    default_mcp_startup_timeout_ms, default_mcp_tool_timeout_ms, default_true,
     DEFAULT_DEFAULT_MODEL_REF, DEFAULT_TIMEOUT_SECONDS, DEFAULT_UTILITY_SMALL_MODEL_REF,
+    default_mcp_startup_timeout_ms, default_mcp_tool_timeout_ms, default_true,
 };
 use crate::config::prompt_composer::{CompiledPromptAssembly, PromptComposerConfig};
 use crate::providers::registry;

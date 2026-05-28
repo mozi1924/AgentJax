@@ -7,7 +7,7 @@ use crate::tools::{
     ToolCatalogExecution, ToolCatalogSnapshot, ToolCatalogStateChange, ToolExecutionContext,
 };
 use futures_util::stream::{self, StreamExt};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::time::Instant;
 use tokio::sync::watch;

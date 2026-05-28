@@ -12,10 +12,11 @@ use super::paths::{
     ensure_session_layout,
 };
 use super::types::{
-    AppendLineInput, ConversationData, ConversationDynamicTool, ConversationLine, ConversationMeta,
-    ConversationMountedToolSource, ConversationSummary, ToolStatus, UpdateLineInput,
-    CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY, CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
-    CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY, DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
+    AppendLineInput, CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY,
+    CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY, CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY,
+    ConversationData, ConversationDynamicTool, ConversationLine, ConversationMeta,
+    ConversationMountedToolSource, ConversationSummary, DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
+    ToolStatus, UpdateLineInput,
 };
 use crate::conversation_store_utils::{normalize_title, now_unix_ms};
 use std::collections::BTreeMap;

@@ -1,5 +1,5 @@
 use super::types::{CalculatorResponse, FEND_TIMEOUT_MS, MAX_EXPRESSION_LENGTH, MAX_PRECISION};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) fn capabilities_response(expression: Option<String>) -> CalculatorResponse {
     CalculatorResponse {

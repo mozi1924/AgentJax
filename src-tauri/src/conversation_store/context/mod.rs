@@ -7,9 +7,9 @@
 mod builders;
 mod policy;
 mod sanitizer;
+mod token_usage;
 mod truncation;
 mod types;
-mod token_usage;
 
 #[cfg(test)]
 mod tests;
@@ -22,12 +22,12 @@ use policy::MAX_CONTEXT_ITEMS_PER_REQUEST;
 use sanitizer::sanitize_tool_call_pairs;
 use truncation::truncate_context_items_preserving_tool_pairs;
 
-pub use types::ConversationContext;
 pub use token_usage::{
-    count_conversation_context_tokens, count_conversation_prompt_tokens,
+    ConversationTokenUsage, count_conversation_context_tokens, count_conversation_prompt_tokens,
     count_messages_tokens, count_request_prompt_tokens, count_text_tokens,
-    count_tool_schema_tokens, ConversationTokenUsage,
+    count_tool_schema_tokens,
 };
+pub use types::ConversationContext;
 
 /// Load a conversation snapshot and convert it into model-ready input items.
 ///

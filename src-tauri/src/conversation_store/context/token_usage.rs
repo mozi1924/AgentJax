@@ -4,11 +4,11 @@ use super::sanitizer::sanitize_tool_call_pairs;
 use super::truncation::truncate_context_items_preserving_tool_pairs;
 use crate::conversation_store::ConversationLine;
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use tiktoken_rs::{
-    cl100k_base_singleton, num_tokens_from_messages, o200k_base_singleton,
-    o200k_harmony_singleton, ChatCompletionRequestMessage, FunctionCall, CoreBPE,
+    ChatCompletionRequestMessage, CoreBPE, FunctionCall, cl100k_base_singleton,
+    num_tokens_from_messages, o200k_base_singleton, o200k_harmony_singleton,
 };
 
 /// Token usage snapshot for the current conversation context.
@@ -374,8 +374,8 @@ fn tokenizer_for_model(model: &str) -> Result<&'static CoreBPE, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        count_conversation_context_tokens, count_conversation_prompt_tokens,
-        count_messages_tokens, count_request_prompt_tokens, count_tool_schema_tokens,
+        count_conversation_context_tokens, count_conversation_prompt_tokens, count_messages_tokens,
+        count_request_prompt_tokens, count_tool_schema_tokens,
     };
     use crate::conversation_store::{
         AssistantLine, AssistantStatus, ConversationLine, ToolLine, ToolStatus, UserLine,

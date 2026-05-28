@@ -5,7 +5,7 @@ mod native;
 mod registry;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) use catalog::ToolCatalogExecution;
 pub use catalog::{

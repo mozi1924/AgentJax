@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::config::{ModelRequestConfig, ResolvedModelConfig};
 use crate::providers::types::ResponseStreamRequest;
@@ -78,8 +78,8 @@ pub(crate) fn build_streaming_request_payload(
 mod tests {
     use super::build_streaming_request_payload;
     use crate::config::{
-        compile_prompt_composer, ModelRequestConfig, PromptComposerConfig, ProviderConfig,
-        ResolvedModelConfig,
+        ModelRequestConfig, PromptComposerConfig, ProviderConfig, ResolvedModelConfig,
+        compile_prompt_composer,
     };
     use crate::providers::types::ResponseStreamRequest;
 

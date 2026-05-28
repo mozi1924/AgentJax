@@ -16,18 +16,18 @@ pub use chat_types::{
 use crate::config;
 use crate::conversation_store;
 use crate::providers::{build_user_input_item, get_tool_schema_format};
-use crate::tools::{ToolCatalog, ToolCatalogSnapshot};
-use crate::tools::ToolExecutionContext;
 use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
-use chat_events::{emit_mapped_stream_event, next_event_index, ChatStreamEvent};
+use crate::tools::ToolExecutionContext;
+use crate::tools::{ToolCatalog, ToolCatalogSnapshot};
+use chat_events::{ChatStreamEvent, emit_mapped_stream_event, next_event_index};
 use chat_persistence::{persist_assistant_line, persist_tool_progress_event};
 use chat_title::schedule_title_generation;
 use chat_utils::{chrono_like_now_id, now_unix_ms, run_blocking};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::{Emitter, Manager, State};
 use tokio::sync::watch;
 
@@ -224,19 +224,20 @@ async fn load_conversation_prompt_token_count(
 
     match conversation_store::load_context_for_request(conversation_id) {
         Ok(context) => {
-            let archived_context_items = crate::runtime::tool_archiving::archive_unavailable_historical_tool_calls(
-                context.input_items,
-                tool_snapshot.active_tool_names(),
-            );
+            let archived_context_items =
+                crate::runtime::tool_archiving::archive_unavailable_historical_tool_calls(
+                    context.input_items,
+                    tool_snapshot.active_tool_names(),
+                );
             match conversation_store::count_conversation_prompt_tokens(
-            &resolved_model.model_id,
-            Some(&resolved_model.system_prompt),
-            &resolved_model.prompt_assembly.developer_items,
-            recovery_note.as_ref(),
-            &archived_context_items,
-            &[],
-            tool_snapshot.schemas(),
-        ) {
+                &resolved_model.model_id,
+                Some(&resolved_model.system_prompt),
+                &resolved_model.prompt_assembly.developer_items,
+                recovery_note.as_ref(),
+                &archived_context_items,
+                &[],
+                tool_snapshot.schemas(),
+            ) {
                 Ok(usage) => usage.prompt_tokens,
                 Err(err) => {
                     log::warn!(
@@ -248,7 +249,7 @@ async fn load_conversation_prompt_token_count(
                     0
                 }
             }
-        },
+        }
         Err(err) => {
             log::warn!(
                 "Failed to load conversation '{}' for token counting: {}",
@@ -378,10 +379,11 @@ pub async fn chat_stream(
                 &mounted_mcp_servers,
             )
             .await;
-        let archived_context_items = crate::runtime::tool_archiving::archive_unavailable_historical_tool_calls(
-            context.input_items.clone(),
-            initial_snapshot.active_tool_names(),
-        );
+        let archived_context_items =
+            crate::runtime::tool_archiving::archive_unavailable_historical_tool_calls(
+                context.input_items.clone(),
+                initial_snapshot.active_tool_names(),
+            );
         let mut developer_items = resolved_model.prompt_assembly.developer_items.clone();
         developer_items.push(build_temporal_context_developer_item(
             now_unix_ms(),
@@ -457,14 +459,23 @@ pub async fn chat_stream(
                     );
                     // Count tokens for the persisted tool arguments and metadata
                     if let Some(ref mid) = model_id {
-                        if let Ok(arg_tokens) = conversation_store::count_text_tokens(mid, &arguments) {
+                        if let Ok(arg_tokens) =
+                            conversation_store::count_text_tokens(mid, &arguments)
+                        {
                             // Lightweight estimate for name / display_name / description
                             let meta_chars = name.len()
-                                + presentation.as_ref().map(|m| m.display_name.len()).unwrap_or(0)
-                                + presentation.as_ref().map(|m| m.description.len()).unwrap_or(0);
+                                + presentation
+                                    .as_ref()
+                                    .map(|m| m.display_name.len())
+                                    .unwrap_or(0)
+                                + presentation
+                                    .as_ref()
+                                    .map(|m| m.description.len())
+                                    .unwrap_or(0);
                             let meta_tokens = meta_chars.saturating_div(4);
                             stream_count.store(
-                                stream_count.load(Ordering::Relaxed)
+                                stream_count
+                                    .load(Ordering::Relaxed)
                                     .saturating_add(arg_tokens)
                                     .saturating_add(meta_tokens),
                                 Ordering::Relaxed,
@@ -493,7 +504,9 @@ pub async fn chat_stream(
                     if let Some(ref mid) = model_id {
                         if let Ok(additional) = conversation_store::count_text_tokens(mid, output) {
                             stream_count.store(
-                                stream_count.load(Ordering::Relaxed).saturating_add(additional),
+                                stream_count
+                                    .load(Ordering::Relaxed)
+                                    .saturating_add(additional),
                                 Ordering::Relaxed,
                             );
                         }
@@ -514,9 +527,12 @@ pub async fn chat_stream(
                         );
                         // Count tokens for persisted assistant commentary
                         if let Some(ref mid) = model_id {
-                            if let Ok(additional) = conversation_store::count_text_tokens(mid, text) {
+                            if let Ok(additional) = conversation_store::count_text_tokens(mid, text)
+                            {
                                 stream_count.store(
-                                    stream_count.load(Ordering::Relaxed).saturating_add(additional),
+                                    stream_count
+                                        .load(Ordering::Relaxed)
+                                        .saturating_add(additional),
                                     Ordering::Relaxed,
                                 );
                             }
@@ -538,9 +554,12 @@ pub async fn chat_stream(
                         );
                         // Count tokens for persisted final answer text
                         if let Some(ref mid) = model_id {
-                            if let Ok(additional) = conversation_store::count_text_tokens(mid, text) {
+                            if let Ok(additional) = conversation_store::count_text_tokens(mid, text)
+                            {
                                 stream_count.store(
-                                    stream_count.load(Ordering::Relaxed).saturating_add(additional),
+                                    stream_count
+                                        .load(Ordering::Relaxed)
+                                        .saturating_add(additional),
                                     Ordering::Relaxed,
                                 );
                             }
@@ -718,11 +737,11 @@ pub fn cancel_chat_stream(
 #[cfg(test)]
 mod tests {
     use super::{
+        LoadConversationDynamicToolsRequest, RemoveConversationDynamicToolRequest,
+        ReplaceConversationDynamicToolsRequest, UpsertConversationDynamicToolRequest,
         load_conversation_dynamic_tools, remove_conversation_dynamic_tool,
         replace_conversation_dynamic_tools, split_local_client_metadata,
         upsert_conversation_dynamic_tool, validate_conversation_dynamic_tools,
-        LoadConversationDynamicToolsRequest, RemoveConversationDynamicToolRequest,
-        ReplaceConversationDynamicToolsRequest, UpsertConversationDynamicToolRequest,
     };
     use crate::agentjax_home::AGENTJAX_HOME_ENV;
     use crate::config;

@@ -1,5 +1,5 @@
 use crate::providers::types::ProviderPendingToolCall;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub fn normalize_reasoning_levels(levels: &[String]) -> Vec<String> {
     let mut normalized = Vec::new();

@@ -372,7 +372,7 @@ fn now_unix() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{dedup_model_descriptors, ProviderModelDescriptor};
+    use super::{ProviderModelDescriptor, dedup_model_descriptors};
 
     #[test]
     fn dedup_prefers_descriptor_with_more_reasoning_levels() {

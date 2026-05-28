@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tokio::time::sleep;
 use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
+use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
 use crate::config::ResolvedModelConfig;
 use crate::providers::types::{
@@ -14,10 +14,10 @@ use crate::providers::types::{
 };
 
 use super::parser::{
-    collect_output_item_from_sse_event_block, extract_output_items, extract_output_text,
-    handle_stream_event_json, process_sse_event_block, split_sse_event_block, ParserState,
+    ParserState, collect_output_item_from_sse_event_block, extract_output_items,
+    extract_output_text, handle_stream_event_json, process_sse_event_block, split_sse_event_block,
 };
-use super::{payload::build_streaming_request_payload, ResponsesStreamBehavior};
+use super::{ResponsesStreamBehavior, payload::build_streaming_request_payload};
 use crate::providers::responses::http;
 
 fn resolved_stream_idle_timeout(resolved: &ResolvedModelConfig) -> Duration {

@@ -5,7 +5,7 @@ description = "AgentJax is a desktop AI assistant built with React, Vite, and Ta
 authors = ["mozi1924"]
 license = "GPL-3.0-only"
 repository = "https://github.com/mozi1924/AgentJax"
-edition = "2021"
+edition = "2024"
 # Keep this in sync with `src-tauri/rust-toolchain.toml` so local builds and
 # CI agree on the minimum supported compiler for the desktop runtime.
 rust-version = "1.95.0"
