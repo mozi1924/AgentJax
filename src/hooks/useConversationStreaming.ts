@@ -10,6 +10,7 @@ import {
   applyConversationTitleUpdate,
   applyToolDelta,
   applyToolExecution,
+  applyToolProgress,
   normalizeAssistantPhase,
 } from '../features/conversations/sessionState';
 import { tryGetCurrentWindow } from '../features/tauri/runtime';
@@ -288,7 +289,10 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
                 payload.toolOutput,
                 payload.toolDisplayName,
                 payload.toolDescription,
-                payload.toolIcon
+                payload.toolIcon,
+                payload.toolStatus,
+                payload.toolStartedTs,
+                payload.toolCompletedTs
               );
               return typeof payload.contextTokenCount === 'number'
                 ? updated.map((conv) =>
@@ -298,6 +302,20 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
                   )
                 : updated;
             });
+            return;
+          }
+
+          if (payload.kind === 'tool_call_progress') {
+            setConversations((prev) =>
+              applyToolProgress(
+                prev,
+                mapping.conversationId,
+                payload.toolCallId,
+                payload.toolDisplayName,
+                payload.toolDescription,
+                payload.toolIcon
+              )
+            );
             return;
           }
 

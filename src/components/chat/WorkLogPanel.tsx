@@ -79,6 +79,17 @@ const resolveToolAccent = (toolLine: ToolLine) => {
   };
 };
 
+const getToolDurationLabel = (toolLine: ToolLine) => {
+  if (!toolLine.startedTs || !toolLine.completedTs) {
+    return '';
+  }
+  const durationMs = Math.max(0, toolLine.completedTs - toolLine.startedTs);
+  if (durationMs < 1000) {
+    return `${durationMs}ms`;
+  }
+  return formatTurnDuration(durationMs);
+};
+
 const getLocalizedSummaryLabel = (
   summary: { kind: 'search' | 'edit' | 'tool' | 'update'; count: number; label: string },
   t: (key: string, replacements?: Record<string, string>) => string
@@ -249,6 +260,7 @@ export default function WorkLogPanel({
                     : toolLine.status === 'failed'
                       ? t('chat.work_items.failed')
                       : t('chat.work_items.running');
+                const toolDurationLabel = getToolDurationLabel(toolLine);
 
                 return (
                   <div key={toolLine.id || `${toolLine.callId}-${index}`} className="relative pl-8 pb-3.5">
@@ -294,7 +306,10 @@ export default function WorkLogPanel({
                             : toolLine.status === 'failed'
                               ? 'text-rose-400/80'
                               : 'text-indigo-400/80'
-                        }`}>{statusLabel}</span>
+                        }`}>
+                          {statusLabel}
+                          {toolDurationLabel ? ` · ${toolDurationLabel}` : ''}
+                        </span>
                         <ChevronDown
                           className={`h-3.5 w-3.5 text-slate-500 transition-transform duration-250 ${
                             expanded ? 'rotate-180' : ''

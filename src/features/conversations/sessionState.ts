@@ -29,6 +29,25 @@ const parsePossiblyJson = (value: string | undefined): unknown => {
   }
 };
 
+const inferToolStatus = (
+  toolOutput: string | undefined,
+  explicitStatus?: 'pending' | 'done' | 'failed'
+): ToolLine['status'] => {
+  if (explicitStatus) {
+    return explicitStatus;
+  }
+
+  const parsed = parsePossiblyJson(toolOutput);
+  if (parsed && typeof parsed === 'object') {
+    const record = parsed as Record<string, unknown>;
+    if (record.ok === false || record.error) {
+      return 'failed';
+    }
+  }
+
+  return 'done';
+};
+
 export const parseAdvancedRequestOptions = (raw: string): ChatRequestOptions => {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -356,6 +375,8 @@ export const appendPendingToolCall = (
         kind: 'tool' as const,
         id: `tool-${requestId}-${toolCallId || ''}`,
         ts: Date.now(),
+        startedTs: Date.now(),
+        completedTs: null,
         requestId,
         callId: toolCallId || '',
         name: toolName || '',
@@ -375,6 +396,39 @@ export const applyToolExecution = (
   toolOutput?: string,
   toolDisplayName?: string,
   toolDescription?: string,
+  toolIcon?: string,
+  toolStatus?: 'pending' | 'done' | 'failed',
+  toolStartedTs?: number,
+  toolCompletedTs?: number
+): Conversation[] =>
+  updateConversation(conversations, conversationId, (conversation) => {
+    const completedTs = toolCompletedTs || Date.now();
+    const lines = conversation.lines.map((line) => {
+      if (line.kind === 'tool' && (line as ToolLine).callId === toolCallId) {
+        const toolLine = line as ToolLine;
+        return {
+          ...toolLine,
+          ts: completedTs,
+          startedTs: toolStartedTs || toolLine.startedTs || toolLine.ts,
+          completedTs,
+          displayName: toolDisplayName || toolLine.displayName || null,
+          description: toolDescription || toolLine.description || null,
+          icon: toolIcon || toolLine.icon || null,
+          output: parsePossiblyJson(toolOutput),
+          status: inferToolStatus(toolOutput, toolStatus),
+        } satisfies ToolLine;
+      }
+      return line;
+    });
+    return { ...conversation, lines };
+  });
+
+export const applyToolProgress = (
+  conversations: Conversation[],
+  conversationId: string,
+  toolCallId?: string,
+  toolDisplayName?: string,
+  toolDescription?: string,
   toolIcon?: string
 ): Conversation[] =>
   updateConversation(conversations, conversationId, (conversation) => {
@@ -386,8 +440,7 @@ export const applyToolExecution = (
           displayName: toolDisplayName || toolLine.displayName || null,
           description: toolDescription || toolLine.description || null,
           icon: toolIcon || toolLine.icon || null,
-          output: parsePossiblyJson(toolOutput),
-          status: 'done' as const,
+          status: 'pending' as const,
         } satisfies ToolLine;
       }
       return line;

@@ -488,6 +488,7 @@ pub async fn chat_stream(
                     name,
                     output,
                     presentation,
+                    ..
                 } => {
                     let _ = persist_tool_progress_event(
                         &callback_conversation_id,
@@ -628,6 +629,10 @@ pub async fn chat_stream(
                 tool_icon: None,
                 tool_arguments: None,
                 tool_output: None,
+                tool_status: None,
+                tool_started_ts: None,
+                tool_completed_ts: None,
+                tool_duration_ms: None,
                 phase: None,
             },
         )

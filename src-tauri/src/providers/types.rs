@@ -46,10 +46,20 @@ pub enum ProviderStreamEvent {
         arguments: String,
         presentation: Option<ToolPresentation>,
     },
+    ToolCallProgress {
+        call_id: String,
+        name: String,
+        elapsed_ms: u64,
+        presentation: Option<ToolPresentation>,
+    },
     ToolCallExecuted {
         call_id: String,
         name: String,
         output: String,
+        is_success: bool,
+        started_at_unix_ms: i64,
+        completed_at_unix_ms: i64,
+        duration_ms: u64,
         presentation: Option<ToolPresentation>,
     },
     /// Emitted when the provider finishes an assistant message item.

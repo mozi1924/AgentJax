@@ -20,6 +20,10 @@ pub struct ChatStreamEvent {
     pub tool_icon: Option<String>,
     pub tool_arguments: Option<String>,
     pub tool_output: Option<String>,
+    pub tool_status: Option<String>,
+    pub tool_started_ts: Option<i64>,
+    pub tool_completed_ts: Option<i64>,
+    pub tool_duration_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_token_count: Option<usize>,
     /// When `kind == "delta"`, signals whether this text belongs to the
@@ -57,6 +61,10 @@ pub fn emit_mapped_stream_event(
         tool_icon: None,
         tool_arguments: None,
         tool_output: None,
+        tool_status: None,
+        tool_started_ts: None,
+        tool_completed_ts: None,
+        tool_duration_ms: None,
         context_token_count: None,
         phase: None,
     };
@@ -122,16 +130,45 @@ pub fn emit_mapped_stream_event(
                 chat_event.tool_icon = presentation.icon;
             }
         }
+        ProviderStreamEvent::ToolCallProgress {
+            call_id,
+            name,
+            elapsed_ms,
+            presentation,
+        } => {
+            chat_event.kind = "tool_call_progress".to_string();
+            chat_event.tool_call_id = Some(call_id);
+            chat_event.tool_name = Some(name);
+            chat_event.tool_status = Some("pending".to_string());
+            chat_event.tool_duration_ms = Some(elapsed_ms);
+            if let Some(presentation) = presentation {
+                if !presentation.display_name.trim().is_empty() {
+                    chat_event.tool_display_name = Some(presentation.display_name);
+                }
+                if !presentation.description.trim().is_empty() {
+                    chat_event.tool_description = Some(presentation.description);
+                }
+                chat_event.tool_icon = presentation.icon;
+            }
+        }
         ProviderStreamEvent::ToolCallExecuted {
             call_id,
             name,
             output,
+            is_success,
+            started_at_unix_ms,
+            completed_at_unix_ms,
+            duration_ms,
             presentation,
         } => {
             chat_event.kind = "tool_call_exec".to_string();
             chat_event.tool_call_id = Some(call_id);
             chat_event.tool_name = Some(name);
             chat_event.tool_output = Some(output);
+            chat_event.tool_status = Some(if is_success { "done" } else { "failed" }.to_string());
+            chat_event.tool_started_ts = Some(started_at_unix_ms);
+            chat_event.tool_completed_ts = Some(completed_at_unix_ms);
+            chat_event.tool_duration_ms = Some(duration_ms);
             if let Some(presentation) = presentation {
                 if !presentation.display_name.trim().is_empty() {
                     chat_event.tool_display_name = Some(presentation.display_name);

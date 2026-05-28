@@ -198,6 +198,17 @@ fn enrich_tool_stream_event(
             name,
             arguments,
         },
+        ProviderStreamEvent::ToolCallProgress {
+            call_id,
+            name,
+            elapsed_ms,
+            presentation,
+        } => ProviderStreamEvent::ToolCallProgress {
+            presentation: enrich_tool_presentation(presentation, snapshot, &name),
+            call_id,
+            name,
+            elapsed_ms,
+        },
         other => other,
     }
 }

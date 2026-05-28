@@ -9,10 +9,11 @@ use crate::tools::{
 use futures_util::stream::{self, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
 const MAX_PARALLEL_TOOL_EXECUTIONS: usize = 4;
+const TOOL_PROGRESS_HEARTBEAT_SECS: u64 = 5;
 
 pub(super) struct ExecutedToolBatch {
     pub tool_results_items: Vec<Value>,
@@ -43,6 +44,11 @@ struct PreparedToolExecution {
     signature: String,
     repeated_fail_count: usize,
     is_repeated_failure_guarded: bool,
+}
+
+struct ActiveToolExecution {
+    name: String,
+    started_at: Instant,
 }
 
 pub(super) async fn execute_pending_tools<F>(
@@ -107,6 +113,19 @@ where
                 repeated_fail_count,
                 is_repeated_failure_guarded,
             }
+        })
+        .collect();
+
+    let mut active_tools: HashMap<String, ActiveToolExecution> = prepared_tools
+        .iter()
+        .map(|pending| {
+            (
+                pending.call_id.clone(),
+                ActiveToolExecution {
+                    name: pending.name.clone(),
+                    started_at: Instant::now(),
+                },
+            )
         })
         .collect();
 
@@ -224,11 +243,53 @@ where
         }
     });
 
-    let mut executed_records: Vec<ExecutedToolRecord> = execution_stream
+    let execution_stream = execution_stream
         .buffer_unordered(parallelism)
-        .filter_map(async move |record| record)
-        .collect()
-        .await;
+        .filter_map(async move |record| record);
+    futures_util::pin_mut!(execution_stream);
+
+    // Emit lightweight heartbeats while tools are still running. This keeps the
+    // session/UI lifecycle explicit for long MCP calls without changing the
+    // provider continuation contract: the model still receives results only
+    // after the local tool batch has produced them.
+    let mut progress_interval =
+        tokio::time::interval(Duration::from_secs(TOOL_PROGRESS_HEARTBEAT_SECS));
+    progress_interval.tick().await;
+
+    let mut executed_records: Vec<ExecutedToolRecord> = Vec::new();
+    while !active_tools.is_empty() {
+        tokio::select! {
+            maybe_record = execution_stream.next() => {
+                let Some(record) = maybe_record else {
+                    break;
+                };
+                active_tools.remove(&record.call_id);
+
+                on_event(ProviderStreamEvent::ToolCallExecuted {
+                    call_id: record.call_id.clone(),
+                    name: record.name.clone(),
+                    output: record.output_str.clone(),
+                    is_success: record.is_success,
+                    started_at_unix_ms: record.started_at_unix_ms,
+                    completed_at_unix_ms: record.completed_at_unix_ms,
+                    duration_ms: record.duration_ms,
+                    presentation: tool_snapshot.presentation_for(&record.name).cloned(),
+                })?;
+                executed_records.push(record);
+            }
+            _ = progress_interval.tick() => {
+                for (call_id, active) in &active_tools {
+                    on_event(ProviderStreamEvent::ToolCallProgress {
+                        call_id: call_id.clone(),
+                        name: active.name.clone(),
+                        elapsed_ms: active.started_at.elapsed().as_millis() as u64,
+                        presentation: tool_snapshot.presentation_for(&active.name).cloned(),
+                    })?;
+                }
+            }
+        }
+    }
+
     executed_records.sort_by_key(|record| record.index);
 
     for record in executed_records {
@@ -245,13 +306,6 @@ where
             state_changes: record_state_changes,
             ..
         } = record;
-
-        on_event(ProviderStreamEvent::ToolCallExecuted {
-            call_id: call_id.clone(),
-            name: name.clone(),
-            output: output_str.clone(),
-            presentation: tool_snapshot.presentation_for(&name).cloned(),
-        })?;
 
         let output_val: Value =
             serde_json::from_str(&output_str).unwrap_or_else(|_| Value::String(output_str.clone()));

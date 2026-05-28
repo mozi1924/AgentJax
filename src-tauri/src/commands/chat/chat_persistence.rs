@@ -11,7 +11,19 @@ use serde_json::Value;
 /// - `event_kind == "tool_call_done"` → append a `ToolLine` with
 ///   `status: Pending` (no output yet).
 /// - `event_kind == "tool_call_exec"` → update the matching `ToolLine`
-///   with the output and set `status: Done`.
+///   with the output and set a terminal success/failure status.
+
+fn is_successful_tool_output(output: &Value) -> bool {
+    match output {
+        Value::Object(map) => {
+            if map.get("ok").and_then(Value::as_bool) == Some(false) {
+                return false;
+            }
+            !map.contains_key("error")
+        }
+        _ => true,
+    }
+}
 
 pub fn persist_tool_progress_event(
     conversation_id: &str,
@@ -64,6 +76,11 @@ pub fn persist_tool_progress_event(
             let output: Value = payload
                 .and_then(|p| serde_json::from_str(p).ok())
                 .unwrap_or(Value::Null);
+            let status = if is_successful_tool_output(&output) {
+                ToolStatus::Done
+            } else {
+                ToolStatus::Failed
+            };
 
             conversation_store::update_line(conversation_store::UpdateLineInput {
                 conversation_id: conversation_id.to_string(),
@@ -85,7 +102,7 @@ pub fn persist_tool_progress_event(
                     icon: tool_icon.map(str::to_string),
                     args: Value::Null, // preserved from the Pending entry; not overwritten
                     output: Some(output),
-                    status: ToolStatus::Done,
+                    status,
                 }),
             })
         }

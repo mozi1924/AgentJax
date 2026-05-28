@@ -152,6 +152,10 @@ export interface ChatStreamEventPayload {
   toolIcon?: string;
   toolArguments?: string;
   toolOutput?: string;
+  toolStatus?: 'pending' | 'done' | 'failed';
+  toolStartedTs?: number;
+  toolCompletedTs?: number;
+  toolDurationMs?: number;
   contextTokenCount?: number;
   /** Phase hint for assistant text events. */
   phase?: AssistantPhase | null;
