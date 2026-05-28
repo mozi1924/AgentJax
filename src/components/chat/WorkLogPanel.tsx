@@ -21,6 +21,7 @@ interface WorkLogPanelProps {
   isOpen: boolean;
   onToggle: () => void;
   turn: ConversationTurn;
+  isWorking?: boolean;
 }
 
 const formatToolOutput = (val: unknown): string => {
@@ -95,6 +96,7 @@ export default function WorkLogPanel({
   isOpen,
   onToggle,
   turn,
+  isWorking,
 }: WorkLogPanelProps) {
   const { t } = useI18n();
   const [copiedToolId, setCopiedToolId] = useState<string | null>(null);
@@ -103,8 +105,10 @@ export default function WorkLogPanel({
   // ── Live timer tick for in-progress turns ──────────────────────────────
   const [liveElapsedMs, setLiveElapsedMs] = useState(0);
 
+  const shouldTick = isWorking || (turn.hasDraft && turn.finalLines.length === 0);
+
   useEffect(() => {
-    if (!turn.hasDraft) {
+    if (!shouldTick) {
       setLiveElapsedMs(0);
       return;
     }
@@ -114,9 +118,9 @@ export default function WorkLogPanel({
     tick(); // immediate first tick
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
-  }, [turn.hasDraft, turn.startedAt]);
+  }, [shouldTick, turn.startedAt]);
 
-  const durationLabel = turn.hasDraft
+  const durationLabel = shouldTick
     ? formatTurnDuration(liveElapsedMs)
     : formatTurnDuration(getTurnDurationMs(turn));
 

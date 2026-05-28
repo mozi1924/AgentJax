@@ -8,6 +8,7 @@ import {
   joinAssistantTexts,
   shouldCollapseTurnWorkLog,
 } from './chat/transcriptGrouping';
+import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
 import type {
   AssistantLine,
   ConversationLine,
@@ -52,7 +53,8 @@ export default function ChatArea({
   const isThinkingRef = useRef(isThinking);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [manualWorkLogState, setManualWorkLogState] = useState<Record<string, boolean>>({});
-  const formattedContextTokenCount = new Intl.NumberFormat().format(contextTokenCount || 0);
+  const animatedTokenCount = useAnimatedNumber(contextTokenCount, 400);
+  const formattedContextTokenCount = new Intl.NumberFormat().format(animatedTokenCount || 0);
 
   const handleScroll = () => {
     const container = containerRef.current;
@@ -138,11 +140,14 @@ export default function ChatArea({
           )}
         </div>
 
-        {turns.map((turn) => {
+        {turns.map((turn, index) => {
           const joinedFinalText = joinAssistantTexts(turn.finalLines);
           const defaultWorkLogOpen = !shouldCollapseTurnWorkLog(turn);
           const isWorkLogOpen =
             manualWorkLogState[turn.requestId] ?? defaultWorkLogOpen;
+
+          const isLastTurn = index === turns.length - 1;
+          const isWorking = isLastTurn && (isGenerating || isThinking) && turn.finalLines.length === 0;
 
           return (
             <section key={turn.requestId} className="space-y-3">
@@ -155,6 +160,7 @@ export default function ChatArea({
                   isOpen={isWorkLogOpen}
                   onToggle={() => toggleWorkLog(turn.requestId, !isWorkLogOpen)}
                   turn={turn}
+                  isWorking={isWorking}
                 />
               )}
 
