@@ -34,6 +34,7 @@ tokio = { version = "1", features = ["macros", "rt", "sync"] }
 tauri = { version = "2.11.2", features = ["devtools"] }
 tauri-plugin-log = "2"
 uuid = { version = "1", features = ["v4"] }
+deno_core = "0.402.0"
 rmcp = { version = "1.7.0", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
 notify = "8.2.0"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }

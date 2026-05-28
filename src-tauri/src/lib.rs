@@ -8,6 +8,7 @@ mod conversation_store_utils;
 pub mod mcp;
 mod message_phase;
 mod models;
+pub mod plugin_runtime;
 mod providers;
 pub mod runtime;
 mod time_context;
