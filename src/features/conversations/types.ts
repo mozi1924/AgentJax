@@ -50,6 +50,7 @@ export interface Conversation {
   lines: ConversationLine[];
   lastMessagePreview: string;
   messageCount: number;
+  contextTokenCount: number;
   isLoaded: boolean;
 }
 
@@ -68,6 +69,7 @@ export interface ConversationDetail {
   title?: string;
   titleSource?: ConversationTitleSource;
   lines: ConversationLine[];
+  contextTokenCount?: number;
 }
 
 // ── Legacy (kept for compat during migration) ─────────────────────────────
@@ -123,6 +125,7 @@ export interface ChatStreamResponse {
   outputText?: string;
   responseId?: string | null;
   conversationTitle?: string;
+  contextTokenCount?: number;
 }
 
 export interface ChatRequestOptions {
@@ -149,6 +152,7 @@ export interface ChatStreamEventPayload {
   toolIcon?: string;
   toolArguments?: string;
   toolOutput?: string;
+  contextTokenCount?: number;
   /** Phase hint for assistant text events. */
   phase?: AssistantPhase | null;
 }

@@ -12,7 +12,11 @@ mod tests;
 
 use std::path::PathBuf;
 
-pub use context::load_context_for_request;
+#[allow(unused_imports)]
+pub use context::{
+    count_conversation_context_tokens, count_messages_tokens, count_request_prompt_tokens,
+    count_tool_schema_tokens, load_context_for_request, ConversationTokenUsage,
+};
 pub use mutations::{
     append_line, delete_conversation, ensure_conversation, remove_conversation_dynamic_tool,
     rename_conversation, update_auto_title, update_conversation_dynamic_tools,

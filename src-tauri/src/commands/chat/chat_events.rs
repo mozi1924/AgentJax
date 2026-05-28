@@ -20,6 +20,8 @@ pub struct ChatStreamEvent {
     pub tool_icon: Option<String>,
     pub tool_arguments: Option<String>,
     pub tool_output: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_token_count: Option<usize>,
     /// When `kind == "delta"`, signals whether this text belongs to the
     /// commentary phase or the final answer.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -54,6 +56,7 @@ pub fn emit_mapped_stream_event(
         tool_icon: None,
         tool_arguments: None,
         tool_output: None,
+        context_token_count: None,
         phase: None,
     };
 

@@ -19,7 +19,11 @@ import {
   rebuildConversationListAfterDeletion,
 } from '../features/conversations/sessionState';
 
-export function useConversationRegistry() {
+interface UseConversationRegistryOptions {
+  selectedModelId: string;
+}
+
+export function useConversationRegistry({ selectedModelId }: UseConversationRegistryOptions) {
   const initialConversation = useMemo(() => createLocalConversation(), []);
   const [conversations, setConversations] = useState<Conversation[]>(() => [initialConversation]);
   const [conversationToDelete, setConversationToDelete] = useState<Conversation | null>(null);
@@ -79,7 +83,7 @@ export function useConversationRegistry() {
 
     let disposed = false;
     invoke<ConversationDetail>('load_conversation', {
-      req: { conversationId: selectedConversation.conversationId },
+      req: { conversationId: selectedConversation.conversationId, model: selectedModelId },
     })
       .then((detail) => {
         if (disposed || !detail) return;
@@ -101,7 +105,7 @@ export function useConversationRegistry() {
     return () => {
       disposed = true;
     };
-  }, [activeConversationId, conversations]);
+  }, [activeConversationId, conversations, selectedModelId]);
 
   const createNewChat = useCallback(() => {
     if (activeConversation && isConversationEmpty(activeConversation)) {

@@ -50,6 +50,7 @@ pub fn load_conversation(conversation_id: &str) -> Result<Option<ConversationDet
             title: data.meta.title.clone(),
             title_source: data.meta.title_source.clone(),
             lines: data.lines,
+            context_token_count: 0,
         }))
     })
 }

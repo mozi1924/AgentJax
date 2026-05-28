@@ -127,6 +127,7 @@ async fn generate_title_and_emit(
                     tool_icon: None,
                     tool_arguments: None,
                     tool_output: None,
+                    context_token_count: None,
                     phase: None,
                 },
             )

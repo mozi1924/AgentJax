@@ -240,6 +240,7 @@ export const applyLoadedConversationDetail = (
       titleSource: detail.titleSource || conversation.titleSource,
       lastMessagePreview,
       messageCount: countVisibleMessages(hydratedLines),
+      contextTokenCount: detail.contextTokenCount ?? conversation.contextTokenCount,
       isLoaded: true,
       lines: hydratedLines,
     };
@@ -423,7 +424,8 @@ export const applyCompletedRequest = (
   requestId: string,
   responseId?: string | null,
   finalDelta?: string,
-  conversationTitle?: string
+  conversationTitle?: string,
+  contextTokenCount?: number
 ): Conversation[] =>
   updateConversation(conversations, conversationId, (conversation) => {
     const lines = conversation.lines.map((line) => {
@@ -471,6 +473,10 @@ export const applyCompletedRequest = (
         lines: finalLines,
         lastMessagePreview: finalText || conversation.lastMessagePreview,
         messageCount: countVisibleMessages(finalLines),
+        contextTokenCount:
+          typeof contextTokenCount === 'number'
+            ? contextTokenCount
+            : conversation.contextTokenCount,
         isLoaded: true,
       },
       conversationTitle
@@ -519,7 +525,8 @@ export const applySendResponse = (
   outputText: string,
   responseId?: string | null,
   conversationTitle?: string,
-  wasStopped?: boolean
+  wasStopped?: boolean,
+  contextTokenCount?: number
 ): Conversation[] =>
   updateConversation(conversations, conversationId, (conversation) => {
     const lines = finalizeLingeringAssistantDrafts(
@@ -536,6 +543,10 @@ export const applySendResponse = (
         lines,
         lastMessagePreview: outputText || conversation.lastMessagePreview,
         messageCount: countVisibleMessages(lines),
+        contextTokenCount:
+          typeof contextTokenCount === 'number'
+            ? contextTokenCount
+            : conversation.contextTokenCount,
         isLoaded: true,
       },
       conversationTitle

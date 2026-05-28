@@ -291,7 +291,8 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
                 requestId || '',
                 payload.responseId,
                 payload.delta,
-                payload.conversationTitle
+                payload.conversationTitle,
+                payload.contextTokenCount
               )
             );
           }

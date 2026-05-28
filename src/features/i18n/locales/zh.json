@@ -22,6 +22,7 @@
   "chat.copy": "复制",
   "chat.arguments": "参数",
   "chat.output": "输出",
+  "chat.context_tokens": "Tokens",
   "chat.work_items.completed": "已完成",
   "chat.work_items.failed": "失败",
   "chat.work_items.running": "正在运行",

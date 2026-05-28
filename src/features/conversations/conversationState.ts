@@ -14,6 +14,7 @@ export const restoreConversationPreview = (
   lines: [],
   lastMessagePreview: conversation.lastMessagePreview || '',
   messageCount: conversation.messageCount || 0,
+  contextTokenCount: 0,
   isLoaded: false,
 });
 

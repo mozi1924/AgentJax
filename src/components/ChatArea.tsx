@@ -20,6 +20,7 @@ interface ChatAreaProps {
   isGenerating: boolean;
   isThinking: boolean;
   activeChatTitle: string;
+  contextTokenCount: number;
 }
 
 const createAssistantTextClassName = (isCommentary: boolean) =>
@@ -42,6 +43,7 @@ export default function ChatArea({
   isGenerating,
   isThinking,
   activeChatTitle,
+  contextTokenCount,
 }: ChatAreaProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -50,6 +52,7 @@ export default function ChatArea({
   const isThinkingRef = useRef(isThinking);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [manualWorkLogState, setManualWorkLogState] = useState<Record<string, boolean>>({});
+  const formattedContextTokenCount = new Intl.NumberFormat().format(contextTokenCount || 0);
 
   const handleScroll = () => {
     const container = containerRef.current;
@@ -122,9 +125,17 @@ export default function ChatArea({
       className="scrollbar-thin flex flex-1 flex-col overflow-y-auto px-4 py-6 md:px-8 lg:px-12"
     >
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 py-4">
-        <div className="mb-1 flex items-center gap-2 border-b border-white/6 pb-3 text-xs font-semibold tracking-[0.18em] text-slate-500 uppercase">
+        <div className="mb-1 flex flex-wrap items-center gap-2 border-b border-white/6 pb-3 text-xs font-semibold tracking-[0.18em] text-slate-500 uppercase">
           <MessageSquare className="h-4 w-4 text-slate-400" />
-          <span>{activeChatTitle}</span>
+          <span className="min-w-0 max-w-full truncate">{activeChatTitle}</span>
+          {(contextTokenCount > 0 || lines.length > 0) && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium tracking-[0.06em] text-emerald-200 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]">
+              <span className="font-mono tabular-nums text-emerald-100">
+                {formattedContextTokenCount}
+              </span>
+              <span>{t('chat.context_tokens')}</span>
+            </span>
+          )}
         </div>
 
         {turns.map((turn) => {

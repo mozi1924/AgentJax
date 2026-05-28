@@ -159,6 +159,7 @@ export default function App() {
                 isGenerating={activeConversationIsGenerating}
                 isThinking={activeConversationIsThinking}
                 activeChatTitle={activeChatTitle}
+                contextTokenCount={activeConversation?.contextTokenCount || 0}
               />
             </div>
           </div>

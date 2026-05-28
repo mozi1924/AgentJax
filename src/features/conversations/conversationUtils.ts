@@ -23,6 +23,7 @@ export function createLocalConversation(
     lines: [],
     lastMessagePreview: '',
     messageCount: 0,
+    contextTokenCount: 0,
     isLoaded: true,
   };
 }

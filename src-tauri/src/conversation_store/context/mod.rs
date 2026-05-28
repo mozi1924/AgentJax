@@ -9,6 +9,7 @@ mod policy;
 mod sanitizer;
 mod truncation;
 mod types;
+mod token_usage;
 
 #[cfg(test)]
 mod tests;
@@ -22,6 +23,10 @@ use sanitizer::sanitize_tool_call_pairs;
 use truncation::truncate_context_items_preserving_tool_pairs;
 
 pub use types::ConversationContext;
+pub use token_usage::{
+    count_conversation_context_tokens, count_messages_tokens, count_request_prompt_tokens,
+    count_tool_schema_tokens, ConversationTokenUsage,
+};
 
 /// Load a conversation snapshot and convert it into model-ready input items.
 ///

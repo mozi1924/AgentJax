@@ -27,6 +27,7 @@ pub struct CancelChatRequest {
 #[serde(rename_all = "camelCase")]
 pub struct LoadConversationRequest {
     pub conversation_id: String,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,4 +77,5 @@ pub struct ChatResponse {
     pub output_text: String,
     pub conversation_id: String,
     pub conversation_title: Option<String>,
+    pub context_token_count: usize,
 }

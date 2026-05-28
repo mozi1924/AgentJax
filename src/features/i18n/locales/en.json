@@ -22,6 +22,7 @@
   "chat.copy": "Copy",
   "chat.arguments": "Arguments",
   "chat.output": "Output",
+  "chat.context_tokens": "Tokens",
   "chat.work_items.completed": "Completed",
   "chat.work_items.failed": "Failed",
   "chat.work_items.running": "Running",

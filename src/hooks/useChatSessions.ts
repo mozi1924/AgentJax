@@ -61,7 +61,9 @@ export function useChatSessions({
     setActiveConversationId,
     setConversations,
     sidebarConversations,
-  } = useConversationRegistry();
+  } = useConversationRegistry({
+    selectedModelId: selectedModelOption?.modelId || selectedModel,
+  });
 
   const {
     beginConversationRequest,
@@ -158,7 +160,8 @@ export function useChatSessions({
             response.outputText || '',
             response.responseId,
             response.conversationTitle,
-            wasRequestStopped(requestId)
+            wasRequestStopped(requestId),
+            response.contextTokenCount
           )
         );
       } catch (error: unknown) {

@@ -135,6 +135,62 @@ fn validate_conversation_dynamic_tools(
     Ok(())
 }
 
+fn resolved_token_count_model_id(model: Option<&str>) -> String {
+    let cfg = match config::load_config() {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            log::warn!("Failed to load config for token counting model resolution: {}", err);
+            return "gpt-5-mini".to_string();
+        }
+    };
+
+    match cfg.resolve_model_profile(model) {
+        Ok(resolved) => resolved.model_id,
+        Err(err) => {
+            log::warn!(
+                "Failed to resolve token counting model from {:?}: {}",
+                model,
+                err
+            );
+            cfg.resolve_model_profile(None)
+                .map(|resolved| resolved.model_id)
+                .unwrap_or_else(|_| "gpt-5-mini".to_string())
+        }
+    }
+}
+
+fn load_conversation_context_token_count(
+    conversation_id: &str,
+    model: Option<&str>,
+) -> usize {
+    let model = resolved_token_count_model_id(model);
+    match conversation_store::load_conversation(conversation_id) {
+        Ok(Some(detail)) => {
+            match conversation_store::count_conversation_context_tokens(&model, &detail.lines) {
+                Ok(usage) => usage.context_tokens,
+                Err(err) => {
+                    log::warn!(
+                        "Failed to count context tokens for conversation '{}' with model '{}': {}",
+                        conversation_id,
+                        model,
+                        err
+                    );
+                    0
+                }
+            }
+        }
+        Ok(None) => 0,
+        Err(err) => {
+            log::warn!(
+                "Failed to load conversation '{}' for token counting: {}",
+                conversation_id,
+                err
+            );
+            0
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn chat_stream(
     window: tauri::Window,
@@ -330,6 +386,8 @@ pub async fn chat_stream(
 
     let _ = registry.remove_chat_request(&request_id)?;
     let (response, _timeline_events) = result?;
+    let context_token_count =
+        load_conversation_context_token_count(&conversation_id, req.model.as_deref());
 
     log::info!(
         "chat_stream turn complete: conv={} req={} text_len={} resp_id={} output_items={}",
@@ -366,6 +424,7 @@ pub async fn chat_stream(
                 response_id: Some(response.response_id.clone()),
                 conversation_id: Some(conversation_id.clone()),
                 conversation_title: conversation_title.clone(),
+                context_token_count: Some(context_token_count),
                 error: None,
                 tool_call_id: None,
                 tool_name: None,
@@ -384,6 +443,7 @@ pub async fn chat_stream(
         output_text: response.output_text,
         conversation_id,
         conversation_title,
+        context_token_count,
     })
 }
 
@@ -396,7 +456,24 @@ pub fn list_conversations() -> Result<Vec<conversation_store::ConversationSummar
 pub fn load_conversation(
     req: LoadConversationRequest,
 ) -> Result<Option<conversation_store::ConversationDetail>, String> {
-    conversation_store::load_conversation(&req.conversation_id)
+    let conversation_id = req.conversation_id.clone();
+    let mut detail = conversation_store::load_conversation(&req.conversation_id)?;
+    if let Some(detail_ref) = detail.as_mut() {
+        let model = resolved_token_count_model_id(req.model.as_deref());
+        detail_ref.context_token_count =
+            conversation_store::count_conversation_context_tokens(&model, &detail_ref.lines)
+                .map(|usage| usage.context_tokens)
+                .unwrap_or_else(|err| {
+                    log::warn!(
+                        "Failed to count context tokens for conversation '{}' with model '{}': {}",
+                        conversation_id,
+                        model,
+                        err
+                    );
+                    0
+                });
+    }
+    Ok(detail)
 }
 
 #[tauri::command]

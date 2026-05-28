@@ -307,6 +307,8 @@ pub struct ConversationDetail {
     pub title: String,
     pub title_source: String,
     pub lines: Vec<ConversationLine>,
+    #[serde(default)]
+    pub context_token_count: usize,
 }
 
 #[derive(Debug, Clone)]
