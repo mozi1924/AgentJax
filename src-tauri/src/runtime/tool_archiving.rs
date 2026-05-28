@@ -61,7 +61,7 @@ fn build_archived_tool_note(
     })
 }
 
-pub(super) fn archive_unavailable_historical_tool_calls(
+pub(crate) fn archive_unavailable_historical_tool_calls(
     input_items: Vec<Value>,
     active_tool_names: &HashSet<String>,
 ) -> Vec<Value> {

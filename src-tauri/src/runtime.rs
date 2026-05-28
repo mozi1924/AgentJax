@@ -1,6 +1,6 @@
 mod engine;
 mod stream_collection;
-mod tool_archiving;
+pub(crate) mod tool_archiving;
 mod tool_execution;
 mod tool_parsing;
 

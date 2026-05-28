@@ -85,27 +85,23 @@ pub fn count_conversation_prompt_tokens(
     instructions_text: Option<&str>,
     developer_items: &[Value],
     recovery_note: Option<&Value>,
-    lines: &[ConversationLine],
+    context_items: &[Value],
+    extra_input_items: &[Value],
     tools: &[Value],
 ) -> Result<ConversationTokenUsage, String> {
     let mut items = Vec::with_capacity(
         developer_items
             .len()
             .saturating_add(recovery_note.map(|_| 1).unwrap_or(0))
-            .saturating_add(lines.len()),
+            .saturating_add(context_items.len())
+            .saturating_add(extra_input_items.len()),
     );
     items.extend(developer_items.iter().cloned());
     if let Some(recovery_note) = recovery_note {
         items.push(recovery_note.clone());
     }
-
-    let mut history_items = build_context_items(lines);
-    history_items = sanitize_tool_call_pairs(history_items);
-    history_items = truncate_context_items_preserving_tool_pairs(
-        history_items,
-        MAX_CONTEXT_ITEMS_PER_REQUEST,
-    );
-    items.extend(history_items);
+    items.extend(context_items.iter().cloned());
+    items.extend(extra_input_items.iter().cloned());
 
     count_request_prompt_tokens(model, instructions_text, &items, tools)
 }
@@ -454,11 +450,12 @@ mod tests {
                 "text": "Always answer in Chinese."
             }]
         })];
-        let lines = vec![ConversationLine::User(UserLine {
-            id: "u1".to_string(),
-            ts: 1,
-            request_id: "req-1".to_string(),
-            text: "hello".to_string(),
+        let context_items = vec![json!({
+            "role": "user",
+            "content": [{
+                "type": "input_text",
+                "text": "hello"
+            }]
         })];
 
         let usage = count_conversation_prompt_tokens(
@@ -466,7 +463,8 @@ mod tests {
             Some("You are a helpful assistant."),
             &developer_items,
             None,
-            &lines,
+            &context_items,
+            &[],
             &[],
         )
         .unwrap();

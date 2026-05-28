@@ -15,7 +15,10 @@ pub use chat_types::{
 
 use crate::config;
 use crate::conversation_store;
-use crate::tools::ToolCatalog;
+use crate::providers::{build_user_input_item, get_tool_schema_format};
+use crate::tools::{ToolCatalog, ToolCatalogSnapshot};
+use crate::tools::ToolExecutionContext;
+use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
 use chat_events::{emit_mapped_stream_event, next_event_index, ChatStreamEvent};
 use chat_persistence::{persist_assistant_line, persist_tool_progress_event};
 use chat_title::schedule_title_generation;
@@ -135,9 +138,52 @@ fn validate_conversation_dynamic_tools(
     Ok(())
 }
 
-fn load_conversation_prompt_token_count(
+fn resolve_prompt_counting_model(
+    config: &config::AppConfig,
+    model: Option<&str>,
+) -> Option<crate::config::ResolvedModelConfig> {
+    match config.resolve_model_profile(model) {
+        Ok(resolved) => Some(resolved),
+        Err(err) => {
+            log::warn!(
+                "Failed to resolve prompt counting model from {:?}: {}",
+                model,
+                err
+            );
+            match config.resolve_model_profile(None) {
+                Ok(resolved) => Some(resolved),
+                Err(err) => {
+                    log::warn!("Failed to resolve fallback prompt counting model: {}", err);
+                    None
+                }
+            }
+        }
+    }
+}
+
+async fn tool_snapshot_for_conversation(
+    tools_catalog: &ToolCatalog,
+    conversation_id: &str,
+    provider_kind: &str,
+) -> Result<ToolCatalogSnapshot, String> {
+    let tool_context = ToolExecutionContext {
+        conversation_id: Some(conversation_id.to_string()),
+    };
+    let tool_schema_format = get_tool_schema_format(provider_kind)?;
+    let mounted_mcp_servers = tools_catalog.load_persisted_mounted_servers(&tool_context);
+    Ok(tools_catalog
+        .snapshot_with_format_and_mounted_servers(
+            tool_schema_format,
+            &tool_context,
+            &mounted_mcp_servers,
+        )
+        .await)
+}
+
+async fn load_conversation_prompt_token_count(
     conversation_id: &str,
     model: Option<&str>,
+    mcp_manager: std::sync::Arc<crate::mcp::McpManager>,
 ) -> usize {
     let cfg = match config::load_config() {
         Ok(cfg) => cfg,
@@ -147,35 +193,48 @@ fn load_conversation_prompt_token_count(
         }
     };
 
-    let resolved_model = match cfg.resolve_model_profile(model) {
-        Ok(resolved) => resolved,
+    let Some(resolved_model) = resolve_prompt_counting_model(&cfg, model) else {
+        return 0;
+    };
+
+    let tools_catalog = ToolCatalog::new(mcp_manager, &cfg);
+    let tool_snapshot = match tool_snapshot_for_conversation(
+        &tools_catalog,
+        conversation_id,
+        &resolved_model.provider.kind,
+    )
+    .await
+    {
+        Ok(snapshot) => snapshot,
         Err(err) => {
             log::warn!(
-                "Failed to resolve prompt counting model from {:?}: {}",
-                model,
+                "Failed to load tool snapshot for conversation '{}' while counting tokens: {}",
+                conversation_id,
                 err
             );
-            match cfg.resolve_model_profile(None) {
-                Ok(resolved) => resolved,
-                Err(err) => {
-                    log::warn!("Failed to resolve fallback prompt counting model: {}", err);
-                    return 0;
-                }
-            }
+            return 0;
         }
     };
 
-    let recovery_note = conversation_store::build_recovery_developer_note(conversation_id).ok().flatten();
-    match conversation_store::load_conversation(conversation_id) {
-        Ok(Some(detail)) => {
+    let recovery_note = conversation_store::build_recovery_developer_note(conversation_id)
+        .ok()
+        .flatten();
+
+    match conversation_store::load_context_for_request(conversation_id) {
+        Ok(context) => {
+            let archived_context_items = crate::runtime::tool_archiving::archive_unavailable_historical_tool_calls(
+                context.input_items,
+                tool_snapshot.active_tool_names(),
+            );
             match conversation_store::count_conversation_prompt_tokens(
-                &resolved_model.model_id,
-                Some(&resolved_model.system_prompt),
-                &resolved_model.prompt_assembly.developer_items,
-                recovery_note.as_ref(),
-                &detail.lines,
-                &[],
-            ) {
+            &resolved_model.model_id,
+            Some(&resolved_model.system_prompt),
+            &resolved_model.prompt_assembly.developer_items,
+            recovery_note.as_ref(),
+            &archived_context_items,
+            &[],
+            tool_snapshot.schemas(),
+        ) {
                 Ok(usage) => usage.prompt_tokens,
                 Err(err) => {
                     log::warn!(
@@ -187,8 +246,7 @@ fn load_conversation_prompt_token_count(
                     0
                 }
             }
-        }
-        Ok(None) => 0,
+        },
         Err(err) => {
             log::warn!(
                 "Failed to load conversation '{}' for token counting: {}",
@@ -293,6 +351,68 @@ pub async fn chat_stream(
         .await?;
     }
 
+    let resolved_model = resolve_prompt_counting_model(&config, req.model.as_deref());
+    let context_token_count = if let Some(resolved_model) = resolved_model.as_ref() {
+        let tool_context = ToolExecutionContext {
+            conversation_id: Some(conversation_id.clone()),
+        };
+        let tool_schema_format = match get_tool_schema_format(&resolved_model.provider.kind) {
+            Ok(format) => format,
+            Err(err) => {
+                log::warn!(
+                    "Failed to resolve tool schema format for conversation '{}' while counting tokens: {}",
+                    conversation_id,
+                    err
+                );
+                crate::tools::ToolSchemaFormat::Responses
+            }
+        };
+        let mounted_mcp_servers = tools_catalog.load_persisted_mounted_servers(&tool_context);
+        let initial_snapshot = tools_catalog
+            .snapshot_with_format_and_mounted_servers(
+                tool_schema_format,
+                &tool_context,
+                &mounted_mcp_servers,
+            )
+            .await;
+        let archived_context_items = crate::runtime::tool_archiving::archive_unavailable_historical_tool_calls(
+            context.input_items.clone(),
+            initial_snapshot.active_tool_names(),
+        );
+        let mut developer_items = resolved_model.prompt_assembly.developer_items.clone();
+        developer_items.push(build_temporal_context_developer_item(
+            now_unix_ms(),
+            user_message_ts,
+        ));
+        let current_user_item = build_user_input_item(
+            &resolved_model.provider.kind,
+            &render_timed_message("Current user message", user_message_ts, &input_text),
+        )?;
+
+        match conversation_store::count_conversation_prompt_tokens(
+            &resolved_model.model_id,
+            Some(&resolved_model.system_prompt),
+            &developer_items,
+            recovery_note.as_ref(),
+            &archived_context_items,
+            &[current_user_item],
+            initial_snapshot.schemas(),
+        ) {
+            Ok(usage) => usage.prompt_tokens,
+            Err(err) => {
+                log::warn!(
+                    "Failed to count prompt tokens for conversation '{}' with model '{}': {}",
+                    conversation_id,
+                    resolved_model.model_id,
+                    err
+                );
+                0
+            }
+        }
+    } else {
+        0
+    };
+
     let closure_window = window.clone();
     let closure_request_id = request_id.clone();
     let closure_conversation_id = conversation_id.clone();
@@ -395,8 +515,6 @@ pub async fn chat_stream(
 
     let _ = registry.remove_chat_request(&request_id)?;
     let (response, _timeline_events) = result?;
-    let context_token_count =
-        load_conversation_prompt_token_count(&conversation_id, req.model.as_deref());
 
     log::info!(
         "chat_stream turn complete: conv={} req={} text_len={} resp_id={} output_items={}",
@@ -462,14 +580,19 @@ pub fn list_conversations() -> Result<Vec<conversation_store::ConversationSummar
 }
 
 #[tauri::command]
-pub fn load_conversation(
+pub async fn load_conversation(
+    mcp_manager: State<'_, std::sync::Arc<crate::mcp::McpManager>>,
     req: LoadConversationRequest,
 ) -> Result<Option<conversation_store::ConversationDetail>, String> {
     let conversation_id = req.conversation_id.clone();
     let mut detail = conversation_store::load_conversation(&req.conversation_id)?;
     if let Some(detail_ref) = detail.as_mut() {
-        detail_ref.context_token_count =
-            load_conversation_prompt_token_count(&conversation_id, req.model.as_deref());
+        detail_ref.context_token_count = load_conversation_prompt_token_count(
+            &conversation_id,
+            req.model.as_deref(),
+            mcp_manager.inner().clone(),
+        )
+        .await;
     }
     Ok(detail)
 }
