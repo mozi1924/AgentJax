@@ -4,7 +4,7 @@ use super::sanitizer::sanitize_tool_call_pairs;
 use super::truncation::truncate_context_items_preserving_tool_pairs;
 use crate::conversation_store::ConversationLine;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use tiktoken_rs::{
     cl100k_base_singleton, num_tokens_from_messages, o200k_base_singleton,
@@ -24,11 +24,43 @@ pub struct ConversationTokenUsage {
     pub prompt_tokens: usize,
 }
 
+/// Count the token usage for a fully assembled request prompt.
+///
+/// This accepts the exact model-facing prompt pieces we care about:
+/// system instructions, Responses-style input items, and tool schemas.
+/// The `context_tokens` field measures the prompt items only, while
+/// `prompt_tokens` also includes the serialized tool schemas.
+pub fn count_request_prompt_tokens(
+    model: &str,
+    instructions_text: Option<&str>,
+    input_items: &[Value],
+    tools: &[Value],
+) -> Result<ConversationTokenUsage, String> {
+    let mut request_items = Vec::with_capacity(input_items.len().saturating_add(1));
+    if let Some(instructions_text) = instructions_text
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        request_items.push(build_system_input_item(instructions_text));
+    }
+    request_items.extend(input_items.iter().cloned());
+
+    let messages = build_chat_completion_messages(&request_items)?;
+    let context_tokens = count_messages_tokens(model, &messages)?;
+    let tool_schema_tokens = count_tool_schema_tokens(model, tools)?;
+
+    Ok(ConversationTokenUsage {
+        context_tokens,
+        prompt_tokens: context_tokens + tool_schema_tokens,
+    })
+}
+
 /// Count the token usage for a conversation's persisted history.
 ///
 /// This mirrors the same context-building pipeline used before a request is
 /// sent so the number shown in the UI stays aligned with the model-facing
 /// prompt.
+#[allow(dead_code)]
 pub fn count_conversation_context_tokens(
     model: &str,
     lines: &[ConversationLine],
@@ -36,32 +68,46 @@ pub fn count_conversation_context_tokens(
     let mut items = build_context_items(lines);
     items = sanitize_tool_call_pairs(items);
     items = truncate_context_items_preserving_tool_pairs(items, MAX_CONTEXT_ITEMS_PER_REQUEST);
-
-    let messages = build_chat_completion_messages(&items)?;
-    let context_tokens = count_messages_tokens(model, &messages)?;
-
-    Ok(ConversationTokenUsage {
-        context_tokens,
-        prompt_tokens: context_tokens,
-    })
+    count_request_prompt_tokens(model, None, &items, &[])
 }
 
-/// Count prompt tokens for a request that already has its chat messages built.
+/// Count the token usage for the conversation snapshot plus prompt composer
+/// pieces that will be prepended at runtime.
 ///
-/// Tool schemas are counted separately because they are transmitted as a JSON
-/// payload rather than as chat messages, but they still consume prompt budget.
-#[allow(dead_code)]
-pub fn count_request_prompt_tokens(
+/// This is the UI-facing helper for "what will the next request roughly cost"
+/// and includes:
+/// - the resolved system prompt
+/// - active developer prompt blocks
+/// - the optional recovery developer note
+/// - the persisted conversation history
+pub fn count_conversation_prompt_tokens(
     model: &str,
-    messages: &[ChatCompletionRequestMessage],
+    instructions_text: Option<&str>,
+    developer_items: &[Value],
+    recovery_note: Option<&Value>,
+    lines: &[ConversationLine],
     tools: &[Value],
 ) -> Result<ConversationTokenUsage, String> {
-    let context_tokens = count_messages_tokens(model, messages)?;
-    let tool_schema_tokens = count_tool_schema_tokens(model, tools)?;
-    Ok(ConversationTokenUsage {
-        context_tokens,
-        prompt_tokens: context_tokens + tool_schema_tokens,
-    })
+    let mut items = Vec::with_capacity(
+        developer_items
+            .len()
+            .saturating_add(recovery_note.map(|_| 1).unwrap_or(0))
+            .saturating_add(lines.len()),
+    );
+    items.extend(developer_items.iter().cloned());
+    if let Some(recovery_note) = recovery_note {
+        items.push(recovery_note.clone());
+    }
+
+    let mut history_items = build_context_items(lines);
+    history_items = sanitize_tool_call_pairs(history_items);
+    history_items = truncate_context_items_preserving_tool_pairs(
+        history_items,
+        MAX_CONTEXT_ITEMS_PER_REQUEST,
+    );
+    items.extend(history_items);
+
+    count_request_prompt_tokens(model, instructions_text, &items, tools)
 }
 
 /// Count token usage for already-built chat messages.
@@ -187,6 +233,16 @@ fn build_chat_completion_messages(
     Ok(messages)
 }
 
+fn build_system_input_item(text: &str) -> Value {
+    json!({
+        "role": "system",
+        "content": [{
+            "type": "input_text",
+            "text": text,
+        }]
+    })
+}
+
 fn build_message_from_item(item: &Value) -> Option<ChatCompletionRequestMessage> {
     let role = item.get("role").and_then(Value::as_str)?.trim();
     if role.is_empty() {
@@ -309,10 +365,12 @@ fn tokenizer_for_model(model: &str) -> Result<&'static CoreBPE, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        count_conversation_context_tokens, count_messages_tokens, count_request_prompt_tokens,
-        count_tool_schema_tokens,
+        count_conversation_context_tokens, count_conversation_prompt_tokens,
+        count_messages_tokens, count_request_prompt_tokens, count_tool_schema_tokens,
     };
-    use crate::conversation_store::{AssistantLine, AssistantStatus, ConversationLine, ToolLine, UserLine, ToolStatus};
+    use crate::conversation_store::{
+        AssistantLine, AssistantStatus, ConversationLine, ToolLine, ToolStatus, UserLine,
+    };
     use serde_json::json;
     use tiktoken_rs::{ChatCompletionRequestMessage, FunctionCall};
 
@@ -359,14 +417,13 @@ mod tests {
 
     #[test]
     fn counts_messages_and_tools_separately() {
-        let messages = vec![ChatCompletionRequestMessage {
-            role: "user".to_string(),
-            content: Some("Count me".to_string()),
-            name: None,
-            function_call: None,
-            tool_calls: Vec::new(),
-            refusal: None,
-        }];
+        let input_items = vec![json!({
+            "role": "user",
+            "content": [{
+                "type": "input_text",
+                "text": "Count me"
+            }]
+        })];
         let tools = vec![json!({
             "type": "function",
             "function": {
@@ -376,12 +433,46 @@ mod tests {
             }
         })];
 
-        let message_tokens = count_messages_tokens("gpt-5-mini", &messages).unwrap();
+        let message_tokens =
+            count_request_prompt_tokens("gpt-5-mini", None, &input_items, &[]).unwrap();
         let tool_tokens = count_tool_schema_tokens("gpt-5-mini", &tools).unwrap();
-        let usage = count_request_prompt_tokens("gpt-5-mini", &messages, &tools).unwrap();
+        let usage = count_request_prompt_tokens("gpt-5-mini", None, &input_items, &tools).unwrap();
 
-        assert_eq!(usage.context_tokens, message_tokens);
-        assert_eq!(usage.prompt_tokens, message_tokens + tool_tokens);
+        assert_eq!(usage.context_tokens, message_tokens.context_tokens);
+        assert_eq!(
+            usage.prompt_tokens,
+            message_tokens.context_tokens + tool_tokens
+        );
+    }
+
+    #[test]
+    fn counts_system_and_developer_prompt_items() {
+        let developer_items = vec![json!({
+            "role": "developer",
+            "content": [{
+                "type": "input_text",
+                "text": "Always answer in Chinese."
+            }]
+        })];
+        let lines = vec![ConversationLine::User(UserLine {
+            id: "u1".to_string(),
+            ts: 1,
+            request_id: "req-1".to_string(),
+            text: "hello".to_string(),
+        })];
+
+        let usage = count_conversation_prompt_tokens(
+            "openai-responses/gpt-5-mini",
+            Some("You are a helpful assistant."),
+            &developer_items,
+            None,
+            &lines,
+            &[],
+        )
+        .unwrap();
+
+        assert!(usage.context_tokens > 0);
+        assert_eq!(usage.context_tokens, usage.prompt_tokens);
     }
 
     #[test]

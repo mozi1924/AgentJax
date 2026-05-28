@@ -135,44 +135,53 @@ fn validate_conversation_dynamic_tools(
     Ok(())
 }
 
-fn resolved_token_count_model_id(model: Option<&str>) -> String {
-    let cfg = match config::load_config() {
-        Ok(cfg) => cfg,
-        Err(err) => {
-            log::warn!("Failed to load config for token counting model resolution: {}", err);
-            return "gpt-5-mini".to_string();
-        }
-    };
-
-    match cfg.resolve_model_profile(model) {
-        Ok(resolved) => resolved.model_id,
-        Err(err) => {
-            log::warn!(
-                "Failed to resolve token counting model from {:?}: {}",
-                model,
-                err
-            );
-            cfg.resolve_model_profile(None)
-                .map(|resolved| resolved.model_id)
-                .unwrap_or_else(|_| "gpt-5-mini".to_string())
-        }
-    }
-}
-
-fn load_conversation_context_token_count(
+fn load_conversation_prompt_token_count(
     conversation_id: &str,
     model: Option<&str>,
 ) -> usize {
-    let model = resolved_token_count_model_id(model);
+    let cfg = match config::load_config() {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            log::warn!("Failed to load config for token counting: {}", err);
+            return 0;
+        }
+    };
+
+    let resolved_model = match cfg.resolve_model_profile(model) {
+        Ok(resolved) => resolved,
+        Err(err) => {
+            log::warn!(
+                "Failed to resolve prompt counting model from {:?}: {}",
+                model,
+                err
+            );
+            match cfg.resolve_model_profile(None) {
+                Ok(resolved) => resolved,
+                Err(err) => {
+                    log::warn!("Failed to resolve fallback prompt counting model: {}", err);
+                    return 0;
+                }
+            }
+        }
+    };
+
+    let recovery_note = conversation_store::build_recovery_developer_note(conversation_id).ok().flatten();
     match conversation_store::load_conversation(conversation_id) {
         Ok(Some(detail)) => {
-            match conversation_store::count_conversation_context_tokens(&model, &detail.lines) {
-                Ok(usage) => usage.context_tokens,
+            match conversation_store::count_conversation_prompt_tokens(
+                &resolved_model.model_id,
+                Some(&resolved_model.system_prompt),
+                &resolved_model.prompt_assembly.developer_items,
+                recovery_note.as_ref(),
+                &detail.lines,
+                &[],
+            ) {
+                Ok(usage) => usage.prompt_tokens,
                 Err(err) => {
                     log::warn!(
-                        "Failed to count context tokens for conversation '{}' with model '{}': {}",
+                        "Failed to count prompt tokens for conversation '{}' with model '{}': {}",
                         conversation_id,
-                        model,
+                        resolved_model.model_id,
                         err
                     );
                     0
@@ -387,7 +396,7 @@ pub async fn chat_stream(
     let _ = registry.remove_chat_request(&request_id)?;
     let (response, _timeline_events) = result?;
     let context_token_count =
-        load_conversation_context_token_count(&conversation_id, req.model.as_deref());
+        load_conversation_prompt_token_count(&conversation_id, req.model.as_deref());
 
     log::info!(
         "chat_stream turn complete: conv={} req={} text_len={} resp_id={} output_items={}",
@@ -459,19 +468,8 @@ pub fn load_conversation(
     let conversation_id = req.conversation_id.clone();
     let mut detail = conversation_store::load_conversation(&req.conversation_id)?;
     if let Some(detail_ref) = detail.as_mut() {
-        let model = resolved_token_count_model_id(req.model.as_deref());
         detail_ref.context_token_count =
-            conversation_store::count_conversation_context_tokens(&model, &detail_ref.lines)
-                .map(|usage| usage.context_tokens)
-                .unwrap_or_else(|err| {
-                    log::warn!(
-                        "Failed to count context tokens for conversation '{}' with model '{}': {}",
-                        conversation_id,
-                        model,
-                        err
-                    );
-                    0
-                });
+            load_conversation_prompt_token_count(&conversation_id, req.model.as_deref());
     }
     Ok(detail)
 }
