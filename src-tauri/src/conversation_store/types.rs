@@ -309,11 +309,6 @@ pub struct ConversationDetail {
     pub lines: Vec<ConversationLine>,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct ConversationContext {
-    pub input_items: Vec<Value>,
-}
-
 #[derive(Debug, Clone)]
 pub struct TitleGenerationCandidate {
     pub user_text: String,

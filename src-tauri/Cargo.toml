@@ -1,10 +1,10 @@
 [package]
-name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+name = "AgentJax"
+version = "0.0.0"
+description = "AgentJax is a desktop AI assistant built with React, Vite, and Tauri. It focuses on configurable providers, reusable model profiles, and local MCP tool integration."
+authors = ["mozi1924"]
+license = "GPL-3.0-only"
+repository = "https://github.com/mozi1924/AgentJax"
 edition = "2021"
 # Keep this in sync with `src-tauri/rust-toolchain.toml` so local builds and
 # CI agree on the minimum supported compiler for the desktop runtime.
