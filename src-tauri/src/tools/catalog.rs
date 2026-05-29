@@ -56,11 +56,13 @@ enum ToolSnapshotEntry {
     },
     StartBackgroundTool,
     WaitBackgroundTool,
+    CancelBackgroundTool,
     ListBackgroundTools,
 }
 
 const START_BACKGROUND_TOOL_NAME: &str = "start_background_tool";
 const WAIT_BACKGROUND_TOOL_NAME: &str = "wait_background_tool";
+const CANCEL_BACKGROUND_TOOL_NAME: &str = "cancel_background_tool";
 const LIST_BACKGROUND_TOOLS_NAME: &str = "list_background_tools";
 
 fn insert_snapshot_tool(
@@ -191,6 +193,24 @@ fn build_wait_background_tool_schema(format: ToolSchemaFormat) -> Value {
                     "minimum": 1,
                     "maximum": 120000,
                     "description": "Optional wait timeout in milliseconds. Defaults to 30000 and is capped at 120000."
+                }
+            },
+            "required": ["jobId"]
+        }),
+    )
+}
+
+fn build_cancel_background_tool_schema(format: ToolSchemaFormat) -> Value {
+    format_tool_schema(
+        format,
+        CANCEL_BACKGROUND_TOOL_NAME,
+        "Cancels a background tool job if it is still running. Use this when the result is no longer needed or the job is taking the wrong path.",
+        json!({
+            "type": "object",
+            "properties": {
+                "jobId": {
+                    "type": "string",
+                    "description": "The jobId returned by start_background_tool."
                 }
             },
             "required": ["jobId"]
@@ -435,7 +455,7 @@ impl ToolCatalogSnapshot {
                 let mcp_runtime = self.mcp_runtime.clone();
                 let job_for_task = job.clone();
 
-                tokio::spawn(async move {
+                let handle = tokio::spawn(async move {
                     let result = execute_backgroundable_entry(
                         target_entry,
                         target_arguments,
@@ -446,6 +466,7 @@ impl ToolCatalogSnapshot {
                     .await;
                     background_jobs::complete_job(&job_for_task, result);
                 });
+                background_jobs::register_job_handle(&job, handle);
 
                 Ok(ToolCatalogExecution {
                     output: json!({
@@ -462,6 +483,10 @@ impl ToolCatalogSnapshot {
                             "list": {
                                 "tool": LIST_BACKGROUND_TOOLS_NAME,
                                 "arguments": {}
+                            },
+                            "cancel": {
+                                "tool": CANCEL_BACKGROUND_TOOL_NAME,
+                                "arguments": { "jobId": job_id }
                             }
                         }
                     }),
@@ -473,6 +498,13 @@ impl ToolCatalogSnapshot {
                 let timeout_ms = background_wait_timeout_ms(arguments);
                 Ok(ToolCatalogExecution {
                     output: background_jobs::wait_for_job(&job_id, timeout_ms).await?,
+                    state_changes: Vec::new(),
+                })
+            }
+            ToolSnapshotEntry::CancelBackgroundTool => {
+                let job_id = background_job_id(arguments)?;
+                Ok(ToolCatalogExecution {
+                    output: background_jobs::cancel_job(&job_id)?,
                     state_changes: Vec::new(),
                 })
             }
@@ -831,6 +863,16 @@ impl ToolCatalog {
                     "Wait Background Tool",
                     "Waits for a background tool job.",
                     Some("Timer"),
+                ),
+            ),
+            (
+                CANCEL_BACKGROUND_TOOL_NAME.to_string(),
+                build_cancel_background_tool_schema(format),
+                ToolSnapshotEntry::CancelBackgroundTool,
+                ToolPresentation::new(
+                    "Cancel Background Tool",
+                    "Cancels a background tool job.",
+                    Some("CircleStop"),
                 ),
             ),
             (

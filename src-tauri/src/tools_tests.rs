@@ -12,7 +12,7 @@ mod tests {
     use std::sync::Arc;
 
     const DEFAULT_REGISTRY_TOOL_COUNT: usize = 7;
-    const DEFAULT_CATALOG_TOOL_COUNT: usize = DEFAULT_REGISTRY_TOOL_COUNT + 3;
+    const DEFAULT_CATALOG_TOOL_COUNT: usize = DEFAULT_REGISTRY_TOOL_COUNT + 4;
 
     struct TestHomeGuard {
         home: std::path::PathBuf,
@@ -833,6 +833,11 @@ mod tests {
         assert!(
             snapshot
                 .active_tool_names()
+                .contains("cancel_background_tool")
+        );
+        assert!(
+            snapshot
+                .active_tool_names()
                 .contains("list_background_tools")
         );
 
@@ -889,6 +894,46 @@ mod tests {
             job.get("jobId").and_then(|value| value.as_str()) == Some(job_id)
                 && job.get("status").and_then(|value| value.as_str()) == Some("completed")
         }));
+    }
+
+    #[tokio::test]
+    async fn test_background_tool_sidecar_cancel() {
+        let config = crate::config::AppConfig::default();
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+        let ctx = ToolExecutionContext::default();
+
+        let job = crate::tools::background_jobs::start_job("test_sleep");
+        let job_id = crate::tools::background_jobs::job_id(&job);
+        let job_for_task = job.clone();
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            crate::tools::background_jobs::complete_job(
+                &job_for_task,
+                Ok(json!({ "unexpected": true })),
+            );
+        });
+        crate::tools::background_jobs::register_job_handle(&job, handle);
+
+        let cancelled = snapshot
+            .execute("cancel_background_tool", &json!({ "jobId": job_id }), &ctx)
+            .await
+            .expect("cancel background job");
+        assert_eq!(cancelled["ok"], true);
+        assert_eq!(cancelled["cancelled"], true);
+        assert_eq!(cancelled["job"]["status"], "cancelled");
+
+        let waited = snapshot
+            .execute(
+                "wait_background_tool",
+                &json!({ "jobId": job_id, "timeoutMs": 1_000 }),
+                &ctx,
+            )
+            .await
+            .expect("wait for cancelled background job");
+        assert_eq!(waited["timedOut"], false);
+        assert_eq!(waited["job"]["status"], "cancelled");
+        assert_eq!(waited["ok"], false);
     }
 
     #[tokio::test]
