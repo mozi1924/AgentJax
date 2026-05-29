@@ -1,3 +1,4 @@
+mod background_jobs;
 mod calculator;
 mod catalog;
 mod files;

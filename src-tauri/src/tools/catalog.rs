@@ -1,7 +1,7 @@
 use crate::tools::{
     CalculatorTool, EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool,
     SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation, ToolSchemaFormat,
-    format_tool_schema, humanize_tool_name,
+    background_jobs, format_tool_schema, humanize_tool_name,
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -41,6 +41,7 @@ pub(crate) struct ToolCatalogExecution {
     pub state_changes: Vec<ToolCatalogStateChange>,
 }
 
+#[derive(Clone)]
 enum ToolSnapshotEntry {
     Native(Arc<dyn Tool>),
     Mcp {
@@ -53,7 +54,14 @@ enum ToolSnapshotEntry {
         server_config: crate::config::McpServerConfig,
         mounted_session: Option<MountedToolSourceSession>,
     },
+    StartBackgroundTool,
+    WaitBackgroundTool,
+    ListBackgroundTools,
 }
+
+const START_BACKGROUND_TOOL_NAME: &str = "start_background_tool";
+const WAIT_BACKGROUND_TOOL_NAME: &str = "wait_background_tool";
+const LIST_BACKGROUND_TOOLS_NAME: &str = "list_background_tools";
 
 fn insert_snapshot_tool(
     schemas: &mut Vec<Value>,
@@ -144,6 +152,64 @@ fn build_manage_mcp_server_tool_schema(
     )
 }
 
+fn build_start_background_tool_schema(format: ToolSchemaFormat) -> Value {
+    format_tool_schema(
+        format,
+        START_BACKGROUND_TOOL_NAME,
+        "Starts one currently available native or MCP tool in the background and returns immediately with a jobId. Use this when a tool may take a long time and you can make progress elsewhere before waiting for the result. Do not use this for MCP server mount/unmount control tools.",
+        json!({
+            "type": "object",
+            "properties": {
+                "toolName": {
+                    "type": "string",
+                    "description": "The exact active tool name to run in the background, for example 'calculator' or 'mcp__server__tool'."
+                },
+                "arguments": {
+                    "type": "object",
+                    "description": "Arguments to pass to the target tool. Use an empty object when the target tool takes no arguments."
+                }
+            },
+            "required": ["toolName", "arguments"]
+        }),
+    )
+}
+
+fn build_wait_background_tool_schema(format: ToolSchemaFormat) -> Value {
+    format_tool_schema(
+        format,
+        WAIT_BACKGROUND_TOOL_NAME,
+        "Waits for a background tool job to finish, or returns its current in-progress status when the timeout elapses. Use this only when the result is on your critical path.",
+        json!({
+            "type": "object",
+            "properties": {
+                "jobId": {
+                    "type": "string",
+                    "description": "The jobId returned by start_background_tool."
+                },
+                "timeoutMs": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "Optional wait timeout in milliseconds. Defaults to 30000 and is capped at 120000."
+                }
+            },
+            "required": ["jobId"]
+        }),
+    )
+}
+
+fn build_list_background_tools_schema(format: ToolSchemaFormat) -> Value {
+    format_tool_schema(
+        format,
+        LIST_BACKGROUND_TOOLS_NAME,
+        "Lists background tool jobs and their current lifecycle state. Use this to inspect jobs before deciding whether to wait.",
+        json!({
+            "type": "object",
+            "properties": {}
+        }),
+    )
+}
+
 fn normalize_mcp_tool_definitions(raw_tools: Vec<Value>) -> Vec<MountedToolDefinition> {
     let mut normalized = Vec::new();
     for raw_tool in raw_tools {
@@ -196,6 +262,78 @@ fn normalize_mcp_tool_definitions(raw_tools: Vec<Value>) -> Vec<MountedToolDefin
         });
     }
     normalized
+}
+
+fn background_tool_name(arguments: &Value) -> Result<String, String> {
+    arguments
+        .get("toolName")
+        .or_else(|| arguments.get("tool_name"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| "start_background_tool requires a non-empty toolName".to_string())
+}
+
+fn background_tool_arguments(arguments: &Value) -> Value {
+    arguments
+        .get("arguments")
+        .filter(|value| value.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}))
+}
+
+fn background_job_id(arguments: &Value) -> Result<String, String> {
+    arguments
+        .get("jobId")
+        .or_else(|| arguments.get("job_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| "wait_background_tool requires a non-empty jobId".to_string())
+}
+
+fn background_wait_timeout_ms(arguments: &Value) -> Option<u64> {
+    arguments
+        .get("timeoutMs")
+        .or_else(|| arguments.get("timeout_ms"))
+        .and_then(Value::as_u64)
+}
+
+fn is_backgroundable_entry(entry: &ToolSnapshotEntry) -> bool {
+    matches!(
+        entry,
+        ToolSnapshotEntry::Native(_) | ToolSnapshotEntry::Mcp { .. }
+    )
+}
+
+async fn execute_backgroundable_entry(
+    entry: ToolSnapshotEntry,
+    arguments: Value,
+    context: ToolExecutionContext,
+    mcp_manager: Arc<crate::mcp::McpManager>,
+    mcp_runtime: crate::config::McpRuntimeConfig,
+) -> Result<Value, String> {
+    match entry {
+        ToolSnapshotEntry::Native(tool) => tool.execute(&arguments, &context),
+        ToolSnapshotEntry::Mcp {
+            server_id,
+            tool_name,
+            server_config,
+        } => {
+            mcp_manager
+                .call_tool(
+                    &server_id,
+                    &server_config,
+                    &mcp_runtime,
+                    &tool_name,
+                    arguments,
+                )
+                .await
+        }
+        _ => Err("Only native and MCP tools can run as background jobs".to_string()),
+    }
 }
 
 /// Turn-scoped tool snapshot.
@@ -268,6 +406,78 @@ impl ToolCatalogSnapshot {
                         arguments.clone(),
                     )
                     .await?,
+                state_changes: Vec::new(),
+            }),
+            ToolSnapshotEntry::StartBackgroundTool => {
+                let target_tool_name = background_tool_name(arguments)?;
+                let target_arguments = background_tool_arguments(arguments);
+                let target_entry = self
+                    .entries
+                    .get(&target_tool_name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        format!(
+                            "Cannot start background tool job because target tool '{}' is not active in this turn",
+                            target_tool_name
+                        )
+                    })?;
+                if !is_backgroundable_entry(&target_entry) {
+                    return Err(format!(
+                        "Tool '{}' cannot run in the background. Only native and MCP tools are supported.",
+                        target_tool_name
+                    ));
+                }
+
+                let job = background_jobs::start_job(target_tool_name.clone());
+                let job_id = background_jobs::job_id(&job);
+                let context = context.clone();
+                let mcp_manager = self.mcp_manager.clone();
+                let mcp_runtime = self.mcp_runtime.clone();
+                let job_for_task = job.clone();
+
+                tokio::spawn(async move {
+                    let result = execute_backgroundable_entry(
+                        target_entry,
+                        target_arguments,
+                        context,
+                        mcp_manager,
+                        mcp_runtime,
+                    )
+                    .await;
+                    background_jobs::complete_job(&job_for_task, result);
+                });
+
+                Ok(ToolCatalogExecution {
+                    output: json!({
+                        "ok": true,
+                        "jobId": job_id,
+                        "toolName": target_tool_name,
+                        "status": "in_progress",
+                        "job": background_jobs::job_snapshot(&job),
+                        "usage": {
+                            "wait": {
+                                "tool": WAIT_BACKGROUND_TOOL_NAME,
+                                "arguments": { "jobId": job_id }
+                            },
+                            "list": {
+                                "tool": LIST_BACKGROUND_TOOLS_NAME,
+                                "arguments": {}
+                            }
+                        }
+                    }),
+                    state_changes: Vec::new(),
+                })
+            }
+            ToolSnapshotEntry::WaitBackgroundTool => {
+                let job_id = background_job_id(arguments)?;
+                let timeout_ms = background_wait_timeout_ms(arguments);
+                Ok(ToolCatalogExecution {
+                    output: background_jobs::wait_for_job(&job_id, timeout_ms).await?,
+                    state_changes: Vec::new(),
+                })
+            }
+            ToolSnapshotEntry::ListBackgroundTools => Ok(ToolCatalogExecution {
+                output: background_jobs::list_jobs(),
                 state_changes: Vec::new(),
             }),
             ToolSnapshotEntry::ManageMcpServer {
@@ -599,6 +809,49 @@ impl ToolCatalog {
                 "Failed to apply conversation dynamic tools for {:?}: {}",
                 context.conversation_id,
                 err
+            );
+        }
+
+        for (tool_name, schema, entry, presentation) in [
+            (
+                START_BACKGROUND_TOOL_NAME.to_string(),
+                build_start_background_tool_schema(format),
+                ToolSnapshotEntry::StartBackgroundTool,
+                ToolPresentation::new(
+                    "Start Background Tool",
+                    "Starts a tool as a background job.",
+                    Some("Rocket"),
+                ),
+            ),
+            (
+                WAIT_BACKGROUND_TOOL_NAME.to_string(),
+                build_wait_background_tool_schema(format),
+                ToolSnapshotEntry::WaitBackgroundTool,
+                ToolPresentation::new(
+                    "Wait Background Tool",
+                    "Waits for a background tool job.",
+                    Some("Timer"),
+                ),
+            ),
+            (
+                LIST_BACKGROUND_TOOLS_NAME.to_string(),
+                build_list_background_tools_schema(format),
+                ToolSnapshotEntry::ListBackgroundTools,
+                ToolPresentation::new(
+                    "List Background Tools",
+                    "Lists background tool jobs.",
+                    Some("ListChecks"),
+                ),
+            ),
+        ] {
+            presentations.insert(tool_name.clone(), presentation);
+            insert_snapshot_tool(
+                &mut schemas,
+                schema,
+                &mut active_tool_names,
+                &mut entries,
+                tool_name,
+                entry,
             );
         }
 

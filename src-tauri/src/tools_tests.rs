@@ -11,7 +11,8 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
-    const DEFAULT_NATIVE_TOOL_COUNT: usize = 7;
+    const DEFAULT_REGISTRY_TOOL_COUNT: usize = 7;
+    const DEFAULT_CATALOG_TOOL_COUNT: usize = DEFAULT_REGISTRY_TOOL_COUNT + 3;
 
     struct TestHomeGuard {
         home: std::path::PathBuf,
@@ -745,7 +746,7 @@ mod tests {
     fn test_tool_registry() {
         let registry = ToolRegistry::new_with_defaults();
         let schemas = registry.list_schemas();
-        assert_eq!(schemas.len(), DEFAULT_NATIVE_TOOL_COUNT);
+        assert_eq!(schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
 
         // Execute via registry
         let args = json!({ "expression": "100 * 2.5" });
@@ -762,8 +763,8 @@ mod tests {
         let responses_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Responses);
         let cc_schemas = registry.list_schemas_with_format(ToolSchemaFormat::ChatCompletions);
 
-        assert_eq!(responses_schemas.len(), DEFAULT_NATIVE_TOOL_COUNT);
-        assert_eq!(cc_schemas.len(), DEFAULT_NATIVE_TOOL_COUNT);
+        assert_eq!(responses_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
+        assert_eq!(cc_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
 
         let first_responses = &responses_schemas[0];
         assert_eq!(first_responses["type"], "function");
@@ -815,10 +816,25 @@ mod tests {
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
-        assert_eq!(snapshot.schemas().len(), DEFAULT_NATIVE_TOOL_COUNT);
+        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT);
         assert!(snapshot.active_tool_names().contains("calculator"));
         assert!(snapshot.active_tool_names().contains("get_system_time"));
         assert!(snapshot.active_tool_names().contains("list_files"));
+        assert!(
+            snapshot
+                .active_tool_names()
+                .contains("start_background_tool")
+        );
+        assert!(
+            snapshot
+                .active_tool_names()
+                .contains("wait_background_tool")
+        );
+        assert!(
+            snapshot
+                .active_tool_names()
+                .contains("list_background_tools")
+        );
 
         let result = snapshot
             .execute(
@@ -829,6 +845,50 @@ mod tests {
             .await
             .expect("execute calculator from snapshot");
         assert_eq!(result["result"].as_f64(), Some(42.0));
+    }
+
+    #[tokio::test]
+    async fn test_background_tool_sidecar_start_wait_and_list() {
+        let config = crate::config::AppConfig::default();
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+        let ctx = ToolExecutionContext::default();
+
+        let started = snapshot
+            .execute(
+                "start_background_tool",
+                &json!({
+                    "toolName": "calculator",
+                    "arguments": { "expression": "21 * 2" }
+                }),
+                &ctx,
+            )
+            .await
+            .expect("start background calculator");
+        assert_eq!(started["ok"], true);
+        assert_eq!(started["status"], "in_progress");
+        let job_id = started["jobId"].as_str().expect("job id");
+
+        let waited = snapshot
+            .execute(
+                "wait_background_tool",
+                &json!({ "jobId": job_id, "timeoutMs": 10_000 }),
+                &ctx,
+            )
+            .await
+            .expect("wait for background calculator");
+        assert_eq!(waited["timedOut"], false);
+        assert_eq!(waited["job"]["status"], "completed");
+        assert_eq!(waited["job"]["output"]["result"].as_f64(), Some(42.0));
+
+        let jobs = snapshot
+            .execute("list_background_tools", &json!({}), &ctx)
+            .await
+            .expect("list background jobs");
+        assert!(jobs["jobs"].as_array().unwrap().iter().any(|job| {
+            job.get("jobId").and_then(|value| value.as_str()) == Some(job_id)
+                && job.get("status").and_then(|value| value.as_str()) == Some("completed")
+        }));
     }
 
     #[tokio::test]
