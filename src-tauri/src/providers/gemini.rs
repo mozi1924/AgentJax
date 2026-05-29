@@ -26,9 +26,21 @@ struct GeminiToolCall {
 pub async fn fetch_remote_models(
     resolved: &ResolvedModelConfig,
 ) -> Result<Vec<ProviderModelDescriptor>, String> {
-    let strategy = responses::models::ModelsFetchStrategy::openai_compatible()
-        .with_provider_overrides(&resolved.provider.models_endpoint_candidates);
+    let strategy = models_fetch_strategy(resolved);
     responses::models::fetch_remote_models_with_strategy(resolved, &strategy).await
+}
+
+fn models_fetch_strategy(resolved: &ResolvedModelConfig) -> responses::models::ModelsFetchStrategy {
+    let mut strategy = responses::models::ModelsFetchStrategy::openai_compatible()
+        .with_provider_overrides(&resolved.provider.models_endpoint_candidates);
+
+    // Google Gemini's public REST API accepts API keys as a `key` query
+    // parameter for both generation and model catalog endpoints.
+    if should_use_key_query_param(&resolved.provider.api_endpoint) {
+        strategy = strategy.with_credential_query_param("key");
+    }
+
+    strategy
 }
 
 pub async fn stream_response(
@@ -610,7 +622,7 @@ fn preview(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_gemini_payload, process_gemini_event};
+    use super::{build_gemini_payload, models_fetch_strategy, process_gemini_event};
     use crate::config::{
         ModelRequestConfig, PromptComposerConfig, ProviderConfig, ResolvedModelConfig,
         compile_prompt_composer,
@@ -621,10 +633,15 @@ mod tests {
 
     fn test_resolved() -> ResolvedModelConfig {
         let prompt_assembly = compile_prompt_composer(&PromptComposerConfig::default());
+        let provider = ProviderConfig {
+            kind: "gemini".to_string(),
+            api_endpoint: "https://generativelanguage.googleapis.com/v1beta".to_string(),
+            ..Default::default()
+        };
         ResolvedModelConfig {
             profile_key: "test".to_string(),
             provider_key: "gemini".to_string(),
-            provider: ProviderConfig::default(),
+            provider,
             model_id: "gemini-2.5-flash".to_string(),
             model_ref: "gemini/gemini-2.5-flash".to_string(),
             system_prompt: "system prompt".to_string(),
@@ -632,6 +649,14 @@ mod tests {
             request: ModelRequestConfig::default(),
             timeout_seconds: 60,
         }
+    }
+
+    #[test]
+    fn models_strategy_uses_key_query_for_google_endpoint() {
+        let resolved = test_resolved();
+        let strategy = models_fetch_strategy(&resolved);
+
+        assert_eq!(strategy.credential_query_param, Some("key"));
     }
 
     #[test]

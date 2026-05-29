@@ -277,22 +277,18 @@ fn build_anthropic_payload(
     if !system_sections.is_empty() {
         payload["system"] = Value::String(system_sections.join("\n\n"));
     }
-    apply_generation_config(&mut payload, &resolved.request, req);
+    apply_generation_config(&mut payload, &resolved.request);
     if let Some(tools) = req.tools.as_ref().filter(|tools| !tools.is_empty()) {
         payload["tools"] = json!(tools);
-    }
-    if let Some(tool_choice) = &req.tool_choice {
-        payload["tool_choice"] = tool_choice.clone();
+        if let Some(tool_choice) = normalize_tool_choice(req.tool_choice.as_ref()) {
+            payload["tool_choice"] = tool_choice;
+        }
     }
     apply_extra_body(&mut payload, &resolved.request);
     Ok(payload)
 }
 
-fn apply_generation_config(
-    payload: &mut Value,
-    request: &ModelRequestConfig,
-    req: &ResponseStreamRequest,
-) {
+fn apply_generation_config(payload: &mut Value, request: &ModelRequestConfig) {
     if let Some(temperature) = request.temperature {
         payload["temperature"] = json!(temperature);
     }
@@ -302,15 +298,25 @@ fn apply_generation_config(
     if let Some(top_k) = request.top_k {
         payload["top_k"] = json!(top_k);
     }
-    if let Some(text) = &req.text {
-        if text
-            .get("format")
-            .and_then(|format| format.get("type"))
-            .and_then(Value::as_str)
-            == Some("json_object")
-        {
-            payload["response_format"] = json!({ "type": "json_object" });
+}
+
+fn normalize_tool_choice(tool_choice: Option<&Value>) -> Option<Value> {
+    match tool_choice? {
+        // Runtime requests use the OpenAI-compatible string form. Anthropic
+        // expects a typed object, so normalize common choices at the adapter
+        // boundary before the payload leaves AgentJax.
+        Value::String(choice) => {
+            let choice = choice.trim().to_ascii_lowercase();
+            if choice.is_empty() {
+                None
+            } else if choice == "required" {
+                Some(json!({ "type": "any" }))
+            } else {
+                Some(json!({ "type": choice }))
+            }
         }
+        Value::Object(obj) if !obj.is_empty() => Some(Value::Object(obj.clone())),
+        _ => None,
     }
 }
 
@@ -928,6 +934,54 @@ mod tests {
                 .and_then(Value::as_str)
                 == Some("tool_result")
         );
+    }
+
+    #[test]
+    fn payload_normalizes_tool_choice_and_omits_openai_response_format() {
+        let resolved = test_resolved();
+        let req = ResponseStreamRequest {
+            input_items: vec![json!({
+                "role": "user",
+                "content": [{"type":"input_text","text":"reply as JSON"}]
+            })],
+            model: Some("claude-sonnet-4-5".to_string()),
+            text: Some(json!({ "format": { "type": "json_object" } })),
+            tools: Some(vec![json!({
+                "name": "lookup",
+                "description": "Lookup",
+                "input_schema": {"type":"object"}
+            })]),
+            tool_choice: Some(Value::String("auto".to_string())),
+            ..Default::default()
+        };
+
+        let payload = build_anthropic_payload(&resolved, &req).unwrap();
+        assert_eq!(
+            payload
+                .get("tool_choice")
+                .and_then(|choice| choice.get("type"))
+                .and_then(Value::as_str),
+            Some("auto")
+        );
+        assert!(payload.get("response_format").is_none());
+    }
+
+    #[test]
+    fn payload_omits_tool_choice_when_no_tools_are_sent() {
+        let resolved = test_resolved();
+        let req = ResponseStreamRequest {
+            input_items: vec![json!({
+                "role": "user",
+                "content": [{"type":"input_text","text":"hello"}]
+            })],
+            model: Some("claude-sonnet-4-5".to_string()),
+            tool_choice: Some(Value::String("auto".to_string())),
+            ..Default::default()
+        };
+
+        let payload = build_anthropic_payload(&resolved, &req).unwrap();
+        assert!(payload.get("tools").is_none());
+        assert!(payload.get("tool_choice").is_none());
     }
 
     #[test]

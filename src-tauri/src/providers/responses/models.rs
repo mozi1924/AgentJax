@@ -9,12 +9,14 @@ use super::{http, normalize_reasoning_levels};
 
 pub struct ModelsFetchStrategy {
     pub endpoint_candidates: Vec<String>,
+    pub credential_query_param: Option<&'static str>,
 }
 
 impl ModelsFetchStrategy {
     pub fn openai_compatible() -> Self {
         Self {
             endpoint_candidates: vec!["/models".to_string(), "models".to_string()],
+            credential_query_param: None,
         }
     }
 
@@ -46,7 +48,13 @@ impl ModelsFetchStrategy {
 
         Self {
             endpoint_candidates: merged,
+            credential_query_param: self.credential_query_param,
         }
+    }
+
+    pub fn with_credential_query_param(mut self, param_name: &'static str) -> Self {
+        self.credential_query_param = Some(param_name);
+        self
     }
 }
 
@@ -55,8 +63,13 @@ pub async fn fetch_remote_models_with_strategy(
     strategy: &ModelsFetchStrategy,
 ) -> Result<Vec<ProviderModelDescriptor>, String> {
     let credential = resolved.provider.resolved_credential();
+    let header_credential = strategy
+        .credential_query_param
+        .is_none()
+        .then_some(credential.as_deref())
+        .flatten();
     let request_headers =
-        http::merge_request_headers(&[], &resolved.provider, None, credential.as_deref());
+        http::merge_request_headers(&[], &resolved.provider, None, header_credential);
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(resolved.timeout_seconds))
@@ -67,14 +80,25 @@ pub async fn fetch_remote_models_with_strategy(
     let mut errors = Vec::new();
     for candidate in &strategy.endpoint_candidates {
         let endpoint = build_models_endpoint(&resolved.provider.api_endpoint, candidate);
-        let endpoint =
-            match http::apply_query_params_to_url(&endpoint, &resolved.provider.query_params) {
-                Ok(endpoint) => endpoint,
-                Err(err) => {
-                    errors.push(format!("{endpoint}: failed to apply query params: {err}"));
-                    continue;
-                }
-            };
+        let mut query_params = resolved.provider.query_params.clone();
+        if let Some(param_name) = strategy.credential_query_param {
+            if let Some(credential) = credential
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                query_params
+                    .entry(param_name.to_string())
+                    .or_insert_with(|| credential.to_string());
+            }
+        }
+        let endpoint = match http::apply_query_params_to_url(&endpoint, &query_params) {
+            Ok(endpoint) => endpoint,
+            Err(err) => {
+                errors.push(format!("{endpoint}: failed to apply query params: {err}"));
+                continue;
+            }
+        };
         let mut attempt = 0u32;
         loop {
             let request = match http::apply_headers_to_reqwest(
