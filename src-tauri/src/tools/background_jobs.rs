@@ -98,7 +98,6 @@ fn resolve_job(
     job_id: &str,
     conversation_id: Option<&str>,
 ) -> Result<Arc<BackgroundToolJob>, String> {
-    prune_jobs();
     let guard = jobs()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -216,6 +215,14 @@ fn prune_jobs() -> usize {
         TERMINAL_JOB_RETENTION_MS,
         MAX_RETAINED_TERMINAL_JOBS,
     )
+}
+
+fn serialized_status_is_terminal(snapshot: &Value) -> bool {
+    snapshot
+        .get("status")
+        .and_then(Value::as_str)
+        .map(|status| status != BackgroundJobStatus::InProgress.as_str())
+        .unwrap_or(false)
 }
 
 pub(crate) fn job_id(job: &Arc<BackgroundToolJob>) -> String {
@@ -365,6 +372,11 @@ pub(crate) async fn wait_for_job(
         .unwrap_or(DEFAULT_WAIT_TIMEOUT_MS)
         .clamp(1, MAX_WAIT_TIMEOUT_MS);
 
+    // Register notification interest before checking state. Otherwise a fast
+    // completion between the state check and `notified()` could be missed,
+    // making waiters sleep until timeout even though the job already finished.
+    let notified = job.notify.notified();
+
     {
         let state = job
             .state
@@ -373,15 +385,18 @@ pub(crate) async fn wait_for_job(
         if state.status != BackgroundJobStatus::InProgress {
             let ok = state.status == BackgroundJobStatus::Completed;
             drop(state);
+            let snapshot = serialize_job(&job);
+            // Wait-heavy workflows may be the only code path observing that a
+            // job became terminal, so prune after capturing the return payload.
+            prune_jobs();
             return Ok(json!({
                 "ok": ok,
                 "timedOut": false,
-                "job": serialize_job(&job),
+                "job": snapshot,
             }));
         }
     }
 
-    let notified = job.notify.notified();
     let timed_out = tokio::time::timeout(Duration::from_millis(timeout_ms), notified)
         .await
         .is_err();
@@ -391,6 +406,9 @@ pub(crate) async fn wait_for_job(
         .and_then(Value::as_str)
         .map(|status| status == BackgroundJobStatus::Completed.as_str())
         .unwrap_or(false);
+    if serialized_status_is_terminal(&snapshot) {
+        prune_jobs();
+    }
 
     Ok(json!({
         "ok": completed,

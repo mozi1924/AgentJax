@@ -165,14 +165,27 @@ where
                     break;
                 }
                 attempt += 1;
-                let exec_result = tool_snapshot.execute_with_effects(&name, &args, &context).await;
-                match exec_result {
-                    Ok(res) => {
-                        success_result = Some(res);
-                        break;
+                let exec_future = tool_snapshot.execute_with_effects(&name, &args, &context);
+                let mut cancel_changed = cancel_rx.clone();
+                tokio::select! {
+                    exec_result = exec_future => {
+                        match exec_result {
+                            Ok(res) => {
+                                success_result = Some(res);
+                                break;
+                            }
+                            Err(err) => {
+                                last_error = Some(err);
+                            }
+                        }
                     }
-                    Err(err) => {
-                        last_error = Some(err);
+                    changed = cancel_changed.changed() => {
+                        // Dropping the execution future is the fastest local
+                        // cancellation path for slow MCP/network-backed tools.
+                        if changed.is_err() || *cancel_changed.borrow() {
+                            last_error = Some("Tool execution cancelled".to_string());
+                            break;
+                        }
                     }
                 }
             }
