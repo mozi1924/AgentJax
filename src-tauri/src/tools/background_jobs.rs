@@ -42,6 +42,7 @@ struct BackgroundJobState {
 pub(crate) struct BackgroundToolJob {
     job_id: String,
     tool_name: String,
+    conversation_id: Option<String>,
     started_at_unix_ms: i64,
     state: Mutex<BackgroundJobState>,
     handle: Mutex<Option<JoinHandle<()>>>,
@@ -62,6 +63,7 @@ fn serialize_job(job: &BackgroundToolJob) -> Value {
     json!({
         "jobId": job.job_id,
         "toolName": job.tool_name,
+        "conversationId": job.conversation_id,
         "status": state.status.as_str(),
         "startedAtUnixMs": job.started_at_unix_ms,
         "completedAtUnixMs": state.completed_at_unix_ms,
@@ -69,6 +71,71 @@ fn serialize_job(job: &BackgroundToolJob) -> Value {
         "output": state.output,
         "error": state.error,
     })
+}
+
+fn job_visible_to_conversation(job: &BackgroundToolJob, conversation_id: Option<&str>) -> bool {
+    match (conversation_id, job.conversation_id.as_deref()) {
+        // Tool calls in a real chat turn should only see jobs that belong to
+        // the same conversation. This prevents sidecar tools from leaking
+        // another conversation's background output.
+        (Some(requested), Some(owner)) => requested == owner,
+        (Some(_), None) => false,
+        // Tests and internal maintenance callers can omit the conversation id
+        // to inspect the process-wide registry.
+        (None, _) => true,
+    }
+}
+
+fn resolve_job(
+    job_id: &str,
+    conversation_id: Option<&str>,
+) -> Result<Arc<BackgroundToolJob>, String> {
+    let guard = jobs()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let job = guard
+        .get(job_id)
+        .cloned()
+        .filter(|job| job_visible_to_conversation(job, conversation_id))
+        .ok_or_else(|| format!("Background tool job '{}' was not found", job_id))?;
+    Ok(job)
+}
+
+fn mark_job_cancelled(job: &Arc<BackgroundToolJob>, reason: &str) -> bool {
+    let mut should_abort = false;
+    {
+        let completed_at_unix_ms = now_unix_ms();
+        let duration_ms = completed_at_unix_ms
+            .saturating_sub(job.started_at_unix_ms)
+            .max(0) as u64;
+        let mut state = job
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        if state.status == BackgroundJobStatus::InProgress {
+            state.status = BackgroundJobStatus::Cancelled;
+            state.completed_at_unix_ms = Some(completed_at_unix_ms);
+            state.duration_ms = Some(duration_ms);
+            state.output = None;
+            state.error = Some(reason.to_string());
+            should_abort = true;
+        }
+    }
+
+    if should_abort {
+        if let Some(handle) = job
+            .handle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+        {
+            handle.abort();
+        }
+        job.notify.notify_waiters();
+    }
+
+    should_abort
 }
 
 pub(crate) fn job_id(job: &Arc<BackgroundToolJob>) -> String {
@@ -79,10 +146,14 @@ pub(crate) fn job_snapshot(job: &Arc<BackgroundToolJob>) -> Value {
     serialize_job(job)
 }
 
-pub(crate) fn start_job(tool_name: impl Into<String>) -> Arc<BackgroundToolJob> {
+pub(crate) fn start_job_for_conversation(
+    tool_name: impl Into<String>,
+    conversation_id: Option<String>,
+) -> Arc<BackgroundToolJob> {
     let job = Arc::new(BackgroundToolJob {
         job_id: format!("job_{}", Uuid::new_v4().simple()),
         tool_name: tool_name.into(),
+        conversation_id,
         started_at_unix_ms: now_unix_ms(),
         state: Mutex::new(BackgroundJobState {
             status: BackgroundJobStatus::InProgress,
@@ -142,49 +213,9 @@ pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: Result<Value, S
     job.notify.notify_waiters();
 }
 
-pub(crate) fn cancel_job(job_id: &str) -> Result<Value, String> {
-    let job = {
-        let guard = jobs()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        guard
-            .get(job_id)
-            .cloned()
-            .ok_or_else(|| format!("Background tool job '{}' was not found", job_id))?
-    };
-
-    let mut should_abort = false;
-    {
-        let completed_at_unix_ms = now_unix_ms();
-        let duration_ms = completed_at_unix_ms
-            .saturating_sub(job.started_at_unix_ms)
-            .max(0) as u64;
-        let mut state = job
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        if state.status == BackgroundJobStatus::InProgress {
-            state.status = BackgroundJobStatus::Cancelled;
-            state.completed_at_unix_ms = Some(completed_at_unix_ms);
-            state.duration_ms = Some(duration_ms);
-            state.output = None;
-            state.error = Some("Background tool job was cancelled".to_string());
-            should_abort = true;
-        }
-    }
-
-    if should_abort {
-        if let Some(handle) = job
-            .handle
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-        {
-            handle.abort();
-        }
-        job.notify.notify_waiters();
-    }
+pub(crate) fn cancel_job(job_id: &str, conversation_id: Option<&str>) -> Result<Value, String> {
+    let job = resolve_job(job_id, conversation_id)?;
+    let should_abort = mark_job_cancelled(&job, "Background tool job was cancelled");
 
     Ok(json!({
         "ok": should_abort,
@@ -193,12 +224,31 @@ pub(crate) fn cancel_job(job_id: &str) -> Result<Value, String> {
     }))
 }
 
-pub(crate) fn list_jobs() -> Value {
+pub(crate) fn cancel_conversation_jobs(conversation_id: &str) -> usize {
+    let jobs_to_cancel = {
+        let guard = jobs()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard
+            .values()
+            .filter(|job| job.conversation_id.as_deref() == Some(conversation_id))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+
+    jobs_to_cancel
+        .iter()
+        .filter(|job| mark_job_cancelled(job, "Conversation background tool job was cancelled"))
+        .count()
+}
+
+pub(crate) fn list_jobs(conversation_id: Option<&str>) -> Value {
     let guard = jobs()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut items = guard
         .values()
+        .filter(|job| job_visible_to_conversation(job, conversation_id))
         .map(|job| serialize_job(job))
         .collect::<Vec<_>>();
     items.sort_by_key(|item| {
@@ -212,16 +262,12 @@ pub(crate) fn list_jobs() -> Value {
     })
 }
 
-pub(crate) async fn wait_for_job(job_id: &str, timeout_ms: Option<u64>) -> Result<Value, String> {
-    let job = {
-        let guard = jobs()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        guard
-            .get(job_id)
-            .cloned()
-            .ok_or_else(|| format!("Background tool job '{}' was not found", job_id))?
-    };
+pub(crate) async fn wait_for_job(
+    job_id: &str,
+    timeout_ms: Option<u64>,
+    conversation_id: Option<&str>,
+) -> Result<Value, String> {
+    let job = resolve_job(job_id, conversation_id)?;
     let timeout_ms = timeout_ms
         .unwrap_or(DEFAULT_WAIT_TIMEOUT_MS)
         .clamp(1, MAX_WAIT_TIMEOUT_MS);

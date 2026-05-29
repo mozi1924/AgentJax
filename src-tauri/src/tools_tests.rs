@@ -941,13 +941,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_background_tool_sidecar_is_conversation_scoped() {
+        let config = crate::config::AppConfig::default();
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let ctx_a = ToolExecutionContext {
+            conversation_id: Some(format!("test-bg-a-{}", uuid::Uuid::new_v4())),
+        };
+        let ctx_b = ToolExecutionContext {
+            conversation_id: Some(format!("test-bg-b-{}", uuid::Uuid::new_v4())),
+        };
+        let snapshot = catalog.snapshot(&ctx_a).await;
+
+        let started = snapshot
+            .execute(
+                "start_background_tool",
+                &json!({
+                    "toolName": "calculator",
+                    "arguments": { "expression": "5 * 9" }
+                }),
+                &ctx_a,
+            )
+            .await
+            .expect("start scoped background calculator");
+        let job_id = started["jobId"].as_str().expect("job id");
+        assert_eq!(
+            started["job"]["conversationId"].as_str(),
+            ctx_a.conversation_id.as_deref()
+        );
+
+        let other_conversation_jobs = snapshot
+            .execute("list_background_tools", &json!({}), &ctx_b)
+            .await
+            .expect("list other conversation jobs");
+        assert!(
+            other_conversation_jobs["jobs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|job| job.get("jobId").and_then(|value| value.as_str()) != Some(job_id))
+        );
+
+        let wrong_conversation_wait = snapshot
+            .execute(
+                "wait_background_tool",
+                &json!({ "jobId": job_id, "timeoutMs": 100 }),
+                &ctx_b,
+            )
+            .await;
+        assert!(wrong_conversation_wait.is_err());
+
+        let waited = snapshot
+            .execute(
+                "wait_background_tool",
+                &json!({ "jobId": job_id, "timeoutMs": 10_000 }),
+                &ctx_a,
+            )
+            .await
+            .expect("wait for scoped background calculator");
+        assert_eq!(waited["job"]["status"], "completed");
+        assert_eq!(waited["job"]["output"]["result"].as_f64(), Some(45.0));
+    }
+
+    #[tokio::test]
     async fn test_background_tool_sidecar_cancel() {
         let config = crate::config::AppConfig::default();
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let ctx = ToolExecutionContext::default();
 
-        let job = crate::tools::background_jobs::start_job("test_sleep");
+        let job = crate::tools::background_jobs::start_job_for_conversation("test_sleep", None);
         let job_id = crate::tools::background_jobs::job_id(&job);
         let job_for_task = job.clone();
         let handle = tokio::spawn(async move {
@@ -978,6 +1040,57 @@ mod tests {
         assert_eq!(waited["timedOut"], false);
         assert_eq!(waited["job"]["status"], "cancelled");
         assert_eq!(waited["ok"], false);
+    }
+
+    #[tokio::test]
+    async fn test_background_jobs_cancel_by_conversation() {
+        let conversation_id = format!("test-bg-cancel-{}", uuid::Uuid::new_v4());
+        let other_conversation_id = format!("test-bg-keep-{}", uuid::Uuid::new_v4());
+        let job = crate::tools::background_jobs::start_job_for_conversation(
+            "test_sleep",
+            Some(conversation_id.clone()),
+        );
+        let other_job = crate::tools::background_jobs::start_job_for_conversation(
+            "test_sleep",
+            Some(other_conversation_id.clone()),
+        );
+        for candidate in [&job, &other_job] {
+            let job_for_task = candidate.clone();
+            let handle = tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                crate::tools::background_jobs::complete_job(
+                    &job_for_task,
+                    Ok(json!({ "unexpected": true })),
+                );
+            });
+            crate::tools::background_jobs::register_job_handle(candidate, handle);
+        }
+
+        assert_eq!(
+            crate::tools::background_jobs::cancel_conversation_jobs(&conversation_id),
+            1
+        );
+
+        let cancelled = crate::tools::background_jobs::wait_for_job(
+            &crate::tools::background_jobs::job_id(&job),
+            Some(1_000),
+            Some(&conversation_id),
+        )
+        .await
+        .expect("wait cancelled conversation job");
+        assert_eq!(cancelled["job"]["status"], "cancelled");
+
+        let still_running = crate::tools::background_jobs::wait_for_job(
+            &crate::tools::background_jobs::job_id(&other_job),
+            Some(10),
+            Some(&other_conversation_id),
+        )
+        .await
+        .expect("wait other conversation job");
+        assert_eq!(still_running["timedOut"], true);
+        assert_eq!(still_running["job"]["status"], "in_progress");
+
+        crate::tools::background_jobs::cancel_conversation_jobs(&other_conversation_id);
     }
 
     #[tokio::test]

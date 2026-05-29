@@ -1,4 +1,5 @@
 use super::chat_utils::chrono_like_now_id;
+use crate::tools::background_jobs;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use tokio::sync::watch;
@@ -69,20 +70,23 @@ impl ChatRequestRegistry {
     }
 
     pub fn cancel_chat_request(&self, request_id: &str) -> Result<bool, String> {
-        let cancel_tx = {
+        let active_request = {
             let requests = self
                 .requests
                 .lock()
                 .map_err(|_| "Failed to lock chat request registry".to_string())?;
-            requests
-                .get(request_id)
-                .map(|request| request.cancel_tx.clone())
+            requests.get(request_id).cloned()
         };
 
-        if let Some(cancel_tx) = cancel_tx {
-            cancel_tx
+        if let Some(request) = active_request {
+            request
+                .cancel_tx
                 .send(true)
                 .map_err(|_| "Failed to signal chat stream cancellation".to_string())?;
+            // Background sidecar jobs are deliberately detached from the
+            // provider turn, so user-initiated Stop must cancel them
+            // explicitly or they can outlive the visible request.
+            background_jobs::cancel_conversation_jobs(&request.conversation_id);
             return Ok(true);
         }
 
@@ -211,6 +215,7 @@ impl ChatRequestRegistry {
         }
 
         let _ = self.cancel_title_request(conversation_id)?;
+        background_jobs::cancel_conversation_jobs(conversation_id);
         Ok(())
     }
 }

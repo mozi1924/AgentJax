@@ -448,7 +448,10 @@ impl ToolCatalogSnapshot {
                     ));
                 }
 
-                let job = background_jobs::start_job(target_tool_name.clone());
+                let job = background_jobs::start_job_for_conversation(
+                    target_tool_name.clone(),
+                    context.conversation_id.clone(),
+                );
                 let job_id = background_jobs::job_id(&job);
                 let context = context.clone();
                 let mcp_manager = self.mcp_manager.clone();
@@ -497,19 +500,27 @@ impl ToolCatalogSnapshot {
                 let job_id = background_job_id(arguments)?;
                 let timeout_ms = background_wait_timeout_ms(arguments);
                 Ok(ToolCatalogExecution {
-                    output: background_jobs::wait_for_job(&job_id, timeout_ms).await?,
+                    output: background_jobs::wait_for_job(
+                        &job_id,
+                        timeout_ms,
+                        context.conversation_id.as_deref(),
+                    )
+                    .await?,
                     state_changes: Vec::new(),
                 })
             }
             ToolSnapshotEntry::CancelBackgroundTool => {
                 let job_id = background_job_id(arguments)?;
                 Ok(ToolCatalogExecution {
-                    output: background_jobs::cancel_job(&job_id)?,
+                    output: background_jobs::cancel_job(
+                        &job_id,
+                        context.conversation_id.as_deref(),
+                    )?,
                     state_changes: Vec::new(),
                 })
             }
             ToolSnapshotEntry::ListBackgroundTools => Ok(ToolCatalogExecution {
-                output: background_jobs::list_jobs(),
+                output: background_jobs::list_jobs(context.conversation_id.as_deref()),
                 state_changes: Vec::new(),
             }),
             ToolSnapshotEntry::ManageMcpServer {
