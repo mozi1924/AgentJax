@@ -11,6 +11,7 @@ pub enum ProviderTransportFamily {
     Responses,
     ChatCompletions,
     Gemini,
+    Anthropic,
     CustomOauth,
 }
 
@@ -108,6 +109,19 @@ pub fn builtin_provider_definitions() -> Vec<ProviderDefinition> {
             default_model_ids: &["gemini-2.5-flash", "gemini-2.5-pro"],
             capabilities: ProviderCapabilities::gemini(),
             tool_schema_format: ToolSchemaFormat::Gemini,
+        },
+        ProviderDefinition {
+            kind: "anthropic",
+            display_name: "Anthropic",
+            transport_family: ProviderTransportFamily::Anthropic,
+            default_api_endpoint: "https://api.anthropic.com/v1",
+            default_realtime_endpoint: None,
+            default_credential_env: "ANTHROPIC_API_KEY",
+            default_supports_websockets: false,
+            default_stream_transport: "sse",
+            default_model_ids: &["claude-sonnet-4-5", "claude-opus-4-1"],
+            capabilities: ProviderCapabilities::anthropic(),
+            tool_schema_format: ToolSchemaFormat::Anthropic,
         },
     ]
 }

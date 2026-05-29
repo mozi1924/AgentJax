@@ -763,10 +763,12 @@ mod tests {
         let responses_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Responses);
         let cc_schemas = registry.list_schemas_with_format(ToolSchemaFormat::ChatCompletions);
         let gemini_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Gemini);
+        let anthropic_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Anthropic);
 
         assert_eq!(responses_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
         assert_eq!(cc_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
         assert_eq!(gemini_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
+        assert_eq!(anthropic_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
 
         let first_responses = &responses_schemas[0];
         assert_eq!(first_responses["type"], "function");
@@ -784,6 +786,11 @@ mod tests {
         assert!(first_gemini.get("type").is_none());
         assert!(first_gemini.get("name").is_some());
         assert!(first_gemini.get("parameters").is_some());
+
+        let first_anthropic = &anthropic_schemas[0];
+        assert!(first_anthropic.get("type").is_none());
+        assert!(first_anthropic.get("name").is_some());
+        assert!(first_anthropic.get("input_schema").is_some());
 
         for schema in &responses_schemas {
             let parameters = schema
@@ -821,6 +828,21 @@ mod tests {
                 .get("parameters")
                 .and_then(|value| value.as_object())
                 .expect("gemini schema parameters should be an object");
+            assert_eq!(
+                parameters.get("type").and_then(|value| value.as_str()),
+                Some("object")
+            );
+            assert!(!parameters.contains_key("anyOf"));
+            assert!(!parameters.contains_key("oneOf"));
+            assert!(!parameters.contains_key("allOf"));
+            assert!(!parameters.contains_key("not"));
+        }
+
+        for schema in &anthropic_schemas {
+            let parameters = schema
+                .get("input_schema")
+                .and_then(|value| value.as_object())
+                .expect("anthropic schema input_schema should be an object");
             assert_eq!(
                 parameters.get("type").and_then(|value| value.as_str()),
                 Some("object")

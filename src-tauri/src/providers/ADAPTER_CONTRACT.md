@@ -41,3 +41,6 @@ Responses-like timeline into Chat Completions `messages`, then converts
 streamed `choices.delta` chunks back into normalized AgentJax events.
 `providers/gemini.rs` follows the same boundary for Gemini `contents`,
 `functionCall`/`functionResponse`, and `usageMetadata`.
+`providers/anthropic.rs` maps Anthropic Messages `content_block_*` events,
+native `tool_use.id` values, `tool_result.tool_use_id`, and streamed usage
+snapshots into the same normalized protocol.

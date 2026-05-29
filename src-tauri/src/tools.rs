@@ -22,6 +22,7 @@ pub enum ToolSchemaFormat {
     Responses,
     ChatCompletions,
     Gemini,
+    Anthropic,
 }
 
 pub fn format_tool_schema(
@@ -49,6 +50,11 @@ pub fn format_tool_schema(
             "name": name,
             "description": description,
             "parameters": parameters,
+        }),
+        ToolSchemaFormat::Anthropic => json!({
+            "name": name,
+            "description": description,
+            "input_schema": parameters,
         }),
     }
 }

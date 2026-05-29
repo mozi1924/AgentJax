@@ -1,4 +1,5 @@
 mod adapters;
+mod anthropic;
 pub mod capabilities;
 mod chat_completions;
 pub mod core;

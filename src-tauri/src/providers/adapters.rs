@@ -3,6 +3,7 @@ use std::pin::Pin;
 
 use tokio::sync::watch;
 
+use super::anthropic;
 use super::chat_completions;
 use super::gemini;
 use super::openai_responses;
@@ -134,18 +135,52 @@ impl ProviderAdapter for GeminiAdapter {
     }
 }
 
+struct AnthropicAdapter;
+
+impl ProviderAdapter for AnthropicAdapter {
+    fn matches_kind(&self, provider_kind: &str) -> bool {
+        matches!(provider_kind, "anthropic" | "claude")
+    }
+
+    fn stream_response<'a>(
+        &'a self,
+        resolved: &'a ResolvedModelConfig,
+        req: &'a ResponseStreamRequest,
+        cancel_rx: &'a mut watch::Receiver<bool>,
+        on_delta: &'a mut ProviderEventSink<'a>,
+    ) -> StreamFuture<'a> {
+        Box::pin(anthropic::stream_response(
+            resolved, req, cancel_rx, on_delta,
+        ))
+    }
+
+    fn fetch_remote_models<'a>(&'a self, resolved: &'a ResolvedModelConfig) -> ModelsFuture<'a> {
+        Box::pin(anthropic::fetch_remote_models(resolved))
+    }
+
+    fn reasoning_capability(
+        &self,
+        model_id: &str,
+        cached_levels: Option<&[String]>,
+    ) -> ModelReasoningCapability {
+        anthropic::get_reasoning_capability(model_id, cached_levels)
+    }
+}
+
 static OPENAI_RESPONSES_ADAPTER: OpenAIResponsesAdapter = OpenAIResponsesAdapter;
 static CHAT_COMPLETIONS_ADAPTER: ChatCompletionsAdapter = ChatCompletionsAdapter;
 static GEMINI_ADAPTER: GeminiAdapter = GeminiAdapter;
+static ANTHROPIC_ADAPTER: AnthropicAdapter = AnthropicAdapter;
 
 pub(crate) fn adapter_for_kind(
     provider_kind: &str,
 ) -> Result<&'static dyn ProviderAdapter, String> {
     let normalized = provider_kind.trim().to_lowercase();
-    let adapters: [&dyn ProviderAdapter; 3] = [
+    let adapters: [&dyn ProviderAdapter; 4] = [
         &OPENAI_RESPONSES_ADAPTER,
         &CHAT_COMPLETIONS_ADAPTER,
         &GEMINI_ADAPTER,
+        &ANTHROPIC_ADAPTER,
     ];
 
     for adapter in adapters {

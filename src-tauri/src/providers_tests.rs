@@ -30,6 +30,10 @@ mod tests {
         let gemini =
             providers::get_tool_schema_format("gemini").expect("gemini adapter should exist");
         assert_eq!(gemini, ToolSchemaFormat::Gemini);
+
+        let anthropic =
+            providers::get_tool_schema_format("anthropic").expect("anthropic adapter should exist");
+        assert_eq!(anthropic, ToolSchemaFormat::Anthropic);
     }
 
     #[test]
