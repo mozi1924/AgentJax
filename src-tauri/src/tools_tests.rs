@@ -12,7 +12,7 @@ mod tests {
     use std::sync::Arc;
 
     const DEFAULT_REGISTRY_TOOL_COUNT: usize = 7;
-    const DEFAULT_CATALOG_TOOL_COUNT: usize = DEFAULT_REGISTRY_TOOL_COUNT + 3;
+    const DEFAULT_CATALOG_TOOL_COUNT: usize = DEFAULT_REGISTRY_TOOL_COUNT + 4;
 
     struct TestHomeGuard {
         home: std::path::PathBuf,
@@ -762,9 +762,13 @@ mod tests {
 
         let responses_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Responses);
         let cc_schemas = registry.list_schemas_with_format(ToolSchemaFormat::ChatCompletions);
+        let gemini_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Gemini);
+        let anthropic_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Anthropic);
 
         assert_eq!(responses_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
         assert_eq!(cc_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
+        assert_eq!(gemini_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
+        assert_eq!(anthropic_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
 
         let first_responses = &responses_schemas[0];
         assert_eq!(first_responses["type"], "function");
@@ -777,6 +781,16 @@ mod tests {
         assert!(first_cc.get("function").is_some());
         assert!(first_cc["function"].get("name").is_some());
         assert!(first_cc["function"].get("parameters").is_some());
+
+        let first_gemini = &gemini_schemas[0];
+        assert!(first_gemini.get("type").is_none());
+        assert!(first_gemini.get("name").is_some());
+        assert!(first_gemini.get("parameters").is_some());
+
+        let first_anthropic = &anthropic_schemas[0];
+        assert!(first_anthropic.get("type").is_none());
+        assert!(first_anthropic.get("name").is_some());
+        assert!(first_anthropic.get("input_schema").is_some());
 
         for schema in &responses_schemas {
             let parameters = schema
@@ -808,6 +822,36 @@ mod tests {
             assert!(!parameters.contains_key("allOf"));
             assert!(!parameters.contains_key("not"));
         }
+
+        for schema in &gemini_schemas {
+            let parameters = schema
+                .get("parameters")
+                .and_then(|value| value.as_object())
+                .expect("gemini schema parameters should be an object");
+            assert_eq!(
+                parameters.get("type").and_then(|value| value.as_str()),
+                Some("object")
+            );
+            assert!(!parameters.contains_key("anyOf"));
+            assert!(!parameters.contains_key("oneOf"));
+            assert!(!parameters.contains_key("allOf"));
+            assert!(!parameters.contains_key("not"));
+        }
+
+        for schema in &anthropic_schemas {
+            let parameters = schema
+                .get("input_schema")
+                .and_then(|value| value.as_object())
+                .expect("anthropic schema input_schema should be an object");
+            assert_eq!(
+                parameters.get("type").and_then(|value| value.as_str()),
+                Some("object")
+            );
+            assert!(!parameters.contains_key("anyOf"));
+            assert!(!parameters.contains_key("oneOf"));
+            assert!(!parameters.contains_key("allOf"));
+            assert!(!parameters.contains_key("not"));
+        }
     }
 
     #[tokio::test]
@@ -829,6 +873,11 @@ mod tests {
             snapshot
                 .active_tool_names()
                 .contains("wait_background_tool")
+        );
+        assert!(
+            snapshot
+                .active_tool_names()
+                .contains("cancel_background_tool")
         );
         assert!(
             snapshot
@@ -889,6 +938,46 @@ mod tests {
             job.get("jobId").and_then(|value| value.as_str()) == Some(job_id)
                 && job.get("status").and_then(|value| value.as_str()) == Some("completed")
         }));
+    }
+
+    #[tokio::test]
+    async fn test_background_tool_sidecar_cancel() {
+        let config = crate::config::AppConfig::default();
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+        let ctx = ToolExecutionContext::default();
+
+        let job = crate::tools::background_jobs::start_job("test_sleep");
+        let job_id = crate::tools::background_jobs::job_id(&job);
+        let job_for_task = job.clone();
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            crate::tools::background_jobs::complete_job(
+                &job_for_task,
+                Ok(json!({ "unexpected": true })),
+            );
+        });
+        crate::tools::background_jobs::register_job_handle(&job, handle);
+
+        let cancelled = snapshot
+            .execute("cancel_background_tool", &json!({ "jobId": job_id }), &ctx)
+            .await
+            .expect("cancel background job");
+        assert_eq!(cancelled["ok"], true);
+        assert_eq!(cancelled["cancelled"], true);
+        assert_eq!(cancelled["job"]["status"], "cancelled");
+
+        let waited = snapshot
+            .execute(
+                "wait_background_tool",
+                &json!({ "jobId": job_id, "timeoutMs": 1_000 }),
+                &ctx,
+            )
+            .await
+            .expect("wait for cancelled background job");
+        assert_eq!(waited["timedOut"], false);
+        assert_eq!(waited["job"]["status"], "cancelled");
+        assert_eq!(waited["ok"], false);
     }
 
     #[tokio::test]

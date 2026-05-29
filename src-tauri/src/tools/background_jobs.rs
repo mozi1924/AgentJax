@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 const DEFAULT_WAIT_TIMEOUT_MS: u64 = 30_000;
@@ -14,6 +15,7 @@ enum BackgroundJobStatus {
     InProgress,
     Completed,
     Failed,
+    Cancelled,
 }
 
 impl BackgroundJobStatus {
@@ -22,6 +24,7 @@ impl BackgroundJobStatus {
             BackgroundJobStatus::InProgress => "in_progress",
             BackgroundJobStatus::Completed => "completed",
             BackgroundJobStatus::Failed => "failed",
+            BackgroundJobStatus::Cancelled => "cancelled",
         }
     }
 }
@@ -41,6 +44,7 @@ pub(crate) struct BackgroundToolJob {
     tool_name: String,
     started_at_unix_ms: i64,
     state: Mutex<BackgroundJobState>,
+    handle: Mutex<Option<JoinHandle<()>>>,
     notify: Notify,
 }
 
@@ -87,6 +91,7 @@ pub(crate) fn start_job(tool_name: impl Into<String>) -> Arc<BackgroundToolJob> 
             output: None,
             error: None,
         }),
+        handle: Mutex::new(None),
         notify: Notify::new(),
     });
 
@@ -95,6 +100,14 @@ pub(crate) fn start_job(tool_name: impl Into<String>) -> Arc<BackgroundToolJob> 
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     guard.insert(job.job_id.clone(), job.clone());
     job
+}
+
+pub(crate) fn register_job_handle(job: &Arc<BackgroundToolJob>, handle: JoinHandle<()>) {
+    let mut guard = job
+        .handle
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *guard = Some(handle);
 }
 
 pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: Result<Value, String>) {
@@ -106,6 +119,9 @@ pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: Result<Value, S
         .state
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if state.status != BackgroundJobStatus::InProgress {
+        return;
+    }
 
     match result {
         Ok(output) => {
@@ -124,6 +140,57 @@ pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: Result<Value, S
     drop(state);
 
     job.notify.notify_waiters();
+}
+
+pub(crate) fn cancel_job(job_id: &str) -> Result<Value, String> {
+    let job = {
+        let guard = jobs()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard
+            .get(job_id)
+            .cloned()
+            .ok_or_else(|| format!("Background tool job '{}' was not found", job_id))?
+    };
+
+    let mut should_abort = false;
+    {
+        let completed_at_unix_ms = now_unix_ms();
+        let duration_ms = completed_at_unix_ms
+            .saturating_sub(job.started_at_unix_ms)
+            .max(0) as u64;
+        let mut state = job
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        if state.status == BackgroundJobStatus::InProgress {
+            state.status = BackgroundJobStatus::Cancelled;
+            state.completed_at_unix_ms = Some(completed_at_unix_ms);
+            state.duration_ms = Some(duration_ms);
+            state.output = None;
+            state.error = Some("Background tool job was cancelled".to_string());
+            should_abort = true;
+        }
+    }
+
+    if should_abort {
+        if let Some(handle) = job
+            .handle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+        {
+            handle.abort();
+        }
+        job.notify.notify_waiters();
+    }
+
+    Ok(json!({
+        "ok": should_abort,
+        "cancelled": should_abort,
+        "job": serialize_job(&job),
+    }))
 }
 
 pub(crate) fn list_jobs() -> Value {
@@ -165,8 +232,10 @@ pub(crate) async fn wait_for_job(job_id: &str, timeout_ms: Option<u64>) -> Resul
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if state.status != BackgroundJobStatus::InProgress {
+            let ok = state.status == BackgroundJobStatus::Completed;
+            drop(state);
             return Ok(json!({
-                "ok": state.status == BackgroundJobStatus::Completed,
+                "ok": ok,
                 "timedOut": false,
                 "job": serialize_job(&job),
             }));

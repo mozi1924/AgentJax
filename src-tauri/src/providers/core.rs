@@ -1,5 +1,75 @@
 use crate::providers::types::ProviderPendingToolCall;
 use serde_json::{Value, json};
+use uuid::Uuid;
+
+/// Generates AgentJax-local IDs for upstream protocols that do not expose all
+/// Responses-style identifiers. The generated IDs are stable within one adapter
+/// response hop and intentionally carry the provider prefix to simplify log
+/// inspection when debugging multi-provider conversations.
+#[derive(Debug, Clone)]
+pub struct ProviderIdFactory {
+    provider_kind: String,
+    response_id: String,
+    next_item_index: usize,
+    next_call_index: usize,
+}
+
+impl ProviderIdFactory {
+    pub fn new(provider_kind: &str) -> Self {
+        let provider_kind = sanitize_id_segment(provider_kind);
+        let response_id = format!("resp_{}_{}", provider_kind, Uuid::new_v4().simple());
+
+        Self {
+            provider_kind,
+            response_id,
+            next_item_index: 0,
+            next_call_index: 0,
+        }
+    }
+
+    pub fn response_id(&self) -> &str {
+        &self.response_id
+    }
+
+    pub fn next_item_id(&mut self, label: &str) -> String {
+        self.next_item_index = self.next_item_index.saturating_add(1);
+        format!(
+            "item_{}_{}_{}",
+            self.provider_kind,
+            self.next_item_index,
+            sanitize_id_segment(label)
+        )
+    }
+
+    pub fn next_call_id(&mut self, tool_name: &str) -> String {
+        self.next_call_index = self.next_call_index.saturating_add(1);
+        format!(
+            "call_{}_{}_{}",
+            self.provider_kind,
+            self.next_call_index,
+            sanitize_id_segment(tool_name)
+        )
+    }
+}
+
+fn sanitize_id_segment(value: &str) -> String {
+    let mut normalized = String::new();
+
+    for ch in value.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch.to_ascii_lowercase());
+        } else if !normalized.ends_with('_') {
+            normalized.push('_');
+        }
+    }
+
+    let normalized = normalized.trim_matches('_').to_string();
+    if normalized.is_empty() {
+        "provider".to_string()
+    } else {
+        normalized
+    }
+}
 
 pub fn normalize_reasoning_levels(levels: &[String]) -> Vec<String> {
     let mut normalized = Vec::new();
@@ -139,8 +209,9 @@ fn parse_tool_arguments_value(raw: Option<&Value>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_tool_result_input_item, build_user_input_item, compose_tool_continuation_input,
-        extract_pending_tool_calls_from_output, normalize_reasoning_levels,
+        ProviderIdFactory, build_tool_result_input_item, build_user_input_item,
+        compose_tool_continuation_input, extract_pending_tool_calls_from_output,
+        normalize_reasoning_levels,
     };
     use serde_json::json;
 
@@ -210,5 +281,24 @@ mod tests {
         );
 
         assert_eq!(continuation.len(), 3);
+    }
+
+    #[test]
+    fn synthetic_ids_are_prefixed_and_monotonic() {
+        let mut factory = ProviderIdFactory::new("gemini-native");
+        assert!(factory.response_id().starts_with("resp_gemini_native_"));
+
+        assert_eq!(
+            factory.next_item_id("function call"),
+            "item_gemini_native_1_function_call"
+        );
+        assert_eq!(
+            factory.next_call_id("search.web"),
+            "call_gemini_native_1_search_web"
+        );
+        assert_eq!(
+            factory.next_call_id("search.web"),
+            "call_gemini_native_2_search_web"
+        );
     }
 }

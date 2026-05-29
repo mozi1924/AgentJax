@@ -1,4 +1,4 @@
-mod background_jobs;
+pub(crate) mod background_jobs;
 mod calculator;
 mod catalog;
 mod files;
@@ -21,6 +21,8 @@ pub use registry::ToolRegistry;
 pub enum ToolSchemaFormat {
     Responses,
     ChatCompletions,
+    Gemini,
+    Anthropic,
 }
 
 pub fn format_tool_schema(
@@ -43,6 +45,16 @@ pub fn format_tool_schema(
                 "description": description,
                 "parameters": parameters,
             }
+        }),
+        ToolSchemaFormat::Gemini => json!({
+            "name": name,
+            "description": description,
+            "parameters": parameters,
+        }),
+        ToolSchemaFormat::Anthropic => json!({
+            "name": name,
+            "description": description,
+            "input_schema": parameters,
         }),
     }
 }

@@ -16,10 +16,11 @@ use crate::providers::types::{
 
 use super::parser::{
     ParserState, collect_output_item_from_sse_event_block, extract_output_items,
-    extract_output_text, handle_stream_event_json, process_sse_event_block, split_sse_event_block,
+    extract_output_text, handle_stream_event_json, process_sse_event_block,
 };
 use super::{ResponsesStreamBehavior, payload::build_streaming_request_payload};
 use crate::providers::responses::http;
+use crate::providers::sse::split_sse_event_block;
 
 fn resolved_stream_idle_timeout(resolved: &ResolvedModelConfig) -> Duration {
     let ms = resolved
