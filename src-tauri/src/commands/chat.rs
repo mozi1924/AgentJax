@@ -31,6 +31,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::{Emitter, Manager, State};
 use tokio::sync::watch;
 
+const STREAM_MESSAGE_OVERHEAD_TOKENS: usize = 4;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LocalClientMetadataEnvelope {
@@ -482,6 +484,7 @@ pub async fn chat_stream(
                             );
                         }
                     }
+                    stream_count.fetch_add(STREAM_MESSAGE_OVERHEAD_TOKENS, Ordering::Relaxed);
                 }
                 crate::providers::types::ProviderStreamEvent::ToolCallExecuted {
                     call_id,
@@ -512,6 +515,7 @@ pub async fn chat_stream(
                             );
                         }
                     }
+                    stream_count.fetch_add(STREAM_MESSAGE_OVERHEAD_TOKENS, Ordering::Relaxed);
                 }
                 crate::providers::types::ProviderStreamEvent::AssistantMessageCompleted {
                     text,
@@ -584,6 +588,22 @@ pub async fn chat_stream(
 
     let _ = registry.remove_chat_request(&request_id)?;
     let (response, _timeline_events) = result?;
+    if let Some(usage) = &response.usage {
+        running_token_count.store(usage.total_tokens, Ordering::Relaxed);
+        if let Err(err) = conversation_store::update_conversation_token_usage(
+            &conversation_id,
+            &request_id,
+            &response.response_id,
+            usage,
+        ) {
+            log::warn!(
+                "Failed to persist provider token usage for conversation '{}': {}",
+                conversation_id,
+                err
+            );
+        }
+    }
+    let final_token_count = running_token_count.load(Ordering::Relaxed);
 
     log::info!(
         "chat_stream turn complete: conv={} req={} text_len={} resp_id={} output_items={}",
@@ -620,7 +640,7 @@ pub async fn chat_stream(
                 response_id: Some(response.response_id.clone()),
                 conversation_id: Some(conversation_id.clone()),
                 conversation_title: conversation_title.clone(),
-                context_token_count: Some(running_token_count.load(Ordering::Relaxed)),
+                context_token_count: Some(final_token_count),
                 error: None,
                 tool_call_id: None,
                 tool_name: None,
@@ -643,7 +663,7 @@ pub async fn chat_stream(
         output_text: response.output_text,
         conversation_id,
         conversation_title,
-        context_token_count,
+        context_token_count: final_token_count,
     })
 }
 

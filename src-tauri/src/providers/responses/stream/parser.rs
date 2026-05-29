@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::message_phase::AssistantPhase;
-use crate::providers::types::{ProviderEventSink, ProviderStreamEvent};
+use crate::providers::types::{ProviderEventSink, ProviderStreamEvent, ProviderUsage};
 
 pub(crate) struct ParserState {
     pub emitted_reasoning_started: bool,
@@ -11,6 +11,7 @@ pub(crate) struct ParserState {
     pub active_tools_map: HashMap<String, String>,
     pub assistant_message_phase_by_item: HashMap<String, AssistantPhase>,
     pub completed_tool_calls: Vec<String>,
+    pub detected_usage: Option<ProviderUsage>,
 }
 
 pub(crate) fn split_sse_event_block(buffer: &str) -> Option<(String, String)> {
@@ -121,6 +122,14 @@ pub(crate) fn handle_stream_event_json(
 
     if let Some(error_obj) = value.get("error") {
         return Err(format!("Streaming error: {}", error_obj));
+    }
+
+    if let Some(usage) = ProviderUsage::from_api_value(&value) {
+        let mut state = state_mutex
+            .lock()
+            .map_err(|_| "Failed to lock ParserState".to_string())?;
+        state.detected_usage = Some(usage);
+        drop(state);
     }
 
     if response_id.is_empty() {
@@ -503,7 +512,11 @@ fn preview(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::collect_output_item_from_sse_event_block;
+    use super::{ParserState, collect_output_item_from_sse_event_block, handle_stream_event_json};
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    use crate::providers::types::ProviderStreamEvent;
     use serde_json::Value;
 
     #[test]
@@ -524,5 +537,51 @@ data: {"type":"response.output_item.done","item":{"type":"function_call","call_i
             items[0].get("call_id").and_then(Value::as_str),
             Some("call_1")
         );
+    }
+
+    #[test]
+    fn captures_provider_usage_from_response_done_event() {
+        let state = Mutex::new(ParserState {
+            emitted_reasoning_started: false,
+            emitted_output_started: false,
+            active_tools_map: HashMap::new(),
+            assistant_message_phase_by_item: HashMap::new(),
+            completed_tool_calls: Vec::new(),
+            detected_usage: None,
+        });
+        let mut response_id = String::new();
+        let mut output_text = String::new();
+        let mut last_response_obj = None;
+        let mut events: Vec<ProviderStreamEvent> = Vec::new();
+        let payload = r#"{
+            "type":"response.done",
+            "response":{
+                "id":"resp_1",
+                "usage":{
+                    "input_tokens":11,
+                    "output_tokens":7,
+                    "total_tokens":18
+                }
+            }
+        }"#;
+
+        handle_stream_event_json(
+            payload,
+            &mut response_id,
+            &mut output_text,
+            &mut last_response_obj,
+            &state,
+            &mut |event| {
+                events.push(event);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        let usage = state.lock().unwrap().detected_usage.clone().unwrap();
+        assert_eq!(usage.prompt_tokens, 11);
+        assert_eq!(usage.completion_tokens, 7);
+        assert_eq!(usage.total_tokens, 18);
+        assert!(events.is_empty());
     }
 }

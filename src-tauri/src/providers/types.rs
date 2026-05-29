@@ -97,6 +97,63 @@ pub struct ProviderTurnRequest {
 pub type ResponseStreamRequest = ProviderTurnRequest;
 pub type ProviderEventSink<'a> = dyn FnMut(ProviderStreamEvent) -> Result<(), String> + Send + 'a;
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderUsage {
+    #[serde(
+        default,
+        alias = "prompt_tokens",
+        alias = "input_tokens",
+        alias = "inputTokens",
+        alias = "input_token_count",
+        alias = "promptTokenCount"
+    )]
+    pub prompt_tokens: usize,
+    #[serde(
+        default,
+        alias = "completion_tokens",
+        alias = "output_tokens",
+        alias = "outputTokens",
+        alias = "output_token_count",
+        alias = "candidatesTokenCount"
+    )]
+    pub completion_tokens: usize,
+    #[serde(
+        default,
+        alias = "total_tokens",
+        alias = "totalTokens",
+        alias = "total_token_count",
+        alias = "totalTokenCount"
+    )]
+    pub total_tokens: usize,
+}
+
+impl ProviderUsage {
+    pub fn from_api_value(value: &Value) -> Option<Self> {
+        let usage_value = value
+            .get("response")
+            .and_then(|response| response.get("usage"))
+            .or_else(|| value.get("usage"))
+            .unwrap_or(value);
+
+        let mut usage = serde_json::from_value::<ProviderUsage>(usage_value.clone()).ok()?;
+        if usage.total_tokens == 0 {
+            usage.total_tokens = usage.prompt_tokens.saturating_add(usage.completion_tokens);
+        }
+
+        (usage.prompt_tokens > 0 || usage.completion_tokens > 0 || usage.total_tokens > 0)
+            .then_some(usage)
+    }
+
+    pub fn saturating_add(&mut self, other: &ProviderUsage) {
+        self.prompt_tokens = self.prompt_tokens.saturating_add(other.prompt_tokens);
+        self.completion_tokens = self
+            .completion_tokens
+            .saturating_add(other.completion_tokens);
+        self.total_tokens = self.total_tokens.saturating_add(other.total_tokens);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ProviderPendingToolCall {
     pub call_id: String,
@@ -110,6 +167,8 @@ pub struct ResponseStreamResult {
     /// Final answer text (after all tool calls are complete).
     pub output_text: String,
     pub output_items: Vec<Value>,
+    /// Provider-reported billing usage, preferred over local token estimates.
+    pub usage: Option<ProviderUsage>,
     pub provider_key: String,
     pub model_profile: String,
     pub model_id: String,

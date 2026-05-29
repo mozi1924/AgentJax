@@ -6,7 +6,9 @@ use super::tool_parsing::describe_item_shape;
 use crate::commands::chat::ChatRequest;
 use crate::config::AppConfig;
 use crate::message_phase::AssistantPhase;
-use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult};
+use crate::providers::types::{
+    ProviderStreamEvent, ProviderUsage, ResponseStreamRequest, ResponseStreamResult,
+};
 use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
 use crate::tools::{
     MountedToolSourceSessions, ToolCatalog, ToolCatalogSnapshot, ToolCatalogStateChange,
@@ -26,6 +28,7 @@ struct TurnAccumulator {
     last_response_id: String,
     output_items: Vec<Value>,
     timeline_events: Vec<Value>,
+    usage: Option<ProviderUsage>,
 }
 
 impl TurnAccumulator {
@@ -34,6 +37,7 @@ impl TurnAccumulator {
             last_response_id: String::new(),
             output_items: Vec::new(),
             timeline_events: Vec::new(),
+            usage: None,
         }
     }
 
@@ -42,6 +46,13 @@ impl TurnAccumulator {
             self.last_response_id = response.response_id.clone();
         }
         self.output_items.extend(response.output_items.clone());
+        if let Some(response_usage) = &response.usage {
+            if let Some(total_usage) = &mut self.usage {
+                total_usage.saturating_add(response_usage);
+            } else {
+                self.usage = Some(response_usage.clone());
+            }
+        }
     }
 
     /// Append all items from a continuation batch (reasoning, function_call,
@@ -569,6 +580,7 @@ impl AgentRuntime {
             response_id: accumulator.last_response_id,
             output_text: final_output_text,
             output_items: accumulator.output_items,
+            usage: accumulator.usage,
             provider_key: resolved_model.provider_key.clone(),
             model_profile: resolved_model.profile_key.clone(),
             model_id: resolved_model.model_id.clone(),

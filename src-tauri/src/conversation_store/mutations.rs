@@ -14,11 +14,13 @@ use super::paths::{
 use super::types::{
     AppendLineInput, CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY,
     CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY, CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY,
-    ConversationData, ConversationDynamicTool, ConversationLine, ConversationMeta,
-    ConversationMountedToolSource, ConversationSummary, DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
-    ToolStatus, UpdateLineInput,
+    CONVERSATION_TOKEN_USAGE_METADATA_KEY, ConversationData, ConversationDynamicTool,
+    ConversationLine, ConversationMeta, ConversationMountedToolSource, ConversationSummary,
+    DEFAULT_CONVERSATION_TITLE, LOG_VERSION, ToolStatus, UpdateLineInput,
 };
 use crate::conversation_store_utils::{normalize_title, now_unix_ms};
+use crate::providers::types::ProviderUsage;
+use serde_json::json;
 use std::collections::BTreeMap;
 use std::fs;
 
@@ -85,6 +87,38 @@ pub fn append_line(input: AppendLineInput) -> Result<(), String> {
 pub fn update_line(input: UpdateLineInput) -> Result<(), String> {
     let conversation_id = input.conversation_id.clone();
     with_conversation_lock(&conversation_id, move || update_line_inner(input))
+}
+
+pub fn update_conversation_token_usage(
+    conversation_id: &str,
+    request_id: &str,
+    response_id: &str,
+    usage: &ProviderUsage,
+) -> Result<(), String> {
+    with_conversation_lock(conversation_id, || {
+        let metadata_path = conversation_metadata_path(conversation_id)?;
+        let messages_path = conversation_messages_path(conversation_id)?;
+        let mut meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
+
+        // Persist provider-reported usage in metadata so reloads can inspect
+        // the last physically billed turn without changing the line schema.
+        meta.metadata.insert(
+            CONVERSATION_TOKEN_USAGE_METADATA_KEY.to_string(),
+            json!({
+                "source": "provider",
+                "requestId": request_id,
+                "responseId": response_id,
+                "promptTokens": usage.prompt_tokens,
+                "completionTokens": usage.completion_tokens,
+                "totalTokens": usage.total_tokens,
+                "updatedAtUnixMs": now_unix_ms(),
+            }),
+        );
+
+        write_conversation_metadata(&metadata_path, &meta)?;
+        replace_cached_summary(conversation_id, summary_from_meta(&meta))?;
+        Ok(())
+    })
 }
 
 fn append_line_inner(input: AppendLineInput) -> Result<(), String> {

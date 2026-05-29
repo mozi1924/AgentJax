@@ -143,6 +143,7 @@ pub(crate) async fn create_response_streaming_sse(
         active_tools_map: HashMap::new(),
         assistant_message_phase_by_item: HashMap::new(),
         completed_tool_calls: Vec::new(),
+        detected_usage: None,
     });
 
     loop {
@@ -216,11 +217,16 @@ pub(crate) async fn create_response_streaming_sse(
     } else {
         accumulated_output_items
     };
+    let usage = state
+        .lock()
+        .ok()
+        .and_then(|state| state.detected_usage.clone());
 
     Ok(ResponseStreamResult {
         response_id,
         output_text,
         output_items,
+        usage,
         provider_key: resolved.provider_key.clone(),
         model_profile: resolved.profile_key.clone(),
         model_id: resolved.model_id.clone(),
@@ -290,6 +296,7 @@ pub(crate) async fn create_response_streaming_websocket(
         active_tools_map: HashMap::new(),
         assistant_message_phase_by_item: HashMap::new(),
         completed_tool_calls: Vec::new(),
+        detected_usage: None,
     });
 
     loop {
@@ -381,11 +388,16 @@ pub(crate) async fn create_response_streaming_websocket(
     } else {
         accumulated_output_items
     };
+    let usage = state
+        .lock()
+        .ok()
+        .and_then(|state| state.detected_usage.clone());
 
     Ok(ResponseStreamResult {
         response_id,
         output_text,
         output_items,
+        usage,
         provider_key: resolved.provider_key.clone(),
         model_profile: resolved.profile_key.clone(),
         model_id: resolved.model_id.clone(),

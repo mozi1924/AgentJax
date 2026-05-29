@@ -14,14 +14,16 @@ use std::path::PathBuf;
 
 #[allow(unused_imports)]
 pub use context::{
-    ConversationTokenUsage, count_conversation_context_tokens, count_conversation_prompt_tokens,
-    count_messages_tokens, count_request_prompt_tokens, count_text_tokens,
-    count_tool_schema_tokens, load_context_for_request,
+    ConversationTokenUsage, TokenCountFunctionCall, TokenCountMessage,
+    count_conversation_context_tokens, count_conversation_prompt_tokens, count_messages_tokens,
+    count_request_prompt_tokens, count_text_tokens, count_tool_schema_tokens,
+    load_context_for_request,
 };
 pub use mutations::{
     append_line, delete_conversation, ensure_conversation, remove_conversation_dynamic_tool,
     rename_conversation, update_auto_title, update_conversation_dynamic_tools,
-    update_conversation_mounted_tool_sources, update_line, upsert_conversation_dynamic_tool,
+    update_conversation_mounted_tool_sources, update_conversation_token_usage, update_line,
+    upsert_conversation_dynamic_tool,
 };
 #[cfg(test)]
 pub use paths::conversation_dir_path;
