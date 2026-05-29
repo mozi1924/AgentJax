@@ -19,6 +19,13 @@ pub struct ModelReasoningCapability {
     pub supported_reasoning_levels: Vec<String>,
 }
 
+/// Internal normalized stream events consumed by the runtime and UI.
+///
+/// Provider adapters should translate their upstream protocol into this shape
+/// before events reach `runtime::engine`. For APIs that do not expose Responses
+/// style IDs (for example Gemini function calls), adapters must synthesize
+/// stable IDs for the current response hop so tool execution, persistence, and
+/// token usage metadata all refer to the same logical objects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ProviderStreamEvent {
@@ -102,6 +109,11 @@ pub struct ProviderTurnRequest {
 pub type ResponseStreamRequest = ProviderTurnRequest;
 pub type ProviderEventSink<'a> = dyn FnMut(ProviderStreamEvent) -> Result<(), String> + Send + 'a;
 
+/// Provider-reported token usage in AgentJax's canonical field names.
+///
+/// This intentionally accepts aliases used by common APIs and gateways. Runtime
+/// code treats this as authoritative billing data; local tokenizers are only a
+/// fallback when an adapter cannot obtain upstream usage.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderUsage {
@@ -173,6 +185,12 @@ pub struct ProviderPendingToolCall {
     pub arguments: Value,
 }
 
+/// Complete result for one provider response hop.
+///
+/// The fields are already normalized for AgentJax. Raw upstream payloads should
+/// be converted inside the provider adapter rather than leaked into runtime
+/// logic, keeping future native Gemini/Anthropic/Chat Completions adapters
+/// independent from the OpenAI Responses event grammar.
 #[derive(Debug, Clone)]
 pub struct ResponseStreamResult {
     pub response_id: String,

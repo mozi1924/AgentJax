@@ -68,19 +68,34 @@ impl ProviderDefinition {
 }
 
 pub fn builtin_provider_definitions() -> Vec<ProviderDefinition> {
-    vec![ProviderDefinition {
-        kind: "openai-responses",
-        display_name: "OpenAI Responses",
-        transport_family: ProviderTransportFamily::Responses,
-        default_api_endpoint: "https://api.openai.com/v1",
-        default_realtime_endpoint: None,
-        default_credential_env: "OPENAI_API_KEY",
-        default_supports_websockets: true,
-        default_stream_transport: "websocket",
-        default_model_ids: &["gpt-5-mini", "gpt-5"],
-        capabilities: ProviderCapabilities::openai_responses(),
-        tool_schema_format: ToolSchemaFormat::Responses,
-    }]
+    vec![
+        ProviderDefinition {
+            kind: "openai-responses",
+            display_name: "OpenAI Responses",
+            transport_family: ProviderTransportFamily::Responses,
+            default_api_endpoint: "https://api.openai.com/v1",
+            default_realtime_endpoint: None,
+            default_credential_env: "OPENAI_API_KEY",
+            default_supports_websockets: true,
+            default_stream_transport: "websocket",
+            default_model_ids: &["gpt-5-mini", "gpt-5"],
+            capabilities: ProviderCapabilities::openai_responses(),
+            tool_schema_format: ToolSchemaFormat::Responses,
+        },
+        ProviderDefinition {
+            kind: "chat-completions",
+            display_name: "Chat Completions",
+            transport_family: ProviderTransportFamily::ChatCompletions,
+            default_api_endpoint: "https://api.openai.com/v1",
+            default_realtime_endpoint: None,
+            default_credential_env: "OPENAI_API_KEY",
+            default_supports_websockets: false,
+            default_stream_transport: "sse",
+            default_model_ids: &["gpt-4.1", "gpt-4o"],
+            capabilities: ProviderCapabilities::chat_completions(),
+            tool_schema_format: ToolSchemaFormat::ChatCompletions,
+        },
+    ]
 }
 
 pub fn provider_definition(provider_kind: &str) -> Option<ProviderDefinition> {

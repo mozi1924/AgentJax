@@ -1,8 +1,15 @@
+//! Parser for OpenAI Responses-compatible SSE events.
+//!
+//! This module is intentionally not a generic stream parser. Native Gemini,
+//! Anthropic, or Chat Completions adapters should parse their own upstream
+//! events and emit AgentJax's normalized `ProviderStreamEvent` values instead.
+
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::message_phase::AssistantPhase;
+use crate::providers::sse::sse_data_payload;
 use crate::providers::types::{ProviderEventSink, ProviderStreamEvent, ProviderUsage};
 
 pub(crate) struct ParserState {
@@ -14,20 +21,6 @@ pub(crate) struct ParserState {
     pub detected_usage: Option<ProviderUsage>,
 }
 
-pub(crate) fn split_sse_event_block(buffer: &str) -> Option<(String, String)> {
-    if let Some(pos) = buffer.find("\r\n\r\n") {
-        let block = buffer[..pos].to_string();
-        let rest = buffer[pos + 4..].to_string();
-        return Some((block, rest));
-    }
-    if let Some(pos) = buffer.find("\n\n") {
-        let block = buffer[..pos].to_string();
-        let rest = buffer[pos + 2..].to_string();
-        return Some((block, rest));
-    }
-    None
-}
-
 pub(crate) fn process_sse_event_block(
     block: &str,
     response_id: &mut String,
@@ -36,20 +29,9 @@ pub(crate) fn process_sse_event_block(
     state: &Mutex<ParserState>,
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<(), String> {
-    let mut data_lines = Vec::new();
-
-    for line in block.lines() {
-        let line = line.trim_end_matches('\r');
-        if let Some(data) = line.strip_prefix("data:") {
-            data_lines.push(data.trim_start().to_string());
-        }
-    }
-
-    if data_lines.is_empty() {
+    let Some(payload) = sse_data_payload(block) else {
         return Ok(());
-    }
-
-    let payload = data_lines.join("\n");
+    };
     if payload == "[DONE]" || payload.trim().is_empty() {
         return Ok(());
     }
@@ -68,19 +50,9 @@ pub(crate) fn collect_output_item_from_sse_event_block(
     block: &str,
     accumulated_output_items: &mut Vec<Value>,
 ) {
-    let mut data_lines = Vec::new();
-    for line in block.lines() {
-        let line = line.trim_end_matches('\r');
-        if let Some(data) = line.strip_prefix("data:") {
-            data_lines.push(data.trim_start().to_string());
-        }
-    }
-
-    if data_lines.is_empty() {
+    let Some(payload) = sse_data_payload(block) else {
         return;
-    }
-
-    let payload = data_lines.join("\n");
+    };
     if payload == "[DONE]" || payload.trim().is_empty() {
         return;
     }

@@ -22,6 +22,10 @@ mod tests {
         let openai_responses = providers::get_tool_schema_format("openai-responses")
             .expect("openai-responses adapter should exist");
         assert_eq!(openai_responses, ToolSchemaFormat::Responses);
+
+        let chat_completions = providers::get_tool_schema_format("chat-completions")
+            .expect("chat-completions adapter should exist");
+        assert_eq!(chat_completions, ToolSchemaFormat::ChatCompletions);
     }
 
     #[test]
