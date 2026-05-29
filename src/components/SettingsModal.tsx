@@ -233,7 +233,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             )}
           </div>
 
-          <div className="scrollbar-thin flex-1 overflow-y-auto px-6 py-4">
+          <div className="scrollbar-thin flex-1 overflow-y-auto px-6 py-4 flex flex-col">
             {loading && (
               <div className="flex h-full items-center justify-center text-slate-400">
                 <LoaderCircle className="mr-3 h-4 w-4 animate-spin" />

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { isNodeVisible } from '../../../features/settings/utils';
+import { useI18n } from '../../../features/i18n';
 import { CollectionEditor } from './CollectionEditor';
 import { renderField } from './customFields';
 import type { NodeListProps } from './types';
@@ -14,17 +15,18 @@ export function NodeList({
   onDeletePath,
   onAddCollectionItem,
 }: NodeListProps) {
+  const { t } = useI18n();
   const visibleNodes = useMemo(
     () => nodes.filter((node) => isNodeVisible(node, snapshot, contextPath)),
     [contextPath, nodes, snapshot]
   );
 
   return (
-    <div className="space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 space-y-4">
       {visibleNodes.map((node) => {
         if (node.kind === 'field') {
           return (
-            <div key={`${contextPath || 'root'}:${node.id}`}>
+            <div key={`${contextPath || 'root'}:${node.id}`} className="flex-1 flex flex-col min-h-0">
               {renderField({
                 field: node,
                 snapshot,
@@ -39,16 +41,16 @@ export function NodeList({
 
         if (node.kind === 'group') {
           return (
-            <section key={`${contextPath || 'root'}:${node.id}`} className="space-y-2.5 pt-2">
-              <div className="mt-3 mb-1 first:mt-0">
+            <section key={`${contextPath || 'root'}:${node.id}`} className="flex-1 flex flex-col min-h-0 space-y-2.5 pt-2">
+              <div className="mt-3 mb-1 first:mt-0 shrink-0">
                 <h5 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wider">
-                  {node.title}
+                  {t(node.title)}
                 </h5>
                 {node.description && (
-                  <p className="mt-0.5 text-[11px] text-neutral-400/70">{node.description}</p>
+                  <p className="mt-0.5 text-[11px] text-neutral-400/70">{t(node.description)}</p>
                 )}
               </div>
-              <div className="border-t border-[#242426]/30 pt-1">
+              <div className="flex-1 flex flex-col min-h-0 border-t border-[#242426]/30 pt-1">
                 <NodeList
                   nodes={node.children}
                   snapshot={snapshot}

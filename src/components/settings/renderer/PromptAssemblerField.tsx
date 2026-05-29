@@ -69,11 +69,11 @@ function SortableBlockItem({
       ref={setNodeRef}
       style={style}
       onClick={() => onSelect(block.id)}
-      className={`group flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition duration-200 cursor-pointer select-none ${
+      className={`group flex w-full items-center gap-2 rounded-lg border border-transparent px-2.5 py-1.5 text-left transition duration-150 cursor-pointer select-none ${
         selected
-          ? 'border-cyan-400/30 bg-cyan-400/[0.08] text-white shadow-[0_0_12px_rgba(34,211,238,0.05)]'
-          : 'border-[#242426] bg-[#141415]/40 text-neutral-300 hover:border-[#323235] hover:bg-[#1c1d1f]/60'
-      } ${isDragging ? 'opacity-80 shadow-lg border-cyan-400/40 bg-cyan-400/10' : ''}`}
+          ? 'bg-cyan-500/10 text-cyan-200 font-medium'
+          : 'bg-transparent text-neutral-400 hover:bg-[#202022]/60 hover:text-neutral-200'
+      } ${isDragging ? 'opacity-85 shadow-md bg-cyan-500/15' : ''}`}
     >
       <span
         {...attributes}
@@ -138,7 +138,7 @@ function PromptPreviewModal({
 }) {
   const { t } = useI18n();
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm">
       <div className="flex h-[min(70vh,720px)] w-[min(760px,100%)] flex-col overflow-hidden rounded-2xl border border-[#25282d] bg-[#131314] shadow-2xl shadow-black/80">
         <div className="flex items-center justify-between border-b border-[#242426] px-4 py-3 bg-[#17181a]/55">
           <div>
@@ -300,28 +300,16 @@ export function PromptAssemblerField({
   };
 
   return (
-    <div className="relative space-y-2">
-      <div>
-        <h4 className="text-[13.5px] font-semibold text-neutral-200">{t(field.title)}</h4>
-        {field.description && (
-          <p className="mt-0.5 text-[11.5px] leading-relaxed text-neutral-400/80">
-            {t(field.description)}
-          </p>
-        )}
-        {helperText && (
-          <p
-            className={`mt-1 text-[11px] ${
-              fieldErrors[resolvedPath] || localError ? 'text-rose-400' : 'text-neutral-500'
-            }`}
-          >
-            {t(helperText)}
-          </p>
-        )}
-      </div>
+    <div className="relative flex-1 flex flex-col min-h-0 space-y-3">
+      {(fieldErrors[resolvedPath] || localError) && (
+        <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-3.5 py-2 text-xs text-rose-200">
+          {t(fieldErrors[resolvedPath] || localError || '')}
+        </div>
+      )}
 
-      <div className="grid min-h-[500px] grid-cols-[300px_minmax(0,1fr)] gap-3.5 rounded-2xl border border-[#242426] bg-[#171718]/60 p-3.5">
+      <div className="grid flex-1 min-h-[520px] grid-cols-[280px_minmax(0,1fr)] gap-6">
         {/* Left Column: Sidebar with blocks and summary stats */}
-        <div className="flex flex-col gap-3 rounded-2xl border border-[#242426] bg-[#121213]/80 p-3.5 min-w-0">
+        <div className="flex flex-col gap-4 min-w-0">
           <div className="flex-1 space-y-4 overflow-y-auto pr-0.5 scrollbar-thin">
             {(['system', 'developer'] as const).map((role) => {
               const blocks = role === 'system' ? systemBlocks : developerBlocks;
@@ -381,7 +369,7 @@ export function PromptAssemblerField({
           </div>
 
           {/* Bottom Summary & Stats Panel */}
-          <div className="mt-2 rounded-xl border border-[#242426] bg-[#18181a]/60 p-3 space-y-2 shrink-0">
+          <div className="mt-auto border-t border-[#242426]/50 pt-4 space-y-2.5 shrink-0">
             <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-neutral-500 font-semibold">
               <span>{t('assembler.stats.title')}</span>
               <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
@@ -409,7 +397,7 @@ export function PromptAssemblerField({
             <button
               type="button"
               onClick={() => setPreviewOpen(true)}
-              className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-neutral-200 hover:bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-900 transition"
+              className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#2b2b2d] bg-[#1d1d1f] hover:bg-[#28282b] hover:text-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-350 transition"
             >
               <Eye className="h-3.5 w-3.5" />
               {t('assembler.preview_btn')}
@@ -418,11 +406,11 @@ export function PromptAssemblerField({
         </div>
 
         {/* Right Column: Unified Editor & Inspector workspace */}
-        <div className="flex min-w-0 flex-col rounded-2xl border border-[#242426] bg-[#121213]/60 overflow-hidden">
+        <div className="flex min-w-0 flex-col rounded-xl border border-[#242426]/50 bg-[#121213]/30 overflow-hidden">
           {selectedBlock ? (
             <div className="flex h-full flex-col">
               {/* Editor Header: Title Input + Role Selector + Metadata & Actions */}
-              <div className="border-b border-[#242426] bg-[#161617]/40 px-4 py-3.5 space-y-2">
+              <div className="border-b border-[#242426]/40 bg-[#161617]/25 px-4 py-3 space-y-2">
                 <div className="flex items-center justify-between gap-3">
                   <input
                     value={selectedBlock.title}
@@ -513,7 +501,7 @@ export function PromptAssemblerField({
               </div>
 
               {/* Editor area with counting statistics */}
-              <div className="relative flex-1 p-3.5 bg-[#0f0f10]/40 flex flex-col min-h-0">
+              <div className="relative flex-1 bg-[#0f0f10]/15 flex flex-col min-h-0">
                 <textarea
                   value={selectedBlock.content}
                   disabled={selectedBlock.locked || isSaving}
@@ -526,13 +514,13 @@ export function PromptAssemblerField({
                       ? t('assembler.placeholder.system')
                       : t('assembler.placeholder.developer')
                   }
-                  className="w-full flex-1 resize-none rounded-xl border border-[#242426] bg-[#0c0c0d]/90 px-3.5 py-3 font-mono text-[11.5px] leading-6 text-neutral-200 outline-none transition focus:border-neutral-500 focus:bg-[#070708] disabled:opacity-60 placeholder-neutral-600"
+                  className="w-full flex-1 resize-none bg-transparent px-4 py-3.5 font-mono text-[11.5px] leading-6 text-neutral-200 outline-none disabled:opacity-60 placeholder-neutral-600"
                 />
-                
-                {/* Word & Character Counter */}
-                <div className="absolute bottom-5 right-6 flex items-center gap-2 rounded-md bg-[#131416]/90 border border-[#242426] px-2 py-1 text-[10px] font-mono text-neutral-500 select-none">
+
+                {/* Editor Footer Status Bar */}
+                <div className="flex items-center justify-end gap-3 border-t border-[#242426]/30 bg-[#161617]/25 px-4 py-1.5 text-[10px] font-mono text-neutral-500 select-none shrink-0">
                   <span>{t('assembler.stats.chars', { count: String(selectedBlock.content.length) })}</span>
-                  <span className="h-2 w-px bg-[#242426]" />
+                  <span className="h-2 w-px bg-[#242426]/60" />
                   <span>{t('assembler.stats.words', { count: String(selectedBlock.content.split(/\s+/).filter(Boolean).length) })}</span>
                 </div>
               </div>
