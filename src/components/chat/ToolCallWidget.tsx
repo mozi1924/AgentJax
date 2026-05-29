@@ -9,6 +9,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import type { ToolCall } from '../../features/conversations/types';
+import { OverlayScrollArea } from '../OverlayScrollArea';
 
 interface ToolCallWidgetProps {
   toolCall: ToolCall;
@@ -156,9 +157,12 @@ export default function ToolCallWidget({ toolCall }: ToolCallWidgetProps) {
                 )}
               </button>
             </div>
-            <pre className="scrollbar-thin max-h-40 overflow-x-auto whitespace-pre-wrap rounded-lg bg-[#1e1f20]/60 p-2 font-mono text-[10px] text-cyan-300 select-text">
+            <OverlayScrollArea
+              axis="both"
+              className="max-h-40 whitespace-pre-wrap rounded-lg bg-[#1e1f20]/60 p-2 font-mono text-[10px] text-cyan-300 select-text"
+            >
               {formatValue(toolCall.arguments) || '{}'}
-            </pre>
+            </OverlayScrollArea>
           </div>
           {toolCall.output && (
             <div>
@@ -182,15 +186,16 @@ export default function ToolCallWidget({ toolCall }: ToolCallWidgetProps) {
                   )}
                 </button>
               </div>
-              <pre
-                className={`scrollbar-thin max-h-40 overflow-x-auto whitespace-pre-wrap rounded-lg p-2 font-mono text-[10px] select-text ${
+              <OverlayScrollArea
+                axis="both"
+                className={`max-h-40 whitespace-pre-wrap rounded-lg p-2 font-mono text-[10px] select-text ${
                   failed
                     ? 'bg-rose-950/20 text-rose-300'
                     : 'bg-[#131314]/80 text-emerald-300'
                 }`}
               >
                 {formatValue(toolCall.output)}
-              </pre>
+              </OverlayScrollArea>
             </div>
           )}
         </div>

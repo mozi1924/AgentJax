@@ -17,23 +17,97 @@ h1, h2, h3, h4, h5, h6 {
   font-family: 'Outfit', sans-serif;
 }
 
-/* Custom Scrollbar */
-.scrollbar-thin::-webkit-scrollbar {
+/* Overlay scrollbars keep native scroll behavior without changing layout width. */
+.overlay-scrollbar-root {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.overlay-scrollbar-scrollport {
+  min-width: 0;
+  min-height: 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.overlay-scrollbar-scrollport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.overlay-scrollbar-scrollport[data-overlay-scroll-axis='vertical'] {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.overlay-scrollbar-scrollport[data-overlay-scroll-axis='horizontal'] {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.overlay-scrollbar-scrollport[data-overlay-scroll-axis='both'] {
+  overflow: auto;
+}
+
+.overlay-scrollbar-layer {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  opacity: var(--overlay-scrollbar-opacity, 0);
+  transition: opacity 140ms ease;
+}
+
+.overlay-scrollbar-root:hover .overlay-scrollbar-layer,
+.overlay-scrollbar-root:focus-within .overlay-scrollbar-layer,
+.overlay-scrollbar-dragging .overlay-scrollbar-layer {
+  opacity: 1;
+}
+
+.overlay-scrollbar-track {
+  pointer-events: none;
+  position: absolute;
+}
+
+.overlay-scrollbar-track-y {
+  top: 4px;
+  right: 3px;
+  bottom: 4px;
   width: 6px;
+}
+
+.overlay-scrollbar-track-x {
+  left: 4px;
+  right: 4px;
+  bottom: 3px;
   height: 6px;
 }
 
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #3c4043;
+.overlay-scrollbar-thumb {
+  pointer-events: auto;
+  position: absolute;
   border-radius: 9999px;
+  background: rgba(148, 163, 184, 0.38);
+  transition: background 140ms ease;
 }
 
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: #4f5256;
+.overlay-scrollbar-thumb:hover,
+.overlay-scrollbar-dragging .overlay-scrollbar-thumb {
+  background: rgba(203, 213, 225, 0.62);
+}
+
+.overlay-scrollbar-thumb-y {
+  left: 0;
+  right: 0;
+  top: 0;
+}
+
+.overlay-scrollbar-thumb-x {
+  bottom: 0;
+  left: 0;
+  height: 6px;
 }
 
 /* Gradient Text Animation */
@@ -173,4 +247,3 @@ input:focus {
   overflow: hidden;
   min-height: 0;
 }
-

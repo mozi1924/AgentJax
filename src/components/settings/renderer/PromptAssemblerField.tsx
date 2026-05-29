@@ -36,6 +36,7 @@ import {
 import { getValueAtPath, resolvePath } from '../../../features/settings/utils';
 import type { FieldRendererProps } from './types';
 import { renderMarkdown } from '../../chat/markdownRenderer';
+import { OverlayScrollArea } from '../../OverlayScrollArea';
 
 interface SortableBlockItemProps {
   block: PromptBlock;
@@ -166,11 +167,15 @@ function PromptPreviewModal({
             {t('settings.modal.close')}
           </button>
         </div>
-        <div className="scrollbar-thin flex-1 overflow-auto px-6 py-5 bg-[#0c0d0e]/30 select-text">
+        <OverlayScrollArea
+          axis="both"
+          containerClassName="flex-1"
+          className="h-full bg-[#0c0d0e]/30 px-6 py-5 select-text"
+        >
           <div className="prose prose-invert prose-sm max-w-none text-slate-350">
             {renderMarkdown(markdown)}
           </div>
-        </div>
+        </OverlayScrollArea>
       </div>
     </div>
   );
@@ -322,7 +327,7 @@ export function PromptAssemblerField({
       <div className="grid flex-1 min-h-[520px] grid-cols-[280px_minmax(0,1fr)] gap-6">
         {/* Left Column: Sidebar with blocks and summary stats */}
         <div className="flex flex-col gap-4 min-w-0">
-          <div className="flex-1 space-y-4 overflow-y-auto pr-0.5 scrollbar-thin">
+          <OverlayScrollArea containerClassName="flex-1" className="h-full space-y-4 pr-0.5">
             {(['system', 'developer'] as const).map((role) => {
               const blocks = role === 'system' ? systemBlocks : developerBlocks;
               return (
@@ -378,7 +383,7 @@ export function PromptAssemblerField({
                 </div>
               );
             })}
-          </div>
+          </OverlayScrollArea>
 
           {/* Bottom Summary & Stats Panel */}
           <div className="mt-auto border-t border-[#242426]/50 pt-4 space-y-2.5 shrink-0">

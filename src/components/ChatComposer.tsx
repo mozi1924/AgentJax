@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Image, Mic, Paperclip, Send, SlidersHorizontal, Square, X } from 'lucide-react';
 import { useI18n } from '../features/i18n';
+import { OverlayTextarea } from './OverlayScrollArea';
 
 interface ComposerAttachment {
   name: string;
@@ -102,14 +103,15 @@ export default function ChatComposer({
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <textarea
+              <OverlayTextarea
                 ref={advancedTextareaRef}
                 value={advancedRequestOptionsInput}
                 onChange={(event) => onAdvancedRequestOptionsInputChange(event.target.value)}
                 rows={4}
                 data-native-context-menu="true"
                 placeholder='{"serviceTier":"flex","include":["reasoning.encrypted_content"]}'
-                className="scrollbar-thin max-h-[220px] w-full resize-none rounded-xl border border-[#25282d] bg-[#0d0e0f] px-2.5 py-2 font-mono text-xs leading-relaxed text-slate-300 placeholder-slate-600 outline-none transition focus:border-[#383d45] focus:bg-[#111214] select-text"
+                containerClassName="w-full"
+                className="max-h-[220px] w-full resize-none rounded-xl border border-[#25282d] bg-[#0d0e0f] px-2.5 py-2 font-mono text-xs leading-relaxed text-slate-300 placeholder-slate-600 outline-none transition focus:border-[#383d45] focus:bg-[#111214] select-text"
               />
               {advancedRequestOptionsError && (
                 <div className="mt-2 inline-flex items-start gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-200">
@@ -129,7 +131,7 @@ export default function ChatComposer({
               <Paperclip className="h-5 w-5" />
             </button>
 
-            <textarea
+            <OverlayTextarea
               ref={textareaRef}
               value={input}
               onChange={(event) => onInputChange(event.target.value)}
@@ -142,7 +144,8 @@ export default function ChatComposer({
               placeholder={t('composer.placeholder')}
               rows={1}
               data-native-context-menu="true"
-              className="scrollbar-thin max-h-[180px] flex-1 resize-none bg-transparent py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none select-text"
+              containerClassName="flex-1"
+              className="max-h-[180px] w-full resize-none bg-transparent py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none select-text"
             />
 
             <div className="flex items-center gap-2">

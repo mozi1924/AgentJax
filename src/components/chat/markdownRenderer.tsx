@@ -1,6 +1,7 @@
 import React, { cloneElement, isValidElement } from 'react';
 import type { ReactNode } from 'react';
 import CodeBlock from '../CodeBlock';
+import { OverlayScrollArea } from '../OverlayScrollArea';
 
 const parseInlineElements = (text: string): ReactNode[] => {
   const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
@@ -79,9 +80,11 @@ const parseParagraphs = (rawText: string) => {
       const rows = rowLines.map(parseTableRow);
 
       elements.push(
-        <div
+        <OverlayScrollArea
           key={`table-${i}`}
-          className="my-4 overflow-x-auto rounded-xl border border-[#2d2f31]"
+          axis="horizontal"
+          containerClassName="my-4"
+          className="rounded-xl border border-[#2d2f31]"
         >
           <table className="min-w-full divide-y divide-[#2d2f31] text-xs">
             <thead className="bg-[#131314]">
@@ -105,7 +108,7 @@ const parseParagraphs = (rawText: string) => {
               ))}
             </tbody>
           </table>
-        </div>
+        </OverlayScrollArea>
       );
       continue;
     }

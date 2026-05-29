@@ -6,6 +6,7 @@ import SidebarConversationRow from './sidebar/SidebarConversationRow';
 import { getConversationDisplayTitle } from '../features/conversations/conversationUtils';
 import type { Conversation } from '../features/conversations/types';
 import { useI18n } from '../features/i18n';
+import { OverlayScrollArea } from './OverlayScrollArea';
 
 interface SidebarMenuState {
   conversationId: string;
@@ -225,7 +226,7 @@ export default function Sidebar({
 
       <div className="h-12 shrink-0" />
 
-      <div className="scrollbar-thin flex-1 space-y-6 overflow-y-auto px-3 py-2">
+      <OverlayScrollArea containerClassName="flex-1" className="h-full space-y-6 px-3 py-2">
         <div className="space-y-2">
           <button
             onClick={onNewChat}
@@ -310,7 +311,7 @@ export default function Sidebar({
             </div>
           )}
         </div>
-      </div>
+      </OverlayScrollArea>
 
       {menuState && (
         <SidebarActionMenu

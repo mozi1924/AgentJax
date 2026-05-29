@@ -16,6 +16,7 @@ import {
 } from '../features/settings/utils';
 import { resolveLucideIcon } from '../features/icons/lucide';
 import { tryGetCurrentWindow } from '../features/tauri/runtime';
+import { OverlayScrollArea } from './OverlayScrollArea';
 
 const getSectionIcon = (iconName?: string) => resolveLucideIcon(iconName, Settings2);
 
@@ -183,7 +184,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </button>
           </div>
 
-          <div className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-3 pb-4 pt-1">
+          <OverlayScrollArea containerClassName="flex-1" className="h-full space-y-1 px-3 pb-4 pt-1">
             {sections.map((section) => {
               const Icon = getSectionIcon(section.icon);
               const isActive = section.id === activeSection?.id;
@@ -202,7 +203,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </button>
               );
             })}
-          </div>
+          </OverlayScrollArea>
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col bg-[#171717]">
@@ -233,7 +234,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             )}
           </div>
 
-          <div className="scrollbar-thin flex-1 overflow-y-auto px-6 py-4 flex flex-col">
+          <OverlayScrollArea containerClassName="flex-1" className="flex h-full flex-col px-6 py-4">
             {loading && (
               <div className="flex h-full items-center justify-center text-slate-400">
                 <LoaderCircle className="mr-3 h-4 w-4 animate-spin" />
@@ -254,7 +255,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 }
               />
             )}
-          </div>
+          </OverlayScrollArea>
         </section>
       </div>
     </div>

@@ -16,6 +16,7 @@ import {
   type ConversationTurn,
 } from './transcriptGrouping';
 import { useI18n } from '../../features/i18n';
+import { OverlayScrollArea } from '../OverlayScrollArea';
 
 interface WorkLogPanelProps {
   isOpen: boolean;
@@ -418,9 +419,12 @@ function ToolPayloadBlock({
           )}
         </button>
       </div>
-      <pre className="scrollbar-thin max-h-52 overflow-x-auto rounded-xl border border-white/6 bg-[#101112] p-3 text-[11px] leading-relaxed text-slate-200">
+      <OverlayScrollArea
+        axis="both"
+        className="max-h-52 whitespace-pre-wrap rounded-xl border border-white/6 bg-[#101112] p-3 text-[11px] leading-relaxed text-slate-200"
+      >
         {formatToolOutput(value)}
-      </pre>
+      </OverlayScrollArea>
     </div>
   );
 }

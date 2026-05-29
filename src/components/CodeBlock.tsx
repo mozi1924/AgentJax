@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Check, Copy, Download } from 'lucide-react';
+import { OverlayScrollArea } from './OverlayScrollArea';
 
 interface CodeBlockProps {
   code: string;
@@ -69,14 +70,15 @@ export default function CodeBlock({ code, language }: CodeBlockProps) {
           </button>
         </div>
       </div>
-      <div
+      <OverlayScrollArea
+        axis="horizontal"
         data-native-context-menu="true"
-        className="scrollbar-thin overflow-x-auto p-4 font-mono text-sm leading-relaxed select-text"
+        className="p-4 font-mono text-sm leading-relaxed select-text"
       >
         <pre>
           <code>{code}</code>
         </pre>
-      </div>
+      </OverlayScrollArea>
     </div>
   );
 }

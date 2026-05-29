@@ -15,6 +15,7 @@ import type {
   UserLine,
 } from '../features/conversations/types';
 import { useI18n } from '../features/i18n';
+import { OverlayScrollArea } from './OverlayScrollArea';
 
 interface ChatAreaProps {
   lines: ConversationLine[];
@@ -121,10 +122,11 @@ export default function ChatArea({
   if (lines.length === 0) return null;
 
   return (
-    <div
+    <OverlayScrollArea
       ref={containerRef}
       onScroll={handleScroll}
-      className="scrollbar-thin flex flex-1 flex-col overflow-y-auto px-4 py-6 md:px-8 lg:px-12"
+      containerClassName="flex flex-1 flex-col"
+      className="flex h-full flex-col px-4 py-6 md:px-8 lg:px-12"
     >
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 py-4">
         <div className="mb-1 flex flex-wrap items-center gap-2 border-b border-white/6 pb-3 text-xs font-semibold tracking-[0.18em] text-slate-500 uppercase">
@@ -188,7 +190,7 @@ export default function ChatArea({
         )}
         {/* No more dummy div needed for scrollIntoView since container scroll handles it */}
       </div>
-    </div>
+    </OverlayScrollArea>
   );
 }
 
