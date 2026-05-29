@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useI18n } from '../../../features/i18n';
 import {
   closestCenter,
@@ -53,13 +53,24 @@ function SortableBlockItem({
   onDelete,
 }: SortableBlockItemProps) {
   const { t } = useI18n();
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: block.id,
-  });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
+  const {
+    attributes,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
     transition,
+    isDragging,
+  } = useSortable({ id: block.id });
+
+  // Keep the dragged block visually attached to the pointer. The sortable
+  // dependency provides smooth transitions for neighboring blocks; the active
+  // block itself should not animate its transform while the cursor is moving.
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition: isDragging ? 'none' : transition,
+    willChange: isDragging ? 'transform' : undefined,
+    zIndex: isDragging ? 10 : undefined,
   };
 
   const isDeletable = block.source === 'user' && !block.locked;
@@ -69,17 +80,18 @@ function SortableBlockItem({
       ref={setNodeRef}
       style={style}
       onClick={() => onSelect(block.id)}
-      className={`group flex w-full items-center gap-2 rounded-lg border border-transparent px-2.5 py-1.5 text-left transition duration-150 cursor-pointer select-none ${
+      className={`group relative flex w-full items-center gap-2 rounded-lg border border-transparent px-2.5 py-1.5 text-left transition-colors duration-150 cursor-pointer select-none ${
         selected
           ? 'bg-cyan-500/10 text-cyan-200 font-medium'
           : 'bg-transparent text-neutral-400 hover:bg-[#202022]/60 hover:text-neutral-200'
       } ${isDragging ? 'opacity-85 shadow-md bg-cyan-500/15' : ''}`}
     >
       <span
+        ref={setActivatorNodeRef}
         {...attributes}
         {...listeners}
         onClick={(e) => e.stopPropagation()}
-        className="inline-flex cursor-grab rounded-md p-0.5 text-neutral-600 transition hover:bg-[#202022] hover:text-neutral-300 active:cursor-grabbing shrink-0"
+        className="inline-flex h-7 w-7 cursor-grab touch-none items-center justify-center rounded-md text-neutral-600 transition-colors hover:bg-[#202022] hover:text-neutral-300 active:cursor-grabbing shrink-0"
         title={t('assembler.drag_hint')}
       >
         <GripVertical className="h-3.5 w-3.5" />
