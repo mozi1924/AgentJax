@@ -31,8 +31,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::{Emitter, Manager, State};
 use tokio::sync::watch;
 
-const STREAM_MESSAGE_OVERHEAD_TOKENS: usize = 4;
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LocalClientMetadataEnvelope {
@@ -426,8 +424,10 @@ pub async fn chat_stream(
 
     let callback_request_id = request_id.clone();
     let callback_conversation_id = conversation_id.clone();
-    let running_token_count = Arc::new(AtomicUsize::new(context_token_count));
-    let stream_count = Arc::clone(&running_token_count);
+    let fallback_token_count = Arc::new(AtomicUsize::new(context_token_count));
+    let fallback_stream_count = Arc::clone(&fallback_token_count);
+    let visible_token_count = Arc::new(AtomicUsize::new(context_token_count));
+    let visible_stream_count = Arc::clone(&visible_token_count);
     let mut runtime_req = req.clone();
     runtime_req.client_metadata = sanitized_client_metadata;
     let result = crate::runtime::AgentRuntime::run_turn(
@@ -475,8 +475,8 @@ pub async fn chat_stream(
                                     .map(|m| m.description.len())
                                     .unwrap_or(0);
                             let meta_tokens = meta_chars.saturating_div(4);
-                            stream_count.store(
-                                stream_count
+                            fallback_stream_count.store(
+                                fallback_stream_count
                                     .load(Ordering::Relaxed)
                                     .saturating_add(arg_tokens)
                                     .saturating_add(meta_tokens),
@@ -484,7 +484,6 @@ pub async fn chat_stream(
                             );
                         }
                     }
-                    stream_count.fetch_add(STREAM_MESSAGE_OVERHEAD_TOKENS, Ordering::Relaxed);
                 }
                 crate::providers::types::ProviderStreamEvent::ToolCallExecuted {
                     call_id,
@@ -507,15 +506,14 @@ pub async fn chat_stream(
                     // Count tokens for the tool result output
                     if let Some(ref mid) = model_id {
                         if let Ok(additional) = conversation_store::count_text_tokens(mid, output) {
-                            stream_count.store(
-                                stream_count
+                            fallback_stream_count.store(
+                                fallback_stream_count
                                     .load(Ordering::Relaxed)
                                     .saturating_add(additional),
                                 Ordering::Relaxed,
                             );
                         }
                     }
-                    stream_count.fetch_add(STREAM_MESSAGE_OVERHEAD_TOKENS, Ordering::Relaxed);
                 }
                 crate::providers::types::ProviderStreamEvent::AssistantMessageCompleted {
                     text,
@@ -534,8 +532,8 @@ pub async fn chat_stream(
                         if let Some(ref mid) = model_id {
                             if let Ok(additional) = conversation_store::count_text_tokens(mid, text)
                             {
-                                stream_count.store(
-                                    stream_count
+                                fallback_stream_count.store(
+                                    fallback_stream_count
                                         .load(Ordering::Relaxed)
                                         .saturating_add(additional),
                                     Ordering::Relaxed,
@@ -561,8 +559,8 @@ pub async fn chat_stream(
                         if let Some(ref mid) = model_id {
                             if let Ok(additional) = conversation_store::count_text_tokens(mid, text)
                             {
-                                stream_count.store(
-                                    stream_count
+                                fallback_stream_count.store(
+                                    fallback_stream_count
                                         .load(Ordering::Relaxed)
                                         .saturating_add(additional),
                                     Ordering::Relaxed,
@@ -571,8 +569,18 @@ pub async fn chat_stream(
                         }
                     }
                 }
+                crate::providers::types::ProviderStreamEvent::UsageUpdated { usage, .. } => {
+                    visible_stream_count.store(usage.total_tokens, Ordering::Relaxed);
+                }
                 _ => {}
             }
+
+            let event_token_count = match &event {
+                crate::providers::types::ProviderStreamEvent::UsageUpdated { usage, .. } => {
+                    Some(usage.total_tokens)
+                }
+                _ => None,
+            };
 
             emit_mapped_stream_event(
                 &closure_window,
@@ -580,7 +588,7 @@ pub async fn chat_stream(
                 &closure_conversation_id,
                 &mut event_index,
                 event,
-                Some(stream_count.load(Ordering::Relaxed)),
+                event_token_count,
             )
         },
     )
@@ -588,13 +596,17 @@ pub async fn chat_stream(
 
     let _ = registry.remove_chat_request(&request_id)?;
     let (response, _timeline_events) = result?;
-    if let Some(usage) = &response.usage {
-        running_token_count.store(usage.total_tokens, Ordering::Relaxed);
+    if let Some(latest_usage_record) = response.usage_hops.last() {
+        visible_token_count.store(latest_usage_record.usage.total_tokens, Ordering::Relaxed);
         if let Err(err) = conversation_store::update_conversation_token_usage(
             &conversation_id,
             &request_id,
-            &response.response_id,
-            usage,
+            &latest_usage_record.response_id,
+            "provider",
+            "latest_response",
+            &latest_usage_record.usage,
+            response.usage.as_ref(),
+            &response.usage_hops,
         ) {
             log::warn!(
                 "Failed to persist provider token usage for conversation '{}': {}",
@@ -602,8 +614,32 @@ pub async fn chat_stream(
                 err
             );
         }
+    } else {
+        let fallback_total = fallback_token_count.load(Ordering::Relaxed);
+        visible_token_count.store(fallback_total, Ordering::Relaxed);
+        let fallback_usage = crate::providers::types::ProviderUsage {
+            prompt_tokens: fallback_total,
+            completion_tokens: 0,
+            total_tokens: fallback_total,
+        };
+        if let Err(err) = conversation_store::update_conversation_token_usage(
+            &conversation_id,
+            &request_id,
+            &response.response_id,
+            "local_estimate",
+            "turn_estimate",
+            &fallback_usage,
+            None,
+            &[],
+        ) {
+            log::warn!(
+                "Failed to persist estimated token usage for conversation '{}': {}",
+                conversation_id,
+                err
+            );
+        }
     }
-    let final_token_count = running_token_count.load(Ordering::Relaxed);
+    let final_token_count = visible_token_count.load(Ordering::Relaxed);
 
     log::info!(
         "chat_stream turn complete: conv={} req={} text_len={} resp_id={} output_items={}",
@@ -680,12 +716,18 @@ pub async fn load_conversation(
     let conversation_id = req.conversation_id.clone();
     let mut detail = conversation_store::load_conversation(&req.conversation_id)?;
     if let Some(detail_ref) = detail.as_mut() {
-        detail_ref.context_token_count = load_conversation_prompt_token_count(
-            &conversation_id,
-            req.model.as_deref(),
-            mcp_manager.inner().clone(),
-        )
-        .await;
+        detail_ref.context_token_count =
+            match conversation_store::load_conversation_token_usage_count(&conversation_id)? {
+                Some(count) => count,
+                None => {
+                    load_conversation_prompt_token_count(
+                        &conversation_id,
+                        req.model.as_deref(),
+                        mcp_manager.inner().clone(),
+                    )
+                    .await
+                }
+            };
     }
     Ok(detail)
 }

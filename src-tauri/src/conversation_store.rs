@@ -30,7 +30,8 @@ pub use paths::conversation_dir_path;
 pub use paths::conversation_workspace_path;
 pub use queries::{
     list_conversations, load_conversation, load_conversation_dynamic_tools,
-    load_conversation_mounted_tool_sources, load_title_generation_candidate,
+    load_conversation_mounted_tool_sources, load_conversation_token_usage_count,
+    load_title_generation_candidate,
 };
 pub use recovery::build_recovery_developer_note;
 pub use types::{

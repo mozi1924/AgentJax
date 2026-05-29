@@ -75,6 +75,11 @@ pub enum ProviderStreamEvent {
         phase: Option<AssistantPhase>,
         response_id: String,
     },
+    UsageUpdated {
+        response_id: String,
+        usage: ProviderUsage,
+        aggregate_usage: ProviderUsage,
+    },
     ResponseCompleted,
 }
 
@@ -128,6 +133,13 @@ pub struct ProviderUsage {
     pub total_tokens: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderUsageRecord {
+    pub response_id: String,
+    pub usage: ProviderUsage,
+}
+
 impl ProviderUsage {
     pub fn from_api_value(value: &Value) -> Option<Self> {
         let usage_value = value
@@ -169,6 +181,7 @@ pub struct ResponseStreamResult {
     pub output_items: Vec<Value>,
     /// Provider-reported billing usage, preferred over local token estimates.
     pub usage: Option<ProviderUsage>,
+    pub usage_hops: Vec<ProviderUsageRecord>,
     pub provider_key: String,
     pub model_profile: String,
     pub model_id: String,

@@ -19,7 +19,7 @@ use super::types::{
     DEFAULT_CONVERSATION_TITLE, LOG_VERSION, ToolStatus, UpdateLineInput,
 };
 use crate::conversation_store_utils::{normalize_title, now_unix_ms};
-use crate::providers::types::ProviderUsage;
+use crate::providers::types::{ProviderUsage, ProviderUsageRecord};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::fs;
@@ -93,24 +93,46 @@ pub fn update_conversation_token_usage(
     conversation_id: &str,
     request_id: &str,
     response_id: &str,
-    usage: &ProviderUsage,
+    source: &str,
+    scope: &str,
+    latest_usage: &ProviderUsage,
+    aggregate_usage: Option<&ProviderUsage>,
+    usage_hops: &[ProviderUsageRecord],
 ) -> Result<(), String> {
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(conversation_id)?;
         let messages_path = conversation_messages_path(conversation_id)?;
         let mut meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
 
-        // Persist provider-reported usage in metadata so reloads can inspect
-        // the last physically billed turn without changing the line schema.
+        let aggregate_usage = aggregate_usage.unwrap_or(latest_usage);
+
+        // Persist the latest provider response usage at the top level so it
+        // matches an individual gateway log row. Aggregate and hop details are
+        // kept alongside it for multi-hop billing diagnostics.
         meta.metadata.insert(
             CONVERSATION_TOKEN_USAGE_METADATA_KEY.to_string(),
             json!({
-                "source": "provider",
+                "source": source,
+                "scope": scope,
                 "requestId": request_id,
                 "responseId": response_id,
-                "promptTokens": usage.prompt_tokens,
-                "completionTokens": usage.completion_tokens,
-                "totalTokens": usage.total_tokens,
+                "promptTokens": latest_usage.prompt_tokens,
+                "completionTokens": latest_usage.completion_tokens,
+                "totalTokens": latest_usage.total_tokens,
+                "aggregateUsage": {
+                    "promptTokens": aggregate_usage.prompt_tokens,
+                    "completionTokens": aggregate_usage.completion_tokens,
+                    "totalTokens": aggregate_usage.total_tokens,
+                },
+                "hops": usage_hops
+                    .iter()
+                    .map(|hop| json!({
+                        "responseId": hop.response_id,
+                        "promptTokens": hop.usage.prompt_tokens,
+                        "completionTokens": hop.usage.completion_tokens,
+                        "totalTokens": hop.usage.total_tokens,
+                    }))
+                    .collect::<Vec<_>>(),
                 "updatedAtUnixMs": now_unix_ms(),
             }),
         );

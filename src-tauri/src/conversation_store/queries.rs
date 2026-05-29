@@ -3,10 +3,54 @@ use super::locks::{cached_summary, replace_cached_summary, with_conversation_loc
 use super::paths::{conversation_messages_path, conversation_metadata_path, list_conversation_ids};
 use super::types::{
     CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY, CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
-    CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY, ConversationDetail, ConversationDynamicTool,
-    ConversationLine, ConversationMountedMcpServer, ConversationMountedToolDefinition,
-    ConversationMountedToolSource, ConversationSummary, TitleGenerationCandidate,
+    CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY, CONVERSATION_TOKEN_USAGE_METADATA_KEY,
+    ConversationDetail, ConversationDynamicTool, ConversationLine, ConversationMeta,
+    ConversationMountedMcpServer, ConversationMountedToolDefinition, ConversationMountedToolSource,
+    ConversationSummary, TitleGenerationCandidate,
 };
+use serde_json::Value;
+
+fn token_count_from_usage_value(value: &Value) -> Option<usize> {
+    value
+        .get("totalTokens")
+        .and_then(Value::as_u64)
+        .or_else(|| value.get("total_tokens").and_then(Value::as_u64))
+        .and_then(|count| usize::try_from(count).ok())
+        .filter(|count| *count > 0)
+}
+
+fn token_usage_count_from_meta(meta: &ConversationMeta) -> Option<usize> {
+    let usage = meta.metadata.get(CONVERSATION_TOKEN_USAGE_METADATA_KEY)?;
+
+    // Fast path for the current schema: top-level `totalTokens` tracks the
+    // latest provider response, which is the value that matches gateway logs.
+    if let Some(count) = token_count_from_usage_value(usage) {
+        return Some(count);
+    }
+
+    // Defensive fallback for possible older/debug schemas.
+    usage
+        .get("aggregateUsage")
+        .and_then(token_count_from_usage_value)
+        .or_else(|| {
+            usage
+                .get("hops")
+                .and_then(Value::as_array)
+                .and_then(|hops| hops.last())
+                .and_then(token_count_from_usage_value)
+        })
+}
+
+pub fn load_conversation_token_usage_count(conversation_id: &str) -> Result<Option<usize>, String> {
+    with_conversation_lock(conversation_id, || {
+        let metadata_path = conversation_metadata_path(conversation_id)?;
+        let Some(meta) = read_conversation_meta(&metadata_path)? else {
+            return Ok(None);
+        };
+        Ok(token_usage_count_from_meta(&meta))
+    })
+}
+
 // ── List all conversations ────────────────────────────────────────────────
 
 pub fn list_conversations() -> Result<Vec<ConversationSummary>, String> {
@@ -50,7 +94,7 @@ pub fn load_conversation(conversation_id: &str) -> Result<Option<ConversationDet
             title: data.meta.title.clone(),
             title_source: data.meta.title_source.clone(),
             lines: data.lines,
-            context_token_count: 0,
+            context_token_count: token_usage_count_from_meta(&data.meta).unwrap_or(0),
         }))
     })
 }

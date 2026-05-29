@@ -7,7 +7,8 @@ use crate::commands::chat::ChatRequest;
 use crate::config::AppConfig;
 use crate::message_phase::AssistantPhase;
 use crate::providers::types::{
-    ProviderStreamEvent, ProviderUsage, ResponseStreamRequest, ResponseStreamResult,
+    ProviderStreamEvent, ProviderUsage, ProviderUsageRecord, ResponseStreamRequest,
+    ResponseStreamResult,
 };
 use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
 use crate::tools::{
@@ -29,6 +30,7 @@ struct TurnAccumulator {
     output_items: Vec<Value>,
     timeline_events: Vec<Value>,
     usage: Option<ProviderUsage>,
+    usage_hops: Vec<ProviderUsageRecord>,
 }
 
 impl TurnAccumulator {
@@ -38,6 +40,7 @@ impl TurnAccumulator {
             output_items: Vec::new(),
             timeline_events: Vec::new(),
             usage: None,
+            usage_hops: Vec::new(),
         }
     }
 
@@ -52,6 +55,10 @@ impl TurnAccumulator {
             } else {
                 self.usage = Some(response_usage.clone());
             }
+            self.usage_hops.push(ProviderUsageRecord {
+                response_id: response.response_id.clone(),
+                usage: response_usage.clone(),
+            });
         }
     }
 
@@ -448,6 +455,16 @@ impl AgentRuntime {
             .await?;
 
             accumulator.record_hop(&collected.response_result);
+            if let (Some(hop_usage), Some(aggregate_usage)) = (
+                collected.response_result.usage.clone(),
+                accumulator.usage.clone(),
+            ) {
+                on_event(ProviderStreamEvent::UsageUpdated {
+                    response_id: collected.response_result.response_id.clone(),
+                    usage: hop_usage,
+                    aggregate_usage,
+                })?;
+            }
 
             let is_final_hop = collected.pending_tools.is_empty();
             let hop_messages =
@@ -581,6 +598,7 @@ impl AgentRuntime {
             output_text: final_output_text,
             output_items: accumulator.output_items,
             usage: accumulator.usage,
+            usage_hops: accumulator.usage_hops,
             provider_key: resolved_model.provider_key.clone(),
             model_profile: resolved_model.profile_key.clone(),
             model_id: resolved_model.model_id.clone(),

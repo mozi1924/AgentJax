@@ -905,6 +905,51 @@ fn conversation_mounted_tool_sources_round_trip_through_metadata() {
 }
 
 #[test]
+fn load_conversation_uses_token_usage_metadata() {
+    use super::file_io::{read_conversation_meta, write_conversation_metadata};
+    use super::paths::conversation_metadata_path;
+    use super::types::CONVERSATION_TOKEN_USAGE_METADATA_KEY;
+
+    let _g = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let _h = setup_test_home();
+    let cid = format!("ttokenmeta-{}", Uuid::new_v4());
+    ensure_conversation(&cid).expect("ensure");
+    append_line(AppendLineInput {
+        conversation_id: cid.clone(),
+        line: u("u1", "req-1", "hello"),
+    })
+    .expect("append user");
+
+    let metadata_path = conversation_metadata_path(&cid).expect("metadata path");
+    let mut meta = read_conversation_meta(&metadata_path)
+        .expect("read meta")
+        .expect("meta exists");
+    meta.metadata.insert(
+        CONVERSATION_TOKEN_USAGE_METADATA_KEY.to_string(),
+        json!({
+            "source": "provider",
+            "scope": "latest_response",
+            "totalTokens": 2333,
+            "aggregateUsage": { "totalTokens": 9999 }
+        }),
+    );
+    write_conversation_metadata(&metadata_path, &meta).expect("write meta");
+
+    let detail = load_conversation(&cid)
+        .expect("load conversation")
+        .expect("conversation exists");
+    assert_eq!(detail.context_token_count, 2333);
+    assert_eq!(
+        load_conversation_token_usage_count(&cid).expect("load token usage"),
+        Some(2333)
+    );
+
+    delete_conversation(&cid).ok();
+}
+
+#[test]
 fn conversation_mounted_mcp_servers_legacy_fallback() {
     use super::file_io::{read_conversation_meta, write_conversation_metadata};
     use super::paths::conversation_metadata_path;

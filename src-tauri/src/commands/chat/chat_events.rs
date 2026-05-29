@@ -194,6 +194,12 @@ pub fn emit_mapped_stream_event(
                 chat_event.response_id = Some(response_id);
             }
         }
+        ProviderStreamEvent::UsageUpdated { response_id, .. } => {
+            chat_event.kind = "token_usage".to_string();
+            if !response_id.trim().is_empty() {
+                chat_event.response_id = Some(response_id);
+            }
+        }
         ProviderStreamEvent::ResponseCompleted => {
             return Ok(());
         }

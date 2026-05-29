@@ -326,6 +326,19 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
             return;
           }
 
+          if (payload.kind === 'token_usage') {
+            if (typeof payload.contextTokenCount === 'number') {
+              setConversations((prev) =>
+                prev.map((conv) =>
+                  conv.conversationId === mapping.conversationId
+                    ? { ...conv, contextTokenCount: payload.contextTokenCount! }
+                    : conv
+                )
+              );
+            }
+            return;
+          }
+
           if (payload.kind === 'done') {
             markConversationGenerating(mapping.conversationId, false);
             markConversationStopping(mapping.conversationId, false);

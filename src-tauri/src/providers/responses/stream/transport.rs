@@ -10,7 +10,8 @@ use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
 use crate::config::ResolvedModelConfig;
 use crate::providers::types::{
-    ProviderEventSink, ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult,
+    ProviderEventSink, ProviderStreamEvent, ProviderUsageRecord, ResponseStreamRequest,
+    ResponseStreamResult,
 };
 
 use super::parser::{
@@ -221,12 +222,21 @@ pub(crate) async fn create_response_streaming_sse(
         .lock()
         .ok()
         .and_then(|state| state.detected_usage.clone());
+    let usage_hops: Vec<ProviderUsageRecord> = usage
+        .clone()
+        .map(|usage| ProviderUsageRecord {
+            response_id: response_id.clone(),
+            usage,
+        })
+        .into_iter()
+        .collect();
 
     Ok(ResponseStreamResult {
         response_id,
         output_text,
         output_items,
         usage,
+        usage_hops,
         provider_key: resolved.provider_key.clone(),
         model_profile: resolved.profile_key.clone(),
         model_id: resolved.model_id.clone(),
@@ -392,12 +402,21 @@ pub(crate) async fn create_response_streaming_websocket(
         .lock()
         .ok()
         .and_then(|state| state.detected_usage.clone());
+    let usage_hops: Vec<ProviderUsageRecord> = usage
+        .clone()
+        .map(|usage| ProviderUsageRecord {
+            response_id: response_id.clone(),
+            usage,
+        })
+        .into_iter()
+        .collect();
 
     Ok(ResponseStreamResult {
         response_id,
         output_text,
         output_items,
         usage,
+        usage_hops,
         provider_key: resolved.provider_key.clone(),
         model_profile: resolved.profile_key.clone(),
         model_id: resolved.model_id.clone(),
