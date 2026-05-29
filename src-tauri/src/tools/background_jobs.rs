@@ -9,6 +9,10 @@ use uuid::Uuid;
 
 const DEFAULT_WAIT_TIMEOUT_MS: u64 = 30_000;
 const MAX_WAIT_TIMEOUT_MS: u64 = 120_000;
+// Terminal job snapshots are useful for follow-up waits/lists, but they should
+// not accumulate forever in the process-wide registry.
+const TERMINAL_JOB_RETENTION_MS: i64 = 6 * 60 * 60 * 1_000;
+const MAX_RETAINED_TERMINAL_JOBS: usize = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BackgroundJobStatus {
@@ -26,6 +30,10 @@ impl BackgroundJobStatus {
             BackgroundJobStatus::Failed => "failed",
             BackgroundJobStatus::Cancelled => "cancelled",
         }
+    }
+
+    fn is_terminal(self) -> bool {
+        self != BackgroundJobStatus::InProgress
     }
 }
 
@@ -90,6 +98,7 @@ fn resolve_job(
     job_id: &str,
     conversation_id: Option<&str>,
 ) -> Result<Arc<BackgroundToolJob>, String> {
+    prune_jobs();
     let guard = jobs()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -138,6 +147,77 @@ fn mark_job_cancelled(job: &Arc<BackgroundToolJob>, reason: &str) -> bool {
     should_abort
 }
 
+fn prune_terminal_jobs_locked(
+    registry: &mut HashMap<String, Arc<BackgroundToolJob>>,
+    retention_ms: i64,
+    max_retained_terminal_jobs: usize,
+) -> usize {
+    // Only prune terminal jobs. In-progress jobs may still be holding MCP or
+    // native tool resources, so those are cancelled through explicit lifecycle
+    // paths rather than garbage-collected here.
+    let now = now_unix_ms();
+    let cutoff = now.saturating_sub(retention_ms);
+    let mut terminal_jobs = registry
+        .iter()
+        .filter_map(|(job_id, job)| {
+            let state = job
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if !state.status.is_terminal() {
+                return None;
+            }
+
+            Some((
+                job_id.clone(),
+                state.completed_at_unix_ms.unwrap_or(job.started_at_unix_ms),
+            ))
+        })
+        .collect::<Vec<_>>();
+
+    let mut removed = 0usize;
+    let expired_job_ids = terminal_jobs
+        .iter()
+        .filter_map(|(job_id, completed_at_unix_ms)| {
+            if *completed_at_unix_ms <= cutoff {
+                Some(job_id.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    for job_id in expired_job_ids {
+        if registry.remove(&job_id).is_some() {
+            removed += 1;
+        }
+    }
+
+    terminal_jobs.retain(|(job_id, _)| registry.contains_key(job_id));
+    if terminal_jobs.len() > max_retained_terminal_jobs {
+        terminal_jobs.sort_by_key(|(_, completed_at_unix_ms)| *completed_at_unix_ms);
+        let excess_count = terminal_jobs.len() - max_retained_terminal_jobs;
+        for (job_id, _) in terminal_jobs.into_iter().take(excess_count) {
+            if registry.remove(&job_id).is_some() {
+                removed += 1;
+            }
+        }
+    }
+
+    removed
+}
+
+fn prune_jobs() -> usize {
+    let mut guard = jobs()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    prune_terminal_jobs_locked(
+        &mut guard,
+        TERMINAL_JOB_RETENTION_MS,
+        MAX_RETAINED_TERMINAL_JOBS,
+    )
+}
+
 pub(crate) fn job_id(job: &Arc<BackgroundToolJob>) -> String {
     job.job_id.clone()
 }
@@ -169,6 +249,11 @@ pub(crate) fn start_job_for_conversation(
     let mut guard = jobs()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    prune_terminal_jobs_locked(
+        &mut guard,
+        TERMINAL_JOB_RETENTION_MS,
+        MAX_RETAINED_TERMINAL_JOBS,
+    );
     guard.insert(job.job_id.clone(), job.clone());
     job
 }
@@ -216,6 +301,7 @@ pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: Result<Value, S
 pub(crate) fn cancel_job(job_id: &str, conversation_id: Option<&str>) -> Result<Value, String> {
     let job = resolve_job(job_id, conversation_id)?;
     let should_abort = mark_job_cancelled(&job, "Background tool job was cancelled");
+    prune_jobs();
 
     Ok(json!({
         "ok": should_abort,
@@ -236,16 +322,23 @@ pub(crate) fn cancel_conversation_jobs(conversation_id: &str) -> usize {
             .collect::<Vec<_>>()
     };
 
-    jobs_to_cancel
+    let cancelled_count = jobs_to_cancel
         .iter()
         .filter(|job| mark_job_cancelled(job, "Conversation background tool job was cancelled"))
-        .count()
+        .count();
+    prune_jobs();
+    cancelled_count
 }
 
 pub(crate) fn list_jobs(conversation_id: Option<&str>) -> Value {
-    let guard = jobs()
+    let mut guard = jobs()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    prune_terminal_jobs_locked(
+        &mut guard,
+        TERMINAL_JOB_RETENTION_MS,
+        MAX_RETAINED_TERMINAL_JOBS,
+    );
     let mut items = guard
         .values()
         .filter(|job| job_visible_to_conversation(job, conversation_id))
@@ -304,4 +397,25 @@ pub(crate) async fn wait_for_job(
         "timedOut": timed_out,
         "job": snapshot,
     }))
+}
+
+#[cfg(test)]
+pub(crate) fn age_completed_job_for_test(job_id: &str, completed_at_unix_ms: i64) {
+    if let Ok(job) = resolve_job(job_id, None) {
+        let mut state = job
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.status.is_terminal() {
+            state.completed_at_unix_ms = Some(completed_at_unix_ms);
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn prune_jobs_for_test(retention_ms: i64, max_retained_terminal_jobs: usize) -> usize {
+    let mut guard = jobs()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    prune_terminal_jobs_locked(&mut guard, retention_ms, max_retained_terminal_jobs)
 }

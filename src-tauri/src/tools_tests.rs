@@ -1094,6 +1094,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_background_jobs_prune_terminal_jobs_without_pruning_in_progress() {
+        let conversation_id = format!("test-bg-prune-{}", uuid::Uuid::new_v4());
+        let old_job = crate::tools::background_jobs::start_job_for_conversation(
+            "test_old",
+            Some(conversation_id.clone()),
+        );
+        let old_job_id = crate::tools::background_jobs::job_id(&old_job);
+        crate::tools::background_jobs::complete_job(&old_job, Ok(json!({ "old": true })));
+        crate::tools::background_jobs::age_completed_job_for_test(
+            &old_job_id,
+            crate::conversation_store_utils::now_unix_ms() - 10_000,
+        );
+
+        let active_job = crate::tools::background_jobs::start_job_for_conversation(
+            "test_active",
+            Some(conversation_id.clone()),
+        );
+        let active_job_id = crate::tools::background_jobs::job_id(&active_job);
+
+        let removed = crate::tools::background_jobs::prune_jobs_for_test(1, 200);
+        assert!(
+            removed >= 1,
+            "at least the artificially aged terminal job should be pruned"
+        );
+
+        let jobs = crate::tools::background_jobs::list_jobs(Some(&conversation_id));
+        let jobs = jobs["jobs"].as_array().expect("jobs array");
+        assert!(
+            jobs.iter()
+                .all(|job| job.get("jobId").and_then(|value| value.as_str())
+                    != Some(old_job_id.as_str()))
+        );
+        assert!(jobs.iter().any(|job| {
+            job.get("jobId").and_then(|value| value.as_str()) == Some(active_job_id.as_str())
+                && job.get("status").and_then(|value| value.as_str()) == Some("in_progress")
+        }));
+
+        crate::tools::background_jobs::cancel_conversation_jobs(&conversation_id);
+    }
+
+    #[tokio::test]
     async fn test_tool_catalog_includes_conversation_dynamic_tool_alias() {
         let _guard = crate::config::test_env_lock()
             .lock()
