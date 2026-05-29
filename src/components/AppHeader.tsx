@@ -18,16 +18,28 @@ const formatReasoningLabel = (value: string, t: (key: string) => string) => {
   return normalized.toUpperCase();
 };
 
-const formatProviderModelLabel = (option: ModelOption) => {
+const formatModelDisplayName = (option: ModelOption | null | undefined) => {
   const provider = `${option?.providerKey || ''}`.trim();
   const profile = `${option?.profileKey || ''}`.trim();
+  if (!profile) {
+    return `${option?.modelId || ''}`.trim();
+  }
+
+  // Profile keys are provider-scoped friendly model names; the actual provider
+  // model id is kept separately in option.modelId for request payloads.
+  if (provider && profile.startsWith(`${provider}/`)) {
+    return profile.slice(provider.length + 1);
+  }
+  return profile.includes('/') ? profile.split('/').slice(1).join('/') : profile;
+};
+
+const formatProviderModelLabel = (option: ModelOption) => {
+  const provider = `${option?.providerKey || ''}`.trim();
+  const modelId = `${option?.modelId || ''}`.trim();
   if (!provider) {
-    return profile || 'provider';
+    return modelId || 'provider';
   }
-  if (profile.startsWith(`${provider}/`)) {
-    return `${provider} / ${profile.slice(provider.length + 1)}`;
-  }
-  return `${provider} / ${profile}`;
+  return `${provider} / ${modelId || 'model'}`;
 };
 
 interface AppHeaderProps {
@@ -141,7 +153,7 @@ export default function AppHeader({
             }
           >
             <span className="truncate">
-              AgentJax {selectedModelOption?.modelId || selectedModel}
+              AgentJax {formatModelDisplayName(selectedModelOption) || selectedModel}
             </span>
             {selectedReasoningLabel && (
               <span className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-[11px] text-indigo-200">
@@ -259,7 +271,7 @@ export default function AppHeader({
                     >
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium text-slate-200">
-                          {option.modelId}
+                          {formatModelDisplayName(option)}
                         </span>
                         <span className="mt-0.5 block truncate text-[11px] text-slate-500">
                           {formatProviderModelLabel(option)}
