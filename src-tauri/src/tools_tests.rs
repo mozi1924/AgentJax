@@ -762,9 +762,11 @@ mod tests {
 
         let responses_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Responses);
         let cc_schemas = registry.list_schemas_with_format(ToolSchemaFormat::ChatCompletions);
+        let gemini_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Gemini);
 
         assert_eq!(responses_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
         assert_eq!(cc_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
+        assert_eq!(gemini_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
 
         let first_responses = &responses_schemas[0];
         assert_eq!(first_responses["type"], "function");
@@ -777,6 +779,11 @@ mod tests {
         assert!(first_cc.get("function").is_some());
         assert!(first_cc["function"].get("name").is_some());
         assert!(first_cc["function"].get("parameters").is_some());
+
+        let first_gemini = &gemini_schemas[0];
+        assert!(first_gemini.get("type").is_none());
+        assert!(first_gemini.get("name").is_some());
+        assert!(first_gemini.get("parameters").is_some());
 
         for schema in &responses_schemas {
             let parameters = schema
@@ -799,6 +806,21 @@ mod tests {
                 .and_then(|value| value.get("parameters"))
                 .and_then(|value| value.as_object())
                 .expect("chat completions schema parameters should be an object");
+            assert_eq!(
+                parameters.get("type").and_then(|value| value.as_str()),
+                Some("object")
+            );
+            assert!(!parameters.contains_key("anyOf"));
+            assert!(!parameters.contains_key("oneOf"));
+            assert!(!parameters.contains_key("allOf"));
+            assert!(!parameters.contains_key("not"));
+        }
+
+        for schema in &gemini_schemas {
+            let parameters = schema
+                .get("parameters")
+                .and_then(|value| value.as_object())
+                .expect("gemini schema parameters should be an object");
             assert_eq!(
                 parameters.get("type").and_then(|value| value.as_str()),
                 Some("object")

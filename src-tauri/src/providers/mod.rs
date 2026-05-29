@@ -2,6 +2,7 @@ mod adapters;
 pub mod capabilities;
 mod chat_completions;
 pub mod core;
+mod gemini;
 mod openai_responses;
 pub mod registry;
 mod responses;

@@ -10,6 +10,7 @@ use super::capabilities::ProviderCapabilities;
 pub enum ProviderTransportFamily {
     Responses,
     ChatCompletions,
+    Gemini,
     CustomOauth,
 }
 
@@ -94,6 +95,19 @@ pub fn builtin_provider_definitions() -> Vec<ProviderDefinition> {
             default_model_ids: &["gpt-4.1", "gpt-4o"],
             capabilities: ProviderCapabilities::chat_completions(),
             tool_schema_format: ToolSchemaFormat::ChatCompletions,
+        },
+        ProviderDefinition {
+            kind: "gemini",
+            display_name: "Gemini",
+            transport_family: ProviderTransportFamily::Gemini,
+            default_api_endpoint: "https://generativelanguage.googleapis.com/v1beta",
+            default_realtime_endpoint: None,
+            default_credential_env: "GEMINI_API_KEY",
+            default_supports_websockets: false,
+            default_stream_transport: "sse",
+            default_model_ids: &["gemini-2.5-flash", "gemini-2.5-pro"],
+            capabilities: ProviderCapabilities::gemini(),
+            tool_schema_format: ToolSchemaFormat::Gemini,
         },
     ]
 }

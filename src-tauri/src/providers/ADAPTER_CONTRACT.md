@@ -39,3 +39,5 @@ modules that emit the normalized events above. `providers/chat_completions.rs`
 is the reference implementation for this split: it converts AgentJax's
 Responses-like timeline into Chat Completions `messages`, then converts
 streamed `choices.delta` chunks back into normalized AgentJax events.
+`providers/gemini.rs` follows the same boundary for Gemini `contents`,
+`functionCall`/`functionResponse`, and `usageMetadata`.

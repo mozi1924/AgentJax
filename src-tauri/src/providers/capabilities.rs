@@ -48,4 +48,20 @@ impl ProviderCapabilities {
             emits_incremental_tool_call_arguments: true,
         }
     }
+
+    pub fn gemini() -> Self {
+        Self {
+            requires_instructions: false,
+            requires_stream_true_in_websocket: false,
+            supports_stored_responses: false,
+            supports_cross_socket_continuation: false,
+            supports_generate_false: false,
+            supports_json_mode: true,
+            supports_json_schema: true,
+            supports_parallel_tool_calls: true,
+            supports_built_in_web_search: false,
+            emits_final_output_items: false,
+            emits_incremental_tool_call_arguments: false,
+        }
+    }
 }

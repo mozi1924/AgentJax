@@ -26,6 +26,10 @@ mod tests {
         let chat_completions = providers::get_tool_schema_format("chat-completions")
             .expect("chat-completions adapter should exist");
         assert_eq!(chat_completions, ToolSchemaFormat::ChatCompletions);
+
+        let gemini =
+            providers::get_tool_schema_format("gemini").expect("gemini adapter should exist");
+        assert_eq!(gemini, ToolSchemaFormat::Gemini);
     }
 
     #[test]
