@@ -338,10 +338,9 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
                 payload.responseId,
                 payload.delta,
                 payload.conversationTitle,
-                // Keep the running estimated total — the backend's value was
-                // computed before this turn ran and is already reflected via
-                // incremental token estimates during streaming events.
-                undefined
+                // Prefer the final backend count here; when provider usage is
+                // available this value has already replaced local estimates.
+                payload.contextTokenCount
               )
             );
           }

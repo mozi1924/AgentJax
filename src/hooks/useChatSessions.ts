@@ -161,9 +161,9 @@ export function useChatSessions({
             response.responseId,
             response.conversationTitle,
             wasRequestStopped(requestId),
-            // Don't overwrite — the streaming event handlers already maintain
-            // a running token estimate that includes incremental additions.
-            undefined
+            // The command response mirrors the final stream count, including
+            // provider-reported usage when the gateway returns it.
+            response.contextTokenCount
           )
         );
       } catch (error: unknown) {
