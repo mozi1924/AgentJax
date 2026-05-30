@@ -8,8 +8,10 @@ use serde_json::Value;
 /// Persist a tool-call event during streaming.  Called from the provider
 /// stream callback so that tool state survives crashes.
 ///
-/// - `event_kind == "tool_call_done"` → append a `ToolLine` with
-///   `status: Pending` (no output yet).
+/// - `event_kind == "tool_call_started"` → append a `ToolLine` with
+///   `status: Pending` before arguments are complete.
+/// - `event_kind == "tool_call_done"` → ensure the pending line exists and
+///   merge finalized arguments onto it.
 /// - `event_kind == "tool_call_exec"` → update the matching `ToolLine`
 ///   with the output and set a terminal success/failure status.
 
@@ -44,7 +46,7 @@ pub fn persist_tool_progress_event(
     let line_id = format!("tool-{request_id}-{tool_call_id}");
 
     match event_kind {
-        "tool_call_done" => {
+        "tool_call_started" | "tool_call_done" => {
             let name = tool_name
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
@@ -53,24 +55,54 @@ pub fn persist_tool_progress_event(
                 .and_then(|p| serde_json::from_str(p).ok())
                 .unwrap_or(Value::Null);
 
-            conversation_store::append_line(conversation_store::AppendLineInput {
-                conversation_id: conversation_id.to_string(),
-                line: ConversationLine::Tool(ToolLine {
-                    id: line_id.clone(),
-                    ts,
-                    started_ts: ts,
-                    completed_ts: None,
-                    request_id: request_id.to_string(),
-                    call_id: tool_call_id.to_string(),
-                    name: name.to_string(),
-                    display_name: tool_display_name.map(str::to_string),
-                    description: tool_description.map(str::to_string),
-                    icon: tool_icon.map(str::to_string),
-                    args,
-                    output: None,
-                    status: ToolStatus::Pending,
-                }),
-            })
+            if event_kind == "tool_call_started"
+                || !conversation_store::conversation_line_exists(conversation_id, &line_id)?
+            {
+                // First write is append-only so crashes still leave an
+                // in-progress tool marker. Later updates merge arguments.
+                conversation_store::append_line(conversation_store::AppendLineInput {
+                    conversation_id: conversation_id.to_string(),
+                    line: ConversationLine::Tool(ToolLine {
+                        id: line_id.clone(),
+                        ts,
+                        started_ts: ts,
+                        completed_ts: None,
+                        request_id: request_id.to_string(),
+                        call_id: tool_call_id.to_string(),
+                        name: name.to_string(),
+                        display_name: tool_display_name.map(str::to_string),
+                        description: tool_description.map(str::to_string),
+                        icon: tool_icon.map(str::to_string),
+                        args: args.clone(),
+                        output: None,
+                        status: ToolStatus::Pending,
+                    }),
+                })?;
+            }
+
+            if event_kind == "tool_call_done" {
+                conversation_store::update_line(conversation_store::UpdateLineInput {
+                    conversation_id: conversation_id.to_string(),
+                    line_id,
+                    line: ConversationLine::Tool(ToolLine {
+                        id: format!("tool-{request_id}-{tool_call_id}"),
+                        ts,
+                        started_ts: 0,
+                        completed_ts: None,
+                        request_id: request_id.to_string(),
+                        call_id: tool_call_id.to_string(),
+                        name: name.to_string(),
+                        display_name: tool_display_name.map(str::to_string),
+                        description: tool_description.map(str::to_string),
+                        icon: tool_icon.map(str::to_string),
+                        args,
+                        output: None,
+                        status: ToolStatus::Pending,
+                    }),
+                })?;
+            }
+
+            Ok(())
         }
         "tool_call_exec" => {
             let output: Value = payload

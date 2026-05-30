@@ -255,7 +255,7 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
             return;
           }
 
-          if (payload.kind === 'tool_call_done') {
+          if (payload.kind === 'tool_call_started' || payload.kind === 'tool_call_done') {
             markConversationThinking(mapping.conversationId, false);
             setConversations((prev) => {
               const updated = appendPendingToolCall(

@@ -20,10 +20,10 @@ pub use context::{
     load_context_for_request,
 };
 pub use mutations::{
-    append_line, delete_conversation, ensure_conversation, remove_conversation_dynamic_tool,
-    rename_conversation, update_auto_title, update_conversation_dynamic_tools,
-    update_conversation_mounted_tool_sources, update_conversation_token_usage, update_line,
-    upsert_conversation_dynamic_tool,
+    append_line, conversation_line_exists, delete_conversation, ensure_conversation,
+    remove_conversation_dynamic_tool, rename_conversation, update_auto_title,
+    update_conversation_dynamic_tools, update_conversation_mounted_tool_sources,
+    update_conversation_token_usage, update_line, upsert_conversation_dynamic_tool,
 };
 #[cfg(test)]
 pub use paths::conversation_dir_path;

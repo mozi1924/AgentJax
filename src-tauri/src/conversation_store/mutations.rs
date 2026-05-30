@@ -89,6 +89,13 @@ pub fn update_line(input: UpdateLineInput) -> Result<(), String> {
     with_conversation_lock(&conversation_id, move || update_line_inner(input))
 }
 
+pub fn conversation_line_exists(conversation_id: &str, line_id: &str) -> Result<bool, String> {
+    with_conversation_lock(conversation_id, || {
+        let messages_path = conversation_messages_path(conversation_id)?;
+        line_id_exists(conversation_id, &messages_path, line_id)
+    })
+}
+
 pub fn update_conversation_token_usage(
     conversation_id: &str,
     request_id: &str,

@@ -441,6 +441,24 @@ pub async fn chat_stream(
         &mut cancel_rx,
         move |event| {
             match &event {
+                crate::providers::types::ProviderStreamEvent::ToolCallStarted {
+                    call_id,
+                    name,
+                    presentation,
+                    ..
+                } => {
+                    let _ = persist_tool_progress_event(
+                        &callback_conversation_id,
+                        &callback_request_id,
+                        "tool_call_started",
+                        call_id,
+                        Some(name),
+                        presentation.as_ref().map(|meta| meta.display_name.as_str()),
+                        presentation.as_ref().map(|meta| meta.description.as_str()),
+                        presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
+                        None,
+                    );
+                }
                 crate::providers::types::ProviderStreamEvent::ToolCallCompleted {
                     call_id,
                     name,
