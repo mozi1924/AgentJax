@@ -1,3 +1,4 @@
+use super::tool_execution::ToolExecutionScheduler;
 use super::tool_parsing::{
     is_valid_pending_tool_call, parse_tool_arguments, push_or_update_pending_tool_call,
 };
@@ -21,6 +22,8 @@ pub(super) async fn collect_provider_turn<F>(
     stream_request: &ResponseStreamRequest,
     cancel_rx: &mut watch::Receiver<bool>,
     on_event: &mut F,
+    tool_scheduler: Option<&mut ToolExecutionScheduler>,
+    repeated_failed_tool_signatures: &HashMap<String, usize>,
 ) -> Result<CollectedProviderTurn, String>
 where
     F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
@@ -28,6 +31,7 @@ where
     let mut active_tool_calls_in_turn: HashMap<String, (String, Value)> = HashMap::new();
     let mut tool_args_delta_by_call: HashMap<String, String> = HashMap::new();
     let mut pending_tools_from_events: Vec<ProviderPendingToolCall> = Vec::new();
+    let mut tool_scheduler = tool_scheduler;
 
     let response_result =
         crate::providers::stream_response(config, stream_request, cancel_rx, |event| {
@@ -51,12 +55,25 @@ where
                     );
                     active_tool_calls_in_turn
                         .insert(call_id.clone(), (name.clone(), parsed_args.clone()));
+                    let pending_tool = ProviderPendingToolCall {
+                        call_id: call_id.clone(),
+                        name: name.clone(),
+                        arguments: parsed_args.clone(),
+                    };
                     push_or_update_pending_tool_call(
                         &mut pending_tools_from_events,
-                        call_id.clone(),
-                        name.clone(),
-                        parsed_args,
+                        pending_tool.call_id.clone(),
+                        pending_tool.name.clone(),
+                        pending_tool.arguments.clone(),
                     );
+                    if is_valid_pending_tool_call(&pending_tool) {
+                        if let Some(scheduler) = tool_scheduler.as_deref_mut() {
+                            scheduler.schedule_pending_tool(
+                                pending_tool,
+                                repeated_failed_tool_signatures,
+                            );
+                        }
+                    }
                 }
                 _ => {}
             }

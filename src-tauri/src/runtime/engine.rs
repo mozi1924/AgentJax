@@ -1,7 +1,7 @@
 use super::AgentRuntime;
 use super::stream_collection::collect_provider_turn;
 use super::tool_archiving::archive_unavailable_historical_tool_calls;
-use super::tool_execution::execute_pending_tools;
+use super::tool_execution::ToolExecutionScheduler;
 use super::tool_parsing::describe_item_shape;
 use crate::commands::chat::ChatRequest;
 use crate::config::AppConfig;
@@ -444,6 +444,12 @@ impl AgentRuntime {
                 )
                 .await;
             let stream_request = build_request(req, input_items, tool_snapshot.schemas().to_vec());
+            let mut tool_scheduler = ToolExecutionScheduler::new(
+                conversation_id,
+                tool_snapshot.clone(),
+                provider_capabilities.supports_parallel_tool_calls,
+                cancel_rx,
+            );
             let collected = collect_provider_turn(
                 config,
                 provider_kind,
@@ -451,6 +457,8 @@ impl AgentRuntime {
                 &stream_request,
                 cancel_rx,
                 &mut |event| on_event(enrich_tool_stream_event(event, &tool_snapshot)),
+                Some(&mut tool_scheduler),
+                &repeated_failed_tool_signatures,
             )
             .await?;
 
@@ -524,18 +532,16 @@ impl AgentRuntime {
                 break;
             }
 
-            // ── Execute pending tools locally ─────────────────────────────
-            let executed_batch = execute_pending_tools(
-                provider_kind,
-                conversation_id,
-                &tool_snapshot,
-                collected.pending_tools,
-                provider_capabilities.supports_parallel_tool_calls,
-                cancel_rx,
-                &mut repeated_failed_tool_signatures,
-                &mut on_event,
-            )
-            .await?;
+            // ── Await tools that were scheduled as soon as their arguments completed ──
+            tool_scheduler
+                .schedule_pending_tools(collected.pending_tools, &repeated_failed_tool_signatures);
+            let executed_batch = tool_scheduler
+                .finish(
+                    provider_kind,
+                    &mut repeated_failed_tool_signatures,
+                    &mut on_event,
+                )
+                .await?;
             accumulator
                 .timeline_events
                 .extend(executed_batch.timeline_events);

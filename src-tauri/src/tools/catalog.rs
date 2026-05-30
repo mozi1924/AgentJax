@@ -413,6 +413,7 @@ fn execute_plugin_package_tool(
 /// The model-visible tool list and local execution dispatch both read from the
 /// same frozen snapshot so a turn cannot drift if MCP tools are reconfigured or
 /// refreshed midway through a tool loop.
+#[derive(Clone)]
 pub struct ToolCatalogSnapshot {
     schemas: Vec<Value>,
     active_tool_names: HashSet<String>,
