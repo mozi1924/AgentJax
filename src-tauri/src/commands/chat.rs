@@ -3,6 +3,7 @@ mod chat_events;
 mod chat_persistence;
 mod chat_prompt_tokens;
 mod chat_registry;
+mod chat_stream_observer;
 mod chat_title;
 mod chat_types;
 mod chat_utils;
@@ -23,14 +24,10 @@ use crate::tools::ToolCatalog;
 use crate::tools::ToolExecutionContext;
 use chat_client_metadata::{split_local_client_metadata, validate_conversation_dynamic_tools};
 use chat_events::{ChatStreamEvent, emit_mapped_stream_event, next_event_index};
-use chat_persistence::{
-    ToolProgressPersistInput, persist_assistant_line, persist_tool_progress_event,
-};
 use chat_prompt_tokens::{load_conversation_prompt_token_count, resolve_prompt_counting_model};
+use chat_stream_observer::ChatStreamObserver;
 use chat_title::schedule_title_generation;
 use chat_utils::{chrono_like_now_id, now_unix_ms, run_blocking};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::{Emitter, Manager, State};
 use tokio::sync::watch;
 
@@ -195,12 +192,13 @@ pub async fn chat_stream(
     let closure_request_id = request_id.clone();
     let closure_conversation_id = conversation_id.clone();
 
-    let callback_request_id = request_id.clone();
-    let callback_conversation_id = conversation_id.clone();
-    let fallback_token_count = Arc::new(AtomicUsize::new(context_token_count));
-    let fallback_stream_count = Arc::clone(&fallback_token_count);
-    let visible_token_count = Arc::new(AtomicUsize::new(context_token_count));
-    let visible_stream_count = Arc::clone(&visible_token_count);
+    let stream_observer = ChatStreamObserver::new(
+        conversation_id.clone(),
+        request_id.clone(),
+        model_id,
+        context_token_count,
+    );
+    let stream_observer_for_callback = stream_observer.clone();
     let mut runtime_req = req.clone();
     runtime_req.client_metadata = sanitized_client_metadata;
     let result = crate::runtime::AgentRuntime::run_turn(
@@ -213,185 +211,7 @@ pub async fn chat_stream(
         &tools_catalog,
         &mut cancel_rx,
         move |event| {
-            match &event {
-                crate::providers::types::ProviderStreamEvent::ToolCallStarted {
-                    call_id,
-                    name,
-                    presentation,
-                    ..
-                } => {
-                    let _ = persist_tool_progress_event(ToolProgressPersistInput {
-                        conversation_id: &callback_conversation_id,
-                        request_id: &callback_request_id,
-                        event_kind: "tool_call_started",
-                        tool_call_id: call_id,
-                        tool_name: Some(name),
-                        tool_display_name: presentation
-                            .as_ref()
-                            .map(|meta| meta.display_name.as_str()),
-                        tool_description: presentation
-                            .as_ref()
-                            .map(|meta| meta.description.as_str()),
-                        tool_icon: presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
-                        payload: None,
-                        started_at_unix_ms: None,
-                        completed_at_unix_ms: None,
-                    });
-                }
-                crate::providers::types::ProviderStreamEvent::ToolCallCompleted {
-                    call_id,
-                    name,
-                    arguments,
-                    presentation,
-                    ..
-                } => {
-                    let _ = persist_tool_progress_event(ToolProgressPersistInput {
-                        conversation_id: &callback_conversation_id,
-                        request_id: &callback_request_id,
-                        event_kind: "tool_call_done",
-                        tool_call_id: call_id,
-                        tool_name: Some(name),
-                        tool_display_name: presentation
-                            .as_ref()
-                            .map(|meta| meta.display_name.as_str()),
-                        tool_description: presentation
-                            .as_ref()
-                            .map(|meta| meta.description.as_str()),
-                        tool_icon: presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
-                        payload: Some(arguments),
-                        started_at_unix_ms: None,
-                        completed_at_unix_ms: None,
-                    });
-                    // Count tokens for the persisted tool arguments and metadata
-                    if let Some(ref mid) = model_id {
-                        if let Ok(arg_tokens) =
-                            conversation_store::count_text_tokens(mid, &arguments)
-                        {
-                            // Lightweight estimate for name / display_name / description
-                            let meta_chars = name.len()
-                                + presentation
-                                    .as_ref()
-                                    .map(|m| m.display_name.len())
-                                    .unwrap_or(0)
-                                + presentation
-                                    .as_ref()
-                                    .map(|m| m.description.len())
-                                    .unwrap_or(0);
-                            let meta_tokens = meta_chars.saturating_div(4);
-                            fallback_stream_count.store(
-                                fallback_stream_count
-                                    .load(Ordering::Relaxed)
-                                    .saturating_add(arg_tokens)
-                                    .saturating_add(meta_tokens),
-                                Ordering::Relaxed,
-                            );
-                        }
-                    }
-                }
-                crate::providers::types::ProviderStreamEvent::ToolCallExecuted {
-                    call_id,
-                    name,
-                    output,
-                    started_at_unix_ms,
-                    completed_at_unix_ms,
-                    presentation,
-                    ..
-                } => {
-                    let _ = persist_tool_progress_event(ToolProgressPersistInput {
-                        conversation_id: &callback_conversation_id,
-                        request_id: &callback_request_id,
-                        event_kind: "tool_call_exec",
-                        tool_call_id: call_id,
-                        tool_name: Some(name),
-                        tool_display_name: presentation
-                            .as_ref()
-                            .map(|meta| meta.display_name.as_str()),
-                        tool_description: presentation
-                            .as_ref()
-                            .map(|meta| meta.description.as_str()),
-                        tool_icon: presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
-                        payload: Some(output),
-                        started_at_unix_ms: Some(*started_at_unix_ms),
-                        completed_at_unix_ms: Some(*completed_at_unix_ms),
-                    });
-                    // Count tokens for the tool result output
-                    if let Some(ref mid) = model_id {
-                        if let Ok(additional) = conversation_store::count_text_tokens(mid, output) {
-                            fallback_stream_count.store(
-                                fallback_stream_count
-                                    .load(Ordering::Relaxed)
-                                    .saturating_add(additional),
-                                Ordering::Relaxed,
-                            );
-                        }
-                    }
-                }
-                crate::providers::types::ProviderStreamEvent::AssistantMessageCompleted {
-                    text,
-                    phase,
-                    response_id,
-                } => {
-                    if *phase == Some(crate::message_phase::AssistantPhase::Commentary) {
-                        let _ = persist_assistant_line(
-                            &callback_conversation_id,
-                            &callback_request_id,
-                            response_id,
-                            *phase,
-                            text,
-                        );
-                        // Count tokens for persisted assistant commentary
-                        if let Some(ref mid) = model_id {
-                            if let Ok(additional) = conversation_store::count_text_tokens(mid, text)
-                            {
-                                fallback_stream_count.store(
-                                    fallback_stream_count
-                                        .load(Ordering::Relaxed)
-                                        .saturating_add(additional),
-                                    Ordering::Relaxed,
-                                );
-                            }
-                        }
-                    }
-                }
-                crate::providers::types::ProviderStreamEvent::HopAssistantText {
-                    text,
-                    phase,
-                    response_id,
-                } => {
-                    if *phase != Some(crate::message_phase::AssistantPhase::Commentary) {
-                        let _ = persist_assistant_line(
-                            &callback_conversation_id,
-                            &callback_request_id,
-                            response_id,
-                            *phase,
-                            text,
-                        );
-                        // Count tokens for persisted final answer text
-                        if let Some(ref mid) = model_id {
-                            if let Ok(additional) = conversation_store::count_text_tokens(mid, text)
-                            {
-                                fallback_stream_count.store(
-                                    fallback_stream_count
-                                        .load(Ordering::Relaxed)
-                                        .saturating_add(additional),
-                                    Ordering::Relaxed,
-                                );
-                            }
-                        }
-                    }
-                }
-                crate::providers::types::ProviderStreamEvent::UsageUpdated { usage, .. } => {
-                    visible_stream_count.store(usage.total_tokens, Ordering::Relaxed);
-                }
-                _ => {}
-            }
-
-            let event_token_count = match &event {
-                crate::providers::types::ProviderStreamEvent::UsageUpdated { usage, .. } => {
-                    Some(usage.total_tokens)
-                }
-                _ => None,
-            };
+            let event_token_count = stream_observer_for_callback.handle_provider_event(&event);
 
             emit_mapped_stream_event(
                 &closure_window,
@@ -407,50 +227,7 @@ pub async fn chat_stream(
 
     let _ = registry.remove_chat_request(&request_id)?;
     let (response, _timeline_events) = result?;
-    if let Some(latest_usage_record) = response.usage_hops.last() {
-        visible_token_count.store(latest_usage_record.usage.total_tokens, Ordering::Relaxed);
-        if let Err(err) = conversation_store::update_conversation_token_usage(
-            &conversation_id,
-            &request_id,
-            &latest_usage_record.response_id,
-            "provider",
-            "latest_response",
-            &latest_usage_record.usage,
-            response.usage.as_ref(),
-            &response.usage_hops,
-        ) {
-            log::warn!(
-                "Failed to persist provider token usage for conversation '{}': {}",
-                conversation_id,
-                err
-            );
-        }
-    } else {
-        let fallback_total = fallback_token_count.load(Ordering::Relaxed);
-        visible_token_count.store(fallback_total, Ordering::Relaxed);
-        let fallback_usage = crate::providers::types::ProviderUsage {
-            prompt_tokens: fallback_total,
-            completion_tokens: 0,
-            total_tokens: fallback_total,
-        };
-        if let Err(err) = conversation_store::update_conversation_token_usage(
-            &conversation_id,
-            &request_id,
-            &response.response_id,
-            "local_estimate",
-            "turn_estimate",
-            &fallback_usage,
-            None,
-            &[],
-        ) {
-            log::warn!(
-                "Failed to persist estimated token usage for conversation '{}': {}",
-                conversation_id,
-                err
-            );
-        }
-    }
-    let final_token_count = visible_token_count.load(Ordering::Relaxed);
+    let final_token_count = stream_observer.persist_final_token_usage(&response);
 
     log::info!(
         "chat_stream turn complete: conv={} req={} text_len={} resp_id={} output_items={}",
