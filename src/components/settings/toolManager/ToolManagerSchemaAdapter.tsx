@@ -125,8 +125,68 @@ export function ToolManagerSchemaAdapter({
 
     if (node.id === 'tool-manager-layout') {
       return (
-        <div className="grid min-h-[420px] grid-cols-1 xl:grid-cols-[220px_minmax(260px,0.9fr)_minmax(300px,1.1fr)]">
-          {node.children ? renderChildren(node.children) : null}
+        <div className="grid min-h-[420px] h-auto xl:h-[520px] grid-cols-1 xl:grid-cols-[220px_minmax(260px,0.9fr)_minmax(300px,1.1fr)]">
+          {node.children ? node.children.map((child) => {
+            if (child.id === 'tool-source-list') {
+              return (
+                <ToolSourceList
+                  key={child.id}
+                  sources={selection.categorySources}
+                  activeSource={selection.activeSource}
+                  savingKeys={savingKeys}
+                  onSelectSource={selectSource}
+                  onSaveSourceEnabled={saveSourceEnabled}
+                />
+              );
+            }
+            if (child.id === 'tool-list-pane') {
+              return (
+                <section key={child.id} className="min-w-0 border-t border-[#242426]/50 xl:border-t-0">
+                  {selection.activeSource ? (
+                    <div className="flex h-full flex-col">
+                      <ToolSourceHeader
+                        activeSource={selection.activeSource}
+                        search={selection.search}
+                        actionError={snapshotState.actionError}
+                        discoveringSourceId={snapshotState.discoveringSourceId}
+                        savingKeys={savingKeys}
+                        onSearchChange={selection.setSearch}
+                        onDiscoverSource={(sourceId) => {
+                          void snapshotState.discoverSource(sourceId);
+                        }}
+                        onSaveSourceEnabled={saveSourceEnabled}
+                        onSaveMcpExposure={saveMcpExposure}
+                      />
+                      <ToolList
+                        source={selection.activeSource}
+                        tools={selection.filteredTools}
+                        selectedTool={selection.selectedTool}
+                        savingKeys={savingKeys}
+                        onSelectTool={selection.setSelectedToolId}
+                        onSaveToolEnabled={saveToolEnabled}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-xs text-neutral-500">
+                      {t('settings.tools.empty_sources')}
+                    </div>
+                  )}
+                </section>
+              );
+            }
+            if (child.id === 'tool-detail') {
+              return (
+                <ToolDetailPanel
+                  key={child.id}
+                  source={selection.activeSource}
+                  tool={selection.selectedTool}
+                  savingKeys={savingKeys}
+                  onSaveToolEnabled={saveToolEnabled}
+                />
+              );
+            }
+            return null;
+          }) : null}
         </div>
       );
     }
@@ -219,7 +279,7 @@ export function ToolManagerSchemaAdapter({
         <div className="mb-3">
           {title && (
             <div className="flex items-center gap-2">
-              <Wrench className="h-4 w-4 text-cyan-300" />
+              <Wrench className="h-4 w-4 text-neutral-300" />
               <h4 className="text-[13.5px] font-medium text-neutral-200">{t(title)}</h4>
             </div>
           )}
@@ -231,7 +291,7 @@ export function ToolManagerSchemaAdapter({
         </div>
       )}
 
-      <div className="overflow-hidden rounded-lg border border-[#27282b] bg-[#101112]">
+      <div className="overflow-hidden rounded-lg border border-[#2b2b2d] bg-[#171719]/30">
         {snapshotState.loading ? (
           <div className="flex h-48 items-center justify-center gap-2 text-sm text-neutral-400">
             <LoaderCircle className="h-4 w-4 animate-spin" />

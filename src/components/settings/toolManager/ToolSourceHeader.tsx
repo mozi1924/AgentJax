@@ -37,7 +37,7 @@ export function ToolSourceHeader({
   const exposureSavingKey = `source:${activeSource.sourceType}:${activeSource.sourceId}:exposure`;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#242426] px-3 py-2">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#242426]/50 px-3 py-2">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <h5 className="truncate text-[13px] font-medium text-neutral-100">
@@ -85,7 +85,7 @@ export function ToolSourceHeader({
 
       <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
         {isMcpExposureEditable(activeSource) && (
-          <div className="inline-flex h-7 overflow-hidden rounded-md border border-[#2b2c30] bg-[#111214]">
+          <div className="inline-flex h-7 overflow-hidden rounded-md border border-[#2b2b2d] bg-[#1a1b1d]/40">
             {(['collapsed', 'unfolded'] as McpExposureMode[]).map((mode) => {
               const saving = savingKeys.has(exposureSavingKey);
               const selected = normalizedExposure(activeSource) === mode;
@@ -97,8 +97,8 @@ export function ToolSourceHeader({
                   onClick={() => onSaveMcpExposure(activeSource, mode)}
                   className={`px-2.5 text-[11px] capitalize transition ${
                     selected
-                      ? 'bg-cyan-500/15 text-cyan-100'
-                      : 'text-neutral-400 hover:bg-[#202124] hover:text-neutral-200'
+                      ? 'bg-[#2a2a2c] text-white'
+                      : 'text-neutral-400 hover:bg-[#202022] hover:text-white'
                   } disabled:cursor-default disabled:opacity-70`}
                 >
                   {saving && !selected ? (
@@ -117,7 +117,7 @@ export function ToolSourceHeader({
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder={t('settings.tools.search')}
-            className="h-7 w-48 rounded-md border border-[#2b2c30] bg-[#111214] pl-7 pr-2 text-[12px] text-neutral-200 outline-none transition placeholder:text-neutral-600 focus:border-cyan-500/50"
+            className="h-7 w-48 rounded-md border border-[#2b2b2d] bg-[#1a1b1d]/40 pl-7 pr-2 text-[12px] text-neutral-200 outline-none transition placeholder:text-neutral-600 focus:border-neutral-500"
           />
         </div>
         {activeSource.sourceType === 'mcp' && (

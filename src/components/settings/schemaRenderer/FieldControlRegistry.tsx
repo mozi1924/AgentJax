@@ -39,7 +39,7 @@ const FIELD_CONTROL_REGISTRY: Partial<Record<SettingsControlType, FieldControlCo
 export const getRegisteredFieldControl = (control: SettingsControlType) =>
   FIELD_CONTROL_REGISTRY[control] || null;
 
-const CUSTOM_FIELD_CONTROLS: SettingsControlType[] = ['prompt_assembler', 'tool_manager'];
+const CUSTOM_FIELD_CONTROLS: SettingsControlType[] = ['prompt_assembler'];
 
 // Renders a v1 field through the v2 registry, keeping custom controls on the compatibility path.
 export function FieldRenderer({

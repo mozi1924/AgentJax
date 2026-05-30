@@ -39,14 +39,13 @@ export function ToolList({
             const activeTool = selectedTool?.id === tool.id;
             const savingKey = `tool:${source.sourceType}:${source.sourceId}:${tool.id}:enabled`;
             return (
-              <button
+              <div
                 key={`${source.sourceId}-${tool.modelName}`}
-                type="button"
                 onClick={() => onSelectTool(tool.id)}
-                className={`w-full rounded-lg border px-3 py-2 text-left transition ${
+                className={`w-full rounded-lg border px-3 py-2 text-left transition cursor-pointer select-none ${
                   activeTool
-                    ? 'border-cyan-500/40 bg-cyan-500/10'
-                    : 'border-[#26272b] bg-[#151618] hover:border-[#34363b]'
+                    ? 'border-neutral-500 bg-[#2a2a2c]/60'
+                    : 'border-[#2b2b2d] bg-[#1a1b1d]/40 hover:border-neutral-500'
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -55,7 +54,7 @@ export function ToolList({
                       <h6 className="truncate text-[13px] font-medium text-neutral-100">
                         {tool.friendlyName}
                       </h6>
-                      <span className="rounded bg-[#24262a] px-1.5 py-0.5 text-[10px] text-neutral-400">
+                      <span className="rounded bg-[#2a2a2c] px-1.5 py-0.5 text-[10px] text-neutral-400">
                         {tool.availability}
                       </span>
                     </div>
@@ -71,7 +70,7 @@ export function ToolList({
                   />
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[10.5px] text-neutral-500">
-                  <span className="font-mono text-neutral-400">{tool.id}</span>
+                  <span className="font-mono text-neutral-300">{tool.id}</span>
                   <span className="font-mono">{tool.modelName}</span>
                   <span>
                     {t('settings.tools.schema_summary', {
@@ -79,7 +78,7 @@ export function ToolList({
                     })}
                   </span>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>

@@ -26,7 +26,7 @@ export function ToolDetailPanel({
 
   if (!source || !tool) {
     return (
-      <section className="min-w-0 border-t border-[#242426] bg-[#111214] xl:border-l xl:border-t-0">
+      <section className="min-w-0 border-t border-[#242426]/50 bg-[#171719]/20 xl:border-l xl:border-t-0">
         <div className="flex h-40 items-center justify-center text-xs text-neutral-500 xl:h-full">
           {t('settings.tools.empty_tools')}
         </div>
@@ -37,7 +37,7 @@ export function ToolDetailPanel({
   const savingKey = `tool:${source.sourceType}:${source.sourceId}:${tool.id}:enabled`;
 
   return (
-    <section className="min-w-0 border-t border-[#242426] bg-[#111214] xl:border-l xl:border-t-0">
+    <section className="min-w-0 border-t border-[#242426]/50 bg-[#171719]/20 xl:border-l xl:border-t-0">
       <OverlayScrollArea containerClassName="h-[min(52vh,520px)] xl:h-full" className="h-full p-3">
         <div className="space-y-3">
           <div>
@@ -45,7 +45,7 @@ export function ToolDetailPanel({
               <h5 className="min-w-0 flex-1 truncate text-[13px] font-medium text-neutral-100">
                 {tool.friendlyName}
               </h5>
-              <span className="rounded bg-[#24262a] px-1.5 py-0.5 text-[10px] text-neutral-400">
+              <span className="rounded bg-[#2a2a2c] px-1.5 py-0.5 text-[10px] text-neutral-400">
                 {tool.schemaFormat || 'json_schema'}
               </span>
             </div>
@@ -53,13 +53,13 @@ export function ToolDetailPanel({
               {tool.description || tool.id}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[10.5px] text-neutral-500">
-              <span className="font-mono text-neutral-400">{tool.id}</span>
+              <span className="font-mono text-neutral-300">{tool.id}</span>
               <span className="font-mono">{tool.modelName}</span>
               <span>{tool.availability}</span>
             </div>
           </div>
 
-          <div className="rounded-lg border border-[#26272b] bg-[#151618] px-3 py-2">
+          <div className="rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-3 py-2">
             <div className="flex items-center justify-between gap-3">
               <span className="text-[12px] font-medium text-neutral-200">
                 {t('settings.tools.policy')}

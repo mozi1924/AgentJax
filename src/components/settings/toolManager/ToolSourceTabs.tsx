@@ -22,8 +22,8 @@ export function ToolSourceTabs({
           onClick={() => onSelectCategory(category.id)}
           className={`rounded-md px-2.5 py-1 text-[12px] transition ${
             activeCategory === category.id
-              ? 'bg-cyan-500/15 text-cyan-100'
-              : 'text-neutral-400 hover:bg-[#202124] hover:text-neutral-200'
+              ? 'bg-[#2a2a2c] text-white'
+              : 'text-neutral-400 hover:bg-[#202022] hover:text-white'
           }`}
         >
           {t(category.labelKey)}

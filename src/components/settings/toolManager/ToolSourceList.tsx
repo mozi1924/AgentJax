@@ -32,7 +32,7 @@ export function ToolSourceList({
   const { t } = useI18n();
 
   return (
-    <aside className="border-r border-[#242426] bg-[#141516]">
+    <aside className="border-r border-[#242426]/50 bg-[#171719]/40">
       <OverlayScrollArea containerClassName="h-[min(52vh,520px)] xl:h-full" className="h-full p-2">
         {sources.length === 0 ? (
           <p className="px-2 py-6 text-center text-xs text-neutral-500">
@@ -50,8 +50,8 @@ export function ToolSourceList({
                   key={`${source.sourceType}-${source.sourceId}`}
                   className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition ${
                     active
-                      ? 'bg-[#25272a] text-white'
-                      : 'text-neutral-400 hover:bg-[#202124] hover:text-neutral-200'
+                      ? 'bg-[#2a2a2c] text-white'
+                      : 'text-neutral-400 hover:bg-[#202022] hover:text-white'
                   }`}
                 >
                   <button

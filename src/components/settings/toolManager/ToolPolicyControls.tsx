@@ -25,6 +25,7 @@ export function ToolPolicySwitch({
         disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
       }`}
       title={title}
+      onClick={(event) => event.stopPropagation()}
     >
       <input
         type="checkbox"
@@ -33,7 +34,7 @@ export function ToolPolicySwitch({
         onChange={(event) => onChange(event.target.checked)}
         className="peer sr-only"
       />
-      <span className="absolute inset-0 rounded-full bg-[#3e3e42] transition peer-checked:bg-cyan-500" />
+      <span className="absolute inset-0 rounded-full bg-[#3e3e42] transition peer-checked:bg-[#007aff]" />
       <span className="absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white transition-transform duration-200 peer-checked:translate-x-4">
         {loading && <LoaderCircle className="h-2.5 w-2.5 animate-spin text-neutral-700" />}
       </span>
