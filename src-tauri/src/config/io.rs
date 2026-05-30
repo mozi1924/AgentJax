@@ -164,6 +164,11 @@ fn default_config_yaml() -> String {
         String::new(),
         "mcp_servers: {}".to_string(),
         String::new(),
+        "tool_manager:".to_string(),
+        "  native_tools: {}".to_string(),
+        "  plugin_tools: {}".to_string(),
+        "  mcp_tools: {}".to_string(),
+        String::new(),
     ]);
 
     lines.join("\n")

@@ -21,6 +21,7 @@ const PROVIDERS_SECTION_JSON: &str = include_str!("settings_ui_sections/provider
 const MODEL_PROFILES_SECTION_JSON: &str = include_str!("settings_ui_sections/model_profiles.json");
 const MCP_RUNTIME_SECTION_JSON: &str = include_str!("settings_ui_sections/mcp_runtime.json");
 const MCP_SERVERS_SECTION_JSON: &str = include_str!("settings_ui_sections/mcp_servers.json");
+const TOOLS_SECTION_JSON: &str = include_str!("settings_ui_sections/tools.json");
 
 pub fn build_settings_sections() -> Result<Vec<Value>, String> {
     let section_sources = [
@@ -30,6 +31,7 @@ pub fn build_settings_sections() -> Result<Vec<Value>, String> {
         MODEL_PROFILES_SECTION_JSON,
         MCP_RUNTIME_SECTION_JSON,
         MCP_SERVERS_SECTION_JSON,
+        TOOLS_SECTION_JSON,
     ];
 
     let mut sections = Vec::with_capacity(section_sources.len());

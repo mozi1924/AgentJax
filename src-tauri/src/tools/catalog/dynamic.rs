@@ -41,6 +41,14 @@ impl ToolCatalog {
             let fallback_icon = fallback_icon_for_dynamic_binding(&binding, &self.native_tools);
             let entry = match binding {
                 crate::conversation_store::ConversationDynamicToolBinding::Native { tool } => {
+                    if !self.native_tool_enabled(&tool) {
+                        log::warn!(
+                            "Skipping conversation dynamic tool '{}' because native target '{}' is disabled by tool_manager",
+                            name,
+                            tool
+                        );
+                        continue;
+                    }
                     let Some(native_tool) = self
                         .native_tools
                         .iter()
@@ -72,6 +80,17 @@ impl ToolCatalog {
                             "Skipping conversation dynamic tool '{}' because MCP server '{}' is disabled",
                             name,
                             server_id
+                        );
+                        continue;
+                    }
+                    if !self.mcp_source_enabled(&server_id)
+                        || !self.mcp_tool_enabled(&server_id, &tool)
+                    {
+                        log::warn!(
+                            "Skipping conversation dynamic tool '{}' because MCP target '{}::{}' is disabled by tool_manager",
+                            name,
+                            server_id,
+                            tool
                         );
                         continue;
                     }

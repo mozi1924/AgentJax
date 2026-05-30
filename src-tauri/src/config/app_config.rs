@@ -2,8 +2,9 @@ use crate::config::constants::{DEFAULT_DEFAULT_MODEL_REF, DEFAULT_TIMEOUT_SECOND
 use crate::config::model_ref::{model_ref, parse_model_ref};
 use crate::config::prompt_composer::{compile_prompt_composer, normalize_prompt_composer};
 use crate::config::schema::{
-    AppConfig, McpRuntimeConfig, McpServerConfig, McpTransportKind, ModelRequestConfig,
-    ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
+    AppConfig, McpRuntimeConfig, McpServerConfig, McpToolSourcePolicyConfig, McpTransportKind,
+    ModelRequestConfig, ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
+    ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
 };
 use crate::providers::registry;
 use std::collections::BTreeMap;
@@ -240,6 +241,36 @@ impl McpServerConfig {
     }
 }
 
+impl ToolManagerConfig {
+    pub fn normalize(mut self) -> Self {
+        self.native_tools = normalize_tool_enabled_map(std::mem::take(&mut self.native_tools));
+        self.plugin_tools =
+            normalize_tool_source_policy_map(std::mem::take(&mut self.plugin_tools));
+        self.mcp_tools = normalize_mcp_tool_source_policy_map(std::mem::take(&mut self.mcp_tools));
+        self
+    }
+}
+
+impl ToolSourcePolicyConfig {
+    fn normalize(mut self) -> Self {
+        self.tools = normalize_tool_enabled_map(std::mem::take(&mut self.tools));
+        self
+    }
+}
+
+impl McpToolSourcePolicyConfig {
+    fn normalize(mut self) -> Self {
+        self.exposure = self
+            .exposure
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_ascii_lowercase());
+        self.tools = normalize_tool_enabled_map(std::mem::take(&mut self.tools));
+        self
+    }
+}
+
 fn normalize_string_map(map: BTreeMap<String, String>) -> BTreeMap<String, String> {
     let mut normalized = BTreeMap::new();
     for (raw_key, raw_value) in map {
@@ -248,6 +279,48 @@ fn normalize_string_map(map: BTreeMap<String, String>) -> BTreeMap<String, Strin
             continue;
         }
         normalized.insert(key, raw_value.trim().to_string());
+    }
+    normalized
+}
+
+fn normalize_tool_enabled_map(
+    map: BTreeMap<String, ToolEnabledConfig>,
+) -> BTreeMap<String, ToolEnabledConfig> {
+    let mut normalized = BTreeMap::new();
+    for (raw_key, policy) in map {
+        let key = raw_key.trim().to_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        normalized.insert(key, policy);
+    }
+    normalized
+}
+
+fn normalize_tool_source_policy_map(
+    map: BTreeMap<String, ToolSourcePolicyConfig>,
+) -> BTreeMap<String, ToolSourcePolicyConfig> {
+    let mut normalized = BTreeMap::new();
+    for (raw_key, policy) in map {
+        let key = raw_key.trim().to_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        normalized.insert(key, policy.normalize());
+    }
+    normalized
+}
+
+fn normalize_mcp_tool_source_policy_map(
+    map: BTreeMap<String, McpToolSourcePolicyConfig>,
+) -> BTreeMap<String, McpToolSourcePolicyConfig> {
+    let mut normalized = BTreeMap::new();
+    for (raw_key, policy) in map {
+        let key = raw_key.trim().to_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        normalized.insert(key, policy.normalize());
     }
     normalized
 }
@@ -327,6 +400,7 @@ impl AppConfig {
         }
 
         self.mcp_runtime = self.mcp_runtime.normalize();
+        self.tool_manager = self.tool_manager.normalize();
 
         let mut normalized_mcp_servers = BTreeMap::new();
         for (raw_key, mcp_server) in std::mem::take(&mut self.mcp_servers) {

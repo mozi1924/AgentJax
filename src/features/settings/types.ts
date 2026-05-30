@@ -21,7 +21,8 @@ export type SettingsControlType =
   | 'tags'
   | 'key_value'
   | 'json'
-  | 'prompt_assembler';
+  | 'prompt_assembler'
+  | 'tool_manager';
 
 export interface SettingsOption {
   label: string;

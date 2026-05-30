@@ -28,8 +28,49 @@ pub struct AppConfig {
     pub mcp_runtime: McpRuntimeConfig,
     #[serde(default)]
     pub mcp_servers: BTreeMap<String, McpServerConfig>,
+    #[serde(default)]
+    pub tool_manager: ToolManagerConfig,
     #[serde(default = "default_language")]
     pub language: String,
+}
+
+/// User-facing tool exposure policy.
+///
+/// The first read-only Tools Manager surface uses this to report effective
+/// availability. Later management actions can patch the same structure without
+/// changing provider execution paths or source-specific config models.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ToolManagerConfig {
+    #[serde(default)]
+    pub native_tools: BTreeMap<String, ToolEnabledConfig>,
+    #[serde(default)]
+    pub plugin_tools: BTreeMap<String, ToolSourcePolicyConfig>,
+    #[serde(default)]
+    pub mcp_tools: BTreeMap<String, McpToolSourcePolicyConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ToolEnabledConfig {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ToolSourcePolicyConfig {
+    pub enabled: bool,
+    #[serde(default)]
+    pub tools: BTreeMap<String, ToolEnabledConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct McpToolSourcePolicyConfig {
+    pub enabled: bool,
+    pub exposure: Option<String>,
+    #[serde(default)]
+    pub tools: BTreeMap<String, ToolEnabledConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,7 +203,33 @@ impl Default for AppConfig {
             enable_developer_tools: false,
             mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
+            tool_manager: ToolManagerConfig::default(),
             language: default_language(),
+        }
+    }
+}
+
+impl Default for ToolEnabledConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+impl Default for ToolSourcePolicyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            tools: BTreeMap::new(),
+        }
+    }
+}
+
+impl Default for McpToolSourcePolicyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            exposure: None,
+            tools: BTreeMap::new(),
         }
     }
 }

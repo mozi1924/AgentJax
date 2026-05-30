@@ -1,5 +1,6 @@
 mod background;
 mod dynamic;
+mod manager_snapshot;
 mod mounted;
 mod names;
 mod plugin_execution;
@@ -15,6 +16,10 @@ use crate::tools::{
     CalculatorTool, EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool,
     SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation, ToolSchemaFormat,
     format_tool_schema, humanize_tool_name,
+};
+pub use manager_snapshot::{
+    ToolManagerSnapshot, ToolManagerSnapshotRequest, ToolManagerSourceSnapshot,
+    ToolManagerSourceType, ToolManagerToolSnapshot,
 };
 use names::{
     mount_tool_name_for_server, prefixed_mcp_tool_name, presentation_for_manage_mcp_server,
@@ -42,6 +47,7 @@ pub struct ToolCatalog {
     mcp_manager: Arc<crate::mcp::McpManager>,
     mcp_runtime: crate::config::McpRuntimeConfig,
     mcp_config: BTreeMap<String, crate::config::McpServerConfig>,
+    tool_manager: crate::config::ToolManagerConfig,
     plugin_manifests: BTreeMap<String, PluginManifest>,
     plugin_packages: BTreeMap<String, PluginPackage>,
 }
@@ -64,6 +70,7 @@ impl ToolCatalog {
             mcp_manager,
             mcp_runtime: config.mcp_runtime.clone(),
             mcp_config: config.mcp_servers.clone(),
+            tool_manager: config.tool_manager.clone(),
             plugin_manifests: BTreeMap::new(),
             plugin_packages: BTreeMap::new(),
         }
@@ -174,6 +181,9 @@ impl ToolCatalog {
         let mut presentations = HashMap::new();
 
         for tool in &self.native_tools {
+            if !self.native_tool_enabled(tool.name()) {
+                continue;
+            }
             let schema = tool.to_schema_with_format(format);
             let tool_name = tool.name().to_string();
             presentations.insert(tool_name.clone(), tool.presentation());
@@ -188,14 +198,14 @@ impl ToolCatalog {
         }
 
         for (server_id, server_config) in &self.mcp_config {
-            if !server_config.enabled {
+            if !server_config.enabled || !self.mcp_source_enabled(server_id) {
                 continue;
             }
 
             let resolved_server_config =
                 self.resolve_server_config_with_workspace_fallback(server_config, context);
 
-            if server_config.unfolded {
+            if self.mcp_source_unfolded(server_id, server_config) {
                 match self
                     .mcp_manager
                     .list_tools(server_id, &resolved_server_config, &self.mcp_runtime)
@@ -204,6 +214,9 @@ impl ToolCatalog {
                     Ok(raw_tools) => {
                         let mounted_tools = normalize_mcp_tool_definitions(raw_tools);
                         for tool in mounted_tools {
+                            if !self.mcp_tool_enabled(server_id, &tool.tool_name) {
+                                continue;
+                            }
                             let prefixed_name = prefixed_mcp_tool_name(server_id, &tool.tool_name);
                             presentations.insert(
                                 prefixed_name.clone(),
@@ -266,6 +279,9 @@ impl ToolCatalog {
 
                 if let Some(mounted) = mounted_servers.get(server_id) {
                     for tool in &mounted.tools {
+                        if !self.mcp_tool_enabled(server_id, &tool.tool_name) {
+                            continue;
+                        }
                         let prefixed_name = prefixed_mcp_tool_name(server_id, &tool.tool_name);
                         presentations.insert(
                             prefixed_name.clone(),
@@ -306,6 +322,9 @@ impl ToolCatalog {
             .values()
             .flat_map(registered_tools_for_manifest)
         {
+            if !self.plugin_tool_enabled(&registered_tool.plugin_id, &registered_tool.tool.name) {
+                continue;
+            }
             let prefixed_name =
                 prefixed_plugin_tool_name(&registered_tool.plugin_id, &registered_tool.tool.name);
             let display_name = if registered_tool.tool.display_name.trim().is_empty() {
@@ -443,5 +462,76 @@ impl ToolCatalog {
             .await
             .execute(prefixed_name, arguments, context)
             .await
+    }
+
+    pub(crate) fn native_tool_enabled(&self, tool_name: &str) -> bool {
+        self.tool_manager
+            .native_tools
+            .get(&tool_name.to_ascii_lowercase())
+            .map(|policy| policy.enabled)
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn plugin_source_enabled(&self, plugin_id: &str) -> bool {
+        self.tool_manager
+            .plugin_tools
+            .get(&plugin_id.to_ascii_lowercase())
+            .map(|policy| policy.enabled)
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn plugin_tool_enabled(&self, plugin_id: &str, tool_name: &str) -> bool {
+        let plugin_id = plugin_id.to_ascii_lowercase();
+        let tool_name = tool_name.to_ascii_lowercase();
+        self.tool_manager
+            .plugin_tools
+            .get(&plugin_id)
+            .map(|policy| {
+                policy.enabled
+                    && policy
+                        .tools
+                        .get(&tool_name)
+                        .map(|tool_policy| tool_policy.enabled)
+                        .unwrap_or(true)
+            })
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn mcp_source_enabled(&self, server_id: &str) -> bool {
+        self.tool_manager
+            .mcp_tools
+            .get(&server_id.to_ascii_lowercase())
+            .map(|policy| policy.enabled)
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn mcp_tool_enabled(&self, server_id: &str, tool_name: &str) -> bool {
+        let server_id = server_id.to_ascii_lowercase();
+        let tool_name = tool_name.to_ascii_lowercase();
+        self.tool_manager
+            .mcp_tools
+            .get(&server_id)
+            .map(|policy| {
+                policy.enabled
+                    && policy
+                        .tools
+                        .get(&tool_name)
+                        .map(|tool_policy| tool_policy.enabled)
+                        .unwrap_or(true)
+            })
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn mcp_source_unfolded(
+        &self,
+        server_id: &str,
+        server_config: &crate::config::McpServerConfig,
+    ) -> bool {
+        self.tool_manager
+            .mcp_tools
+            .get(&server_id.to_ascii_lowercase())
+            .and_then(|policy| policy.exposure.as_deref())
+            .map(|exposure| exposure == "unfolded")
+            .unwrap_or(server_config.unfolded)
     }
 }

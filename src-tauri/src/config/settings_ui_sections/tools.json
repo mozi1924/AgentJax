@@ -1,0 +1,18 @@
+{
+  "id": "tools",
+  "title": "settings.tools.title",
+  "icon": "Wrench",
+  "order": 65,
+  "description": "settings.tools.description",
+  "children": [
+    {
+      "kind": "field",
+      "id": "tools-manager",
+      "title": "settings.tools.manager.title",
+      "description": "settings.tools.manager.description",
+      "path": "tool_manager",
+      "valueType": "object",
+      "control": "tool_manager"
+    }
+  ]
+}

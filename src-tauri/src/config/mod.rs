@@ -18,8 +18,9 @@ pub use prompt_composer::{
 };
 #[allow(unused_imports)]
 pub use schema::{
-    AppConfig, McpRuntimeConfig, McpServerConfig, McpTransportKind, ModelRequestConfig,
-    ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
+    AppConfig, McpRuntimeConfig, McpServerConfig, McpToolSourcePolicyConfig, McpTransportKind,
+    ModelRequestConfig, ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
+    ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
 };
 #[allow(unused_imports)]
 pub use settings::{

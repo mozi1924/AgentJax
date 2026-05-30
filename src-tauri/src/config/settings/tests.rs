@@ -149,6 +149,43 @@ fn apply_patch_rejects_invalid_collection_keys() {
 }
 
 #[test]
+fn apply_patch_updates_tool_manager_policy() {
+    let _guard = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home =
+        std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&home).expect("create home");
+    let path = write_test_config(&home);
+
+    unsafe {
+        std::env::set_var(AGENTJAX_HOME_ENV, &home);
+    }
+
+    let snapshot = get_settings_snapshot().expect("snapshot");
+    let updated = apply_settings_patch(SettingsPatch {
+        path: "tool_manager.native_tools.calculator.enabled".to_string(),
+        value: Some(Value::Bool(false)),
+        expected_revision: snapshot.revision,
+        operation: SettingsPatchOperation::Set,
+    })
+    .expect("apply tool manager patch");
+
+    assert_eq!(
+        updated.values["tool_manager"]["native_tools"]["calculator"]["enabled"],
+        Value::Bool(false)
+    );
+    let raw = fs::read_to_string(&path).expect("read config");
+    assert!(raw.contains("tool_manager:"));
+    assert!(raw.contains("calculator:"));
+
+    unsafe {
+        std::env::remove_var(AGENTJAX_HOME_ENV);
+    }
+    let _ = fs::remove_dir_all(home);
+}
+
+#[test]
 fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
     let _guard = crate::config::test_env_lock()
         .lock()

@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use crate::agentjax_home::AGENTJAX_HOME_ENV;
-    use crate::config::{AppConfig, McpServerConfig};
+    use crate::config::{
+        AppConfig, McpServerConfig, ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
+    };
     use crate::conversation_store;
     use crate::plugin_runtime::{
         PLUGIN_API_VERSION, PLUGIN_MANIFEST_FILE, PluginManifest, PluginToolDefinition,
@@ -1572,5 +1574,148 @@ globalThis.AgentJaxPlugin = {
                 .active_tool_names()
                 .contains("mcp_server__unfolded_server")
         );
+    }
+
+    #[tokio::test]
+    async fn test_tool_manager_snapshot_groups_sources_without_eager_mcp_discovery() {
+        let mut config = AppConfig::default();
+        config
+            .mcp_servers
+            .insert("openai_docs".to_string(), McpServerConfig::default());
+
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.tool_manager_snapshot(Default::default()).await;
+
+        let native_source = snapshot
+            .sources
+            .iter()
+            .find(|source| source.source_id == "native")
+            .expect("native source exists");
+        assert!(
+            native_source
+                .tools
+                .iter()
+                .any(|tool| tool.id == "calculator")
+        );
+
+        let mcp_source = snapshot
+            .sources
+            .iter()
+            .find(|source| source.source_id == "openai_docs")
+            .expect("configured MCP source exists");
+        assert_eq!(
+            mcp_source.source_type,
+            crate::tools::ToolManagerSourceType::Mcp
+        );
+        assert_eq!(mcp_source.status, "configured");
+        assert!(mcp_source.tools.is_empty());
+        assert!(mcp_source.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_tool_manager_mcp_discovery_failure_is_source_scoped() {
+        let mut config = AppConfig::default();
+        config
+            .mcp_servers
+            .insert("broken".to_string(), McpServerConfig::default());
+
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog
+            .tool_manager_snapshot(crate::tools::ToolManagerSnapshotRequest {
+                source_id: Some("broken".to_string()),
+                discover: true,
+                conversation_id: None,
+            })
+            .await;
+
+        let mcp_source = snapshot
+            .sources
+            .iter()
+            .find(|source| source.source_id == "broken")
+            .expect("broken MCP source exists");
+        assert_eq!(mcp_source.status, "error");
+        assert!(
+            mcp_source
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("requires `command`")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tool_manager_policy_filters_runtime_catalog_tools() {
+        let plugin_manifest = PluginManifest {
+            id: "local.demo".to_string(),
+            name: "Local Demo".to_string(),
+            version: "0.1.0".to_string(),
+            api_version: PLUGIN_API_VERSION,
+            entrypoint: "plugin.ts".to_string(),
+            description: "Demo plugin".to_string(),
+            tools: vec![PluginToolDefinition {
+                name: "say_hello".to_string(),
+                display_name: "Say Hello".to_string(),
+                description: "Returns a greeting from the demo plugin.".to_string(),
+                icon: Some("Puzzle".to_string()),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" }
+                    }
+                }),
+                kind: PluginToolKind::Function,
+            }],
+            sandbox: SandboxPolicy::default(),
+        };
+
+        let mut config = AppConfig::default();
+        config.tool_manager = ToolManagerConfig {
+            native_tools: [(
+                "calculator".to_string(),
+                ToolEnabledConfig { enabled: false },
+            )]
+            .into_iter()
+            .collect(),
+            plugin_tools: [(
+                "local.demo".to_string(),
+                ToolSourcePolicyConfig {
+                    enabled: true,
+                    tools: [(
+                        "say_hello".to_string(),
+                        ToolEnabledConfig { enabled: false },
+                    )]
+                    .into_iter()
+                    .collect(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+            mcp_tools: Default::default(),
+        };
+
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config)
+            .with_plugin_manifests(vec![plugin_manifest])
+            .expect("plugin manifest should validate");
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+
+        assert!(!snapshot.active_tool_names().contains("calculator"));
+        assert!(
+            !snapshot
+                .active_tool_names()
+                .contains("plugin__local_demo__say_hello")
+        );
+
+        let manager_snapshot = catalog.tool_manager_snapshot(Default::default()).await;
+        let native_source = manager_snapshot
+            .sources
+            .iter()
+            .find(|source| source.source_id == "native")
+            .expect("native source exists");
+        let calculator = native_source
+            .tools
+            .iter()
+            .find(|tool| tool.id == "calculator")
+            .expect("calculator is visible in manager snapshot");
+        assert!(!calculator.enabled);
     }
 }
