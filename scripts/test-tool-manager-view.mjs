@@ -8,7 +8,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 
 const sourcePath = new URL('../src/features/settings/toolManagerView.ts', import.meta.url);
-const sourceText = await readFile(sourcePath, 'utf8');
+const outDir = join(tmpdir(), 'agentjax-tool-manager-view-tests');
+await mkdir(outDir, { recursive: true });
+
+const sourceText = (await readFile(sourcePath, 'utf8')).replace(
+  "import { escapePathSegment } from './utils';",
+  "const escapePathSegment = (segment) => `${segment || ''}`.replace(/\\\\/g, '\\\\\\\\').replace(/\\./g, '\\\\.');"
+);
 const compiled = ts.transpileModule(sourceText, {
   compilerOptions: {
     module: ts.ModuleKind.ES2022,
@@ -17,8 +23,6 @@ const compiled = ts.transpileModule(sourceText, {
   },
 }).outputText;
 
-const outDir = join(tmpdir(), 'agentjax-tool-manager-view-tests');
-await mkdir(outDir, { recursive: true });
 const modulePath = join(outDir, `toolManagerView-${Date.now()}.mjs`);
 await writeFile(modulePath, compiled, 'utf8');
 
@@ -137,4 +141,43 @@ test('filters only the currently selected source tools', () => {
     view.filterToolsForQuery(active.tools, 'time').map((item) => item.id),
     ['system_time']
   );
+});
+
+test('builds escaped policy paths for source and tool switches', () => {
+  const pluginSource = source({
+    sourceType: 'plugin',
+    sourceId: 'local.demo',
+    sourceName: 'Local Demo',
+  });
+  const mcpSource = source({
+    sourceType: 'mcp',
+    sourceId: 'openai.docs',
+    sourceName: 'OpenAI Docs',
+  });
+
+  assert.equal(
+    view.sourcePolicyEnabledPath(pluginSource),
+    'tool_manager.plugin_tools.local\\.demo.enabled'
+  );
+  assert.equal(
+    view.toolPolicyEnabledPath(pluginSource, tool({ id: 'say.hello' })),
+    'tool_manager.plugin_tools.local\\.demo.tools.say\\.hello.enabled'
+  );
+  assert.equal(
+    view.toolPolicyEnabledPath(mcpSource, tool({ id: 'search.docs' })),
+    'tool_manager.mcp_tools.openai\\.docs.tools.search\\.docs.enabled'
+  );
+  assert.equal(
+    view.mcpExposurePolicyPath(mcpSource),
+    'tool_manager.mcp_tools.openai\\.docs.exposure'
+  );
+});
+
+test('marks only global policy surfaces editable', () => {
+  assert.equal(view.isSourcePolicyEditable(source({ sourceType: 'plugin' })), true);
+  assert.equal(view.isSourcePolicyEditable(source({ sourceType: 'mcp' })), true);
+  assert.equal(view.isSourcePolicyEditable(source({ sourceType: 'native' })), false);
+  assert.equal(view.isSourcePolicyEditable(source({ sourceType: 'dynamic' })), false);
+  assert.equal(view.isToolPolicyEditable(source({ sourceType: 'native' })), true);
+  assert.equal(view.isToolPolicyEditable(source({ sourceType: 'background' })), false);
 });

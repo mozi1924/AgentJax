@@ -260,6 +260,10 @@
   "settings.tools.mcp_lazy_hint": "MCP tools are discovered only after selecting a server.",
   "settings.tools.status.enabled": "Enabled",
   "settings.tools.status.disabled": "Disabled",
+  "settings.tools.enable_source": "Enable source",
+  "settings.tools.disable_source": "Disable source",
+  "settings.tools.enable_tool": "Enable tool",
+  "settings.tools.disable_tool": "Disable tool",
   "settings.tools.schema_summary": "{count} params",
   
   "chat.activity.search_one": "Explored 1 search",

@@ -1,5 +1,8 @@
+import { escapePathSegment } from './utils';
+
 export type ToolSourceType = 'native' | 'mcp' | 'plugin' | 'dynamic' | 'background' | 'control';
 export type ToolCategory = 'native' | 'mcp' | 'plugin' | 'session' | 'background';
+export type McpExposureMode = 'collapsed' | 'unfolded';
 
 export interface ToolSchemaSummary {
   parameterCount: number;
@@ -70,3 +73,47 @@ export const matchesToolSearch = (tool: ToolManagerToolSnapshot, query: string) 
 
 export const filterToolsForQuery = (tools: ToolManagerToolSnapshot[], query: string) =>
   tools.filter((tool) => matchesToolSearch(tool, query));
+
+export const sourcePolicyEnabledPath = (source: ToolManagerSourceSnapshot) => {
+  if (source.sourceType === 'plugin') {
+    return `tool_manager.plugin_tools.${escapePathSegment(source.sourceId)}.enabled`;
+  }
+  if (source.sourceType === 'mcp') {
+    return `tool_manager.mcp_tools.${escapePathSegment(source.sourceId)}.enabled`;
+  }
+  return null;
+};
+
+export const toolPolicyEnabledPath = (
+  source: ToolManagerSourceSnapshot,
+  tool: ToolManagerToolSnapshot
+) => {
+  if (source.sourceType === 'native') {
+    return `tool_manager.native_tools.${escapePathSegment(tool.id)}.enabled`;
+  }
+  if (source.sourceType === 'plugin') {
+    return `tool_manager.plugin_tools.${escapePathSegment(source.sourceId)}.tools.${escapePathSegment(
+      tool.id
+    )}.enabled`;
+  }
+  if (source.sourceType === 'mcp') {
+    return `tool_manager.mcp_tools.${escapePathSegment(source.sourceId)}.tools.${escapePathSegment(
+      tool.id
+    )}.enabled`;
+  }
+  return null;
+};
+
+export const mcpExposurePolicyPath = (source: ToolManagerSourceSnapshot) =>
+  source.sourceType === 'mcp'
+    ? `tool_manager.mcp_tools.${escapePathSegment(source.sourceId)}.exposure`
+    : null;
+
+export const isSourcePolicyEditable = (source: ToolManagerSourceSnapshot) =>
+  source.sourceType === 'plugin' || source.sourceType === 'mcp';
+
+export const isToolPolicyEditable = (source: ToolManagerSourceSnapshot) =>
+  source.sourceType === 'native' || source.sourceType === 'plugin' || source.sourceType === 'mcp';
+
+export const isMcpExposureEditable = (source: ToolManagerSourceSnapshot) =>
+  source.sourceType === 'mcp';

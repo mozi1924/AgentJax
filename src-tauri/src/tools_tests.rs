@@ -2,7 +2,8 @@
 mod tests {
     use crate::agentjax_home::AGENTJAX_HOME_ENV;
     use crate::config::{
-        AppConfig, McpServerConfig, ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
+        AppConfig, McpServerConfig, McpToolSourcePolicyConfig, ToolEnabledConfig,
+        ToolManagerConfig, ToolSourcePolicyConfig,
     };
     use crate::conversation_store;
     use crate::plugin_runtime::{
@@ -1717,5 +1718,106 @@ globalThis.AgentJaxPlugin = {
             .find(|tool| tool.id == "calculator")
             .expect("calculator is visible in manager snapshot");
         assert!(!calculator.enabled);
+
+        let mut reenabled_config = config.clone();
+        reenabled_config.tool_manager.native_tools.insert(
+            "calculator".to_string(),
+            ToolEnabledConfig { enabled: true },
+        );
+        let reenabled_catalog =
+            ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &reenabled_config);
+        let reenabled_snapshot = reenabled_catalog
+            .snapshot(&ToolExecutionContext::default())
+            .await;
+        assert!(
+            reenabled_snapshot
+                .active_tool_names()
+                .contains("calculator")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tool_manager_mcp_exposure_unfolded_replaces_control_with_server_tools() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = setup_test_home();
+        let server_script = home.home.join("mock-mcp-server.js");
+        std::fs::write(
+            &server_script,
+            r#"
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin });
+
+function respond(id, result) {
+  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
+}
+
+rl.on('line', (line) => {
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') {
+    respond(message.id, {
+      protocolVersion: message.params?.protocolVersion || '2024-11-05',
+      capabilities: { tools: { listChanged: false } },
+      serverInfo: { name: 'mock-mcp', version: '0.1.0' }
+    });
+    return;
+  }
+  if (message.method === 'tools/list') {
+    respond(message.id, {
+      tools: [{
+        name: 'search_docs',
+        description: 'Search mock docs.',
+        inputSchema: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+          required: ['query']
+        }
+      }]
+    });
+    return;
+  }
+  if (message.id !== undefined) {
+    respond(message.id, {});
+  }
+});
+"#,
+        )
+        .expect("write mock MCP server");
+
+        let mut config = AppConfig::default();
+        config.mcp_runtime.startup_timeout_ms = 5_000;
+        config.mcp_runtime.tool_timeout_ms = 5_000;
+        config.mcp_servers.insert(
+            "openai_docs".to_string(),
+            McpServerConfig {
+                enabled: true,
+                command: "node".to_string(),
+                args: vec![server_script.to_string_lossy().to_string()],
+                ..McpServerConfig::default()
+            },
+        );
+        config.tool_manager.mcp_tools.insert(
+            "openai_docs".to_string(),
+            McpToolSourcePolicyConfig {
+                enabled: true,
+                exposure: Some("unfolded".to_string()),
+                tools: Default::default(),
+            },
+        );
+
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+
+        assert!(
+            !snapshot
+                .active_tool_names()
+                .contains("mcp_server__openai_docs")
+        );
+        assert!(
+            snapshot
+                .active_tool_names()
+                .contains("mcp__openai_docs__search_docs")
+        );
     }
 }

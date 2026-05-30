@@ -11,13 +11,22 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useI18n } from '../../../features/i18n';
+import type { SettingsSnapshot } from '../../../features/settings/types';
 import {
   TOOL_MANAGER_CATEGORIES,
   filterToolsForQuery,
+  isMcpExposureEditable,
+  isSourcePolicyEditable,
+  isToolPolicyEditable,
+  mcpExposurePolicyPath,
   selectToolManagerSource,
+  sourcePolicyEnabledPath,
   sourcesForCategory,
+  toolPolicyEnabledPath,
+  type McpExposureMode,
   type ToolManagerSnapshot,
   type ToolManagerSourceSnapshot,
+  type ToolManagerToolSnapshot,
   type ToolCategory,
   type ToolSourceType,
 } from '../../../features/settings/toolManagerView';
@@ -31,21 +40,64 @@ const sourceIcon = (sourceType: ToolSourceType) => {
   return Boxes;
 };
 
-export function ToolManagerField({ field }: FieldRendererProps) {
+const SwitchControl = ({
+  checked,
+  disabled,
+  loading,
+  title,
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  loading?: boolean;
+  title: string;
+  onChange: (checked: boolean) => void;
+}) => (
+  <label
+    className={`relative inline-flex h-5 w-9 items-center ${
+      disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+    }`}
+    title={title}
+  >
+    <input
+      type="checkbox"
+      checked={checked}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.checked)}
+      className="peer sr-only"
+    />
+    <span className="absolute inset-0 rounded-full bg-[#3e3e42] transition peer-checked:bg-cyan-500" />
+    <span className="absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white transition-transform duration-200 peer-checked:translate-x-4">
+      {loading && <LoaderCircle className="h-2.5 w-2.5 animate-spin text-neutral-700" />}
+    </span>
+  </label>
+);
+
+const normalizedExposure = (source: ToolManagerSourceSnapshot): McpExposureMode =>
+  source.exposureMode === 'unfolded' ? 'unfolded' : 'collapsed';
+
+export function ToolManagerField({ field, snapshot: settingsSnapshot }: FieldRendererProps) {
   const { t } = useI18n();
   const [snapshot, setSnapshot] = useState<ToolManagerSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [activeCategory, setActiveCategory] = useState<ToolCategory>('native');
   const [selectedSourceId, setSelectedSourceId] = useState('');
   const [search, setSearch] = useState('');
   const [discoveringSourceId, setDiscoveringSourceId] = useState('');
+  const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const [discoveredSourceIds, setDiscoveredSourceIds] = useState<Set<string>>(new Set());
+  const [configRevision, setConfigRevision] = useState(settingsSnapshot.revision);
+
+  useEffect(() => {
+    setConfigRevision(settingsSnapshot.revision);
+  }, [settingsSnapshot.revision]);
 
   useEffect(() => {
     let disposed = false;
     setLoading(true);
-    setError('');
+    setLoadError('');
     invoke<ToolManagerSnapshot>('get_tool_manager_snapshot', { request: null })
       .then((nextSnapshot) => {
         if (disposed) return;
@@ -53,7 +105,7 @@ export function ToolManagerField({ field }: FieldRendererProps) {
       })
       .catch((err) => {
         if (disposed) return;
-        setError(typeof err === 'string' ? err : String(err));
+        setLoadError(typeof err === 'string' ? err : String(err));
       })
       .finally(() => {
         if (!disposed) setLoading(false);
@@ -79,26 +131,96 @@ export function ToolManagerField({ field }: FieldRendererProps) {
   const selectSource = (source: ToolManagerSourceSnapshot) => {
     setSelectedSourceId(source.sourceId);
     setSearch('');
+    setActionError('');
     if (source.sourceType === 'mcp' && !discoveredSourceIds.has(source.sourceId)) {
       void discoverSource(source.sourceId);
     }
   };
 
+  const refreshSnapshot = async (options?: { discoverSourceId?: string }) => {
+    const request = options?.discoverSourceId
+      ? { sourceId: options.discoverSourceId, discover: true }
+      : null;
+    const nextSnapshot = await invoke<ToolManagerSnapshot>('get_tool_manager_snapshot', {
+      request,
+    });
+    setSnapshot(nextSnapshot);
+    if (options?.discoverSourceId) {
+      setDiscoveredSourceIds((current) => new Set(current).add(options.discoverSourceId || ''));
+    }
+    return nextSnapshot;
+  };
+
   const discoverSource = async (sourceId: string) => {
     setDiscoveringSourceId(sourceId);
-    setError('');
+    setActionError('');
     try {
-      const nextSnapshot = await invoke<ToolManagerSnapshot>('get_tool_manager_snapshot', {
-        request: { sourceId, discover: true },
-      });
-      setSnapshot(nextSnapshot);
-      setDiscoveredSourceIds((current) => new Set(current).add(sourceId));
+      await refreshSnapshot({ discoverSourceId: sourceId });
     } catch (err) {
-      setError(typeof err === 'string' ? err : String(err));
+      setActionError(typeof err === 'string' ? err : String(err));
     } finally {
       setDiscoveringSourceId('');
     }
   };
+
+  const refreshAfterSave = async () => {
+    const shouldRediscover =
+      activeSource?.sourceType === 'mcp' && discoveredSourceIds.has(activeSource.sourceId);
+    await refreshSnapshot({
+      discoverSourceId: shouldRediscover ? activeSource.sourceId : undefined,
+    });
+  };
+
+  const savePolicy = async (path: string | null, value: unknown, savingKey: string) => {
+    if (!path) return;
+    setSavingKeys((current) => new Set(current).add(savingKey));
+    setActionError('');
+    try {
+      const nextSettingsSnapshot = await invoke<SettingsSnapshot>('apply_settings_patch', {
+        patch: {
+          path,
+          value,
+          expectedRevision: configRevision,
+          operation: 'set',
+        },
+      });
+      setConfigRevision(nextSettingsSnapshot.revision);
+      await refreshAfterSave();
+    } catch (err) {
+      setActionError(typeof err === 'string' ? err : String(err));
+    } finally {
+      setSavingKeys((current) => {
+        const next = new Set(current);
+        next.delete(savingKey);
+        return next;
+      });
+    }
+  };
+
+  const saveSourceEnabled = (source: ToolManagerSourceSnapshot, enabled: boolean) =>
+    savePolicy(
+      sourcePolicyEnabledPath(source),
+      enabled,
+      `source:${source.sourceType}:${source.sourceId}:enabled`
+    );
+
+  const saveToolEnabled = (
+    source: ToolManagerSourceSnapshot,
+    tool: ToolManagerToolSnapshot,
+    enabled: boolean
+  ) =>
+    savePolicy(
+      toolPolicyEnabledPath(source, tool),
+      enabled,
+      `tool:${source.sourceType}:${source.sourceId}:${tool.id}:enabled`
+    );
+
+  const saveMcpExposure = (source: ToolManagerSourceSnapshot, exposure: McpExposureMode) =>
+    savePolicy(
+      mcpExposurePolicyPath(source),
+      exposure,
+      `source:${source.sourceType}:${source.sourceId}:exposure`
+    );
 
   return (
     <div className="border-b border-[#242426]/30 py-3 first:pt-0 last:border-b-0">
@@ -141,10 +263,10 @@ export function ToolManagerField({ field }: FieldRendererProps) {
             <LoaderCircle className="h-4 w-4 animate-spin" />
             {t('settings.tools.loading')}
           </div>
-        ) : error ? (
+        ) : loadError ? (
           <div className="flex h-48 items-center justify-center gap-2 px-4 text-sm text-rose-300">
             <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{t('settings.tools.error', { message: error })}</span>
+            <span>{t('settings.tools.error', { message: loadError })}</span>
           </div>
         ) : (
           <div className="grid min-h-[360px] grid-cols-[240px_1fr]">
@@ -160,31 +282,51 @@ export function ToolManagerField({ field }: FieldRendererProps) {
                       const Icon = sourceIcon(source.sourceType);
                       const active = activeSource?.sourceId === source.sourceId;
                       return (
-                        <button
+                        <div
                           key={`${source.sourceType}-${source.sourceId}`}
-                          type="button"
-                          onClick={() => selectSource(source)}
                           className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition ${
                             active
                               ? 'bg-[#25272a] text-white'
                               : 'text-neutral-400 hover:bg-[#202124] hover:text-neutral-200'
                           }`}
                         >
-                          <Icon className="h-3.5 w-3.5 shrink-0" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[12.5px]">
-                              {source.sourceName}
+                          <button
+                            type="button"
+                            onClick={() => selectSource(source)}
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          >
+                            <Icon className="h-3.5 w-3.5 shrink-0" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[12.5px]">
+                                {source.sourceName}
+                              </span>
+                              <span className="mt-0.5 block truncate text-[10px] text-neutral-500">
+                                {source.status} · {source.exposureMode}
+                              </span>
                             </span>
-                            <span className="mt-0.5 block truncate text-[10px] text-neutral-500">
-                              {source.status} · {source.exposureMode}
-                            </span>
-                          </span>
-                          {!source.enabled && (
+                          </button>
+                          {isSourcePolicyEditable(source) ? (
+                            <SwitchControl
+                              checked={source.enabled}
+                              loading={savingKeys.has(
+                                `source:${source.sourceType}:${source.sourceId}:enabled`
+                              )}
+                              disabled={savingKeys.has(
+                                `source:${source.sourceType}:${source.sourceId}:enabled`
+                              )}
+                              title={
+                                source.enabled
+                                  ? t('settings.tools.disable_source')
+                                  : t('settings.tools.enable_source')
+                              }
+                              onChange={(nextEnabled) => saveSourceEnabled(source, nextEnabled)}
+                            />
+                          ) : !source.enabled ? (
                             <span className="rounded bg-[#3a2328] px-1.5 py-0.5 text-[9px] text-rose-200">
                               off
                             </span>
-                          )}
-                        </button>
+                          ) : null}
+                        </div>
                       );
                     })}
                   </div>
@@ -201,17 +343,37 @@ export function ToolManagerField({ field }: FieldRendererProps) {
                         <h5 className="truncate text-[13px] font-medium text-neutral-100">
                           {activeSource.sourceName}
                         </h5>
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-[10px] ${
-                            activeSource.enabled
-                              ? 'bg-emerald-500/10 text-emerald-200'
-                              : 'bg-rose-500/10 text-rose-200'
-                          }`}
-                        >
-                          {activeSource.enabled
-                            ? t('settings.tools.status.enabled')
-                            : t('settings.tools.status.disabled')}
-                        </span>
+                        {isSourcePolicyEditable(activeSource) ? (
+                          <SwitchControl
+                            checked={activeSource.enabled}
+                            loading={savingKeys.has(
+                              `source:${activeSource.sourceType}:${activeSource.sourceId}:enabled`
+                            )}
+                            disabled={savingKeys.has(
+                              `source:${activeSource.sourceType}:${activeSource.sourceId}:enabled`
+                            )}
+                            title={
+                              activeSource.enabled
+                                ? t('settings.tools.disable_source')
+                                : t('settings.tools.enable_source')
+                            }
+                            onChange={(nextEnabled) =>
+                              saveSourceEnabled(activeSource, nextEnabled)
+                            }
+                          />
+                        ) : (
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[10px] ${
+                              activeSource.enabled
+                                ? 'bg-emerald-500/10 text-emerald-200'
+                                : 'bg-rose-500/10 text-rose-200'
+                            }`}
+                          >
+                            {activeSource.enabled
+                              ? t('settings.tools.status.enabled')
+                              : t('settings.tools.status.disabled')}
+                          </span>
+                        )}
                       </div>
                       {activeSource.error ? (
                         <p className="mt-0.5 truncate text-[11px] text-rose-300">
@@ -222,9 +384,43 @@ export function ToolManagerField({ field }: FieldRendererProps) {
                           {t('settings.tools.mcp_lazy_hint')}
                         </p>
                       ) : null}
+                      {actionError && (
+                        <p className="mt-0.5 truncate text-[11px] text-rose-300">
+                          {t('settings.tools.error', { message: actionError })}
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
+                      {isMcpExposureEditable(activeSource) && (
+                        <div className="inline-flex h-7 overflow-hidden rounded-md border border-[#2b2c30] bg-[#111214]">
+                          {(['collapsed', 'unfolded'] as McpExposureMode[]).map((mode) => {
+                            const saving = savingKeys.has(
+                              `source:${activeSource.sourceType}:${activeSource.sourceId}:exposure`
+                            );
+                            const selected = normalizedExposure(activeSource) === mode;
+                            return (
+                              <button
+                                key={mode}
+                                type="button"
+                                disabled={saving || selected}
+                                onClick={() => saveMcpExposure(activeSource, mode)}
+                                className={`px-2.5 text-[11px] capitalize transition ${
+                                  selected
+                                    ? 'bg-cyan-500/15 text-cyan-100'
+                                    : 'text-neutral-400 hover:bg-[#202124] hover:text-neutral-200'
+                                } disabled:cursor-default disabled:opacity-70`}
+                              >
+                                {saving && !selected ? (
+                                  <LoaderCircle className="mx-2 h-3 w-3 animate-spin" />
+                                ) : (
+                                  mode
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                       <div className="relative">
                         <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-500" />
                         <input
@@ -280,17 +476,37 @@ export function ToolManagerField({ field }: FieldRendererProps) {
                                   {tool.description || tool.id}
                                 </p>
                               </div>
-                              <span
-                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
-                                  tool.enabled
-                                    ? 'bg-emerald-500/10 text-emerald-200'
-                                    : 'bg-rose-500/10 text-rose-200'
-                                }`}
-                              >
-                                {tool.enabled
-                                  ? t('settings.tools.status.enabled')
-                                  : t('settings.tools.status.disabled')}
-                              </span>
+                              {isToolPolicyEditable(activeSource) ? (
+                                <SwitchControl
+                                  checked={tool.enabled}
+                                  loading={savingKeys.has(
+                                    `tool:${activeSource.sourceType}:${activeSource.sourceId}:${tool.id}:enabled`
+                                  )}
+                                  disabled={savingKeys.has(
+                                    `tool:${activeSource.sourceType}:${activeSource.sourceId}:${tool.id}:enabled`
+                                  )}
+                                  title={
+                                    tool.enabled
+                                      ? t('settings.tools.disable_tool')
+                                      : t('settings.tools.enable_tool')
+                                  }
+                                  onChange={(nextEnabled) =>
+                                    saveToolEnabled(activeSource, tool, nextEnabled)
+                                  }
+                                />
+                              ) : (
+                                <span
+                                  className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
+                                    tool.enabled
+                                      ? 'bg-emerald-500/10 text-emerald-200'
+                                      : 'bg-rose-500/10 text-rose-200'
+                                  }`}
+                                >
+                                  {tool.enabled
+                                    ? t('settings.tools.status.enabled')
+                                    : t('settings.tools.status.disabled')}
+                                </span>
+                              )}
                             </div>
                             <div className="mt-2 flex flex-wrap items-center gap-2 text-[10.5px] text-neutral-500">
                               <span className="font-mono text-neutral-400">{tool.id}</span>

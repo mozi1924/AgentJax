@@ -260,6 +260,10 @@
   "settings.tools.mcp_lazy_hint": "MCP 工具只会在选择服务器后按需发现。",
   "settings.tools.status.enabled": "启用",
   "settings.tools.status.disabled": "禁用",
+  "settings.tools.enable_source": "启用来源",
+  "settings.tools.disable_source": "禁用来源",
+  "settings.tools.enable_tool": "启用工具",
+  "settings.tools.disable_tool": "禁用工具",
   "settings.tools.schema_summary": "{count} 个参数",
   
   "chat.activity.search_one": "检索了 1 次",
