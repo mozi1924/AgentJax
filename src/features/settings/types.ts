@@ -21,8 +21,7 @@ export type SettingsControlType =
   | 'tags'
   | 'key_value'
   | 'json'
-  | 'prompt_assembler'
-  | 'tool_manager';
+  | 'prompt_assembler';
 
 export type SettingsUiNodeKind =
   | 'layout'
@@ -104,6 +103,9 @@ export interface SettingsCommonUiProps {
   actions?: SettingsUiAction[];
   dataSource?: string;
   itemTemplate?: SettingsSchemaNode;
+  bindings?: Record<string, string>;
+  emptyText?: string;
+  action?: string;
 }
 
 export interface SettingsUiAction {
@@ -114,6 +116,10 @@ export interface SettingsUiAction {
   variant?: string;
   disabledWhen?: SettingsCondition[];
   dataSource?: string;
+  path?: string;
+  value?: string;
+  savingKey?: string;
+  options?: SettingsOption[];
 }
 
 export interface SettingsFieldSchema extends SettingsNodeBase, SettingsCommonUiProps {

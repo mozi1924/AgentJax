@@ -39,16 +39,28 @@ export interface SchemaRendererProps {
   savingPath: string | null;
   fieldErrors: Record<string, string>;
   contextPath?: string;
+  container?: 'stack' | 'fragment';
   valueSource?: RendererValueSource;
   actions: SchemaRendererActions;
   queryState?: SchemaRendererQueryState;
+  dataContext?: SchemaRendererDataContext;
   renderUiNode?: (props: SchemaRendererUiNodeRenderProps) => ReactNode;
+}
+
+export interface SchemaRendererDataContext {
+  getDataSource: (dataSource?: string) => unknown;
+  dispatch: (action: string, payload?: unknown) => void | Promise<void>;
+  isSaving?: (savingKey?: string) => boolean;
 }
 
 export interface SchemaRendererUiNodeRenderProps {
   node: SettingsUiSchemaNode;
   defaultRender: () => ReactElement;
-  renderChildren: (nodes: SettingsSchemaNode[], contextPath?: string) => ReactElement;
+  renderChildren: (
+    nodes: SettingsSchemaNode[],
+    contextPath?: string,
+    options?: { container?: SchemaRendererProps['container'] }
+  ) => ReactElement;
 }
 
 export interface FieldControlProps {

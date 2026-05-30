@@ -1,30 +1,64 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertCircle, LoaderCircle, Wrench } from 'lucide-react';
-import type { ReactElement } from 'react';
 import { useI18n } from '../../../features/i18n';
-import type { SettingsSchemaNode, SettingsSnapshot, SettingsUiSchemaNode } from '../../../features/settings/types';
+import type { SettingsSchemaNode, SettingsSnapshot } from '../../../features/settings/types';
 import {
+  TOOL_MANAGER_CATEGORIES,
   mcpExposurePolicyPath,
+  sourceIdentityKey,
   sourcePolicyEnabledPath,
   toolPolicyEnabledPath,
   type McpExposureMode,
+  type ToolCategory,
   type ToolManagerSourceSnapshot,
   type ToolManagerToolSnapshot,
 } from '../../../features/settings/toolManagerView';
-import { SchemaRenderer } from '../schemaRenderer';
-import { ToolDetailPanel } from './ToolDetailPanel';
-import { ToolList } from './ToolList';
-import { ToolSourceHeader } from './ToolSourceHeader';
-import { ToolSourceList } from './ToolSourceList';
-import { ToolSourceTabs } from './ToolSourceTabs';
-import { TOOL_MANAGER_UI_SCHEMA } from './toolManagerUiSchema';
+import { SchemaRenderer, type SchemaRendererDataContext } from '../schemaRenderer';
 import { useToolManagerSelection } from './useToolManagerSelection';
 import { useToolManagerSnapshot } from './useToolManagerSnapshot';
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+const asStringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
+const schemaTypeLabel = (schema: Record<string, unknown>) => {
+  const enumValues = asStringArray(schema.enum);
+  const rawType = schema.type;
+  const type = Array.isArray(rawType)
+    ? rawType.filter((item): item is string => typeof item === 'string').join(' | ')
+    : typeof rawType === 'string'
+      ? rawType
+      : 'value';
+  return enumValues.length > 0 ? `${type} enum(${enumValues.join(', ')})` : type;
+};
+
+const schemaProperties = (tool: ToolManagerToolSnapshot | null) => {
+  const schema = asRecord(tool?.inputSchema);
+  const properties = asRecord(schema.properties);
+  const required = new Set(asStringArray(schema.required));
+  return Object.entries(properties).map(([name, property]) => {
+    const propertyRecord = asRecord(property);
+    return {
+      name,
+      type: schemaTypeLabel(propertyRecord),
+      required: required.has(name),
+      description:
+        typeof propertyRecord.description === 'string' ? propertyRecord.description : '',
+    };
+  });
+};
+
+const normalizedExposure = (source: ToolManagerSourceSnapshot): McpExposureMode =>
+  source.exposureMode === 'unfolded' ? 'unfolded' : 'collapsed';
 
 export function ToolManagerSchemaAdapter({
   title,
   description,
-  nodes = TOOL_MANAGER_UI_SCHEMA,
+  nodes,
   snapshot: settingsSnapshot,
   savingPath,
   fieldErrors,
@@ -32,7 +66,7 @@ export function ToolManagerSchemaAdapter({
 }: {
   title?: string;
   description?: string;
-  nodes?: SettingsSchemaNode[];
+  nodes: SettingsSchemaNode[];
   snapshot: SettingsSnapshot;
   savingPath: string | null;
   fieldErrors: Record<string, string>;
@@ -74,224 +108,155 @@ export function ToolManagerSchemaAdapter({
     }
   };
 
-  const saveSourceEnabled = (source: ToolManagerSourceSnapshot, enabled: boolean) =>
-    savePolicy(
-      sourcePolicyEnabledPath(source),
-      enabled,
-      `source:${source.sourceType}:${source.sourceId}:enabled`,
-      source
+  const sources = useMemo(
+    () =>
+      selection.categorySources.map((source) => ({
+        ...source,
+        identityKey: sourceIdentityKey(source),
+        activeSourceKey: selection.activeSource ? sourceIdentityKey(selection.activeSource) : '',
+        toolCount: String(source.tools.length),
+        normalizedExposureMode: normalizedExposure(source),
+        sourceSavingKey: `source:${source.sourceType}:${source.sourceId}:enabled`,
+        exposureSavingKey: `source:${source.sourceType}:${source.sourceId}:exposure`,
+        hint:
+          source.error ||
+          (source.sourceType === 'mcp' && source.tools.length === 0
+            ? t('settings.tools.mcp_lazy_hint')
+            : ''),
+        actionError: snapshotState.actionError,
+      })),
+    [selection.activeSource, selection.categorySources, snapshotState.actionError, t]
+  );
+
+  const activeSource = useMemo(() => {
+    if (!selection.activeSource) return null;
+    return (
+      sources.find((source) => sourceIdentityKey(source) === sourceIdentityKey(selection.activeSource!)) ||
+      null
     );
+  }, [selection.activeSource, sources]);
 
-  const saveToolEnabled = (
-    source: ToolManagerSourceSnapshot,
-    tool: ToolManagerToolSnapshot,
-    enabled: boolean
-  ) =>
-    savePolicy(
-      toolPolicyEnabledPath(source, tool),
-      enabled,
-      `tool:${source.sourceType}:${source.sourceId}:${tool.id}:enabled`,
-      source
+  const tools = useMemo(
+    () =>
+      selection.filteredTools.map((tool) => ({
+        ...tool,
+        activeToolId: selection.selectedTool?.id || '',
+        schemaProperties: schemaProperties(tool),
+        toolSavingKey: selection.activeSource
+          ? `tool:${selection.activeSource.sourceType}:${selection.activeSource.sourceId}:${tool.id}:enabled`
+          : '',
+      })),
+    [selection.activeSource, selection.filteredTools, selection.selectedTool]
+  );
+
+  const selectedTool = useMemo(() => {
+    if (!selection.selectedTool) return null;
+    return (
+      tools.find((tool) => tool.id === selection.selectedTool?.id) || null
     );
+  }, [selection.selectedTool, tools]);
 
-  const saveMcpExposure = (source: ToolManagerSourceSnapshot, exposure: McpExposureMode) =>
-    savePolicy(
-      mcpExposurePolicyPath(source),
-      exposure,
-      `source:${source.sourceType}:${source.sourceId}:exposure`,
-      source
-    );
-
-  const selectSource = (source: ToolManagerSourceSnapshot) => {
-    selection.selectSource(source);
-    snapshotState.setActionError('');
-    if (source.sourceType === 'mcp' && !snapshotState.discoveredSourceIds.has(source.sourceId)) {
-      void snapshotState.discoverSource(source.sourceId);
-    }
-  };
-
-  const renderToolManagerNode = ({
-    node,
-    defaultRender,
-    renderChildren,
-  }: {
-    node: SettingsUiSchemaNode;
-    defaultRender: () => ReactElement;
-    renderChildren: (nodes: SettingsSchemaNode[], contextPath?: string) => ReactElement;
-  }) => {
-    if (node.dataSource === 'toolManager' || node.id === 'tool-manager-root' || node.id === 'tools-manager') {
-      return <>{node.children ? renderChildren(node.children) : null}</>;
-    }
-
-    if (node.id === 'tool-manager-layout') {
-      return (
-        <div className="grid min-h-[420px] h-auto xl:h-[520px] grid-cols-1 xl:grid-cols-[220px_minmax(260px,0.9fr)_minmax(300px,1.1fr)]">
-          {node.children ? node.children.map((child) => {
-            if (child.id === 'tool-source-list') {
-              return (
-                <ToolSourceList
-                  key={child.id}
-                  sources={selection.categorySources}
-                  activeSource={selection.activeSource}
-                  savingKeys={savingKeys}
-                  onSelectSource={selectSource}
-                  onSaveSourceEnabled={saveSourceEnabled}
-                />
-              );
-            }
-            if (child.id === 'tool-list-pane') {
-              return (
-                <section key={child.id} className="min-w-0 border-t border-[#242426]/50 xl:border-t-0">
-                  {selection.activeSource ? (
-                    <div className="flex h-full flex-col">
-                      <ToolSourceHeader
-                        activeSource={selection.activeSource}
-                        search={selection.search}
-                        actionError={snapshotState.actionError}
-                        discoveringSourceId={snapshotState.discoveringSourceId}
-                        savingKeys={savingKeys}
-                        onSearchChange={selection.setSearch}
-                        onDiscoverSource={(sourceId) => {
-                          void snapshotState.discoverSource(sourceId);
-                        }}
-                        onSaveSourceEnabled={saveSourceEnabled}
-                        onSaveMcpExposure={saveMcpExposure}
-                      />
-                      <ToolList
-                        source={selection.activeSource}
-                        tools={selection.filteredTools}
-                        selectedTool={selection.selectedTool}
-                        savingKeys={savingKeys}
-                        onSelectTool={selection.setSelectedToolId}
-                        onSaveToolEnabled={saveToolEnabled}
-                      />
-                    </div>
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-xs text-neutral-500">
-                      {t('settings.tools.empty_sources')}
-                    </div>
-                  )}
-                </section>
-              );
-            }
-            if (child.id === 'tool-detail') {
-              return (
-                <ToolDetailPanel
-                  key={child.id}
-                  source={selection.activeSource}
-                  tool={selection.selectedTool}
-                  savingKeys={savingKeys}
-                  onSaveToolEnabled={saveToolEnabled}
-                />
-              );
-            }
-            return null;
-          }) : null}
-        </div>
-      );
-    }
-
-    if (node.dataSource === 'toolManager.categories') {
-      return (
-        <ToolSourceTabs
-          activeCategory={selection.activeCategory}
-          onSelectCategory={selection.selectCategory}
-        />
-      );
-    }
-
-    if (node.dataSource === 'toolManager.sources') {
-      return (
-        <ToolSourceList
-          sources={selection.categorySources}
-          activeSource={selection.activeSource}
-          savingKeys={savingKeys}
-          onSelectSource={selectSource}
-          onSaveSourceEnabled={saveSourceEnabled}
-        />
-      );
-    }
-
-    if (node.id === 'tool-list-pane') {
-      return (
-        <section className="min-w-0 border-t border-[#242426] xl:border-t-0">
-          {selection.activeSource ? (
-            <div className="flex h-full flex-col">
-              {node.children ? renderChildren(node.children) : null}
-            </div>
-          ) : (
-            <div className="flex h-full items-center justify-center text-xs text-neutral-500">
-              {t('settings.tools.empty_sources')}
-            </div>
-          )}
-        </section>
-      );
-    }
-
-    if (node.dataSource === 'toolManager.sourceHeader' && selection.activeSource) {
-      return (
-        <ToolSourceHeader
-          activeSource={selection.activeSource}
-          search={selection.search}
-          actionError={snapshotState.actionError}
-          discoveringSourceId={snapshotState.discoveringSourceId}
-          savingKeys={savingKeys}
-          onSearchChange={selection.setSearch}
-          onDiscoverSource={(sourceId) => {
-            void snapshotState.discoverSource(sourceId);
-          }}
-          onSaveSourceEnabled={saveSourceEnabled}
-          onSaveMcpExposure={saveMcpExposure}
-        />
-      );
-    }
-
-    if (node.dataSource === 'toolManager.tools' && selection.activeSource) {
-      return (
-        <ToolList
-          source={selection.activeSource}
-          tools={selection.filteredTools}
-          selectedTool={selection.selectedTool}
-          savingKeys={savingKeys}
-          onSelectTool={selection.setSelectedToolId}
-          onSaveToolEnabled={saveToolEnabled}
-        />
-      );
-    }
-
-    if (node.dataSource === 'toolManager.selectedTool') {
-      return (
-        <ToolDetailPanel
-          source={selection.activeSource}
-          tool={selection.selectedTool}
-          savingKeys={savingKeys}
-          onSaveToolEnabled={saveToolEnabled}
-        />
-      );
-    }
-
-    return defaultRender();
+  const dataContext: SchemaRendererDataContext = {
+    getDataSource: (dataSource) => {
+      if (dataSource === 'toolManager' || dataSource === 'toolManager.root') {
+        return snapshotState.snapshot;
+      }
+      if (dataSource === 'toolManager.categories') {
+        return TOOL_MANAGER_CATEGORIES;
+      }
+      if (dataSource === 'toolManager.sources') {
+        return sources;
+      }
+      if (dataSource === 'toolManager.activeSource') {
+        return activeSource || {};
+      }
+      if (dataSource === 'toolManager.tools') {
+        return tools;
+      }
+      if (dataSource === 'toolManager.selectedTool') {
+        return selectedTool || {};
+      }
+      if (dataSource === 'toolManager.query') {
+        return {
+          activeTab: selection.activeCategory,
+          search: selection.search,
+          selectedItem: selection.selectedTool?.id || '',
+        };
+      }
+      return undefined;
+    },
+    dispatch: async (action, payload) => {
+      const record = asRecord(payload);
+      const item = asRecord(record.item);
+      if (action === 'selectCategory') {
+        selection.selectCategory(String(record.value || item.id || 'native') as ToolCategory);
+        return;
+      }
+      if (action === 'selectSource') {
+        const source = item as unknown as ToolManagerSourceSnapshot;
+        selection.selectSource(source);
+        snapshotState.setActionError('');
+        if (source.sourceType === 'mcp' && !snapshotState.discoveredSourceIds.has(source.sourceId)) {
+          await snapshotState.discoverSource(source.sourceId);
+        }
+        return;
+      }
+      if (action === 'selectTool') {
+        selection.setSelectedToolId(String(record.value || item.id || ''));
+        return;
+      }
+      if (action === 'setSearch') {
+        selection.setSearch(String(record.value || ''));
+        return;
+      }
+      if (action === 'discoverSource') {
+        if (selection.activeSource?.sourceType === 'mcp') {
+          await snapshotState.discoverSource(selection.activeSource.sourceId);
+        }
+        return;
+      }
+      if (action === 'toggleSourceEnabled') {
+        await savePolicy(
+          typeof record.path === 'string'
+            ? record.path
+            : sourcePolicyEnabledPath(item as unknown as ToolManagerSourceSnapshot),
+          !!record.value,
+          String(item.sourceSavingKey || ''),
+          item as unknown as ToolManagerSourceSnapshot
+        );
+        return;
+      }
+      if (action === 'toggleToolEnabled' && selection.activeSource) {
+        await savePolicy(
+          typeof record.path === 'string'
+            ? record.path
+            : toolPolicyEnabledPath(
+                selection.activeSource,
+                item as unknown as ToolManagerToolSnapshot
+              ),
+          !!record.value,
+          String(item.toolSavingKey || ''),
+          selection.activeSource
+        );
+        return;
+      }
+      if (action === 'setMcpExposure') {
+        await savePolicy(
+          typeof record.path === 'string'
+            ? record.path
+            : mcpExposurePolicyPath(item as unknown as ToolManagerSourceSnapshot),
+          String(record.value || 'collapsed'),
+          String(item.exposureSavingKey || ''),
+          item as unknown as ToolManagerSourceSnapshot
+        );
+      }
+    },
+    isSaving: (savingKey) => !!savingKey && savingKeys.has(savingKey),
   };
 
   return (
-    <div className="border-b border-[#242426]/30 py-3 first:pt-0 last:border-b-0">
-      {(title || description) && (
-        <div className="mb-3">
-          {title && (
-            <div className="flex items-center gap-2">
-              <Wrench className="h-4 w-4 text-neutral-300" />
-              <h4 className="text-[13.5px] font-medium text-neutral-200">{t(title)}</h4>
-            </div>
-          )}
-          {description && (
-            <p className="mt-0.5 text-[11.5px] leading-relaxed text-neutral-400/80">
-              {t(description)}
-            </p>
-          )}
-        </div>
-      )}
-
-      <div className="overflow-hidden rounded-lg border border-[#2b2b2d] bg-[#171719]/30">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col">
         {snapshotState.loading ? (
           <div className="flex h-48 items-center justify-center gap-2 text-sm text-neutral-400">
             <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -324,7 +289,7 @@ export function ToolManagerSchemaAdapter({
               togglePolicy: (path, enabled) => onSaveField(path, enabled),
               setExposure: (path, exposure) => onSaveField(path, exposure),
             }}
-            renderUiNode={renderToolManagerNode}
+            dataContext={dataContext}
           />
         )}
       </div>

@@ -12,12 +12,69 @@
       "description": "settings.tools.manager.description",
       "dataSource": "toolManager",
       "layout": "vertical",
+      "variant": "workbench",
       "density": "compact",
       "children": [
         {
           "kind": "tabs",
           "id": "tool-source-tabs",
-          "dataSource": "toolManager.categories"
+          "dataSource": "toolManager.categories",
+          "action": "selectCategory",
+          "bindings": {
+            "activeSource": "toolManager.query",
+            "activeKey": "activeTab"
+          },
+          "itemTemplate": {
+            "kind": "badge",
+            "id": "tool-category-tab-template",
+            "bindings": {
+              "id": "id",
+              "label": "labelKey"
+            }
+          }
+        },
+        {
+          "kind": "toolbar",
+          "id": "tool-source-header",
+          "dataSource": "toolManager.activeSource",
+          "bindings": {
+            "title": "sourceName",
+            "description": "hint",
+            "error": "actionError"
+          },
+          "actions": [
+            {
+              "id": "toggleSourceEnabled",
+              "variant": "switch",
+              "path": "policyPaths.sourceEnabledPath",
+              "value": "enabled",
+              "savingKey": "sourceSavingKey"
+            },
+            {
+              "id": "setMcpExposure",
+              "variant": "segmented",
+              "path": "policyPaths.exposurePath",
+              "value": "normalizedExposureMode",
+              "savingKey": "exposureSavingKey",
+              "options": [
+                { "label": "collapsed", "value": "collapsed" },
+                { "label": "unfolded", "value": "unfolded" }
+              ]
+            },
+            {
+              "id": "setSearch",
+              "variant": "search",
+              "label": "settings.tools.search",
+              "dataSource": "toolManager.query",
+              "value": "search"
+            },
+            {
+              "id": "discoverSource",
+              "variant": "button",
+              "label": "settings.tools.discover",
+              "icon": "RefreshCcw"
+            }
+          ]
         },
         {
           "kind": "split",
@@ -29,32 +86,95 @@
               "kind": "list",
               "id": "tool-source-list",
               "dataSource": "toolManager.sources",
+              "action": "selectSource",
+              "variant": "sidebar",
+              "emptyText": "settings.tools.empty_sources",
               "width": 220,
-              "scroll": "y"
+              "scroll": "y",
+              "itemTemplate": {
+                "kind": "detail",
+                "id": "tool-source-list-item-template",
+                "bindings": {
+                  "id": "identityKey",
+                  "activeKey": "activeSourceKey",
+                  "title": "sourceName",
+                  "meta": "status",
+                  "secondaryMeta": "exposureMode",
+                  "count": "toolCount"
+                },
+                "actions": [
+                  {
+                    "id": "toggleSourceEnabled",
+                    "variant": "switch",
+                    "path": "policyPaths.sourceEnabledPath",
+                    "value": "enabled",
+                    "savingKey": "sourceSavingKey"
+                  }
+                ]
+              }
             },
             {
-              "kind": "panel",
-              "id": "tool-list-pane",
-              "dataSource": "toolManager.activeSource",
-              "children": [
-                {
-                  "kind": "toolbar",
-                  "id": "tool-source-header",
-                  "dataSource": "toolManager.sourceHeader"
+              "kind": "list",
+              "id": "tool-list",
+              "dataSource": "toolManager.tools",
+              "action": "selectTool",
+              "variant": "content",
+              "emptyText": "settings.tools.empty_tools",
+              "scroll": "y",
+              "itemTemplate": {
+                "kind": "detail",
+                "id": "tool-list-item-template",
+                "bindings": {
+                  "id": "id",
+                  "activeKey": "activeToolId",
+                  "title": "friendlyName",
+                  "description": "description",
+                  "meta": "id",
+                  "secondaryMeta": "modelName",
+                  "count": "schemaSummary.parameterCount"
                 },
-                {
-                  "kind": "list",
-                  "id": "tool-list",
-                  "dataSource": "toolManager.tools",
-                  "scroll": "y"
-                }
-              ]
+                "actions": [
+                  {
+                    "id": "toggleToolEnabled",
+                    "variant": "switch",
+                    "path": "policyPaths.toolEnabledPath",
+                    "value": "enabled",
+                    "savingKey": "toolSavingKey"
+                  }
+                ]
+              }
             },
             {
               "kind": "detail",
               "id": "tool-detail",
               "dataSource": "toolManager.selectedTool",
-              "scroll": "y"
+              "emptyText": "settings.tools.empty_tools",
+              "scroll": "y",
+              "itemTemplate": {
+                "kind": "detail",
+                "id": "tool-detail-template",
+                "bindings": {
+                  "title": "friendlyName",
+                  "description": "description",
+                  "meta": "id",
+                  "secondaryMeta": "modelName",
+                  "badge": "schemaFormat",
+                  "actionsTitle": "settings.tools.policy",
+                  "schemaTitle": "settings.tools.parameters",
+                  "schemaProperties": "schemaProperties",
+                  "schemaEmptyText": "settings.tools.no_parameters",
+                  "requiredLabel": "settings.tools.required"
+                },
+                "actions": [
+                  {
+                    "id": "toggleToolEnabled",
+                    "variant": "switch",
+                    "path": "policyPaths.toolEnabledPath",
+                    "value": "enabled",
+                    "savingKey": "toolSavingKey"
+                  }
+                ]
+              }
             }
           ]
         }

@@ -22,6 +22,8 @@ h1, h2, h3, h4, h5, h6 {
   position: relative;
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .overlay-scrollbar-scrollport {
@@ -29,6 +31,7 @@ h1, h2, h3, h4, h5, h6 {
   min-height: 0;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  flex: 1;
 }
 
 .overlay-scrollbar-scrollport::-webkit-scrollbar {
@@ -142,6 +145,38 @@ h1, h2, h3, h4, h5, h6 {
 .sidebar-context-menu {
   transform-origin: top left;
   animation: sidebar-menu-pop 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Settings UI schema workbench layouts need container-sized breakpoints, not viewport-sized Tailwind breakpoints. */
+.settings-schema-workbench {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.settings-schema-split-three-pane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 420px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.settings-schema-split-three-pane > * {
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (min-width: 860px) {
+  .settings-schema-split-three-pane {
+    grid-template-columns: minmax(180px, 220px) minmax(300px, 1fr) minmax(280px, 0.95fr);
+    height: 100%;
+  }
+  .settings-schema-split-three-pane > * {
+    height: 100% !important;
+  }
 }
 
 /* Hide default cursor outline on buttons for a native feel */

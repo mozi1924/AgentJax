@@ -1,8 +1,12 @@
 import { Fragment, useMemo } from 'react';
 import { isNodeVisible } from '../../../features/settings/utils';
 import type { SettingsSchemaNode, SettingsUiSchemaNode } from '../../../features/settings/types';
-import { getSchemaRenderKind } from '../../../features/settings/schemaRendererView';
+import {
+  getSchemaRenderKind,
+  shouldUseDataContextRenderer,
+} from '../../../features/settings/schemaRendererView';
 import { FieldRenderer } from './FieldControlRegistry';
+import { DataSourceRenderer } from './DataSourceRenderer';
 import { CollectionLayoutRenderer, GroupRenderer, UiLayoutRenderer } from './LayoutRenderer';
 import type { SchemaRendererProps } from './types';
 import type { NodeListProps } from '../renderer/types';
@@ -14,8 +18,17 @@ export function SchemaRenderer(props: SchemaRendererProps) {
     [props.contextPath, props.nodes, props.snapshot]
   );
 
-  const renderChildren = (nodes: SettingsSchemaNode[], contextPath?: string) => (
-    <SchemaRenderer {...props} nodes={nodes} contextPath={contextPath ?? props.contextPath} />
+  const renderChildren = (
+    nodes: SettingsSchemaNode[],
+    contextPath?: string,
+    options?: { container?: SchemaRendererProps['container'] }
+  ) => (
+    <SchemaRenderer
+      {...props}
+      nodes={nodes}
+      contextPath={contextPath ?? props.contextPath}
+      container={options?.container ?? 'stack'}
+    />
   );
 
   const renderNodeList = (nodeListProps: NodeListProps) => (
@@ -34,9 +47,7 @@ export function SchemaRenderer(props: SchemaRendererProps) {
     />
   );
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col space-y-4">
-      {visibleNodes.map((node) => {
+  const renderedNodes = visibleNodes.map((node) => {
         const key = `${props.contextPath || 'root'}:${node.kind}:${node.id}`;
 
         const renderKind = getSchemaRenderKind(node);
@@ -88,6 +99,17 @@ export function SchemaRenderer(props: SchemaRendererProps) {
         }
 
         const uiNode = node as SettingsUiSchemaNode;
+        if (props.dataContext && shouldUseDataContextRenderer(uiNode)) {
+          return (
+            <Fragment key={key}>
+              <DataSourceRenderer
+                node={uiNode}
+                dataContext={props.dataContext}
+                renderChildren={renderChildren}
+              />
+            </Fragment>
+          );
+        }
         const defaultRender = () => (
           <UiLayoutRenderer
             node={uiNode}
@@ -110,7 +132,15 @@ export function SchemaRenderer(props: SchemaRendererProps) {
             {defaultRender()}
           </Fragment>
         );
-      })}
+      });
+
+  if (props.container === 'fragment') {
+    return <>{renderedNodes}</>;
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col space-y-4">
+      {renderedNodes}
     </div>
   );
 }

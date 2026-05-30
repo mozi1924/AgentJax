@@ -7,7 +7,11 @@ import type { NodeListProps } from '../renderer/types';
 import { ActionRenderer } from './ActionRenderer';
 import type { SchemaRendererProps } from './types';
 
-type RenderChildren = (nodes: SettingsSchemaNode[], contextPath?: string) => ReactElement;
+type RenderChildren = (
+  nodes: SettingsSchemaNode[],
+  contextPath?: string,
+  options?: { container?: SchemaRendererProps['container'] }
+) => ReactElement;
 
 export function GroupRenderer({
   node,
