@@ -888,6 +888,23 @@ mod tests {
                 .active_tool_names()
                 .contains("list_background_tools")
         );
+        let wait_schema = snapshot
+            .schemas()
+            .iter()
+            .find(|schema| {
+                schema.get("name").and_then(|value| value.as_str()) == Some("wait_background_tool")
+            })
+            .expect("wait_background_tool schema");
+        assert!(
+            wait_schema["description"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("Awaiter checkpoint")
+        );
+        assert_eq!(
+            wait_schema["parameters"]["properties"]["timeoutMs"]["default"],
+            json!(crate::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
+        );
 
         let result = snapshot
             .execute(
@@ -919,8 +936,14 @@ mod tests {
             .await
             .expect("start background calculator");
         assert_eq!(started["ok"], true);
+        assert_eq!(started["role"], "background_tool_starter");
+        assert_eq!(started["decision"], "continue_or_await_later");
         assert_eq!(started["status"], "in_progress");
         let job_id = started["jobId"].as_str().expect("job id");
+        assert_eq!(
+            started["usage"]["wait"]["arguments"]["timeoutMs"],
+            json!(crate::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
+        );
 
         let waited = snapshot
             .execute(
@@ -930,7 +953,10 @@ mod tests {
             )
             .await
             .expect("wait for background calculator");
+        assert_eq!(waited["ok"], true);
         assert_eq!(waited["timedOut"], false);
+        assert_eq!(waited["role"], "background_tool_awaiter");
+        assert_eq!(waited["decision"], "result_ready");
         assert_eq!(waited["job"]["status"], "completed");
         assert_eq!(waited["job"]["output"]["result"].as_f64(), Some(42.0));
 
@@ -938,6 +964,8 @@ mod tests {
             .execute("list_background_tools", &json!({}), &ctx)
             .await
             .expect("list background jobs");
+        assert_eq!(jobs["role"], "background_tool_observer");
+        assert_eq!(jobs["decision"], "inspect_jobs_before_awaiting");
         assert!(jobs["jobs"].as_array().unwrap().iter().any(|job| {
             job.get("jobId").and_then(|value| value.as_str()) == Some(job_id)
                 && job.get("status").and_then(|value| value.as_str()) == Some("completed")
@@ -1092,7 +1120,16 @@ mod tests {
         .await
         .expect("wait other conversation job");
         assert_eq!(still_running["timedOut"], true);
+        assert_eq!(still_running["role"], "background_tool_awaiter");
+        assert_eq!(
+            still_running["decision"],
+            "continue_other_work_or_wait_again"
+        );
         assert_eq!(still_running["job"]["status"], "in_progress");
+        assert_eq!(
+            still_running["usage"]["waitAgain"]["arguments"]["timeoutMs"],
+            json!(crate::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
+        );
 
         crate::tools::background_jobs::cancel_conversation_jobs(&other_conversation_id);
     }

@@ -168,7 +168,7 @@ fn build_start_background_tool_schema(format: ToolSchemaFormat) -> Value {
     format_tool_schema(
         format,
         START_BACKGROUND_TOOL_NAME,
-        "Starts one currently available native or MCP tool in the background and returns immediately with a jobId. Use this when a tool may take a long time and you can make progress elsewhere before waiting for the result. Do not use this for MCP server mount/unmount control tools.",
+        "Starts one currently available native or MCP tool in the background and returns immediately with a jobId. Use this when a tool may take a long time and you can make progress elsewhere before waiting for the result. Waiting is a separate awaiter step: later call wait_background_tool only when the result is on your critical path, or call list_background_tools to inspect progress. Do not use this for MCP server mount/unmount control tools.",
         json!({
             "type": "object",
             "properties": {
@@ -190,7 +190,7 @@ fn build_wait_background_tool_schema(format: ToolSchemaFormat) -> Value {
     format_tool_schema(
         format,
         WAIT_BACKGROUND_TOOL_NAME,
-        "Waits for a background tool job to finish, or returns its current in-progress status when the timeout elapses. Use this only when the result is on your critical path.",
+        "Awaiter checkpoint for a background tool job. Waits briefly for completion, or returns the current in-progress status and next actions when the timeout elapses. Use this only when the result is on your critical path; otherwise continue useful work and check later. Prefer short timeoutMs values for polling. Long waits must be an explicit choice.",
         json!({
             "type": "object",
             "properties": {
@@ -201,8 +201,9 @@ fn build_wait_background_tool_schema(format: ToolSchemaFormat) -> Value {
                 "timeoutMs": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 120000,
-                    "description": "Optional wait timeout in milliseconds. Defaults to 30000 and is capped at 120000."
+                    "maximum": background_jobs::MAX_WAIT_TIMEOUT_MS,
+                    "default": background_jobs::DEFAULT_WAIT_TIMEOUT_MS,
+                    "description": "Optional awaiter timeout in milliseconds. Defaults to a short 5000ms checkpoint and is capped at 120000. Use a small value when deciding whether to continue other work or wait again."
                 }
             },
             "required": ["jobId"]
@@ -540,6 +541,8 @@ impl ToolCatalogSnapshot {
                 Ok(ToolCatalogExecution {
                     output: json!({
                         "ok": true,
+                        "role": "background_tool_starter",
+                        "decision": "continue_or_await_later",
                         "jobId": job_id,
                         "toolName": target_tool_name,
                         "status": "in_progress",
@@ -547,7 +550,10 @@ impl ToolCatalogSnapshot {
                         "usage": {
                             "wait": {
                                 "tool": WAIT_BACKGROUND_TOOL_NAME,
-                                "arguments": { "jobId": job_id }
+                                "arguments": {
+                                    "jobId": job_id,
+                                    "timeoutMs": background_jobs::DEFAULT_WAIT_TIMEOUT_MS
+                                }
                             },
                             "list": {
                                 "tool": LIST_BACKGROUND_TOOLS_NAME,

@@ -123,6 +123,7 @@ mod tests {
         let resolved = cfg.resolve_model_profile(None).expect("resolve");
         assert!(resolved.system_prompt.contains("agentic coding assistant"));
         assert!(resolved.system_prompt.contains("Commentary protocol"));
+        assert!(resolved.system_prompt.contains("Background tool protocol"));
     }
 
     #[test]
