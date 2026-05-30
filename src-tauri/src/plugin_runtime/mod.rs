@@ -17,7 +17,8 @@ pub use api::{
     registered_tools_for_manifest,
 };
 pub use discovery::{
-    PLUGIN_MANIFEST_FILE, PluginPackage, discover_plugin_packages, load_plugin_package,
+    PLUGIN_MANIFEST_FILE, PluginPackage, discover_home_plugin_packages, discover_plugin_packages,
+    load_plugin_package,
 };
 pub use manifest::{PluginManifest, PluginToolDefinition, PluginToolKind};
 pub use orchestration::{

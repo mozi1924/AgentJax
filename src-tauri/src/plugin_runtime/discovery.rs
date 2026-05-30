@@ -105,6 +105,12 @@ pub fn discover_plugin_packages(
     Ok(packages)
 }
 
+/// Discover plugin packages from `$AGENTJAX_HOME/plugins`.
+pub fn discover_home_plugin_packages() -> PluginRuntimeResult<Vec<PluginPackage>> {
+    let plugins_dir = crate::agentjax_home::ensure_plugins_dir().map_err(PluginRuntimeError::Io)?;
+    discover_plugin_packages(plugins_dir)
+}
+
 fn validate_entrypoint_path(root_dir: &Path, manifest: &PluginManifest) -> PluginRuntimeResult<()> {
     let entrypoint = Path::new(&manifest.entrypoint);
     if entrypoint.is_absolute() {

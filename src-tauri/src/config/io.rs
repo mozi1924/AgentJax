@@ -96,6 +96,7 @@ fn default_config_yaml() -> String {
         "# AgentJax configuration".to_string(),
         "# Home directory: AGENTJAX_HOME (default: ~/.agentjax)".to_string(),
         "# Config path: $AGENTJAX_HOME/config.yaml".to_string(),
+        "# Plugin directory: $AGENTJAX_HOME/plugins".to_string(),
         String::new(),
         format!("active_provider: \"{}\"", provider.kind),
         format!("default_model: \"{}\"", DEFAULT_DEFAULT_MODEL_REF),

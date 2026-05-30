@@ -1,5 +1,7 @@
 use crate::plugin_runtime::{
-    PluginManifest, prefixed_plugin_tool_name, registered_tools_for_manifest,
+    DenoCorePluginRuntime, PluginInvocationContext, PluginManifest, PluginPackage, PluginRuntime,
+    SandboxPolicy, discover_home_plugin_packages, prefixed_plugin_tool_name,
+    registered_tools_for_manifest,
 };
 use crate::tools::{
     CalculatorTool, EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool,
@@ -55,6 +57,7 @@ enum ToolSnapshotEntry {
     Plugin {
         plugin_id: String,
         tool_name: String,
+        package: Option<PluginPackage>,
     },
     ManageMcpServer {
         server_id: String,
@@ -366,6 +369,45 @@ async fn execute_backgroundable_entry(
     }
 }
 
+fn execute_plugin_package_tool(
+    package: &PluginPackage,
+    plugin_id: &str,
+    tool_name: &str,
+    arguments: &Value,
+    context: &ToolExecutionContext,
+) -> Result<ToolCatalogExecution, String> {
+    let mut plugin_runtime = DenoCorePluginRuntime::new(
+        deno_core::RuntimeOptions::default(),
+        SandboxPolicy::default(),
+    );
+    plugin_runtime
+        .register_package(package.clone())
+        .map_err(|err| err.to_string())?;
+    let call = plugin_runtime
+        .prepare_tool_call(
+            plugin_id,
+            tool_name,
+            arguments.clone(),
+            PluginInvocationContext {
+                conversation_id: context.conversation_id.clone(),
+            },
+        )
+        .map_err(|err| err.to_string())?;
+    let result = plugin_runtime
+        .execute_tool_call(call)
+        .map_err(|err| err.to_string())?;
+    if result.ok {
+        Ok(ToolCatalogExecution {
+            output: result.output,
+            state_changes: Vec::new(),
+        })
+    } else {
+        Err(result
+            .error
+            .unwrap_or_else(|| "Plugin tool execution failed".to_string()))
+    }
+}
+
 /// Turn-scoped tool snapshot.
 ///
 /// The model-visible tool list and local execution dispatch both read from the
@@ -441,10 +483,16 @@ impl ToolCatalogSnapshot {
             ToolSnapshotEntry::Plugin {
                 plugin_id,
                 tool_name,
-            } => Err(format!(
-                "Plugin tool '{}::{}' is declared but plugin execution is not connected to the tool catalog yet",
-                plugin_id, tool_name
-            )),
+                package,
+            } => {
+                let package = package.as_ref().ok_or_else(|| {
+                    format!(
+                        "Plugin tool '{}::{}' is declared but no executable plugin package is attached",
+                        plugin_id, tool_name
+                    )
+                })?;
+                execute_plugin_package_tool(package, plugin_id, tool_name, arguments, context)
+            }
             ToolSnapshotEntry::StartBackgroundTool => {
                 let target_tool_name = background_tool_name(arguments)?;
                 let target_arguments = background_tool_arguments(arguments);
@@ -676,6 +724,7 @@ pub struct ToolCatalog {
     mcp_runtime: crate::config::McpRuntimeConfig,
     mcp_config: BTreeMap<String, crate::config::McpServerConfig>,
     plugin_manifests: BTreeMap<String, PluginManifest>,
+    plugin_packages: BTreeMap<String, PluginPackage>,
 }
 
 impl ToolCatalog {
@@ -697,6 +746,31 @@ impl ToolCatalog {
             mcp_runtime: config.mcp_runtime.clone(),
             mcp_config: config.mcp_servers.clone(),
             plugin_manifests: BTreeMap::new(),
+            plugin_packages: BTreeMap::new(),
+        }
+    }
+
+    /// Build a catalog and attach plugins discovered from
+    /// `$AGENTJAX_HOME/plugins`. Discovery errors are logged and leave the
+    /// native/MCP catalog intact so a broken local plugin cannot prevent chat.
+    pub fn new_with_home_plugins(
+        mcp_manager: Arc<crate::mcp::McpManager>,
+        config: &crate::config::AppConfig,
+    ) -> Self {
+        let fallback_mcp_manager = mcp_manager.clone();
+        let catalog = Self::new(mcp_manager, config);
+        match discover_home_plugin_packages() {
+            Ok(packages) => match catalog.with_plugin_packages(packages) {
+                Ok(catalog) => catalog,
+                Err(err) => {
+                    log::warn!("Failed to register plugins from AGENTJAX_HOME/plugins: {err}");
+                    Self::new(fallback_mcp_manager, config)
+                }
+            },
+            Err(err) => {
+                log::warn!("Failed to discover plugins from AGENTJAX_HOME/plugins: {err}");
+                catalog
+            }
         }
     }
 
@@ -716,6 +790,36 @@ impl ToolCatalog {
             }
             self.plugin_manifests.insert(manifest.id.clone(), manifest);
         }
+        Ok(self)
+    }
+
+    /// Attach validated plugin packages to the catalog and enable execution
+    /// through the deno_core runtime bridge.
+    pub fn with_plugin_packages(
+        mut self,
+        packages: impl IntoIterator<Item = PluginPackage>,
+    ) -> Result<Self, String> {
+        let mut runtime = DenoCorePluginRuntime::new(
+            deno_core::RuntimeOptions::default(),
+            SandboxPolicy::default(),
+        );
+        let mut manifests = BTreeMap::new();
+        let mut registered_packages = BTreeMap::new();
+        for package in packages {
+            let manifest = package.manifest.clone();
+            if manifests.contains_key(&manifest.id)
+                || self.plugin_manifests.contains_key(&manifest.id)
+            {
+                return Err(format!("plugin '{}' is already registered", manifest.id));
+            }
+            runtime
+                .register_package(package.clone())
+                .map_err(|err| err.to_string())?;
+            manifests.insert(manifest.id.clone(), manifest);
+            registered_packages.insert(package.manifest.id.clone(), package);
+        }
+        self.plugin_manifests.extend(manifests);
+        self.plugin_packages.extend(registered_packages);
         Ok(self)
     }
 
@@ -910,8 +1014,12 @@ impl ToolCatalog {
                 &mut entries,
                 prefixed_name,
                 ToolSnapshotEntry::Plugin {
-                    plugin_id: registered_tool.plugin_id,
+                    plugin_id: registered_tool.plugin_id.clone(),
                     tool_name: registered_tool.tool.name,
+                    package: self
+                        .plugin_packages
+                        .get(&registered_tool.plugin_id)
+                        .cloned(),
                 },
             );
         }

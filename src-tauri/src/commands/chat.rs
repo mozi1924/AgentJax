@@ -199,7 +199,7 @@ async fn load_conversation_prompt_token_count(
         return 0;
     };
 
-    let tools_catalog = ToolCatalog::new(mcp_manager, &cfg);
+    let tools_catalog = ToolCatalog::new_with_home_plugins(mcp_manager, &cfg);
     let tool_snapshot = match tool_snapshot_for_conversation(
         &tools_catalog,
         conversation_id,
@@ -331,7 +331,7 @@ pub async fn chat_stream(
             .flatten()
     };
 
-    let tools_catalog = ToolCatalog::new(mcp_manager.inner().clone(), &config);
+    let tools_catalog = ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config);
 
     let user_message_ts = now_unix_ms();
 

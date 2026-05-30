@@ -4,7 +4,8 @@ mod tests {
     use crate::config::{AppConfig, McpServerConfig};
     use crate::conversation_store;
     use crate::plugin_runtime::{
-        PLUGIN_API_VERSION, PluginManifest, PluginToolDefinition, PluginToolKind, SandboxPolicy,
+        PLUGIN_API_VERSION, PLUGIN_MANIFEST_FILE, PluginManifest, PluginToolDefinition,
+        PluginToolKind, SandboxPolicy,
     };
     use crate::tools::{
         CalculatorTool, FileReaderTool, FileWriterTool, MountedToolDefinition,
@@ -1380,6 +1381,79 @@ mod tests {
                 .and_then(|presentation| presentation.icon.as_deref()),
             Some("Puzzle")
         );
+    }
+
+    #[tokio::test]
+    async fn test_home_plugin_package_is_exposed_and_executable() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = setup_test_home();
+        let plugin_dir = home.home.join("plugins").join("home-demo");
+        std::fs::create_dir_all(&plugin_dir).expect("create plugin dir");
+        std::fs::write(
+            plugin_dir.join("plugin.js"),
+            r#"
+globalThis.AgentJaxPlugin = {
+  tools: {
+    echo(args, context) {
+      return {
+        message: args.message,
+        conversationId: context.conversationId
+      };
+    }
+  }
+};
+"#,
+        )
+        .expect("write plugin entrypoint");
+        std::fs::write(
+            plugin_dir.join(PLUGIN_MANIFEST_FILE),
+            serde_json::json!({
+                "id": "home.demo",
+                "name": "Home Demo",
+                "version": "0.1.0",
+                "apiVersion": PLUGIN_API_VERSION,
+                "entrypoint": "plugin.js",
+                "tools": [{
+                    "name": "echo",
+                    "displayName": "Echo",
+                    "description": "Echoes a message through a home plugin.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "message": { "type": "string" }
+                        }
+                    }
+                }],
+                "sandbox": {
+                    "maxExecutionMs": 30000
+                }
+            })
+            .to_string(),
+        )
+        .expect("write plugin manifest");
+
+        let catalog = ToolCatalog::new_with_home_plugins(
+            Arc::new(crate::mcp::McpManager::new()),
+            &AppConfig::default(),
+        );
+        let context = ToolExecutionContext {
+            conversation_id: Some("conversation-1".to_string()),
+        };
+        let snapshot = catalog
+            .snapshot_with_format(ToolSchemaFormat::Responses, &context)
+            .await;
+        let plugin_tool_name = "plugin__home_demo__echo";
+
+        assert!(snapshot.active_tool_names().contains(plugin_tool_name));
+        let output = snapshot
+            .execute(plugin_tool_name, &json!({ "message": "hello" }), &context)
+            .await
+            .expect("execute home plugin tool");
+
+        assert_eq!(output["message"], "hello");
+        assert_eq!(output["conversationId"], "conversation-1");
     }
 
     #[tokio::test]

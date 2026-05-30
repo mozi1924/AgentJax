@@ -5,7 +5,18 @@ under `src-tauri/src/plugin_runtime`.
 
 ## Manifest
 
-Plugins declare metadata and tools with a JSON manifest. The host validates the
+Plugins live under `$AGENTJAX_HOME/plugins`. Each plugin should be placed in its
+own directory with a `plugin.json` manifest:
+
+```text
+$AGENTJAX_HOME/
+  plugins/
+    local.demo/
+      plugin.json
+      plugin.js
+```
+
+Plugins declare metadata and tools in `plugin.json`. The host validates the
 manifest before loading any JavaScript.
 
 ```json
