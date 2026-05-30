@@ -6,16 +6,17 @@ use crate::time_context::attach_tool_output_time_metadata;
 use crate::tools::{
     ToolCatalogExecution, ToolCatalogSnapshot, ToolCatalogStateChange, ToolExecutionContext,
 };
-use futures_util::stream::{FuturesUnordered, StreamExt};
+use futures_util::FutureExt;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::{Semaphore, mpsc, watch};
 use tokio::task::JoinHandle;
 
 const MAX_PARALLEL_TOOL_EXECUTIONS: usize = 4;
-const TOOL_PROGRESS_HEARTBEAT_SECS: u64 = 5;
+pub(super) const TOOL_PROGRESS_HEARTBEAT_SECS: u64 = 5;
 
 pub(super) struct ExecutedToolBatch {
     pub tool_results_items: Vec<Value>,
@@ -53,7 +54,8 @@ struct ActiveToolExecution {
     started_at: Instant,
 }
 
-type ToolExecutionJoinHandle = JoinHandle<(String, Option<ExecutedToolRecord>)>;
+type ToolCompletionMessage = (String, Option<ExecutedToolRecord>);
+type ToolExecutionJoinHandle = JoinHandle<()>;
 
 pub(super) struct ToolExecutionScheduler {
     conversation_id: String,
@@ -63,7 +65,10 @@ pub(super) struct ToolExecutionScheduler {
     next_index: usize,
     scheduled_call_ids: HashSet<String>,
     active_tools: HashMap<String, ActiveToolExecution>,
-    handles: FuturesUnordered<ToolExecutionJoinHandle>,
+    completed_tx: mpsc::UnboundedSender<ToolCompletionMessage>,
+    completed_rx: mpsc::UnboundedReceiver<ToolCompletionMessage>,
+    executed_records: Vec<ExecutedToolRecord>,
+    handles: Vec<ToolExecutionJoinHandle>,
 }
 
 impl ToolExecutionScheduler {
@@ -79,6 +84,8 @@ impl ToolExecutionScheduler {
             1
         };
 
+        let (completed_tx, completed_rx) = mpsc::unbounded_channel();
+
         Self {
             conversation_id: conversation_id.into(),
             tool_snapshot,
@@ -87,7 +94,10 @@ impl ToolExecutionScheduler {
             next_index: 0,
             scheduled_call_ids: HashSet::new(),
             active_tools: HashMap::new(),
-            handles: FuturesUnordered::new(),
+            completed_tx,
+            completed_rx,
+            executed_records: Vec::new(),
+            handles: Vec::new(),
         }
     }
 
@@ -117,16 +127,22 @@ impl ToolExecutionScheduler {
         let tool_snapshot = self.tool_snapshot.clone();
         let cancel_rx = self.cancel_rx.clone();
         let semaphore = self.semaphore.clone();
+        let completed_tx = self.completed_tx.clone();
         self.handles.push(tokio::spawn(async move {
-            let record = run_prepared_tool(
+            let record = AssertUnwindSafe(run_prepared_tool(
                 tool_snapshot,
                 conversation_id,
                 cancel_rx,
                 semaphore,
                 prepared,
-            )
-            .await;
-            (call_id, record)
+            ))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|_| {
+                log::warn!("Tool execution task panicked for call_id={call_id}");
+                None
+            });
+            let _ = completed_tx.send((call_id, record));
         }));
 
         true
@@ -142,6 +158,35 @@ impl ToolExecutionScheduler {
         }
     }
 
+    pub(super) fn has_active_tools(&self) -> bool {
+        !self.active_tools.is_empty()
+    }
+
+    pub(super) fn try_emit_completed_tools<F>(&mut self, on_event: &mut F) -> Result<(), String>
+    where
+        F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
+    {
+        while let Ok(message) = self.completed_rx.try_recv() {
+            self.record_completion_message(message, on_event)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn emit_progress_events<F>(&self, on_event: &mut F) -> Result<(), String>
+    where
+        F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
+    {
+        for (call_id, active) in &self.active_tools {
+            on_event(ProviderStreamEvent::ToolCallProgress {
+                call_id: call_id.clone(),
+                name: active.name.clone(),
+                elapsed_ms: active.started_at.elapsed().as_millis() as u64,
+                presentation: self.tool_snapshot.presentation_for(&active.name).cloned(),
+            })?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn finish<F>(
         mut self,
         provider_kind: &str,
@@ -155,53 +200,63 @@ impl ToolExecutionScheduler {
             tokio::time::interval(Duration::from_secs(TOOL_PROGRESS_HEARTBEAT_SECS));
         progress_interval.tick().await;
 
-        let mut executed_records: Vec<ExecutedToolRecord> = Vec::new();
         while !self.active_tools.is_empty() {
             tokio::select! {
-                maybe_joined = self.handles.next() => {
-                    let Some(joined) = maybe_joined else {
+                maybe_message = self.completed_rx.recv() => {
+                    let Some(message) = maybe_message else {
                         break;
                     };
-                    match joined {
-                        Ok((call_id, maybe_record)) => {
-                            self.active_tools.remove(&call_id);
-                            if let Some(record) = maybe_record {
-                                on_event(ProviderStreamEvent::ToolCallExecuted {
-                                    call_id: record.call_id.clone(),
-                                    name: record.name.clone(),
-                                    output: record.output_str.clone(),
-                                    is_success: record.is_success,
-                                    started_at_unix_ms: record.started_at_unix_ms,
-                                    completed_at_unix_ms: record.completed_at_unix_ms,
-                                    duration_ms: record.duration_ms,
-                                    presentation: self.tool_snapshot.presentation_for(&record.name).cloned(),
-                                })?;
-                                executed_records.push(record);
-                            }
-                        }
-                        Err(err) => {
-                            log::warn!("Tool execution task failed to join: {err}");
-                        }
-                    }
+                    self.record_completion_message(message, on_event)?;
                 }
                 _ = progress_interval.tick() => {
-                    for (call_id, active) in &self.active_tools {
-                        on_event(ProviderStreamEvent::ToolCallProgress {
-                            call_id: call_id.clone(),
-                            name: active.name.clone(),
-                            elapsed_ms: active.started_at.elapsed().as_millis() as u64,
-                            presentation: self.tool_snapshot.presentation_for(&active.name).cloned(),
-                        })?;
-                    }
+                    self.try_emit_completed_tools(on_event)?;
+                    self.emit_progress_events(on_event)?;
                 }
             }
         }
 
+        let executed_records = std::mem::take(&mut self.executed_records);
         finalize_executed_records(
             provider_kind,
             executed_records,
             repeated_failed_tool_signatures,
         )
+    }
+
+    fn record_completion_message<F>(
+        &mut self,
+        (call_id, maybe_record): ToolCompletionMessage,
+        on_event: &mut F,
+    ) -> Result<(), String>
+    where
+        F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
+    {
+        self.active_tools.remove(&call_id);
+        if let Some(record) = maybe_record {
+            on_event(ProviderStreamEvent::ToolCallExecuted {
+                call_id: record.call_id.clone(),
+                name: record.name.clone(),
+                output: record.output_str.clone(),
+                is_success: record.is_success,
+                started_at_unix_ms: record.started_at_unix_ms,
+                completed_at_unix_ms: record.completed_at_unix_ms,
+                duration_ms: record.duration_ms,
+                presentation: self.tool_snapshot.presentation_for(&record.name).cloned(),
+            })?;
+            self.executed_records.push(record);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for ToolExecutionScheduler {
+    fn drop(&mut self) {
+        if self.active_tools.is_empty() {
+            return;
+        }
+        for handle in &self.handles {
+            handle.abort();
+        }
     }
 }
 
@@ -455,4 +510,80 @@ fn finalize_executed_records(
         timeline_events,
         state_changes,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ToolExecutionScheduler;
+    use crate::providers::types::{ProviderPendingToolCall, ProviderStreamEvent};
+    use crate::tools::{ToolCatalog, ToolExecutionContext};
+    use serde_json::json;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    use tokio::sync::watch;
+
+    #[tokio::test]
+    async fn scheduler_can_emit_completed_event_before_finish() {
+        let config = crate::config::AppConfig::default();
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+        let (_cancel_tx, cancel_rx) = watch::channel(false);
+        let mut scheduler =
+            ToolExecutionScheduler::new("conv-runtime-test", snapshot, true, &cancel_rx);
+
+        assert!(scheduler.schedule_pending_tool(
+            ProviderPendingToolCall {
+                call_id: "call-calculator".to_string(),
+                name: "calculator".to_string(),
+                arguments: json!({ "expression": "6 * 7" }),
+            },
+            &HashMap::new(),
+        ));
+
+        // The foreground collector calls this while provider streaming is still
+        // active, so completion events must be available before final batching.
+        let mut events = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            scheduler
+                .try_emit_completed_tools(&mut |event| {
+                    events.push(event);
+                    Ok(())
+                })
+                .expect("drain completed tools");
+            if events
+                .iter()
+                .any(|event| matches!(event, ProviderStreamEvent::ToolCallExecuted { .. }))
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let executed_events = events
+            .iter()
+            .filter(|event| matches!(event, ProviderStreamEvent::ToolCallExecuted { .. }))
+            .count();
+        assert_eq!(executed_events, 1);
+
+        let mut repeated_failures = HashMap::new();
+        let batch = scheduler
+            .finish("openai-responses", &mut repeated_failures, &mut |event| {
+                events.push(event);
+                Ok(())
+            })
+            .await
+            .expect("finish scheduled tools");
+
+        assert_eq!(batch.tool_results_items.len(), 1);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, ProviderStreamEvent::ToolCallExecuted { .. }))
+                .count(),
+            1,
+            "finish must not re-emit executions already drained by the foreground collector"
+        );
+    }
 }
