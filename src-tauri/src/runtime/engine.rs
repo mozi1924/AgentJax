@@ -1,3 +1,9 @@
+mod output;
+mod presentations;
+mod request;
+mod tool_state;
+mod turn;
+
 use super::AgentRuntime;
 use super::stream_collection::collect_provider_turn;
 use super::tool_archiving::archive_unavailable_historical_tool_calls;
@@ -6,348 +12,19 @@ use super::tool_parsing::describe_item_shape;
 use crate::commands::chat::ChatRequest;
 use crate::config::AppConfig;
 use crate::message_phase::AssistantPhase;
-use crate::providers::types::{
-    ProviderStreamEvent, ProviderUsage, ProviderUsageRecord, ResponseStreamRequest,
-    ResponseStreamResult,
-};
+use crate::providers::types::{ProviderStreamEvent, ResponseStreamResult};
 use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
-use crate::tools::{
-    MountedToolSourceSessions, ToolCatalog, ToolCatalogSnapshot, ToolCatalogStateChange,
-    ToolExecutionContext, ToolPresentation,
+use crate::tools::{ToolCatalog, ToolExecutionContext};
+use output::{
+    extract_assistant_messages_from_items, resolve_hop_phase, select_final_output_text,
+    strip_commentary_prefixes,
 };
+use presentations::enrich_tool_stream_event;
+use request::{build_base_context, build_request, ensure_tool_call_output_pairs};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
 use tokio::sync::watch;
-
-// ── Turn accumulator ──────────────────────────────────────────────────────
-// Collects output items across all hops within a single turn so the
-// frontend can reconstruct the full tool-call timeline.  Per-hop assistant
-// text is emitted via `HopAssistantText` events as each hop completes;
-// the accumulator does NOT merge text across hops.
-
-struct TurnAccumulator {
-    last_response_id: String,
-    output_items: Vec<Value>,
-    timeline_events: Vec<Value>,
-    usage: Option<ProviderUsage>,
-    usage_hops: Vec<ProviderUsageRecord>,
-}
-
-impl TurnAccumulator {
-    fn new() -> Self {
-        Self {
-            last_response_id: String::new(),
-            output_items: Vec::new(),
-            timeline_events: Vec::new(),
-            usage: None,
-            usage_hops: Vec::new(),
-        }
-    }
-
-    fn record_hop(&mut self, response: &ResponseStreamResult) {
-        if !response.response_id.is_empty() {
-            self.last_response_id = response.response_id.clone();
-        }
-        self.output_items.extend(response.output_items.clone());
-        if let Some(response_usage) = &response.usage {
-            if let Some(total_usage) = &mut self.usage {
-                total_usage.saturating_add(response_usage);
-            } else {
-                self.usage = Some(response_usage.clone());
-            }
-            self.usage_hops.push(ProviderUsageRecord {
-                response_id: response.response_id.clone(),
-                usage: response_usage.clone(),
-            });
-        }
-    }
-
-    /// Append all items from a continuation batch (reasoning, function_call,
-    /// function_call_output, etc.) so the final result contains the complete
-    /// tool-call timeline, not just text output.
-    fn absorb_continuation_batch(&mut self, items: &[Value]) {
-        self.output_items.extend(items.iter().cloned());
-    }
-}
-
-fn normalize_whitespace(value: &str) -> String {
-    value.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn strip_commentary_prefixes(final_text: &str, commentary_history: &[String]) -> String {
-    if commentary_history.is_empty() {
-        return final_text.trim().to_string();
-    }
-
-    let commentary_norms: Vec<String> = commentary_history
-        .iter()
-        .map(|text| normalize_whitespace(text))
-        .filter(|text| !text.is_empty())
-        .collect();
-    if commentary_norms.is_empty() {
-        return final_text.trim().to_string();
-    }
-
-    let mut remaining_lines: Vec<&str> = final_text.lines().collect();
-    loop {
-        let first_non_empty_idx = remaining_lines
-            .iter()
-            .position(|line| !line.trim().is_empty());
-        let Some(idx) = first_non_empty_idx else {
-            return final_text.trim().to_string();
-        };
-        let first_line = remaining_lines[idx].trim();
-        let first_line_norm = normalize_whitespace(first_line);
-        if commentary_norms.iter().any(|item| item == &first_line_norm) {
-            remaining_lines.drain(..=idx);
-            continue;
-        }
-        break;
-    }
-
-    remaining_lines.join("\n").trim().to_string()
-}
-
-fn extract_assistant_messages_from_items(items: &[Value]) -> Vec<(String, Option<AssistantPhase>)> {
-    items
-        .iter()
-        .filter(|item| {
-            item.get("type").and_then(Value::as_str) == Some("message")
-                && item.get("role").and_then(Value::as_str) == Some("assistant")
-        })
-        .filter_map(|item| {
-            let text = item
-                .get("content")
-                .and_then(Value::as_array)
-                .map(|content| {
-                    content
-                        .iter()
-                        .filter_map(|part| part.get("text").and_then(Value::as_str))
-                        .collect::<Vec<_>>()
-                        .join("")
-                })
-                .unwrap_or_default();
-            if text.trim().is_empty() {
-                return None;
-            }
-            Some((
-                text,
-                item.get("phase")
-                    .and_then(Value::as_str)
-                    .and_then(AssistantPhase::from_api_value),
-            ))
-        })
-        .collect()
-}
-
-fn resolve_hop_phase(
-    explicit_phase: Option<AssistantPhase>,
-    is_final_hop: bool,
-) -> Option<AssistantPhase> {
-    explicit_phase.or(Some(if is_final_hop {
-        AssistantPhase::FinalAnswer
-    } else {
-        AssistantPhase::Commentary
-    }))
-}
-
-fn merge_tool_presentations(
-    existing: Option<ToolPresentation>,
-    fallback: Option<ToolPresentation>,
-) -> Option<ToolPresentation> {
-    match (existing, fallback) {
-        (Some(mut existing), Some(fallback)) => {
-            if existing.display_name.trim().is_empty() {
-                existing.display_name = fallback.display_name;
-            }
-            if existing.description.trim().is_empty() {
-                existing.description = fallback.description;
-            }
-            let icon_missing = existing
-                .icon
-                .as_deref()
-                .map(str::trim)
-                .map(|icon| icon.is_empty())
-                .unwrap_or(true);
-            if icon_missing {
-                existing.icon = fallback.icon;
-            }
-            Some(existing)
-        }
-        (Some(existing), None) => Some(existing),
-        (None, fallback) => fallback,
-    }
-}
-
-fn enrich_tool_presentation(
-    existing: Option<ToolPresentation>,
-    snapshot: &ToolCatalogSnapshot,
-    tool_name: &str,
-) -> Option<ToolPresentation> {
-    merge_tool_presentations(existing, snapshot.presentation_for(tool_name).cloned())
-}
-
-fn enrich_tool_stream_event(
-    event: ProviderStreamEvent,
-    snapshot: &ToolCatalogSnapshot,
-) -> ProviderStreamEvent {
-    match event {
-        ProviderStreamEvent::ToolCallStarted {
-            item_id,
-            call_id,
-            name,
-            presentation,
-        } => ProviderStreamEvent::ToolCallStarted {
-            presentation: enrich_tool_presentation(presentation, snapshot, &name),
-            item_id,
-            call_id,
-            name,
-        },
-        ProviderStreamEvent::ToolCallCompleted {
-            item_id,
-            call_id,
-            name,
-            arguments,
-            presentation,
-        } => ProviderStreamEvent::ToolCallCompleted {
-            presentation: enrich_tool_presentation(presentation, snapshot, &name),
-            item_id,
-            call_id,
-            name,
-            arguments,
-        },
-        ProviderStreamEvent::ToolCallProgress {
-            call_id,
-            name,
-            elapsed_ms,
-            presentation,
-        } => ProviderStreamEvent::ToolCallProgress {
-            presentation: enrich_tool_presentation(presentation, snapshot, &name),
-            call_id,
-            name,
-            elapsed_ms,
-        },
-        other => other,
-    }
-}
-
-fn select_final_output_text(
-    hop_messages: &[(String, Option<AssistantPhase>)],
-    fallback_output_text: &str,
-    commentary_history: &[String],
-) -> String {
-    let preferred = hop_messages
-        .iter()
-        .rev()
-        .find(|(_, phase)| *phase != Some(AssistantPhase::Commentary))
-        .map(|(text, _)| text.as_str())
-        .unwrap_or(fallback_output_text);
-
-    strip_commentary_prefixes(preferred, commentary_history)
-}
-
-fn build_base_context(
-    developer_items: Vec<Value>,
-    recovery_note: Option<Value>,
-    context_items: Vec<Value>,
-    current_user_item: Value,
-) -> Vec<Value> {
-    let mut base_context = Vec::new();
-    base_context.extend(developer_items);
-    if let Some(note_item) = recovery_note {
-        base_context.push(note_item);
-    }
-    base_context.extend(context_items);
-    base_context.push(current_user_item);
-    base_context
-}
-
-// ── Request builder ───────────────────────────────────────────────────────
-
-fn build_request(
-    req: &ChatRequest,
-    input_items: Vec<Value>,
-    tools_schemas: Vec<Value>,
-) -> ResponseStreamRequest {
-    ResponseStreamRequest {
-        input_items,
-        model: req.model.clone(),
-        reasoning_effort: req.reasoning_effort.clone(),
-        instructions_override: None,
-        text: req.text.clone(),
-        include: req.include.clone(),
-        service_tier: req.service_tier.clone(),
-        prompt_cache_key: req.prompt_cache_key.clone(),
-        client_metadata: req.client_metadata.clone(),
-        generate: req.generate,
-        tools: Some(tools_schemas),
-        tool_choice: Some(serde_json::Value::String("auto".to_string())),
-    }
-}
-
-// ── Tool-call / output pairing ────────────────────────────────────────────
-// The provider may omit paired function_call items when only
-// function_call_output items appear in continuation.  This helper
-// re-inserts the missing call items so the API always sees complete
-// call→output pairs.
-
-fn ensure_tool_call_output_pairs(
-    items: Vec<Value>,
-    executed_tool_call_items: &[Value],
-) -> Vec<Value> {
-    let existing_call_ids: HashSet<String> = items
-        .iter()
-        .filter_map(|item| match item.get("type").and_then(Value::as_str) {
-            Some("function_call") | Some("custom_tool_call") => item
-                .get("call_id")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned),
-            _ => None,
-        })
-        .collect();
-
-    let mut missing_call_by_id: HashMap<String, Value> = HashMap::new();
-    for call_item in executed_tool_call_items {
-        let Some(call_id) = call_item.get("call_id").and_then(Value::as_str) else {
-            continue;
-        };
-        if existing_call_ids.contains(call_id) {
-            continue;
-        }
-        missing_call_by_id.insert(call_id.to_string(), call_item.clone());
-    }
-
-    if missing_call_by_id.is_empty() {
-        return items;
-    }
-
-    let mut stitched = Vec::with_capacity(items.len() + missing_call_by_id.len());
-    let mut inserted: HashSet<String> = HashSet::new();
-    for item in items {
-        if matches!(
-            item.get("type").and_then(Value::as_str),
-            Some("function_call_output") | Some("custom_tool_call_output")
-        ) {
-            if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
-                if let Some(missing_call) = missing_call_by_id.get(call_id) {
-                    if !inserted.contains(call_id) {
-                        stitched.push(missing_call.clone());
-                        inserted.insert(call_id.to_string());
-                    }
-                }
-            }
-        }
-        stitched.push(item);
-    }
-
-    for (call_id, missing_call) in missing_call_by_id {
-        if !inserted.contains(&call_id) {
-            stitched.push(missing_call);
-        }
-    }
-
-    stitched
-}
+use tool_state::apply_tool_state_changes;
+use turn::TurnAccumulator;
 
 impl AgentRuntime {
     pub async fn run_turn<F>(
@@ -615,28 +292,12 @@ impl AgentRuntime {
     }
 }
 
-fn apply_tool_state_changes(
-    mounted_tool_sources: &mut MountedToolSourceSessions,
-    state_changes: Vec<ToolCatalogStateChange>,
-) {
-    for state_change in state_changes {
-        match state_change {
-            ToolCatalogStateChange::MountToolSource(source_session) => {
-                mounted_tool_sources.insert(source_session.source_id.clone(), source_session);
-            }
-            ToolCatalogStateChange::UnmountToolSource { source_id, .. } => {
-                mounted_tool_sources.remove(&source_id);
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        apply_tool_state_changes, build_base_context, ensure_tool_call_output_pairs,
-        merge_tool_presentations, select_final_output_text, strip_commentary_prefixes,
-    };
+    use super::output::{select_final_output_text, strip_commentary_prefixes};
+    use super::presentations::merge_tool_presentations;
+    use super::request::{build_base_context, ensure_tool_call_output_pairs};
+    use super::tool_state::apply_tool_state_changes;
     use crate::config::McpServerConfig;
     use crate::tools::{
         MountedToolDefinition, MountedToolSourceSession, MountedToolSourceSessions,
