@@ -18,8 +18,8 @@ use crate::tools::{
     format_tool_schema, humanize_tool_name,
 };
 pub use manager_snapshot::{
-    ToolManagerSnapshot, ToolManagerSnapshotRequest, ToolManagerSourceSnapshot,
-    ToolManagerSourceType, ToolManagerToolSnapshot,
+    ToolManagerSchemaFormat, ToolManagerSnapshot, ToolManagerSnapshotRequest,
+    ToolManagerSourceSnapshot, ToolManagerSourceType, ToolManagerToolSnapshot,
 };
 use names::{
     mount_tool_name_for_server, prefixed_mcp_tool_name, presentation_for_manage_mcp_server,

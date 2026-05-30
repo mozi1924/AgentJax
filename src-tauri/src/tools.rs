@@ -11,8 +11,9 @@ use serde_json::{Value, json};
 pub(crate) use catalog::ToolCatalogExecution;
 pub use catalog::{
     MountedToolDefinition, MountedToolSourceSession, MountedToolSourceSessions, ToolCatalog,
-    ToolCatalogSnapshot, ToolCatalogStateChange, ToolManagerSnapshot, ToolManagerSnapshotRequest,
-    ToolManagerSourceSnapshot, ToolManagerSourceType, ToolManagerToolSnapshot,
+    ToolCatalogSnapshot, ToolCatalogStateChange, ToolManagerSchemaFormat, ToolManagerSnapshot,
+    ToolManagerSnapshotRequest, ToolManagerSourceSnapshot, ToolManagerSourceType,
+    ToolManagerToolSnapshot,
 };
 pub use files::{EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool};
 pub use native::{CalculatorTool, SystemTimeTool};

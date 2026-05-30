@@ -40,6 +40,8 @@ pub struct ToolManagerSourceSnapshot {
     pub enabled: bool,
     pub status: String,
     pub exposure_mode: String,
+    pub source_capabilities: Vec<String>,
+    pub policy_paths: ToolManagerSourcePolicyPaths,
     pub tools: Vec<ToolManagerToolSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -67,6 +69,35 @@ pub struct ToolManagerToolSnapshot {
     pub enabled: bool,
     pub availability: String,
     pub schema_summary: ToolSchemaSummary,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_schema: Option<Value>,
+    pub schema_format: ToolManagerSchemaFormat,
+    pub source_capabilities: Vec<String>,
+    pub policy_paths: ToolManagerToolPolicyPaths,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolManagerSourcePolicyPaths {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_enabled_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exposure_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolManagerToolPolicyPaths {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_enabled_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolManagerSchemaFormat {
+    JsonSchema,
+    OpenaiFunction,
+    Mcp,
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
@@ -116,6 +147,7 @@ impl ToolCatalog {
             .iter()
             .map(|tool| {
                 let enabled = self.native_tool_enabled(tool.name());
+                let input_schema = tool.parameters_schema();
                 ToolManagerToolSnapshot {
                     id: tool.name().to_string(),
                     friendly_name: tool.display_name().to_string(),
@@ -124,7 +156,13 @@ impl ToolCatalog {
                     icon: tool.icon().map(ToOwned::to_owned),
                     enabled,
                     availability: if enabled { "available" } else { "disabled" }.to_string(),
-                    schema_summary: schema_summary(&tool.parameters_schema()),
+                    schema_summary: schema_summary(&input_schema),
+                    input_schema: Some(input_schema),
+                    schema_format: ToolManagerSchemaFormat::JsonSchema,
+                    source_capabilities: vec!["policy:tool_enabled".to_string()],
+                    policy_paths: ToolManagerToolPolicyPaths {
+                        tool_enabled_path: Some(native_tool_enabled_path(tool.name())),
+                    },
                 }
             })
             .collect();
@@ -136,6 +174,8 @@ impl ToolCatalog {
             enabled: true,
             status: "ready".to_string(),
             exposure_mode: "always".to_string(),
+            source_capabilities: vec!["policy:tool_enabled".to_string()],
+            policy_paths: ToolManagerSourcePolicyPaths::default(),
             tools,
             error: None,
         }
@@ -175,6 +215,15 @@ impl ToolCatalog {
                                 availability: if enabled { "mounted" } else { "disabled" }
                                     .to_string(),
                                 schema_summary: schema_summary(&tool.input_schema),
+                                input_schema: Some(tool.input_schema.clone()),
+                                schema_format: ToolManagerSchemaFormat::Mcp,
+                                source_capabilities: mcp_source_capabilities(),
+                                policy_paths: ToolManagerToolPolicyPaths {
+                                    tool_enabled_path: Some(mcp_tool_enabled_path(
+                                        server_id,
+                                        &tool.tool_name,
+                                    )),
+                                },
                             }
                         })
                         .collect::<Vec<_>>()
@@ -216,6 +265,15 @@ impl ToolCatalog {
                                     availability: if enabled { "available" } else { "disabled" }
                                         .to_string(),
                                     schema_summary: schema_summary(&tool.input_schema),
+                                    input_schema: Some(tool.input_schema),
+                                    schema_format: ToolManagerSchemaFormat::Mcp,
+                                    source_capabilities: mcp_source_capabilities(),
+                                    policy_paths: ToolManagerToolPolicyPaths {
+                                        tool_enabled_path: Some(mcp_tool_enabled_path(
+                                            server_id,
+                                            &tool.tool_name,
+                                        )),
+                                    },
                                 }
                             })
                             .collect();
@@ -234,6 +292,11 @@ impl ToolCatalog {
                 enabled: source_enabled,
                 status,
                 exposure_mode: exposure_mode.to_string(),
+                source_capabilities: mcp_source_capabilities(),
+                policy_paths: ToolManagerSourcePolicyPaths {
+                    source_enabled_path: Some(mcp_source_enabled_path(server_id)),
+                    exposure_path: Some(mcp_exposure_path(server_id)),
+                },
                 tools,
                 error,
             });
@@ -273,6 +336,15 @@ impl ToolCatalog {
                             }
                             .to_string(),
                             schema_summary: schema_summary(&registered.tool.input_schema),
+                            input_schema: Some(registered.tool.input_schema.clone()),
+                            schema_format: ToolManagerSchemaFormat::JsonSchema,
+                            source_capabilities: plugin_source_capabilities(),
+                            policy_paths: ToolManagerToolPolicyPaths {
+                                tool_enabled_path: Some(plugin_tool_enabled_path(
+                                    &registered.plugin_id,
+                                    &registered.tool.name,
+                                )),
+                            },
                         }
                     })
                     .collect();
@@ -288,6 +360,11 @@ impl ToolCatalog {
                     enabled: source_enabled,
                     status: if source_enabled { "ready" } else { "disabled" }.to_string(),
                     exposure_mode: "always".to_string(),
+                    source_capabilities: plugin_source_capabilities(),
+                    policy_paths: ToolManagerSourcePolicyPaths {
+                        source_enabled_path: Some(plugin_source_enabled_path(&manifest.id)),
+                        exposure_path: None,
+                    },
                     tools,
                     error: None,
                 }
@@ -317,6 +394,10 @@ impl ToolCatalog {
                     enabled: true,
                     availability: "session".to_string(),
                     schema_summary: schema_summary(&tool.parameters),
+                    input_schema: Some(tool.parameters),
+                    schema_format: ToolManagerSchemaFormat::JsonSchema,
+                    source_capabilities: vec!["session".to_string()],
+                    policy_paths: ToolManagerToolPolicyPaths::default(),
                 }
             })
             .collect();
@@ -336,6 +417,8 @@ impl ToolCatalog {
             }
             .to_string(),
             exposure_mode: "session".to_string(),
+            source_capabilities: vec!["session".to_string()],
+            policy_paths: ToolManagerSourcePolicyPaths::default(),
             tools,
             error: None,
         }
@@ -373,8 +456,9 @@ impl ToolCatalog {
             ),
         ]
         .into_iter()
-        .map(
-            |(id, friendly_name, description, icon, schema)| ToolManagerToolSnapshot {
+        .map(|(id, friendly_name, description, icon, schema)| {
+            let input_schema = schema_parameters(&schema).clone();
+            ToolManagerToolSnapshot {
                 id: id.to_string(),
                 friendly_name: friendly_name.to_string(),
                 model_name: id.to_string(),
@@ -382,9 +466,13 @@ impl ToolCatalog {
                 icon,
                 enabled: true,
                 availability: "available".to_string(),
-                schema_summary: schema_summary(schema_parameters(&schema)),
-            },
-        )
+                schema_summary: schema_summary(&input_schema),
+                input_schema: Some(input_schema),
+                schema_format: ToolManagerSchemaFormat::OpenaiFunction,
+                source_capabilities: vec!["background".to_string()],
+                policy_paths: ToolManagerToolPolicyPaths::default(),
+            }
+        })
         .collect();
 
         ToolManagerSourceSnapshot {
@@ -394,6 +482,8 @@ impl ToolCatalog {
             enabled: true,
             status: "ready".to_string(),
             exposure_mode: "control".to_string(),
+            source_capabilities: vec!["background".to_string()],
+            policy_paths: ToolManagerSourcePolicyPaths::default(),
             tools,
             error: None,
         }
@@ -418,6 +508,7 @@ impl ToolCatalog {
                     server_id,
                     mounted_servers.contains_key(server_id),
                 );
+                let input_schema = schema_parameters(&schema).clone();
                 ToolManagerToolSnapshot {
                     id: server_id.clone(),
                     friendly_name: format!("Manage {server_id}"),
@@ -426,7 +517,11 @@ impl ToolCatalog {
                     icon: Some("Plug".to_string()),
                     enabled: true,
                     availability: "available".to_string(),
-                    schema_summary: schema_summary(schema_parameters(&schema)),
+                    schema_summary: schema_summary(&input_schema),
+                    input_schema: Some(input_schema),
+                    schema_format: ToolManagerSchemaFormat::OpenaiFunction,
+                    source_capabilities: vec!["mcp:control".to_string()],
+                    policy_paths: ToolManagerToolPolicyPaths::default(),
                 }
             })
             .collect();
@@ -438,6 +533,8 @@ impl ToolCatalog {
             enabled: true,
             status: "ready".to_string(),
             exposure_mode: "control".to_string(),
+            source_capabilities: vec!["mcp:control".to_string()],
+            policy_paths: ToolManagerSourcePolicyPaths::default(),
             tools,
             error: None,
         }
@@ -483,4 +580,68 @@ fn schema_summary(schema: &Value) -> ToolSchemaSummary {
         required,
         properties,
     }
+}
+
+fn escape_policy_path_segment(segment: &str) -> String {
+    segment.replace('\\', "\\\\").replace('.', "\\.")
+}
+
+fn native_tool_enabled_path(tool_id: &str) -> String {
+    format!(
+        "tool_manager.native_tools.{}.enabled",
+        escape_policy_path_segment(tool_id)
+    )
+}
+
+fn plugin_source_enabled_path(source_id: &str) -> String {
+    format!(
+        "tool_manager.plugin_tools.{}.enabled",
+        escape_policy_path_segment(source_id)
+    )
+}
+
+fn plugin_tool_enabled_path(source_id: &str, tool_id: &str) -> String {
+    format!(
+        "tool_manager.plugin_tools.{}.tools.{}.enabled",
+        escape_policy_path_segment(source_id),
+        escape_policy_path_segment(tool_id)
+    )
+}
+
+fn mcp_source_enabled_path(source_id: &str) -> String {
+    format!(
+        "tool_manager.mcp_tools.{}.enabled",
+        escape_policy_path_segment(source_id)
+    )
+}
+
+fn mcp_tool_enabled_path(source_id: &str, tool_id: &str) -> String {
+    format!(
+        "tool_manager.mcp_tools.{}.tools.{}.enabled",
+        escape_policy_path_segment(source_id),
+        escape_policy_path_segment(tool_id)
+    )
+}
+
+fn mcp_exposure_path(source_id: &str) -> String {
+    format!(
+        "tool_manager.mcp_tools.{}.exposure",
+        escape_policy_path_segment(source_id)
+    )
+}
+
+fn plugin_source_capabilities() -> Vec<String> {
+    vec![
+        "policy:source_enabled".to_string(),
+        "policy:tool_enabled".to_string(),
+    ]
+}
+
+fn mcp_source_capabilities() -> Vec<String> {
+    vec![
+        "discover".to_string(),
+        "policy:source_enabled".to_string(),
+        "policy:tool_enabled".to_string(),
+        "policy:exposure".to_string(),
+    ]
 }

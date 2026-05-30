@@ -1598,6 +1598,29 @@ globalThis.AgentJaxPlugin = {
                 .iter()
                 .any(|tool| tool.id == "calculator")
         );
+        let calculator = native_source
+            .tools
+            .iter()
+            .find(|tool| tool.id == "calculator")
+            .expect("calculator tool exists in manager snapshot");
+        assert_eq!(
+            calculator.schema_format,
+            crate::tools::ToolManagerSchemaFormat::JsonSchema
+        );
+        assert_eq!(
+            calculator.policy_paths.tool_enabled_path.as_deref(),
+            Some("tool_manager.native_tools.calculator.enabled")
+        );
+        assert_eq!(
+            calculator
+                .input_schema
+                .as_ref()
+                .and_then(|schema| schema.get("properties"))
+                .and_then(|properties| properties.get("expression"))
+                .and_then(|property| property.get("type"))
+                .and_then(serde_json::Value::as_str),
+            Some("string")
+        );
 
         let mcp_source = snapshot
             .sources
@@ -1609,6 +1632,14 @@ globalThis.AgentJaxPlugin = {
             crate::tools::ToolManagerSourceType::Mcp
         );
         assert_eq!(mcp_source.status, "configured");
+        assert_eq!(
+            mcp_source.policy_paths.source_enabled_path.as_deref(),
+            Some("tool_manager.mcp_tools.openai_docs.enabled")
+        );
+        assert_eq!(
+            mcp_source.policy_paths.exposure_path.as_deref(),
+            Some("tool_manager.mcp_tools.openai_docs.exposure")
+        );
         assert!(mcp_source.tools.is_empty());
         assert!(mcp_source.error.is_none());
     }

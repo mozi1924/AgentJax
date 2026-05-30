@@ -66,7 +66,8 @@ export function NodeList({
           );
         }
 
-        return (
+        if (node.kind === 'collection') {
+          return (
           <section key={`${contextPath || 'root'}:${node.id}`} className="pt-2">
             <CollectionEditor
               collection={node}
@@ -80,7 +81,10 @@ export function NodeList({
               renderNodeList={(props) => <NodeList {...props} />}
             />
           </section>
-        );
+          );
+        }
+
+        return null;
       })}
     </div>
   );

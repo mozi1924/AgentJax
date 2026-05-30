@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { SettingsFieldSchema, SettingsSnapshot } from '../../../features/settings/types';
 import { useI18n } from '../../../features/i18n';
@@ -99,6 +99,7 @@ export function FieldRow({
   const secretStatus = snapshot.secretStatuses[resolvedPath];
   const [draft, setDraft] = useState(normalizeFieldValueForDraft(field, value, secretStatus));
   const [keyValueEntries, setKeyValueEntries] = useState<KeyValueEntry[]>([]);
+  const latestKeyValueEntries = useRef<KeyValueEntry[]>([]);
   const [dotenvImportOpen, setDotenvImportOpen] = useState(false);
   const [dotenvDraft, setDotenvDraft] = useState('');
   const [dotenvErrors, setDotenvErrors] = useState<string[]>([]);
@@ -114,7 +115,9 @@ export function FieldRow({
   useEffect(() => {
     setDraft(normalizeFieldValueForDraft(field, value, secretStatus));
     if (field.control === 'key_value') {
-      setKeyValueEntries(mapToKeyValueEntries(value, { stringifyJsonValues: parseJsonValues }));
+      const nextEntries = mapToKeyValueEntries(value, { stringifyJsonValues: parseJsonValues });
+      latestKeyValueEntries.current = nextEntries;
+      setKeyValueEntries(nextEntries);
       setDotenvImportOpen(false);
       setDotenvDraft('');
       setDotenvErrors([]);
@@ -165,6 +168,7 @@ export function FieldRow({
     setDotenvErrors([]);
     setDotenvImportOpen(false);
     setDotenvDraft('');
+    latestKeyValueEntries.current = nextEntries;
     setKeyValueEntries(nextEntries);
     setIsDirty(true);
     await persistKeyValueEntries(nextEntries);
@@ -419,14 +423,15 @@ export function FieldRow({
                     placeholder={keyValueMeta.keyPlaceholder}
                     disabled={disabled}
                     onChange={(event) => {
-                      const next = keyValueEntries.map((item) =>
+                      const next = latestKeyValueEntries.current.map((item) =>
                         item.id === entry.id ? { ...item, key: event.target.value } : item
                       );
+                      latestKeyValueEntries.current = next;
                       setKeyValueEntries(next);
                       setIsDirty(true);
                     }}
                     onBlur={() => {
-                      void persistKeyValueEntries(keyValueEntries);
+                      void persistKeyValueEntries(latestKeyValueEntries.current);
                     }}
                     className="w-[42%] rounded-md border border-[#2b2b2d] bg-[#171717]/60 px-2 py-1 font-mono text-xs text-neutral-200 outline-none transition focus:border-neutral-500 disabled:opacity-50"
                   />
@@ -435,14 +440,15 @@ export function FieldRow({
                     placeholder={keyValueMeta.valuePlaceholder}
                     disabled={disabled}
                     onChange={(event) => {
-                      const next = keyValueEntries.map((item) =>
+                      const next = latestKeyValueEntries.current.map((item) =>
                         item.id === entry.id ? { ...item, value: event.target.value } : item
                       );
+                      latestKeyValueEntries.current = next;
                       setKeyValueEntries(next);
                       setIsDirty(true);
                     }}
                     onBlur={() => {
-                      void persistKeyValueEntries(keyValueEntries);
+                      void persistKeyValueEntries(latestKeyValueEntries.current);
                     }}
                     className="flex-1 rounded-md border border-[#2b2b2d] bg-[#171717]/60 px-2 py-1 font-mono text-xs text-neutral-200 outline-none transition focus:border-neutral-500 disabled:opacity-50"
                   />
@@ -450,7 +456,8 @@ export function FieldRow({
                     type="button"
                     disabled={disabled}
                     onClick={() => {
-                      const next = keyValueEntries.filter((item) => item.id !== entry.id);
+                      const next = latestKeyValueEntries.current.filter((item) => item.id !== entry.id);
+                      latestKeyValueEntries.current = next;
                       setKeyValueEntries(next);
                       setIsDirty(true);
                       void persistKeyValueEntries(next);
@@ -468,10 +475,14 @@ export function FieldRow({
                   type="button"
                   disabled={disabled}
                   onClick={() => {
-                    setKeyValueEntries((current) => [
-                      ...current,
-                      { id: nextKeyValueEntryId(), key: '', value: '' },
-                    ]);
+                    setKeyValueEntries((current) => {
+                      const next = [
+                        ...current,
+                        { id: nextKeyValueEntryId(), key: '', value: '' },
+                      ];
+                      latestKeyValueEntries.current = next;
+                      return next;
+                    });
                     setIsDirty(true);
                   }}
                   className="inline-flex items-center gap-1.5 rounded-md border border-[#2b2b2d] bg-[#2e2e30]/80 px-2 py-1 text-[11px] text-[#e3e3e3] transition hover:bg-[#3e3e40] disabled:opacity-50"

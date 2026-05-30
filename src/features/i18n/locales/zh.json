@@ -265,6 +265,8 @@
   "settings.tools.enable_tool": "启用工具",
   "settings.tools.disable_tool": "禁用工具",
   "settings.tools.schema_summary": "{count} 个参数",
+  "settings.tools.policy": "策略",
+  "settings.tools.parameters": "参数",
   
   "chat.activity.search_one": "检索了 1 次",
   "chat.activity.search_many": "检索了 {count} 次",

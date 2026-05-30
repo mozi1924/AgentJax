@@ -265,6 +265,8 @@
   "settings.tools.enable_tool": "Enable tool",
   "settings.tools.disable_tool": "Disable tool",
   "settings.tools.schema_summary": "{count} params",
+  "settings.tools.policy": "Policy",
+  "settings.tools.parameters": "Parameters",
   
   "chat.activity.search_one": "Explored 1 search",
   "chat.activity.search_many": "Explored {count} searches",

@@ -1,0 +1,78 @@
+import type { Dispatch, ReactElement, ReactNode, SetStateAction } from 'react';
+import type {
+  SecretStatus,
+  SettingsFieldSchema,
+  SettingsSchemaNode,
+  SettingsSnapshot,
+  SettingsUiAction,
+  SettingsUiSchemaNode,
+} from '../../../features/settings/types';
+
+export type RendererValueSource = 'settings' | 'toolManager' | 'static';
+
+export interface SchemaRendererActions {
+  saveField: (path: string, value: unknown) => Promise<void>;
+  deletePath?: (path: string) => Promise<void>;
+  addCollectionItem?: (
+    path: string,
+    key: string,
+    value: Record<string, unknown>
+  ) => Promise<void>;
+  discover?: (id?: string) => Promise<void> | void;
+  refresh?: (id?: string) => Promise<void> | void;
+  togglePolicy?: (path: string, enabled: boolean) => Promise<void> | void;
+  setExposure?: (path: string, exposure: string) => Promise<void> | void;
+  runAction?: (action: SettingsUiAction) => Promise<void> | void;
+}
+
+export interface SchemaRendererQueryState {
+  search?: string;
+  filter?: string;
+  activeTab?: string;
+  selectedItem?: string;
+  [key: string]: unknown;
+}
+
+export interface SchemaRendererProps {
+  nodes: SettingsSchemaNode[];
+  snapshot: SettingsSnapshot;
+  savingPath: string | null;
+  fieldErrors: Record<string, string>;
+  contextPath?: string;
+  valueSource?: RendererValueSource;
+  actions: SchemaRendererActions;
+  queryState?: SchemaRendererQueryState;
+  renderUiNode?: (props: SchemaRendererUiNodeRenderProps) => ReactNode;
+}
+
+export interface SchemaRendererUiNodeRenderProps {
+  node: SettingsUiSchemaNode;
+  defaultRender: () => ReactElement;
+  renderChildren: (nodes: SettingsSchemaNode[], contextPath?: string) => ReactElement;
+}
+
+export interface FieldControlProps {
+  field: SettingsFieldSchema;
+  resolvedPath: string;
+  value: unknown;
+  draft: string;
+  setDraft: Dispatch<SetStateAction<string>>;
+  isDirty: boolean;
+  setIsDirty: Dispatch<SetStateAction<boolean>>;
+  disabled: boolean;
+  options: Array<{ label: string; value: string }>;
+  secretStatus?: SecretStatus;
+  commit: (value: unknown) => Promise<void>;
+  onSaveField: (path: string, value: unknown) => Promise<void>;
+  setLocalError: Dispatch<SetStateAction<string | null>>;
+}
+
+export interface FieldShellProps {
+  field: SettingsFieldSchema;
+  resolvedPath: string;
+  secretStatus?: SecretStatus;
+  helperText: string;
+  hasError: boolean;
+  fullWidth: boolean;
+  children: ReactNode;
+}

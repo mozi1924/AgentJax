@@ -48,6 +48,14 @@ const tool = (overrides) => ({
   enabled: true,
   availability: 'available',
   schemaSummary: { parameterCount: 1, required: [], properties: ['expression'] },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      expression: { type: 'string' },
+    },
+  },
+  schemaFormat: 'json_schema',
+  policyPaths: {},
   ...overrides,
 });
 
@@ -143,6 +151,19 @@ test('filters only the currently selected source tools', () => {
   );
 });
 
+test('selects sources by typed identity when source ids collide across categories', () => {
+  const sources = [
+    source({ sourceType: 'mcp', sourceId: 'shared', sourceName: 'MCP Shared' }),
+    source({ sourceType: 'plugin', sourceId: 'shared', sourceName: 'Plugin Shared' }),
+  ];
+
+  assert.equal(view.sourceIdentityKey(sources[0]), 'mcp:shared');
+  assert.equal(
+    view.selectToolManagerSource(sources, 'plugin:shared').sourceName,
+    'Plugin Shared'
+  );
+});
+
 test('builds escaped policy paths for source and tool switches', () => {
   const pluginSource = source({
     sourceType: 'plugin',
@@ -170,6 +191,24 @@ test('builds escaped policy paths for source and tool switches', () => {
   assert.equal(
     view.mcpExposurePolicyPath(mcpSource),
     'tool_manager.mcp_tools.openai\\.docs.exposure'
+  );
+
+  assert.equal(
+    view.sourcePolicyEnabledPath(
+      source({
+        sourceType: 'mcp',
+        sourceId: 'ignored',
+        policyPaths: { sourceEnabledPath: 'tool_manager.mcp_tools.from_backend.enabled' },
+      })
+    ),
+    'tool_manager.mcp_tools.from_backend.enabled'
+  );
+  assert.equal(
+    view.toolPolicyEnabledPath(
+      mcpSource,
+      tool({ policyPaths: { toolEnabledPath: 'tool_manager.mcp_tools.from_backend.tools.t.enabled' } })
+    ),
+    'tool_manager.mcp_tools.from_backend.tools.t.enabled'
   );
 });
 

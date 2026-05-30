@@ -19,6 +19,12 @@ export interface ToolManagerToolSnapshot {
   enabled: boolean;
   availability: string;
   schemaSummary: ToolSchemaSummary;
+  inputSchema?: unknown;
+  schemaFormat?: 'json_schema' | 'openai_function' | 'mcp';
+  sourceCapabilities?: string[];
+  policyPaths?: {
+    toolEnabledPath?: string | null;
+  };
 }
 
 export interface ToolManagerSourceSnapshot {
@@ -28,6 +34,11 @@ export interface ToolManagerSourceSnapshot {
   enabled: boolean;
   status: string;
   exposureMode: string;
+  sourceCapabilities?: string[];
+  policyPaths?: {
+    sourceEnabledPath?: string | null;
+    exposurePath?: string | null;
+  };
   tools: ToolManagerToolSnapshot[];
   error?: string | null;
 }
@@ -57,10 +68,17 @@ export const sourcesForCategory = (
   category: ToolCategory
 ) => sources.filter((source) => categoryForSource(source.sourceType) === category);
 
+export const sourceIdentityKey = (source: Pick<ToolManagerSourceSnapshot, 'sourceType' | 'sourceId'>) =>
+  `${source.sourceType}:${source.sourceId}`;
+
 export const selectToolManagerSource = (
   sources: ToolManagerSourceSnapshot[],
-  selectedSourceId: string
-) => sources.find((source) => source.sourceId === selectedSourceId) || sources[0] || null;
+  selectedSourceKey: string
+) =>
+  sources.find((source) => sourceIdentityKey(source) === selectedSourceKey) ||
+  sources.find((source) => source.sourceId === selectedSourceKey) ||
+  sources[0] ||
+  null;
 
 export const matchesToolSearch = (tool: ToolManagerToolSnapshot, query: string) => {
   const normalized = query.trim().toLowerCase();
@@ -75,6 +93,9 @@ export const filterToolsForQuery = (tools: ToolManagerToolSnapshot[], query: str
   tools.filter((tool) => matchesToolSearch(tool, query));
 
 export const sourcePolicyEnabledPath = (source: ToolManagerSourceSnapshot) => {
+  if (source.policyPaths?.sourceEnabledPath) {
+    return source.policyPaths.sourceEnabledPath;
+  }
   if (source.sourceType === 'plugin') {
     return `tool_manager.plugin_tools.${escapePathSegment(source.sourceId)}.enabled`;
   }
@@ -88,6 +109,9 @@ export const toolPolicyEnabledPath = (
   source: ToolManagerSourceSnapshot,
   tool: ToolManagerToolSnapshot
 ) => {
+  if (tool.policyPaths?.toolEnabledPath) {
+    return tool.policyPaths.toolEnabledPath;
+  }
   if (source.sourceType === 'native') {
     return `tool_manager.native_tools.${escapePathSegment(tool.id)}.enabled`;
   }
@@ -105,9 +129,10 @@ export const toolPolicyEnabledPath = (
 };
 
 export const mcpExposurePolicyPath = (source: ToolManagerSourceSnapshot) =>
-  source.sourceType === 'mcp'
+  source.policyPaths?.exposurePath ||
+  (source.sourceType === 'mcp'
     ? `tool_manager.mcp_tools.${escapePathSegment(source.sourceId)}.exposure`
-    : null;
+    : null);
 
 export const isSourcePolicyEditable = (source: ToolManagerSourceSnapshot) =>
   source.sourceType === 'plugin' || source.sourceType === 'mcp';

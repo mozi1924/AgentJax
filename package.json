@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test:frontend": "node scripts/test-tool-manager-view.mjs",
+    "test:frontend": "node scripts/test-tool-manager-view.mjs && node scripts/test-settings-schema-renderer.mjs && node scripts/test-settings-field-controls.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "tauri": "tauri",
