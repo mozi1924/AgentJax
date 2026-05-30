@@ -20,7 +20,9 @@ use crate::time_context::{build_temporal_context_developer_item, render_timed_me
 use crate::tools::ToolExecutionContext;
 use crate::tools::{ToolCatalog, ToolCatalogSnapshot};
 use chat_events::{ChatStreamEvent, emit_mapped_stream_event, next_event_index};
-use chat_persistence::{persist_assistant_line, persist_tool_progress_event};
+use chat_persistence::{
+    ToolProgressPersistInput, persist_assistant_line, persist_tool_progress_event,
+};
 use chat_title::schedule_title_generation;
 use chat_utils::{chrono_like_now_id, now_unix_ms, run_blocking};
 use serde::Deserialize;
@@ -447,17 +449,23 @@ pub async fn chat_stream(
                     presentation,
                     ..
                 } => {
-                    let _ = persist_tool_progress_event(
-                        &callback_conversation_id,
-                        &callback_request_id,
-                        "tool_call_started",
-                        call_id,
-                        Some(name),
-                        presentation.as_ref().map(|meta| meta.display_name.as_str()),
-                        presentation.as_ref().map(|meta| meta.description.as_str()),
-                        presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
-                        None,
-                    );
+                    let _ = persist_tool_progress_event(ToolProgressPersistInput {
+                        conversation_id: &callback_conversation_id,
+                        request_id: &callback_request_id,
+                        event_kind: "tool_call_started",
+                        tool_call_id: call_id,
+                        tool_name: Some(name),
+                        tool_display_name: presentation
+                            .as_ref()
+                            .map(|meta| meta.display_name.as_str()),
+                        tool_description: presentation
+                            .as_ref()
+                            .map(|meta| meta.description.as_str()),
+                        tool_icon: presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
+                        payload: None,
+                        started_at_unix_ms: None,
+                        completed_at_unix_ms: None,
+                    });
                 }
                 crate::providers::types::ProviderStreamEvent::ToolCallCompleted {
                     call_id,
@@ -466,17 +474,23 @@ pub async fn chat_stream(
                     presentation,
                     ..
                 } => {
-                    let _ = persist_tool_progress_event(
-                        &callback_conversation_id,
-                        &callback_request_id,
-                        "tool_call_done",
-                        call_id,
-                        Some(name),
-                        presentation.as_ref().map(|meta| meta.display_name.as_str()),
-                        presentation.as_ref().map(|meta| meta.description.as_str()),
-                        presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
-                        Some(arguments),
-                    );
+                    let _ = persist_tool_progress_event(ToolProgressPersistInput {
+                        conversation_id: &callback_conversation_id,
+                        request_id: &callback_request_id,
+                        event_kind: "tool_call_done",
+                        tool_call_id: call_id,
+                        tool_name: Some(name),
+                        tool_display_name: presentation
+                            .as_ref()
+                            .map(|meta| meta.display_name.as_str()),
+                        tool_description: presentation
+                            .as_ref()
+                            .map(|meta| meta.description.as_str()),
+                        tool_icon: presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
+                        payload: Some(arguments),
+                        started_at_unix_ms: None,
+                        completed_at_unix_ms: None,
+                    });
                     // Count tokens for the persisted tool arguments and metadata
                     if let Some(ref mid) = model_id {
                         if let Ok(arg_tokens) =
@@ -507,20 +521,28 @@ pub async fn chat_stream(
                     call_id,
                     name,
                     output,
+                    started_at_unix_ms,
+                    completed_at_unix_ms,
                     presentation,
                     ..
                 } => {
-                    let _ = persist_tool_progress_event(
-                        &callback_conversation_id,
-                        &callback_request_id,
-                        "tool_call_exec",
-                        call_id,
-                        Some(name),
-                        presentation.as_ref().map(|meta| meta.display_name.as_str()),
-                        presentation.as_ref().map(|meta| meta.description.as_str()),
-                        presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
-                        Some(output),
-                    );
+                    let _ = persist_tool_progress_event(ToolProgressPersistInput {
+                        conversation_id: &callback_conversation_id,
+                        request_id: &callback_request_id,
+                        event_kind: "tool_call_exec",
+                        tool_call_id: call_id,
+                        tool_name: Some(name),
+                        tool_display_name: presentation
+                            .as_ref()
+                            .map(|meta| meta.display_name.as_str()),
+                        tool_description: presentation
+                            .as_ref()
+                            .map(|meta| meta.description.as_str()),
+                        tool_icon: presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
+                        payload: Some(output),
+                        started_at_unix_ms: Some(*started_at_unix_ms),
+                        completed_at_unix_ms: Some(*completed_at_unix_ms),
+                    });
                     // Count tokens for the tool result output
                     if let Some(ref mid) = model_id {
                         if let Ok(additional) = conversation_store::count_text_tokens(mid, output) {

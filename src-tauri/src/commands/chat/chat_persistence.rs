@@ -5,6 +5,20 @@ use crate::conversation_store::{
 use crate::message_phase::AssistantPhase;
 use serde_json::Value;
 
+pub struct ToolProgressPersistInput<'a> {
+    pub conversation_id: &'a str,
+    pub request_id: &'a str,
+    pub event_kind: &'a str,
+    pub tool_call_id: &'a str,
+    pub tool_name: Option<&'a str>,
+    pub tool_display_name: Option<&'a str>,
+    pub tool_description: Option<&'a str>,
+    pub tool_icon: Option<&'a str>,
+    pub payload: Option<&'a str>,
+    pub started_at_unix_ms: Option<i64>,
+    pub completed_at_unix_ms: Option<i64>,
+}
+
 /// Persist a tool-call event during streaming.  Called from the provider
 /// stream callback so that tool state survives crashes.
 ///
@@ -13,7 +27,7 @@ use serde_json::Value;
 /// - `event_kind == "tool_call_done"` → ensure the pending line exists and
 ///   merge finalized arguments onto it.
 /// - `event_kind == "tool_call_exec"` → update the matching `ToolLine`
-///   with the output and set a terminal success/failure status.
+///   with the output, terminal status, and exact execution timestamps.
 
 fn is_successful_tool_output(output: &Value) -> bool {
     match output {
@@ -27,22 +41,28 @@ fn is_successful_tool_output(output: &Value) -> bool {
     }
 }
 
-pub fn persist_tool_progress_event(
-    conversation_id: &str,
-    request_id: &str,
-    event_kind: &str,
-    tool_call_id: &str,
-    tool_name: Option<&str>,
-    tool_display_name: Option<&str>,
-    tool_description: Option<&str>,
-    tool_icon: Option<&str>,
-    payload: Option<&str>,
-) -> Result<(), String> {
+pub fn persist_tool_progress_event(input: ToolProgressPersistInput<'_>) -> Result<(), String> {
+    let ToolProgressPersistInput {
+        conversation_id,
+        request_id,
+        event_kind,
+        tool_call_id,
+        tool_name,
+        tool_display_name,
+        tool_description,
+        tool_icon,
+        payload,
+        started_at_unix_ms,
+        completed_at_unix_ms,
+    } = input;
+
     if tool_call_id.trim().is_empty() {
         return Ok(());
     }
 
     let ts = now_unix_ms();
+    let started_ts = started_at_unix_ms.unwrap_or(ts);
+    let completed_ts = completed_at_unix_ms.unwrap_or(ts);
     let line_id = format!("tool-{request_id}-{tool_call_id}");
 
     match event_kind {
@@ -65,7 +85,7 @@ pub fn persist_tool_progress_event(
                     line: ConversationLine::Tool(ToolLine {
                         id: line_id.clone(),
                         ts,
-                        started_ts: ts,
+                        started_ts,
                         completed_ts: None,
                         request_id: request_id.to_string(),
                         call_id: tool_call_id.to_string(),
@@ -119,9 +139,9 @@ pub fn persist_tool_progress_event(
                 line_id,
                 line: ConversationLine::Tool(ToolLine {
                     id: format!("tool-{request_id}-{tool_call_id}"),
-                    ts,
-                    started_ts: 0,
-                    completed_ts: Some(ts),
+                    ts: completed_ts,
+                    started_ts: started_at_unix_ms.unwrap_or(0),
+                    completed_ts: Some(completed_ts),
                     request_id: request_id.to_string(),
                     call_id: tool_call_id.to_string(),
                     name: tool_name
