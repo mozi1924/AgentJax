@@ -8,8 +8,10 @@ use crate::tools::{
     SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation, ToolSchemaFormat,
     background_jobs, format_tool_schema, humanize_tool_name,
 };
+use futures_util::FutureExt;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -437,6 +439,18 @@ impl ToolCatalogSnapshot {
         self.presentations.get(tool_name)
     }
 
+    pub(crate) fn is_background_control_tool(&self, tool_name: &str) -> bool {
+        matches!(
+            self.entries.get(tool_name),
+            Some(
+                ToolSnapshotEntry::StartBackgroundTool
+                    | ToolSnapshotEntry::WaitBackgroundTool
+                    | ToolSnapshotEntry::CancelBackgroundTool
+                    | ToolSnapshotEntry::ListBackgroundTools
+            )
+        )
+    }
+
     pub async fn execute(
         &self,
         tool_name: &str,
@@ -526,14 +540,19 @@ impl ToolCatalogSnapshot {
                 let job_for_task = job.clone();
 
                 let handle = tokio::spawn(async move {
-                    let result = execute_backgroundable_entry(
+                    // A background job must always become terminal. Convert a
+                    // panicking target tool into a failed job instead of leaving
+                    // waiters/listeners with a permanent in-progress snapshot.
+                    let result = AssertUnwindSafe(execute_backgroundable_entry(
                         target_entry,
                         target_arguments,
                         context,
                         mcp_manager,
                         mcp_runtime,
-                    )
-                    .await;
+                    ))
+                    .catch_unwind()
+                    .await
+                    .unwrap_or_else(|_| Err("Background tool task panicked".to_string()));
                     background_jobs::complete_job(&job_for_task, result);
                 });
                 background_jobs::register_job_handle(&job, handle);
