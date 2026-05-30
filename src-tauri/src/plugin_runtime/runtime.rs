@@ -1,7 +1,17 @@
-use super::{PluginManifest, SandboxPolicy};
+use super::{
+    PluginInvocationContext, PluginManifest, PluginPackage, PluginToolCall, PluginToolResult,
+    RegisteredPluginTool, SandboxPolicy, registered_tools_for_manifest,
+};
+use deno_core::{JsRuntime, RuntimeOptions, v8};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::path::{Path, PathBuf};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::time::Duration;
 
 pub type PluginRuntimeResult<T> = Result<T, PluginRuntimeError>;
 
@@ -11,6 +21,14 @@ pub enum PluginRuntimeError {
     InvalidManifest(String),
     DuplicatePlugin(String),
     UnknownPlugin(String),
+    UnknownPluginTool {
+        plugin_id: String,
+        tool_name: String,
+    },
+    Io(String),
+    ManifestParse(String),
+    InvalidEntrypoint(String),
+    JavaScript(String),
     UnsupportedOperation(&'static str),
 }
 
@@ -22,6 +40,17 @@ impl Display for PluginRuntimeError {
                 write!(f, "plugin '{plugin_id}' is already registered")
             }
             Self::UnknownPlugin(plugin_id) => write!(f, "plugin '{plugin_id}' is not registered"),
+            Self::UnknownPluginTool {
+                plugin_id,
+                tool_name,
+            } => write!(
+                f,
+                "plugin '{plugin_id}' does not export a tool named '{tool_name}'"
+            ),
+            Self::Io(message) => write!(f, "plugin io error: {message}"),
+            Self::ManifestParse(message) => write!(f, "plugin manifest parse error: {message}"),
+            Self::InvalidEntrypoint(message) => write!(f, "invalid plugin entrypoint: {message}"),
+            Self::JavaScript(message) => write!(f, "plugin JavaScript error: {message}"),
             Self::UnsupportedOperation(operation) => {
                 write!(f, "unsupported plugin runtime operation: {operation}")
             }
@@ -45,6 +74,50 @@ pub trait PluginRuntime {
     fn sandbox_policy(&self, plugin_id: &str) -> Option<&SandboxPolicy> {
         self.manifest(plugin_id).map(|manifest| &manifest.sandbox)
     }
+
+    fn registered_tools(&self) -> Vec<RegisteredPluginTool> {
+        self.manifests()
+            .into_iter()
+            .flat_map(registered_tools_for_manifest)
+            .collect()
+    }
+
+    /// Prepare a plugin invocation with validated plugin/tool identity and the
+    /// sandbox policy that should be applied by the concrete runtime.
+    fn prepare_tool_call(
+        &self,
+        plugin_id: &str,
+        tool_name: &str,
+        arguments: serde_json::Value,
+        context: PluginInvocationContext,
+    ) -> PluginRuntimeResult<PluginToolCall> {
+        let manifest = self
+            .manifest(plugin_id)
+            .ok_or_else(|| PluginRuntimeError::UnknownPlugin(plugin_id.to_string()))?;
+        if !manifest.tools.iter().any(|tool| tool.name == tool_name) {
+            return Err(PluginRuntimeError::UnknownPluginTool {
+                plugin_id: plugin_id.to_string(),
+                tool_name: tool_name.to_string(),
+            });
+        }
+
+        Ok(PluginToolCall {
+            plugin_id: plugin_id.to_string(),
+            tool_name: tool_name.to_string(),
+            arguments,
+            context,
+            sandbox: manifest.sandbox.clone(),
+        })
+    }
+
+    fn execute_tool_call(
+        &mut self,
+        _call: PluginToolCall,
+    ) -> PluginRuntimeResult<PluginToolResult> {
+        Err(PluginRuntimeError::UnsupportedOperation(
+            "execute_plugin_tool_call",
+        ))
+    }
 }
 
 /// A small deno_core-backed runtime shell.
@@ -55,6 +128,7 @@ pub struct DenoCorePluginRuntime {
     runtime_options: deno_core::RuntimeOptions,
     default_sandbox_policy: SandboxPolicy,
     manifests: BTreeMap<String, PluginManifest>,
+    plugin_roots: BTreeMap<String, PathBuf>,
 }
 
 impl DenoCorePluginRuntime {
@@ -67,6 +141,7 @@ impl DenoCorePluginRuntime {
             runtime_options,
             default_sandbox_policy,
             manifests: BTreeMap::new(),
+            plugin_roots: BTreeMap::new(),
         }
     }
 
@@ -75,7 +150,15 @@ impl DenoCorePluginRuntime {
         &self.runtime_options
     }
 
-    fn insert_manifest(&mut self, manifest: PluginManifest) -> PluginRuntimeResult<()> {
+    pub fn register_package(&mut self, package: PluginPackage) -> PluginRuntimeResult<()> {
+        self.insert_manifest(package.manifest, Some(package.root_dir))
+    }
+
+    fn insert_manifest(
+        &mut self,
+        manifest: PluginManifest,
+        root_dir: Option<PathBuf>,
+    ) -> PluginRuntimeResult<()> {
         manifest
             .validate()
             .map_err(PluginRuntimeError::InvalidManifest)?;
@@ -84,8 +167,90 @@ impl DenoCorePluginRuntime {
             return Err(PluginRuntimeError::DuplicatePlugin(manifest.id));
         }
 
+        if let Some(root_dir) = root_dir {
+            self.plugin_roots.insert(manifest.id.clone(), root_dir);
+        }
         self.manifests.insert(manifest.id.clone(), manifest);
         Ok(())
+    }
+
+    fn entrypoint_path(&self, manifest: &PluginManifest) -> PluginRuntimeResult<PathBuf> {
+        let entrypoint = Path::new(&manifest.entrypoint);
+        if entrypoint.is_absolute() {
+            return Ok(entrypoint.to_path_buf());
+        }
+
+        let root_dir = self.plugin_roots.get(&manifest.id).ok_or_else(|| {
+            PluginRuntimeError::InvalidEntrypoint(format!(
+                "plugin '{}' was registered without a root directory; use an absolute entrypoint or register a PluginPackage",
+                manifest.id
+            ))
+        })?;
+        Ok(root_dir.join(entrypoint))
+    }
+
+    fn execute_sync_js_tool(
+        &self,
+        manifest: &PluginManifest,
+        call: PluginToolCall,
+    ) -> PluginRuntimeResult<PluginToolResult> {
+        let entrypoint_path = self.entrypoint_path(manifest)?;
+        let source = std::fs::read_to_string(&entrypoint_path).map_err(|err| {
+            PluginRuntimeError::Io(format!(
+                "failed to read plugin entrypoint '{}': {}",
+                entrypoint_path.display(),
+                err
+            ))
+        })?;
+        let mut runtime = JsRuntime::new(RuntimeOptions::default());
+        let _timeout_guard = install_execution_timeout(&mut runtime, call.sandbox.max_execution_ms);
+        runtime
+            .execute_script(entrypoint_path.to_string_lossy().to_string(), source)
+            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
+
+        let tool_name = serde_json::to_string(&call.tool_name)
+            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
+        let arguments = serde_json::to_string(&call.arguments)
+            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
+        let context = serde_json::to_string(&call.context)
+            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
+        let bridge_source = format!(
+            r#"
+(() => {{
+  const plugin = globalThis.AgentJaxPlugin;
+  if (!plugin || typeof plugin !== "object") {{
+    throw new Error("Plugin entrypoint must set globalThis.AgentJaxPlugin to an object.");
+  }}
+  const tools = plugin.tools;
+  const toolName = {tool_name};
+  const handler = tools && tools[toolName];
+  if (typeof handler !== "function") {{
+    throw new Error(`Plugin tool '${{toolName}}' is not a function.`);
+  }}
+  const value = handler({arguments}, {context});
+  if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "ok")) {{
+    return {{
+      ok: Boolean(value.ok),
+      output: Object.prototype.hasOwnProperty.call(value, "output") && value.output !== undefined ? value.output : null,
+      error: value.error === undefined || value.error === null ? null : String(value.error),
+    }};
+  }}
+  return {{
+    ok: true,
+    output: value === undefined ? null : value,
+    error: null,
+  }};
+}})()
+"#
+        );
+        let result = runtime
+            .execute_script("<agentjax-plugin-call>", bridge_source)
+            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
+
+        deno_core::scope!(scope, &mut runtime);
+        let local = v8::Local::new(scope, result);
+        deno_core::serde_v8::from_v8::<PluginToolResult>(scope, local)
+            .map_err(|err| PluginRuntimeError::JavaScript(format!("invalid plugin result: {err}")))
     }
 }
 
@@ -99,10 +264,11 @@ impl PluginRuntime for DenoCorePluginRuntime {
     }
 
     fn register_manifest(&mut self, manifest: PluginManifest) -> PluginRuntimeResult<()> {
-        self.insert_manifest(manifest)
+        self.insert_manifest(manifest, None)
     }
 
     fn unregister_manifest(&mut self, plugin_id: &str) -> PluginRuntimeResult<PluginManifest> {
+        self.plugin_roots.remove(plugin_id);
         self.manifests
             .remove(plugin_id)
             .ok_or_else(|| PluginRuntimeError::UnknownPlugin(plugin_id.to_string()))
@@ -115,4 +281,44 @@ impl PluginRuntime for DenoCorePluginRuntime {
     fn manifests(&self) -> Vec<&PluginManifest> {
         self.manifests.values().collect()
     }
+
+    fn execute_tool_call(&mut self, call: PluginToolCall) -> PluginRuntimeResult<PluginToolResult> {
+        let manifest = self
+            .manifest(&call.plugin_id)
+            .ok_or_else(|| PluginRuntimeError::UnknownPlugin(call.plugin_id.clone()))?;
+        self.execute_sync_js_tool(manifest, call)
+    }
+}
+
+struct ExecutionTimeoutGuard {
+    done: Arc<AtomicBool>,
+}
+
+impl Drop for ExecutionTimeoutGuard {
+    fn drop(&mut self) {
+        self.done.store(true, Ordering::SeqCst);
+    }
+}
+
+fn install_execution_timeout(
+    runtime: &mut JsRuntime,
+    max_execution_ms: Option<u64>,
+) -> Option<ExecutionTimeoutGuard> {
+    let Some(max_execution_ms) = max_execution_ms else {
+        return None;
+    };
+    if max_execution_ms == 0 {
+        return None;
+    }
+
+    let done = Arc::new(AtomicBool::new(false));
+    let done_for_timeout = done.clone();
+    let handle = runtime.v8_isolate().thread_safe_handle();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(max_execution_ms));
+        if !done_for_timeout.load(Ordering::SeqCst) {
+            handle.terminate_execution();
+        }
+    });
+    Some(ExecutionTimeoutGuard { done })
 }

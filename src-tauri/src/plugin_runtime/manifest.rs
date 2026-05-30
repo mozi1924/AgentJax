@@ -1,4 +1,5 @@
 use super::SandboxPolicy;
+use super::api::PLUGIN_API_VERSION;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -39,6 +40,8 @@ pub struct PluginManifest {
     pub id: String,
     pub name: String,
     pub version: String,
+    #[serde(default = "default_api_version")]
+    pub api_version: u32,
     pub entrypoint: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
@@ -55,12 +58,17 @@ fn default_input_schema() -> Value {
     })
 }
 
+fn default_api_version() -> u32 {
+    PLUGIN_API_VERSION
+}
+
 impl Default for PluginManifest {
     fn default() -> Self {
         Self {
             id: String::new(),
             name: String::new(),
             version: String::new(),
+            api_version: PLUGIN_API_VERSION,
             entrypoint: String::new(),
             description: String::new(),
             tools: Vec::new(),
@@ -80,6 +88,12 @@ impl PluginManifest {
         }
         if self.entrypoint.trim().is_empty() {
             return Err(format!("plugin '{}' is missing an entrypoint", self.id));
+        }
+        if self.api_version != PLUGIN_API_VERSION {
+            return Err(format!(
+                "plugin '{}' uses unsupported apiVersion {} (host supports {})",
+                self.id, self.api_version, PLUGIN_API_VERSION
+            ));
         }
 
         let mut tool_names = HashSet::new();

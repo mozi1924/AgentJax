@@ -3,6 +3,9 @@ mod tests {
     use crate::agentjax_home::AGENTJAX_HOME_ENV;
     use crate::config::{AppConfig, McpServerConfig};
     use crate::conversation_store;
+    use crate::plugin_runtime::{
+        PLUGIN_API_VERSION, PluginManifest, PluginToolDefinition, PluginToolKind, SandboxPolicy,
+    };
     use crate::tools::{
         CalculatorTool, FileReaderTool, FileWriterTool, MountedToolDefinition,
         MountedToolSourceSession, MountedToolSourceSessions, SystemTimeTool, Tool, ToolCatalog,
@@ -1326,6 +1329,57 @@ mod tests {
         assert!(snapshot.schemas().iter().any(|schema| {
             schema.get("name").and_then(|value| value.as_str()) == Some("mcp_server__openai_docs")
         }));
+    }
+
+    #[tokio::test]
+    async fn test_plugin_manifest_tools_are_exposed_with_prefixed_names() {
+        let plugin_manifest = PluginManifest {
+            id: "local.demo".to_string(),
+            name: "Local Demo".to_string(),
+            version: "0.1.0".to_string(),
+            api_version: PLUGIN_API_VERSION,
+            entrypoint: "plugin.ts".to_string(),
+            description: "Demo plugin".to_string(),
+            tools: vec![PluginToolDefinition {
+                name: "say_hello".to_string(),
+                display_name: "Say Hello".to_string(),
+                description: "Returns a greeting from the demo plugin.".to_string(),
+                icon: Some("Puzzle".to_string()),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" }
+                    }
+                }),
+                kind: PluginToolKind::Function,
+            }],
+            sandbox: SandboxPolicy::default(),
+        };
+
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &AppConfig::default(),
+        )
+        .with_plugin_manifests(vec![plugin_manifest])
+        .expect("plugin manifest should validate");
+        let snapshot = catalog
+            .snapshot_with_format(
+                ToolSchemaFormat::Responses,
+                &ToolExecutionContext::default(),
+            )
+            .await;
+
+        let plugin_tool_name = "plugin__local_demo__say_hello";
+        assert!(snapshot.active_tool_names().contains(plugin_tool_name));
+        assert!(snapshot.schemas().iter().any(|schema| {
+            schema.get("name").and_then(|value| value.as_str()) == Some(plugin_tool_name)
+        }));
+        assert_eq!(
+            snapshot
+                .presentation_for(plugin_tool_name)
+                .and_then(|presentation| presentation.icon.as_deref()),
+            Some("Puzzle")
+        );
     }
 
     #[tokio::test]

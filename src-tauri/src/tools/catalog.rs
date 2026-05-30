@@ -1,3 +1,6 @@
+use crate::plugin_runtime::{
+    PluginManifest, prefixed_plugin_tool_name, registered_tools_for_manifest,
+};
 use crate::tools::{
     CalculatorTool, EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool,
     SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation, ToolSchemaFormat,
@@ -48,6 +51,10 @@ enum ToolSnapshotEntry {
         server_id: String,
         tool_name: String,
         server_config: crate::config::McpServerConfig,
+    },
+    Plugin {
+        plugin_id: String,
+        tool_name: String,
     },
     ManageMcpServer {
         server_id: String,
@@ -352,6 +359,9 @@ async fn execute_backgroundable_entry(
                 )
                 .await
         }
+        ToolSnapshotEntry::Plugin { .. } => {
+            Err("Plugin tools are not supported as background jobs yet".to_string())
+        }
         _ => Err("Only native and MCP tools can run as background jobs".to_string()),
     }
 }
@@ -428,6 +438,13 @@ impl ToolCatalogSnapshot {
                     .await?,
                 state_changes: Vec::new(),
             }),
+            ToolSnapshotEntry::Plugin {
+                plugin_id,
+                tool_name,
+            } => Err(format!(
+                "Plugin tool '{}::{}' is declared but plugin execution is not connected to the tool catalog yet",
+                plugin_id, tool_name
+            )),
             ToolSnapshotEntry::StartBackgroundTool => {
                 let target_tool_name = background_tool_name(arguments)?;
                 let target_arguments = background_tool_arguments(arguments);
@@ -658,6 +675,7 @@ pub struct ToolCatalog {
     mcp_manager: Arc<crate::mcp::McpManager>,
     mcp_runtime: crate::config::McpRuntimeConfig,
     mcp_config: BTreeMap<String, crate::config::McpServerConfig>,
+    plugin_manifests: BTreeMap<String, PluginManifest>,
 }
 
 impl ToolCatalog {
@@ -678,7 +696,27 @@ impl ToolCatalog {
             mcp_manager,
             mcp_runtime: config.mcp_runtime.clone(),
             mcp_config: config.mcp_servers.clone(),
+            plugin_manifests: BTreeMap::new(),
         }
+    }
+
+    /// Attach validated plugin manifests to the catalog.
+    ///
+    /// This keeps plugin discovery separate from execution: manifests can be
+    /// normalized into provider schemas now, while the deno_core execution path
+    /// can be wired in behind the same catalog entry later.
+    pub fn with_plugin_manifests(
+        mut self,
+        manifests: impl IntoIterator<Item = PluginManifest>,
+    ) -> Result<Self, String> {
+        for manifest in manifests {
+            manifest.validate()?;
+            if self.plugin_manifests.contains_key(&manifest.id) {
+                return Err(format!("plugin '{}' is already registered", manifest.id));
+            }
+            self.plugin_manifests.insert(manifest.id.clone(), manifest);
+        }
+        Ok(self)
     }
 
     pub async fn snapshot(&self, context: &ToolExecutionContext) -> ToolCatalogSnapshot {
@@ -838,6 +876,44 @@ impl ToolCatalog {
                     }
                 }
             }
+        }
+
+        for registered_tool in self
+            .plugin_manifests
+            .values()
+            .flat_map(registered_tools_for_manifest)
+        {
+            let prefixed_name =
+                prefixed_plugin_tool_name(&registered_tool.plugin_id, &registered_tool.tool.name);
+            let display_name = if registered_tool.tool.display_name.trim().is_empty() {
+                humanize_tool_name(&registered_tool.tool.name)
+            } else {
+                registered_tool.tool.display_name.clone()
+            };
+            presentations.insert(
+                prefixed_name.clone(),
+                ToolPresentation {
+                    display_name,
+                    description: registered_tool.tool.description.clone(),
+                    icon: registered_tool.tool.icon.clone(),
+                },
+            );
+            insert_snapshot_tool(
+                &mut schemas,
+                format_tool_schema(
+                    format,
+                    &prefixed_name,
+                    &registered_tool.tool.description,
+                    registered_tool.tool.input_schema.clone(),
+                ),
+                &mut active_tool_names,
+                &mut entries,
+                prefixed_name,
+                ToolSnapshotEntry::Plugin {
+                    plugin_id: registered_tool.plugin_id,
+                    tool_name: registered_tool.tool.name,
+                },
+            );
         }
 
         if let Err(err) = self.apply_conversation_dynamic_tools(
