@@ -251,7 +251,6 @@
   "settings.tools.category.mcp": "MCP",
   "settings.tools.category.plugin": "插件",
   "settings.tools.category.session": "会话",
-  "settings.tools.category.background": "后台",
   "settings.tools.search": "搜索当前来源",
   "settings.tools.loading": "正在加载工具...",
   "settings.tools.error": "工具加载失败：{message}",

@@ -1,7 +1,7 @@
 import { escapePathSegment } from '../../../../features/settings/utils';
 
-export type ToolSourceType = 'native' | 'mcp' | 'plugin' | 'dynamic' | 'background' | 'control';
-export type ToolCategory = 'native' | 'mcp' | 'plugin' | 'session' | 'background';
+export type ToolSourceType = 'native' | 'mcp' | 'plugin' | 'dynamic' | 'control';
+export type ToolCategory = 'native' | 'mcp' | 'plugin' | 'session';
 export type McpExposureMode = 'collapsed' | 'unfolded';
 
 export interface ToolSchemaSummary {
@@ -52,7 +52,6 @@ export const TOOL_MANAGER_CATEGORIES: Array<{ id: ToolCategory; labelKey: string
   { id: 'mcp', labelKey: 'settings.tools.category.mcp' },
   { id: 'plugin', labelKey: 'settings.tools.category.plugin' },
   { id: 'session', labelKey: 'settings.tools.category.session' },
-  { id: 'background', labelKey: 'settings.tools.category.background' },
 ];
 
 // Keeps Tool Manager data shaping beside its SchemaRenderer provider instead of

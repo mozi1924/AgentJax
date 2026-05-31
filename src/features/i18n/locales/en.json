@@ -251,7 +251,6 @@
   "settings.tools.category.mcp": "MCP",
   "settings.tools.category.plugin": "Plugins",
   "settings.tools.category.session": "Session",
-  "settings.tools.category.background": "Background",
   "settings.tools.search": "Search current source",
   "settings.tools.loading": "Loading tools...",
   "settings.tools.error": "Failed to load tools: {message}",
