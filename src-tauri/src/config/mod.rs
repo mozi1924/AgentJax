@@ -234,8 +234,14 @@ mod tests {
             .providers
             .get_mut("openai-responses")
             .expect("openai-responses provider exists");
-        provider.custom_settings.insert("supportsWebsockets".to_string(), serde_json::Value::Bool(false));
-        provider.custom_settings.insert("streamTransport".to_string(), serde_json::Value::String("websocket".to_string()));
+        provider.custom_settings.insert(
+            "supportsWebsockets".to_string(),
+            serde_json::Value::Bool(false),
+        );
+        provider.custom_settings.insert(
+            "streamTransport".to_string(),
+            serde_json::Value::String("websocket".to_string()),
+        );
 
         let normalized = cfg.normalize();
         let provider = normalized
@@ -246,16 +252,48 @@ mod tests {
     }
 
     #[test]
+    fn provider_normalize_accepts_legacy_snake_case_custom_settings() {
+        let mut provider = ProviderConfig::default();
+        provider.kind = "openai-responses".to_string();
+        provider.custom_settings.insert(
+            "api_endpoint".to_string(),
+            serde_json::Value::String("https://gateway.example.test/v1/".to_string()),
+        );
+        provider.custom_settings.insert(
+            "credential_env".to_string(),
+            serde_json::Value::String("TEST_AGENTJAX_GATEWAY_KEY".to_string()),
+        );
+        provider.custom_settings.insert(
+            "stream_transport".to_string(),
+            serde_json::Value::String("websocket".to_string()),
+        );
+
+        let normalized = provider.normalize_for_key("gateway");
+
+        assert_eq!(normalized.api_endpoint(), "https://gateway.example.test/v1");
+        assert_eq!(normalized.credential_env(), "TEST_AGENTJAX_GATEWAY_KEY");
+        assert_eq!(normalized.stream_transport(), "websocket");
+        assert!(!normalized.custom_settings.contains_key("api_endpoint"));
+        assert!(!normalized.custom_settings.contains_key("credential_env"));
+    }
+
+    #[test]
     fn provider_resolved_http_headers_merges_env_values() {
         let _guard = test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut provider = ProviderConfig::default();
-        
+
         let mut http_headers = serde_json::Map::new();
-        http_headers.insert("X-Feature".to_string(), serde_json::Value::String("static".to_string()));
-        provider.custom_settings.insert("httpHeaders".to_string(), serde_json::Value::Object(http_headers));
-        
+        http_headers.insert(
+            "X-Feature".to_string(),
+            serde_json::Value::String("static".to_string()),
+        );
+        provider.custom_settings.insert(
+            "httpHeaders".to_string(),
+            serde_json::Value::Object(http_headers),
+        );
+
         let mut env_http_headers = serde_json::Map::new();
         env_http_headers.insert(
             "Authorization".to_string(),
@@ -265,7 +303,10 @@ mod tests {
             "X-Feature".to_string(),
             serde_json::Value::String("TEST_AGENTJAX_X_FEATURE".to_string()),
         );
-        provider.custom_settings.insert("envHttpHeaders".to_string(), serde_json::Value::Object(env_http_headers));
+        provider.custom_settings.insert(
+            "envHttpHeaders".to_string(),
+            serde_json::Value::Object(env_http_headers),
+        );
 
         unsafe {
             std::env::set_var("TEST_AGENTJAX_AUTH", "Bearer token-from-env");
@@ -452,8 +493,8 @@ mod tests {
 
     #[test]
     fn test_plugin_provider_registration_and_config_self_healing() {
-        use crate::providers::registry::{register_plugin_provider, unregister_plugin_provider};
         use crate::plugin_runtime::PluginProviderDefinition;
+        use crate::providers::registry::{register_plugin_provider, unregister_plugin_provider};
 
         let plugin_provider = PluginProviderDefinition {
             kind: "custom-oauth-llm".to_string(),
@@ -476,6 +517,7 @@ mod tests {
                 }
             }),
             default_model_ids: vec!["custom-model-1".to_string(), "custom-model-2".to_string()],
+            ..Default::default()
         };
 
         // Register the provider
@@ -485,23 +527,36 @@ mod tests {
         let mut cfg = AppConfig::default();
         let mut provider_cfg = ProviderConfig::default();
         provider_cfg.kind = "custom-oauth-llm".to_string();
-        cfg.providers.insert("custom-oauth-llm".to_string(), provider_cfg);
+        cfg.providers
+            .insert("custom-oauth-llm".to_string(), provider_cfg);
 
         // Normalize
         let normalized = cfg.normalize();
-        let provider = normalized.providers.get("custom-oauth-llm").expect("custom-oauth-llm provider exists");
+        let provider = normalized
+            .providers
+            .get("custom-oauth-llm")
+            .expect("custom-oauth-llm provider exists");
 
         // Verify custom_settings has been auto-completed with defaults from the schema
         assert_eq!(
-            provider.custom_settings.get("apiKey").and_then(|v| v.as_str()),
+            provider
+                .custom_settings
+                .get("apiKey")
+                .and_then(|v| v.as_str()),
             Some("default-oauth-key")
         );
         assert_eq!(
-            provider.custom_settings.get("apiEndpoint").and_then(|v| v.as_str()),
+            provider
+                .custom_settings
+                .get("apiEndpoint")
+                .and_then(|v| v.as_str()),
             Some("https://api.custom-oauth.com/v1")
         );
         assert_eq!(
-            provider.custom_settings.get("customParam").and_then(|v| v.as_str()),
+            provider
+                .custom_settings
+                .get("customParam")
+                .and_then(|v| v.as_str()),
             Some("custom-value")
         );
 

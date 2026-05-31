@@ -16,6 +16,8 @@ impl ProviderConfig {
             self.kind = provider_key.to_string();
         }
 
+        self.normalize_legacy_custom_setting_keys();
+
         // Auto-complete custom_settings fields dynamically using registered config schema
         if let Some(definition) = registry::provider_definition(&self.kind) {
             if let Some(obj) = definition.config_schema.as_object() {
@@ -48,14 +50,24 @@ impl ProviderConfig {
         }
 
         // Perform custom settings self-healing and normalization
-        if let Some(serde_json::Value::String(api_endpoint)) = self.custom_settings.get("apiEndpoint") {
+        if let Some(serde_json::Value::String(api_endpoint)) =
+            self.custom_settings.get("apiEndpoint")
+        {
             let trimmed = api_endpoint.trim().trim_end_matches('/').to_string();
-            self.custom_settings.insert("apiEndpoint".to_string(), serde_json::Value::String(trimmed));
+            self.custom_settings.insert(
+                "apiEndpoint".to_string(),
+                serde_json::Value::String(trimmed),
+            );
         }
 
-        if let Some(serde_json::Value::String(realtime_endpoint)) = self.custom_settings.get("realtimeEndpoint") {
+        if let Some(serde_json::Value::String(realtime_endpoint)) =
+            self.custom_settings.get("realtimeEndpoint")
+        {
             let trimmed = realtime_endpoint.trim().trim_end_matches('/').to_string();
-            self.custom_settings.insert("realtimeEndpoint".to_string(), serde_json::Value::String(trimmed));
+            self.custom_settings.insert(
+                "realtimeEndpoint".to_string(),
+                serde_json::Value::String(trimmed),
+            );
         }
 
         let supports_ws = self.supports_websockets();
@@ -64,13 +76,20 @@ impl ProviderConfig {
             if let Some(definition) = registry::provider_definition(&self.kind) {
                 transport = definition.default_config.stream_transport();
             } else {
-                transport = if supports_ws { "websocket".to_string() } else { "sse".to_string() };
+                transport = if supports_ws {
+                    "websocket".to_string()
+                } else {
+                    "sse".to_string()
+                };
             }
         }
         if !supports_ws && transport == "websocket" {
             transport = "sse".to_string();
         }
-        self.custom_settings.insert("streamTransport".to_string(), serde_json::Value::String(transport));
+        self.custom_settings.insert(
+            "streamTransport".to_string(),
+            serde_json::Value::String(transport),
+        );
 
         for key in &["queryParams", "httpHeaders", "envHttpHeaders"] {
             if let Some(serde_json::Value::Object(obj)) = self.custom_settings.get(*key) {
@@ -84,7 +103,8 @@ impl ProviderConfig {
                         normalized.insert(k, serde_json::Value::String(s.trim().to_string()));
                     }
                 }
-                self.custom_settings.insert(key.to_string(), serde_json::Value::Object(normalized));
+                self.custom_settings
+                    .insert(key.to_string(), serde_json::Value::Object(normalized));
             }
         }
 
@@ -105,6 +125,38 @@ impl ProviderConfig {
         self.models = normalized_models;
 
         self
+    }
+
+    /// Preserve compatibility with older YAML files that stored provider
+    /// extension settings as snake_case keys while the runtime schema now uses
+    /// camelCase. Existing camelCase values win so a partially migrated config
+    /// never has newer edits overwritten by legacy aliases.
+    fn normalize_legacy_custom_setting_keys(&mut self) {
+        for (legacy_key, canonical_key) in [
+            ("api_endpoint", "apiEndpoint"),
+            ("models_endpoint_candidates", "modelsEndpointCandidates"),
+            ("query_params", "queryParams"),
+            ("http_headers", "httpHeaders"),
+            ("env_http_headers", "envHttpHeaders"),
+            ("realtime_endpoint", "realtimeEndpoint"),
+            ("supports_websockets", "supportsWebsockets"),
+            ("stream_transport", "streamTransport"),
+            ("credential_env", "credentialEnv"),
+            ("request_timeout_seconds", "requestTimeoutSeconds"),
+            ("request_max_retries", "requestMaxRetries"),
+            ("stream_max_retries", "streamMaxRetries"),
+            ("stream_idle_timeout_ms", "streamIdleTimeoutMs"),
+            ("websocket_connect_timeout_ms", "websocketConnectTimeoutMs"),
+        ] {
+            if self.custom_settings.contains_key(canonical_key) {
+                self.custom_settings.remove(legacy_key);
+                continue;
+            }
+            if let Some(value) = self.custom_settings.remove(legacy_key) {
+                self.custom_settings
+                    .insert(canonical_key.to_string(), value);
+            }
+        }
     }
 
     pub fn resolved_credential(&self) -> Option<String> {

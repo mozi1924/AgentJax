@@ -129,6 +129,7 @@ pub struct DenoCorePluginRuntime {
     default_sandbox_policy: SandboxPolicy,
     manifests: BTreeMap<String, PluginManifest>,
     plugin_roots: BTreeMap<String, PathBuf>,
+    plugin_entrypoint_sources: BTreeMap<String, String>,
 }
 
 impl DenoCorePluginRuntime {
@@ -142,6 +143,7 @@ impl DenoCorePluginRuntime {
             default_sandbox_policy,
             manifests: BTreeMap::new(),
             plugin_roots: BTreeMap::new(),
+            plugin_entrypoint_sources: BTreeMap::new(),
         }
     }
 
@@ -151,13 +153,18 @@ impl DenoCorePluginRuntime {
     }
 
     pub fn register_package(&mut self, package: PluginPackage) -> PluginRuntimeResult<()> {
-        self.insert_manifest(package.manifest, Some(package.root_dir))
+        self.insert_manifest(
+            package.manifest,
+            Some(package.root_dir),
+            package.entrypoint_source,
+        )
     }
 
     fn insert_manifest(
         &mut self,
         manifest: PluginManifest,
         root_dir: Option<PathBuf>,
+        entrypoint_source: Option<String>,
     ) -> PluginRuntimeResult<()> {
         manifest
             .validate()
@@ -169,6 +176,10 @@ impl DenoCorePluginRuntime {
 
         if let Some(root_dir) = root_dir {
             self.plugin_roots.insert(manifest.id.clone(), root_dir);
+        }
+        if let Some(entrypoint_source) = entrypoint_source {
+            self.plugin_entrypoint_sources
+                .insert(manifest.id.clone(), entrypoint_source);
         }
         self.manifests.insert(manifest.id.clone(), manifest);
         Ok(())
@@ -189,11 +200,17 @@ impl DenoCorePluginRuntime {
         Ok(root_dir.join(entrypoint))
     }
 
-    fn execute_sync_js_tool(
+    fn entrypoint_script(
         &self,
         manifest: &PluginManifest,
-        call: PluginToolCall,
-    ) -> PluginRuntimeResult<PluginToolResult> {
+    ) -> PluginRuntimeResult<(String, String)> {
+        if let Some(source) = self.plugin_entrypoint_sources.get(&manifest.id) {
+            return Ok((
+                format!("<agentjax-builtin:{}:{}>", manifest.id, manifest.entrypoint),
+                source.clone(),
+            ));
+        }
+
         let entrypoint_path = self.entrypoint_path(manifest)?;
         let source = std::fs::read_to_string(&entrypoint_path).map_err(|err| {
             PluginRuntimeError::Io(format!(
@@ -202,10 +219,19 @@ impl DenoCorePluginRuntime {
                 err
             ))
         })?;
+        Ok((entrypoint_path.to_string_lossy().to_string(), source))
+    }
+
+    fn execute_sync_js_tool(
+        &self,
+        manifest: &PluginManifest,
+        call: PluginToolCall,
+    ) -> PluginRuntimeResult<PluginToolResult> {
+        let (entrypoint_name, source) = self.entrypoint_script(manifest)?;
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
         let _timeout_guard = install_execution_timeout(&mut runtime, call.sandbox.max_execution_ms);
         runtime
-            .execute_script(entrypoint_path.to_string_lossy().to_string(), source)
+            .execute_script(entrypoint_name, source)
             .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
 
         let tool_name = serde_json::to_string(&call.tool_name)
@@ -264,11 +290,12 @@ impl PluginRuntime for DenoCorePluginRuntime {
     }
 
     fn register_manifest(&mut self, manifest: PluginManifest) -> PluginRuntimeResult<()> {
-        self.insert_manifest(manifest, None)
+        self.insert_manifest(manifest, None, None)
     }
 
     fn unregister_manifest(&mut self, plugin_id: &str) -> PluginRuntimeResult<PluginManifest> {
         self.plugin_roots.remove(plugin_id);
+        self.plugin_entrypoint_sources.remove(plugin_id);
         self.manifests
             .remove(plugin_id)
             .ok_or_else(|| PluginRuntimeError::UnknownPlugin(plugin_id.to_string()))

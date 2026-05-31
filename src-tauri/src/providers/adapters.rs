@@ -7,6 +7,7 @@ use super::anthropic;
 use super::chat_completions;
 use super::gemini;
 use super::openai_responses;
+use super::registry::{self, ProviderTransportFamily};
 use super::types::{
     ModelReasoningCapability, ProviderEventSink, ProviderModelDescriptor, ResponseStreamRequest,
     ResponseStreamResult,
@@ -18,11 +19,11 @@ pub(crate) type StreamFuture<'a> =
 pub(crate) type ModelsFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Vec<ProviderModelDescriptor>, String>> + Send + 'a>>;
 
-/// Adapter boundary between raw provider APIs and AgentJax's normalized runtime
-/// protocol. Implementations are responsible for translating provider-specific
+/// AgentJax provider API boundary between raw provider transports and the
+/// normalized runtime protocol. Implementations translate provider-specific
 /// stream events, tool IDs, and token usage before the data reaches runtime.
-pub(crate) trait ProviderAdapter: Send + Sync {
-    fn matches_kind(&self, provider_kind: &str) -> bool;
+pub(crate) trait AgentJaxProviderApi: Send + Sync {
+    fn transport_family(&self) -> ProviderTransportFamily;
     fn stream_response<'a>(
         &'a self,
         resolved: &'a ResolvedModelConfig,
@@ -40,9 +41,9 @@ pub(crate) trait ProviderAdapter: Send + Sync {
 
 struct OpenAIResponsesAdapter;
 
-impl ProviderAdapter for OpenAIResponsesAdapter {
-    fn matches_kind(&self, provider_kind: &str) -> bool {
-        matches!(provider_kind, "openai-responses")
+impl AgentJaxProviderApi for OpenAIResponsesAdapter {
+    fn transport_family(&self) -> ProviderTransportFamily {
+        ProviderTransportFamily::Responses
     }
 
     fn stream_response<'a>(
@@ -72,12 +73,9 @@ impl ProviderAdapter for OpenAIResponsesAdapter {
 
 struct ChatCompletionsAdapter;
 
-impl ProviderAdapter for ChatCompletionsAdapter {
-    fn matches_kind(&self, provider_kind: &str) -> bool {
-        matches!(
-            provider_kind,
-            "chat-completions" | "openai-chat-completions"
-        )
+impl AgentJaxProviderApi for ChatCompletionsAdapter {
+    fn transport_family(&self) -> ProviderTransportFamily {
+        ProviderTransportFamily::ChatCompletions
     }
 
     fn stream_response<'a>(
@@ -107,9 +105,9 @@ impl ProviderAdapter for ChatCompletionsAdapter {
 
 struct GeminiAdapter;
 
-impl ProviderAdapter for GeminiAdapter {
-    fn matches_kind(&self, provider_kind: &str) -> bool {
-        matches!(provider_kind, "gemini" | "google-gemini")
+impl AgentJaxProviderApi for GeminiAdapter {
+    fn transport_family(&self) -> ProviderTransportFamily {
+        ProviderTransportFamily::Gemini
     }
 
     fn stream_response<'a>(
@@ -137,9 +135,9 @@ impl ProviderAdapter for GeminiAdapter {
 
 struct AnthropicAdapter;
 
-impl ProviderAdapter for AnthropicAdapter {
-    fn matches_kind(&self, provider_kind: &str) -> bool {
-        matches!(provider_kind, "anthropic" | "claude")
+impl AgentJaxProviderApi for AnthropicAdapter {
+    fn transport_family(&self) -> ProviderTransportFamily {
+        ProviderTransportFamily::Anthropic
     }
 
     fn stream_response<'a>(
@@ -174,9 +172,14 @@ static ANTHROPIC_ADAPTER: AnthropicAdapter = AnthropicAdapter;
 
 pub(crate) fn adapter_for_kind(
     provider_kind: &str,
-) -> Result<&'static dyn ProviderAdapter, String> {
-    let normalized = provider_kind.trim().to_lowercase();
-    let adapters: [&dyn ProviderAdapter; 4] = [
+) -> Result<&'static dyn AgentJaxProviderApi, String> {
+    let Some(transport_family) = registry::provider_transport_family(provider_kind) else {
+        return Err(format!(
+            "Unsupported provider kind '{}'. Register a provider plugin to enable it.",
+            provider_kind
+        ));
+    };
+    let adapters: [&dyn AgentJaxProviderApi; 4] = [
         &OPENAI_RESPONSES_ADAPTER,
         &CHAT_COMPLETIONS_ADAPTER,
         &GEMINI_ADAPTER,
@@ -184,13 +187,13 @@ pub(crate) fn adapter_for_kind(
     ];
 
     for adapter in adapters {
-        if adapter.matches_kind(&normalized) {
+        if adapter.transport_family() == transport_family {
             return Ok(adapter);
         }
     }
 
     Err(format!(
-        "Unsupported provider kind '{}'. Add an adapter under src-tauri/src/providers to enable it.",
-        provider_kind
+        "Provider kind '{}' uses transport family {:?}, but this AgentJax build has no matching adapter.",
+        provider_kind, transport_family
     ))
 }

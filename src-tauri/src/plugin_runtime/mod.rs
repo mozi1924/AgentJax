@@ -5,6 +5,7 @@
 //! wiring the concrete V8 runtime into the rest of the backend too early.
 
 mod api;
+mod builtin;
 mod discovery;
 mod manifest;
 mod orchestration;
@@ -16,11 +17,14 @@ pub use api::{
     PluginToolCall, PluginToolResult, RegisteredPluginTool, prefixed_plugin_tool_name,
     registered_tools_for_manifest,
 };
+pub use builtin::builtin_plugin_packages;
 pub use discovery::{
-    PLUGIN_MANIFEST_FILE, PluginPackage, discover_home_plugin_packages, discover_plugin_packages,
-    load_plugin_package,
+    PLUGIN_MANIFEST_FILE, PluginPackage, discover_all_plugin_packages,
+    discover_home_plugin_packages, discover_plugin_packages, load_plugin_package,
 };
-pub use manifest::{PluginManifest, PluginProviderDefinition, PluginToolDefinition, PluginToolKind};
+pub use manifest::{
+    PluginManifest, PluginProviderDefinition, PluginToolDefinition, PluginToolKind,
+};
 pub use orchestration::{
     ToolCallBatch, ToolCallExecutionPolicy, ToolCallOutcome, ToolCallRequest, ToolCallSource,
 };
@@ -104,6 +108,7 @@ mod tests {
                     "type": "object"
                 }),
                 default_model_ids: vec!["llama-3".to_string()],
+                ..Default::default()
             }],
             ..Default::default()
         };

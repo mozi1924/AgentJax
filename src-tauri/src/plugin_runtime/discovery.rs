@@ -11,6 +11,7 @@ pub struct PluginPackage {
     pub manifest: PluginManifest,
     pub root_dir: PathBuf,
     pub manifest_path: PathBuf,
+    pub entrypoint_source: Option<String>,
 }
 
 /// Load and validate a plugin package from either a plugin directory or a
@@ -55,6 +56,7 @@ pub fn load_plugin_package(path: impl AsRef<Path>) -> PluginRuntimeResult<Plugin
         manifest,
         root_dir,
         manifest_path,
+        entrypoint_source: None,
     })
 }
 
@@ -109,6 +111,14 @@ pub fn discover_plugin_packages(
 pub fn discover_home_plugin_packages() -> PluginRuntimeResult<Vec<PluginPackage>> {
     let plugins_dir = crate::agentjax_home::ensure_plugins_dir().map_err(PluginRuntimeError::Io)?;
     discover_plugin_packages(plugins_dir)
+}
+
+/// Discover all plugin packages available to the host, including packages that
+/// are compiled into the binary and packages installed under `$AGENTJAX_HOME`.
+pub fn discover_all_plugin_packages() -> PluginRuntimeResult<Vec<PluginPackage>> {
+    let mut packages = crate::plugin_runtime::builtin_plugin_packages();
+    packages.extend(discover_home_plugin_packages()?);
+    Ok(packages)
 }
 
 fn validate_entrypoint_path(root_dir: &Path, manifest: &PluginManifest) -> PluginRuntimeResult<()> {

@@ -39,10 +39,26 @@ pub enum PluginToolKind {
 pub struct PluginProviderDefinition {
     pub kind: String,
     pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport_family: Option<String>,
     #[serde(default = "default_config_schema")]
     pub config_schema: Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub default_model_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub default_api_endpoint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_realtime_endpoint: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub default_credential_env: String,
+    #[serde(default)]
+    pub default_supports_websockets: bool,
+    #[serde(default = "default_stream_transport")]
+    pub default_stream_transport: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_schema_format: Option<String>,
 }
 
 impl Default for PluginProviderDefinition {
@@ -50,10 +66,22 @@ impl Default for PluginProviderDefinition {
         Self {
             kind: String::new(),
             display_name: String::new(),
+            transport_family: None,
             config_schema: default_config_schema(),
             default_model_ids: Vec::new(),
+            default_api_endpoint: String::new(),
+            default_realtime_endpoint: None,
+            default_credential_env: String::new(),
+            default_supports_websockets: false,
+            default_stream_transport: default_stream_transport(),
+            capabilities: None,
+            tool_schema_format: None,
         }
     }
+}
+
+fn default_stream_transport() -> String {
+    "sse".to_string()
 }
 
 fn default_config_schema() -> Value {
@@ -86,7 +114,6 @@ pub struct PluginManifest {
     #[serde(default)]
     pub sandbox: SandboxPolicy,
 }
-
 
 fn default_input_schema() -> Value {
     serde_json::json!({

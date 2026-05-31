@@ -1,6 +1,6 @@
 use super::{AppConfig, SettingsOption};
 use crate::models;
-use crate::plugin_runtime::{PluginPackage, discover_home_plugin_packages};
+use crate::plugin_runtime::{PluginPackage, discover_all_plugin_packages};
 use crate::providers::registry;
 use serde::Serialize;
 use serde_json::Value;
@@ -26,7 +26,7 @@ const TOOLS_SECTION_JSON: &str = include_str!("settings_ui_sections/tools.json")
 
 pub fn build_settings_sections() -> Result<Vec<Value>, String> {
     let mut sections = build_builtin_settings_sections()?;
-    match discover_home_plugin_packages() {
+    match discover_all_plugin_packages() {
         Ok(packages) => sections.extend(plugin_settings_sections_from_packages(packages)),
         Err(err) => {
             log::warn!("Failed to discover plugin settings sections: {err}");
@@ -275,6 +275,7 @@ mod tests {
             },
             root_dir: PathBuf::from("/tmp/plugin"),
             manifest_path: PathBuf::from("/tmp/plugin/plugin.json"),
+            entrypoint_source: None,
         }
     }
 

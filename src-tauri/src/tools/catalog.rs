@@ -10,7 +10,7 @@ mod types;
 
 use crate::plugin_runtime::{
     DenoCorePluginRuntime, PluginManifest, PluginPackage, SandboxPolicy,
-    discover_home_plugin_packages, prefixed_plugin_tool_name, registered_tools_for_manifest,
+    discover_all_plugin_packages, prefixed_plugin_tool_name, registered_tools_for_manifest,
 };
 use crate::tools::{
     CalculatorTool, EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool,
@@ -76,7 +76,7 @@ impl ToolCatalog {
         }
     }
 
-    /// Build a catalog and attach plugins discovered from
+    /// Build a catalog and attach built-in plugins plus plugins discovered from
     /// `$AGENTJAX_HOME/plugins`. Discovery errors are logged and leave the
     /// native/MCP catalog intact so a broken local plugin cannot prevent chat.
     pub fn new_with_home_plugins(
@@ -85,7 +85,7 @@ impl ToolCatalog {
     ) -> Self {
         let fallback_mcp_manager = mcp_manager.clone();
         let catalog = Self::new(mcp_manager, config);
-        match discover_home_plugin_packages() {
+        match discover_all_plugin_packages() {
             Ok(packages) => match catalog.with_plugin_packages(packages) {
                 Ok(catalog) => catalog,
                 Err(err) => {

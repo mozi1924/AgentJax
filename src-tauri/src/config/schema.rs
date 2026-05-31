@@ -218,15 +218,13 @@ impl ProviderConfig {
     }
 
     pub fn credential(&self) -> Option<String> {
-        self.custom_settings
-            .get("credential")
-            .and_then(|val| {
-                if val.is_null() {
-                    None
-                } else {
-                    val.as_str().map(String::from)
-                }
-            })
+        self.custom_settings.get("credential").and_then(|val| {
+            if val.is_null() {
+                None
+            } else {
+                val.as_str().map(String::from)
+            }
+        })
     }
 
     pub fn credential_env(&self) -> String {
@@ -309,7 +307,10 @@ impl Default for AppConfig {
     fn default() -> Self {
         let mut providers = BTreeMap::new();
         let default_provider = registry::default_provider_definition();
-        providers.insert(default_provider.kind.to_string(), registry::default_provider_config());
+        providers.insert(
+            default_provider.kind.to_string(),
+            registry::default_provider_config(),
+        );
 
         Self {
             active_provider: default_provider.kind.to_string(),

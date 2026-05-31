@@ -230,7 +230,6 @@ fn build_request_headers(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
     use super::{build_gemini_payload, models_fetch_strategy, process_gemini_event};
     use crate::config::{
         ModelRequestConfig, PromptComposerConfig, ProviderConfig, ResolvedModelConfig,
@@ -239,13 +238,16 @@ mod tests {
     use crate::providers::core::ProviderIdFactory;
     use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest};
     use serde_json::{Value, json};
+    use std::collections::BTreeMap;
 
     fn test_resolved() -> ResolvedModelConfig {
         let prompt_assembly = compile_prompt_composer(&PromptComposerConfig::default());
         let mut custom_settings = serde_json::Map::new();
         custom_settings.insert(
             "apiEndpoint".to_string(),
-            serde_json::Value::String("https://generativelanguage.googleapis.com/v1beta".to_string()),
+            serde_json::Value::String(
+                "https://generativelanguage.googleapis.com/v1beta".to_string(),
+            ),
         );
         let provider = ProviderConfig {
             kind: "gemini".to_string(),

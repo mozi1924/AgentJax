@@ -3,7 +3,7 @@ use crate::config::constants::{
     BUILTIN_CORE_SYSTEM_TITLE, CONFIG_FILE_NAME, DEFAULT_DEFAULT_MODEL_REF,
     DEFAULT_TIMEOUT_SECONDS, DEFAULT_UTILITY_SMALL_MODEL_REF,
 };
-use crate::config::schema::{AppConfig, ProviderConfig};
+use crate::config::schema::AppConfig;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -51,6 +51,7 @@ pub fn init_config_if_missing() -> Result<PathBuf, String> {
 }
 
 pub fn load_config() -> Result<AppConfig, String> {
+    register_home_provider_plugins();
     let path = init_config_if_missing()?;
     let raw = read_config_file(&path)?;
     let parsed = parse_config_yaml(&path, &raw)?;
@@ -58,6 +59,7 @@ pub fn load_config() -> Result<AppConfig, String> {
 }
 
 pub fn upgrade_config_file() -> Result<ConfigUpgradeResult, String> {
+    register_home_provider_plugins();
     let path = init_config_if_missing()?;
     let raw = read_config_file(&path)?;
     let parsed = parse_config_yaml(&path, &raw)?;
@@ -68,6 +70,15 @@ pub fn upgrade_config_file() -> Result<ConfigUpgradeResult, String> {
         config_path: path.display().to_string(),
         upgraded,
     })
+}
+
+fn register_home_provider_plugins() {
+    match crate::plugin_runtime::discover_home_plugin_packages() {
+        Ok(packages) => {
+            crate::providers::registry::register_plugin_providers_from_packages(packages)
+        }
+        Err(err) => log::warn!("Failed to discover provider plugins: {err}"),
+    }
 }
 
 pub fn get_config_info() -> Result<ConfigInfo, String> {
@@ -90,7 +101,7 @@ pub fn get_config_info() -> Result<ConfigInfo, String> {
 }
 
 fn default_config_yaml() -> String {
-    let provider = ProviderConfig::default();
+    let provider = crate::providers::registry::default_provider_config();
 
     let mut lines = vec![
         "# AgentJax configuration".to_string(),

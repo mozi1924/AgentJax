@@ -1,5 +1,5 @@
 use crate::config;
-use crate::plugin_runtime::{PluginPackage, discover_home_plugin_packages};
+use crate::plugin_runtime::{PluginPackage, discover_all_plugin_packages};
 use crate::tools::{ToolCatalog, ToolManagerSnapshot, ToolManagerSnapshotRequest};
 use serde::Serialize;
 use serde_json::Value;
@@ -31,7 +31,7 @@ pub struct PluginSettingsSnapshot {
 
 #[tauri::command]
 pub fn get_plugin_settings_snapshot() -> Result<PluginSettingsSnapshot, String> {
-    let packages = discover_home_plugin_packages().map_err(|err| err.to_string())?;
+    let packages = discover_all_plugin_packages().map_err(|err| err.to_string())?;
     plugin_settings_snapshot_from_packages(packages)
 }
 
@@ -107,6 +107,7 @@ mod tests {
             },
             root_dir: PathBuf::from("/tmp/plugin"),
             manifest_path: PathBuf::from("/tmp/plugin/plugin.json"),
+            entrypoint_source: None,
         }
     }
 

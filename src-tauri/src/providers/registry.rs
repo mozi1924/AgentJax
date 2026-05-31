@@ -1,10 +1,18 @@
 use crate::config::{ModelRequestConfig, ProviderConfig, ProviderModelConfig};
+use crate::plugin_runtime::{PluginPackage, PluginProviderDefinition, builtin_plugin_packages};
 use crate::tools::ToolSchemaFormat;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::sync::{OnceLock, RwLock};
 
 use super::capabilities::ProviderCapabilities;
 
+/// Transport families implemented by AgentJax's provider API adapters.
+///
+/// Provider plugins declare one of these families in their manifest. The host
+/// keeps concrete HTTP/SSE/WebSocket code in Rust adapters while allowing the
+/// provider catalog, defaults, and settings schema to be contributed by plugins.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderTransportFamily {
@@ -15,266 +23,76 @@ pub enum ProviderTransportFamily {
     CustomOauth,
 }
 
-#[derive(Debug, Clone)]
-pub struct ProviderDefinition {
-    pub kind: &'static str,
-    pub display_name: &'static str,
-    #[allow(dead_code)]
-    pub transport_family: ProviderTransportFamily,
-    pub default_api_endpoint: &'static str,
-    pub default_realtime_endpoint: Option<&'static str>,
-    pub default_credential_env: &'static str,
-    pub default_supports_websockets: bool,
-    pub default_stream_transport: &'static str,
-    pub default_model_ids: &'static [&'static str],
-    pub capabilities: ProviderCapabilities,
-    pub tool_schema_format: ToolSchemaFormat,
-}
-
-impl ProviderDefinition {
-    pub fn build_default_config(&self) -> ProviderConfig {
-        let mut models = BTreeMap::new();
-        for model_id in self.default_model_ids {
-            models.insert(
-                (*model_id).to_string(),
-                ProviderModelConfig {
-                    model: (*model_id).to_string(),
-                    enabled: true,
-                    request: ModelRequestConfig::default(),
-                },
-            );
-        }
-
-        let mut custom_settings = serde_json::Map::new();
-        custom_settings.insert("apiEndpoint".to_string(), serde_json::Value::String(self.default_api_endpoint.to_string()));
-        custom_settings.insert("modelsEndpointCandidates".to_string(), serde_json::Value::Array(Vec::new()));
-        custom_settings.insert("queryParams".to_string(), serde_json::to_value(BTreeMap::<String, String>::new()).unwrap());
-        custom_settings.insert("httpHeaders".to_string(), serde_json::to_value(BTreeMap::<String, String>::new()).unwrap());
-        custom_settings.insert("envHttpHeaders".to_string(), serde_json::to_value(BTreeMap::<String, String>::new()).unwrap());
-        custom_settings.insert("realtimeEndpoint".to_string(), match self.default_realtime_endpoint {
-            Some(val) => serde_json::Value::String(val.to_string()),
-            None => serde_json::Value::Null,
-        });
-        custom_settings.insert("supportsWebsockets".to_string(), serde_json::Value::Bool(self.default_supports_websockets));
-        custom_settings.insert("streamTransport".to_string(), serde_json::Value::String(self.default_stream_transport.to_string()));
-        custom_settings.insert("credential".to_string(), serde_json::Value::Null);
-        custom_settings.insert("credentialEnv".to_string(), serde_json::Value::String(self.default_credential_env.to_string()));
-
-        ProviderConfig {
-            kind: self.kind.to_string(),
-            models,
-            custom_settings,
-        }
-    }
-}
-
-pub fn builtin_provider_definitions() -> Vec<ProviderDefinition> {
-    vec![
-        ProviderDefinition {
-            kind: "openai-responses",
-            display_name: "OpenAI Responses",
-            transport_family: ProviderTransportFamily::Responses,
-            default_api_endpoint: "https://api.openai.com/v1",
-            default_realtime_endpoint: None,
-            default_credential_env: "OPENAI_API_KEY",
-            default_supports_websockets: true,
-            default_stream_transport: "websocket",
-            default_model_ids: &["gpt-5-mini", "gpt-5"],
-            capabilities: ProviderCapabilities::openai_responses(),
-            tool_schema_format: ToolSchemaFormat::Responses,
-        },
-        ProviderDefinition {
-            kind: "chat-completions",
-            display_name: "Chat Completions",
-            transport_family: ProviderTransportFamily::ChatCompletions,
-            default_api_endpoint: "https://api.openai.com/v1",
-            default_realtime_endpoint: None,
-            default_credential_env: "OPENAI_API_KEY",
-            default_supports_websockets: false,
-            default_stream_transport: "sse",
-            default_model_ids: &["gpt-4.1", "gpt-4o"],
-            capabilities: ProviderCapabilities::chat_completions(),
-            tool_schema_format: ToolSchemaFormat::ChatCompletions,
-        },
-        ProviderDefinition {
-            kind: "gemini",
-            display_name: "Gemini",
-            transport_family: ProviderTransportFamily::Gemini,
-            default_api_endpoint: "https://generativelanguage.googleapis.com/v1beta",
-            default_realtime_endpoint: None,
-            default_credential_env: "GEMINI_API_KEY",
-            default_supports_websockets: false,
-            default_stream_transport: "sse",
-            default_model_ids: &["gemini-2.5-flash", "gemini-2.5-pro"],
-            capabilities: ProviderCapabilities::gemini(),
-            tool_schema_format: ToolSchemaFormat::Gemini,
-        },
-        ProviderDefinition {
-            kind: "anthropic",
-            display_name: "Anthropic",
-            transport_family: ProviderTransportFamily::Anthropic,
-            default_api_endpoint: "https://api.anthropic.com/v1",
-            default_realtime_endpoint: None,
-            default_credential_env: "ANTHROPIC_API_KEY",
-            default_supports_websockets: false,
-            default_stream_transport: "sse",
-            default_model_ids: &["claude-sonnet-4-5", "claude-opus-4-1"],
-            capabilities: ProviderCapabilities::anthropic(),
-            tool_schema_format: ToolSchemaFormat::Anthropic,
-        },
-    ]
-}
-
-use std::sync::{OnceLock, RwLock};
-
 static DYNAMIC_REGISTRY: OnceLock<RwLock<Vec<DynamicProviderDefinition>>> = OnceLock::new();
 
 fn get_registry() -> &'static RwLock<Vec<DynamicProviderDefinition>> {
-    DYNAMIC_REGISTRY.get_or_init(|| {
-        RwLock::new(
-            builtin_provider_definitions()
-                .into_iter()
-                .map(|builtin| DynamicProviderDefinition {
-                    kind: builtin.kind.to_string(),
-                    display_name: builtin.display_name.to_string(),
-                    config_schema: builtin.config_schema(),
-                    capabilities: builtin.capabilities,
-                    tool_schema_format: builtin.tool_schema_format,
-                    default_model_ids: builtin.default_model_ids.iter().map(|s| s.to_string()).collect(),
-                    default_config: builtin.build_default_config(),
-                })
-                .collect()
-        )
-    })
+    DYNAMIC_REGISTRY.get_or_init(|| RwLock::new(builtin_provider_definitions()))
 }
 
 #[derive(Debug, Clone)]
 pub struct DynamicProviderDefinition {
     pub kind: String,
     pub display_name: String,
-    pub config_schema: serde_json::Value,
+    pub transport_family: ProviderTransportFamily,
+    pub config_schema: Value,
     pub capabilities: ProviderCapabilities,
     pub tool_schema_format: ToolSchemaFormat,
     pub default_model_ids: Vec<String>,
     pub default_config: ProviderConfig,
 }
 
-impl ProviderDefinition {
-    pub fn config_schema(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "apiEndpoint": {
-                    "type": "string",
-                    "default": self.default_api_endpoint,
-                    "title": "API Endpoint"
-                },
-                "modelsEndpointCandidates": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "default": []
-                },
-                "queryParams": {
-                    "type": "object",
-                    "additionalProperties": { "type": "string" },
-                    "default": {}
-                },
-                "httpHeaders": {
-                    "type": "object",
-                    "additionalProperties": { "type": "string" },
-                    "default": {}
-                },
-                "envHttpHeaders": {
-                    "type": "object",
-                    "additionalProperties": { "type": "string" },
-                    "default": {}
-                },
-                "realtimeEndpoint": {
-                    "type": ["string", "null"],
-                    "default": self.default_realtime_endpoint
-                },
-                "supportsWebsockets": {
-                    "type": "boolean",
-                    "default": self.default_supports_websockets
-                },
-                "streamTransport": {
-                    "type": "string",
-                    "default": self.default_stream_transport
-                },
-                "credential": {
-                    "type": ["string", "null"],
-                    "default": null,
-                    "sensitive": true
-                },
-                "credentialEnv": {
-                    "type": "string",
-                    "default": self.default_credential_env
-                }
-            }
+pub fn builtin_provider_definitions() -> Vec<DynamicProviderDefinition> {
+    builtin_plugin_packages()
+        .into_iter()
+        .flat_map(|package| package.manifest.providers)
+        .filter_map(|provider| {
+            dynamic_provider_definition_from_plugin(provider)
+                .map_err(|err| {
+                    log::error!("Ignoring invalid built-in provider plugin declaration: {err}");
+                    err
+                })
+                .ok()
         })
-    }
+        .collect()
 }
 
-pub fn register_plugin_provider(
-    plugin_provider: crate::plugin_runtime::PluginProviderDefinition,
-) {
-    let mut registry = get_registry().write().unwrap();
-    let kind = plugin_provider.kind.trim().to_lowercase();
-    if registry.iter().any(|d| d.kind == kind) {
-        return;
-    }
-
-    let mut models = BTreeMap::new();
-    for model_id in &plugin_provider.default_model_ids {
-        models.insert(
-            model_id.clone(),
-            ProviderModelConfig {
-                model: model_id.clone(),
-                enabled: true,
-                request: ModelRequestConfig::default(),
-            },
-        );
-    }
-
-    let mut custom_settings = serde_json::Map::new();
-    if let Some(obj) = plugin_provider.config_schema.as_object() {
-        if let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {
-            for (key, schema_val) in properties {
-                let default_val = schema_val.get("default").cloned().unwrap_or(serde_json::Value::Null);
-                custom_settings.insert(key.clone(), default_val);
-            }
+pub fn register_plugin_providers_from_packages(packages: impl IntoIterator<Item = PluginPackage>) {
+    for package in packages {
+        for provider in package.manifest.providers {
+            register_plugin_provider(provider);
         }
     }
+}
 
-    let default_config = ProviderConfig {
-        kind: kind.clone(),
-        models,
-        custom_settings,
+pub fn register_plugin_provider(plugin_provider: PluginProviderDefinition) {
+    let Ok(definition) = dynamic_provider_definition_from_plugin(plugin_provider) else {
+        return;
     };
 
-    registry.push(DynamicProviderDefinition {
-        kind: kind.clone(),
-        display_name: plugin_provider.display_name,
-        config_schema: plugin_provider.config_schema,
-        capabilities: ProviderCapabilities::chat_completions(), // Fallback capabilities
-        tool_schema_format: ToolSchemaFormat::ChatCompletions, // Fallback tools format
-        default_model_ids: plugin_provider.default_model_ids,
-        default_config,
-    });
+    let mut registry = get_registry().write().unwrap();
+    if registry
+        .iter()
+        .any(|existing| existing.kind == definition.kind)
+    {
+        return;
+    }
+    registry.push(definition);
 }
 
+#[allow(dead_code)]
 pub fn unregister_plugin_provider(provider_kind: &str) {
     let mut registry = get_registry().write().unwrap();
-    let normalized = provider_kind.trim().to_lowercase();
-    registry.retain(|d| d.kind != normalized);
+    let normalized = normalize_provider_kind(provider_kind);
+    registry.retain(|definition| definition.kind != normalized);
 }
 
+#[allow(dead_code)]
 pub fn provider_definitions() -> Vec<DynamicProviderDefinition> {
     get_registry().read().unwrap().clone()
 }
 
 pub fn provider_definition(provider_kind: &str) -> Option<DynamicProviderDefinition> {
-    let normalized = provider_kind.trim().to_lowercase();
+    let normalized = normalize_provider_kind(provider_kind);
     get_registry()
         .read()
         .unwrap()
@@ -297,12 +115,7 @@ pub fn provider_kind_options() -> Vec<(String, String)> {
         .read()
         .unwrap()
         .iter()
-        .map(|definition| {
-            (
-                definition.display_name.clone(),
-                definition.kind.clone(),
-            )
-        })
+        .map(|definition| (definition.display_name.clone(), definition.kind.clone()))
         .collect()
 }
 
@@ -316,4 +129,206 @@ pub fn provider_capabilities(provider_kind: &str) -> Option<ProviderCapabilities
 
 pub fn provider_tool_schema_format(provider_kind: &str) -> Option<ToolSchemaFormat> {
     provider_definition(provider_kind).map(|definition| definition.tool_schema_format)
+}
+
+pub fn provider_transport_family(provider_kind: &str) -> Option<ProviderTransportFamily> {
+    provider_definition(provider_kind).map(|definition| definition.transport_family)
+}
+
+fn dynamic_provider_definition_from_plugin(
+    plugin_provider: PluginProviderDefinition,
+) -> Result<DynamicProviderDefinition, String> {
+    let kind = normalize_provider_kind(&plugin_provider.kind);
+    if kind.is_empty() {
+        return Err("provider kind cannot be empty".to_string());
+    }
+    let display_name = plugin_provider.display_name.trim().to_string();
+    if display_name.is_empty() {
+        return Err(format!("provider '{kind}' must have a display name"));
+    }
+
+    let transport_family = parse_transport_family(plugin_provider.transport_family.as_deref())?;
+    let capabilities = plugin_provider
+        .capabilities
+        .as_ref()
+        .and_then(parse_capabilities)
+        .unwrap_or_else(|| default_capabilities_for_family(transport_family));
+    let tool_schema_format = plugin_provider
+        .tool_schema_format
+        .as_deref()
+        .and_then(parse_tool_schema_format)
+        .unwrap_or_else(|| default_tool_schema_format_for_family(transport_family));
+    let config_schema = normalize_config_schema(&plugin_provider);
+    let default_model_ids = plugin_provider.default_model_ids;
+    let default_config = build_default_config(&kind, &default_model_ids, &config_schema);
+
+    Ok(DynamicProviderDefinition {
+        kind,
+        display_name,
+        transport_family,
+        config_schema,
+        capabilities,
+        tool_schema_format,
+        default_model_ids,
+        default_config,
+    })
+}
+
+fn normalize_provider_kind(provider_kind: &str) -> String {
+    provider_kind.trim().to_lowercase()
+}
+
+fn parse_transport_family(value: Option<&str>) -> Result<ProviderTransportFamily, String> {
+    let normalized = value
+        .unwrap_or("chat_completions")
+        .trim()
+        .to_ascii_lowercase()
+        .replace('-', "_");
+    match normalized.as_str() {
+        "responses" | "openai_responses" => Ok(ProviderTransportFamily::Responses),
+        "chat_completions" | "openai_chat_completions" => {
+            Ok(ProviderTransportFamily::ChatCompletions)
+        }
+        "gemini" | "google_gemini" => Ok(ProviderTransportFamily::Gemini),
+        "anthropic" | "claude" => Ok(ProviderTransportFamily::Anthropic),
+        "custom_oauth" => Ok(ProviderTransportFamily::CustomOauth),
+        _ => Err(format!(
+            "unsupported provider transport family '{normalized}'"
+        )),
+    }
+}
+
+fn parse_capabilities(value: &Value) -> Option<ProviderCapabilities> {
+    serde_json::from_value::<ProviderCapabilities>(value.clone()).ok()
+}
+
+fn parse_tool_schema_format(value: &str) -> Option<ToolSchemaFormat> {
+    match value.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+        "responses" | "openai_responses" => Some(ToolSchemaFormat::Responses),
+        "chat_completions" | "openai_chat_completions" => Some(ToolSchemaFormat::ChatCompletions),
+        "gemini" => Some(ToolSchemaFormat::Gemini),
+        "anthropic" | "claude" => Some(ToolSchemaFormat::Anthropic),
+        _ => None,
+    }
+}
+
+fn default_capabilities_for_family(family: ProviderTransportFamily) -> ProviderCapabilities {
+    match family {
+        ProviderTransportFamily::Responses => ProviderCapabilities::openai_responses(),
+        ProviderTransportFamily::ChatCompletions | ProviderTransportFamily::CustomOauth => {
+            ProviderCapabilities::chat_completions()
+        }
+        ProviderTransportFamily::Gemini => ProviderCapabilities::gemini(),
+        ProviderTransportFamily::Anthropic => ProviderCapabilities::anthropic(),
+    }
+}
+
+fn default_tool_schema_format_for_family(family: ProviderTransportFamily) -> ToolSchemaFormat {
+    match family {
+        ProviderTransportFamily::Responses => ToolSchemaFormat::Responses,
+        ProviderTransportFamily::ChatCompletions | ProviderTransportFamily::CustomOauth => {
+            ToolSchemaFormat::ChatCompletions
+        }
+        ProviderTransportFamily::Gemini => ToolSchemaFormat::Gemini,
+        ProviderTransportFamily::Anthropic => ToolSchemaFormat::Anthropic,
+    }
+}
+
+fn normalize_config_schema(plugin_provider: &PluginProviderDefinition) -> Value {
+    let has_properties = plugin_provider
+        .config_schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_some_and(|properties| !properties.is_empty());
+    if has_properties {
+        return plugin_provider.config_schema.clone();
+    }
+
+    standard_provider_config_schema(plugin_provider)
+}
+
+fn standard_provider_config_schema(plugin_provider: &PluginProviderDefinition) -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "apiEndpoint": {
+                "type": "string",
+                "default": plugin_provider.default_api_endpoint,
+                "title": "API Endpoint"
+            },
+            "modelsEndpointCandidates": {
+                "type": "array",
+                "items": { "type": "string" },
+                "default": []
+            },
+            "queryParams": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "default": {}
+            },
+            "httpHeaders": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "default": {}
+            },
+            "envHttpHeaders": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "default": {}
+            },
+            "realtimeEndpoint": {
+                "type": ["string", "null"],
+                "default": plugin_provider.default_realtime_endpoint
+            },
+            "supportsWebsockets": {
+                "type": "boolean",
+                "default": plugin_provider.default_supports_websockets
+            },
+            "streamTransport": {
+                "type": "string",
+                "default": plugin_provider.default_stream_transport
+            },
+            "credential": {
+                "type": ["string", "null"],
+                "default": null,
+                "sensitive": true
+            },
+            "credentialEnv": {
+                "type": "string",
+                "default": plugin_provider.default_credential_env
+            }
+        }
+    })
+}
+
+fn build_default_config(
+    kind: &str,
+    default_model_ids: &[String],
+    config_schema: &Value,
+) -> ProviderConfig {
+    let mut models = BTreeMap::new();
+    for model_id in default_model_ids {
+        models.insert(
+            model_id.clone(),
+            ProviderModelConfig {
+                model: model_id.clone(),
+                enabled: true,
+                request: ModelRequestConfig::default(),
+            },
+        );
+    }
+
+    let mut custom_settings = serde_json::Map::new();
+    if let Some(properties) = config_schema.get("properties").and_then(Value::as_object) {
+        for (key, schema_val) in properties {
+            let default_val = schema_val.get("default").cloned().unwrap_or(Value::Null);
+            custom_settings.insert(key.clone(), default_val);
+        }
+    }
+
+    ProviderConfig {
+        kind: kind.to_string(),
+        models,
+        custom_settings,
+    }
 }
