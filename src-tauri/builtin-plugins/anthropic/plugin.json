@@ -6,7 +6,7 @@
   "entrypoint": "plugin.js",
   "description": "Built-in AgentJax provider plugin for Anthropic Messages APIs.",
   "sandbox": {
-    "allowNetwork": false,
+    "allowNetwork": true,
     "allowFileRead": false,
     "allowFileWrite": false,
     "maxExecutionMs": 30000

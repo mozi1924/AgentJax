@@ -154,8 +154,14 @@ const openAIResponsesProvider = {
   },
   parseStreamEvent({ state, eventBlock }) {
     const next = initialState(state);
-    const data = eventBlock.split(/\r?\n/).filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trimStart()).join("\n");
+    let data;
+    const trimmedBlock = eventBlock.trim();
+    if (trimmedBlock.startsWith("{") || trimmedBlock.startsWith("[")) {
+      data = trimmedBlock;
+    } else {
+      data = eventBlock.split(/\r?\n/).filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart()).join("\n");
+    }
     if (!data || data === "[DONE]") return { state: next, done: data === "[DONE]" };
     const value = JSON.parse(data);
     if (value.error) throw new Error(`Streaming error: ${JSON.stringify(value.error)}`);

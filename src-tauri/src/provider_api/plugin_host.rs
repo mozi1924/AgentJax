@@ -123,8 +123,20 @@ where
             )
             .await
         }
+        "websocket" => {
+            stream_websocket_request(
+                &package,
+                &resolved.provider.kind,
+                request,
+                &resolved,
+                cancel_rx,
+                &mut on_delta,
+                definition.capabilities,
+            )
+            .await
+        }
         other => Err(format!(
-            "Provider plugin '{}' requested unsupported stream protocol '{}'. The host currently supports SSE for provider streams.",
+            "Provider plugin '{}' requested unsupported stream protocol '{}'. The host currently supports SSE and WebSocket for provider streams.",
             resolved.provider.kind, other
         )),
     }
@@ -314,6 +326,144 @@ async fn stream_sse_request(
 
     if response_id.is_empty() {
         response_id = ProviderIdFactory::new(&resolved.provider.kind).response_id().to_string();
+    }
+    let usage_hops = usage
+        .clone()
+        .map(|usage| ProviderUsageRecord {
+            response_id: response_id.clone(),
+            usage,
+        })
+        .into_iter()
+        .collect();
+
+    Ok(ResponseStreamResult {
+        response_id,
+        output_text,
+        output_items,
+        usage,
+        usage_hops,
+        provider_key: resolved.provider_key.clone(),
+        model_profile: resolved.profile_key.clone(),
+        model_id: resolved.model_id.clone(),
+        capabilities,
+    })
+}
+
+async fn stream_websocket_request(
+    package: &PluginPackage,
+    provider_kind: &str,
+    request: PluginHttpRequest,
+    resolved: &ResolvedModelConfig,
+    cancel_rx: &mut watch::Receiver<bool>,
+    on_delta: &mut ProviderEventSink<'_>,
+    capabilities: super::ProviderCapabilities,
+) -> Result<ResponseStreamResult, String> {
+    use futures_util::SinkExt;
+    use tokio_tungstenite::connect_async;
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+    let mut ws_req = request.url.clone().into_client_request()
+        .map_err(|err| format!("Invalid provider websocket URL '{}': {err}", request.url))?;
+
+    // Apply headers from request
+    for (key, value) in &request.headers {
+        let key = key.trim();
+        let value = value.trim();
+        if !key.is_empty() && !value.is_empty() {
+            if let Ok(header_name) = tokio_tungstenite::tungstenite::http::header::HeaderName::from_bytes(key.as_bytes()) {
+                if let Ok(header_value) = tokio_tungstenite::tungstenite::http::header::HeaderValue::from_str(value) {
+                    ws_req.headers_mut().insert(header_name, header_value);
+                }
+            }
+        }
+    }
+
+    let (ws_stream, _) = connect_async(ws_req)
+        .await
+        .map_err(|err| format!("Failed to connect to provider websocket: {err}"))?;
+
+    let (mut ws_tx, mut ws_rx) = ws_stream.split();
+
+    // Send initial request body if present
+    if let Some(body) = &request.body {
+        let body_str = serde_json::to_string(body)
+            .map_err(|err| format!("Failed to serialize websocket request body: {err}"))?;
+        ws_tx.send(Message::text(body_str))
+            .await
+            .map_err(|err| format!("Failed to send websocket initial message: {err}"))?;
+    }
+
+    let mut state = json!({});
+    let mut response_id = String::new();
+    let mut output_text = String::new();
+    let mut output_items = Vec::new();
+    let mut usage = None;
+
+    loop {
+        tokio::select! {
+            changed = cancel_rx.changed() => {
+                if changed.is_ok() && *cancel_rx.borrow() {
+                    break;
+                }
+            }
+            msg = ws_rx.next() => {
+                let Some(msg) = msg else {
+                    break;
+                };
+                let msg = msg.map_err(|err| format!("Failed to read websocket message: {err}"))?;
+                match msg {
+                    Message::Text(text) => {
+                        let done = apply_stream_step(
+                            package,
+                            provider_kind,
+                            resolved,
+                            text.to_string(),
+                            &mut state,
+                            &mut response_id,
+                            &mut output_text,
+                            &mut output_items,
+                            &mut usage,
+                            on_delta,
+                        )?;
+                        if done {
+                            break;
+                        }
+                    }
+                    Message::Close(_) => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let final_step: PluginStreamFinal = call_provider_function(
+        package,
+        provider_kind,
+        "finalizeStream",
+        json!({
+            "resolved": resolved_context(resolved),
+            "state": state
+        }),
+    )?;
+    for event in final_step.events {
+        on_delta(event)?;
+    }
+    if let Some(final_response_id) = final_step.response_id.filter(|value| !value.is_empty()) {
+        response_id = final_response_id;
+    }
+    if let Some(final_text) = final_step.output_text {
+        output_text = final_text;
+    }
+    output_items.extend(final_step.output_items);
+    if final_step.usage.is_some() {
+        usage = final_step.usage;
+    }
+
+    if response_id.is_empty() {
+        response_id = ProviderIdFactory::new(provider_kind).response_id().to_string();
     }
     let usage_hops = usage
         .clone()
