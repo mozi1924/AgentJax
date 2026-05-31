@@ -7,11 +7,14 @@ pub struct ConversationContext {
 
     /// Estimated token count of the assembled context items (rough estimate,
     /// not exact tokenizer count). Set during context assembly.
+    #[allow(dead_code)]
     pub estimated_tokens: usize,
 
     /// Number of tool call entries in the assembled context.
+    #[allow(dead_code)]
     pub tool_call_count: usize,
 
     /// Total number of conversation lines loaded from storage.
+    #[allow(dead_code)]
     pub message_count: usize,
 }

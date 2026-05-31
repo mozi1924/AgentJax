@@ -65,11 +65,13 @@ impl ModelContextWindow {
 #[derive(Debug, Clone)]
 pub struct TokenBudget {
     /// The model's full context window size in tokens.
+    #[allow(dead_code)]
     pub context_window: usize,
     /// The safe budget for context history (after reserving space for
     /// instructions, tool schemas, and the current turn).
     pub context_budget: usize,
     /// The model identifier used to resolve this budget.
+    #[allow(dead_code)]
     pub model_id: String,
 }
 
@@ -92,6 +94,7 @@ impl TokenBudget {
     ///
     /// Useful for testing or when the model is unknown and the caller prefers
     /// lenient behaviour over conservative truncation.
+    #[allow(dead_code)]
     pub fn unlimited() -> Self {
         Self {
             context_window: usize::MAX,

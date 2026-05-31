@@ -150,7 +150,6 @@ pub trait PluginRuntime: Send {
 pub struct PluginInstance {
     manifest: PluginManifest,
     pub(crate) runtime: JsRuntime,
-    root_dir: Option<PathBuf>,
 }
 
 // Legacy trait methods kept as direct impl methods for backward compatibility.
@@ -237,7 +236,6 @@ impl PluginInstance {
         Ok(Self {
             manifest,
             runtime,
-            root_dir,
         })
     }
 
