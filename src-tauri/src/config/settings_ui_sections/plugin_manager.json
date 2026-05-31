@@ -105,14 +105,6 @@
                 ],
                 "actions": [
                   {
-                    "id": "togglePluginEnabled",
-                    "variant": "switch",
-                    "path": "policyPaths.pluginEnabledPath",
-                    "value": "enabled",
-                    "savingKey": "pluginSavingKey",
-                    "visibleWhen": [{ "path": "policyPaths.pluginEnabledPath", "truthy": true }]
-                  },
-                  {
                     "id": "togglePermission_allowNetwork",
                     "label": "settings.plugins.permission.network",
                     "variant": "switch",

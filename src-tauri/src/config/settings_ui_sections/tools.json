@@ -185,16 +185,7 @@
                     "variant": "badge"
                   }
                 ],
-                "actions": [
-                  {
-                    "id": "toggleToolEnabled",
-                    "variant": "switch",
-                    "path": "policyPaths.toolEnabledPath",
-                    "value": "enabled",
-                    "savingKey": "toolSavingKey",
-                    "visibleWhen": [{ "path": "policyPaths.toolEnabledPath", "truthy": true }]
-                  }
-                ]
+                "actions": []
               }
             }
           ]

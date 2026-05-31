@@ -318,6 +318,8 @@ export function DataSourceRenderer({
       node.variant === 'sidebar' && 'border-r border-[#242426]/50 bg-[#171719]/40',
       node.variant === 'content' && 'border-r border-[#242426]/50'
     );
+    const listStatus = dataContext.getStatus?.(node.dataSource);
+
     return (
       <section className={containerClass}>
         <OverlayScrollArea
@@ -327,7 +329,17 @@ export function DataSourceRenderer({
             node.variant === 'sidebar' && 'pl-6 pr-2 py-2 xl:pl-6'
           )}
         >
-          {items.length === 0 ? (
+          {listStatus?.loading ? (
+            <div className="flex h-48 items-center justify-center gap-2 text-xs text-neutral-400">
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              {listStatus.loadingText ? t(listStatus.loadingText) : 'Loading...'}
+            </div>
+          ) : listStatus?.error ? (
+            <div className="flex h-48 flex-col items-center justify-center gap-1.5 px-4 text-center text-xs text-rose-300">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>{listStatus.errorText ? t(listStatus.errorText, { message: listStatus.error }) : listStatus.error}</span>
+            </div>
+          ) : items.length === 0 ? (
             <p className="px-2 py-6 text-center text-xs text-neutral-500">
               {node.emptyText ? t(node.emptyText) : ''}
             </p>

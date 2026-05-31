@@ -71,6 +71,8 @@ export function useToolManagerDataProvider({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
+  const [mcpDiscovering, setMcpDiscovering] = useState(false);
+  const [mcpDiscoverError, setMcpDiscoverError] = useState('');
   const [discoveredSourceIds, setDiscoveredSourceIds] = useState<Set<string>>(new Set());
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const [activeCategory, setActiveCategory] = useState<ToolCategory>('native');
@@ -96,10 +98,16 @@ export function useToolManagerDataProvider({
 
   const discoverSource = async (sourceId: string) => {
     setActionError('');
+    setMcpDiscovering(true);
+    setMcpDiscoverError('');
     try {
       await refreshSnapshot({ discoverSourceId: sourceId });
     } catch (err) {
-      setActionError(typeof err === 'string' ? err : String(err));
+      const errMsg = typeof err === 'string' ? err : String(err);
+      setActionError(errMsg);
+      setMcpDiscoverError(errMsg);
+    } finally {
+      setMcpDiscovering(false);
     }
   };
 
@@ -258,15 +266,25 @@ export function useToolManagerDataProvider({
       }
       return undefined;
     },
-    getStatus: (dataSource) =>
-      dataSource === 'toolManager' || dataSource === 'toolManager.root'
-        ? {
-            loading,
-            error: loadError,
-            loadingText: 'settings.tools.loading',
-            errorText: 'settings.tools.error',
-          }
-        : undefined,
+    getStatus: (dataSource) => {
+      if (dataSource === 'toolManager' || dataSource === 'toolManager.root') {
+        return {
+          loading,
+          error: loadError,
+          loadingText: 'settings.tools.loading',
+          errorText: 'settings.tools.error',
+        };
+      }
+      if (dataSource === 'toolManager.tools') {
+        return {
+          loading: mcpDiscovering,
+          error: mcpDiscoverError,
+          loadingText: 'settings.tools.mcp_loading',
+          errorText: 'settings.tools.mcp_error',
+        };
+      }
+      return undefined;
+    },
     dispatch: async (action, payload) => {
       const record = asRecord(payload);
       const item = asRecord(record.item);
@@ -281,7 +299,7 @@ export function useToolManagerDataProvider({
         setSelectedSourceKey(sourceIdentityKey(source));
         setSelectedToolId('');
         setActionError('');
-        if (source.sourceType === 'mcp' && !discoveredSourceIds.has(source.sourceId)) {
+        if (source.sourceType === 'mcp') {
           await discoverSource(source.sourceId);
         }
         return;
