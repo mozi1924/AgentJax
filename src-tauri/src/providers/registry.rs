@@ -45,26 +45,25 @@ impl ProviderDefinition {
             );
         }
 
+        let mut custom_settings = serde_json::Map::new();
+        custom_settings.insert("apiEndpoint".to_string(), serde_json::Value::String(self.default_api_endpoint.to_string()));
+        custom_settings.insert("modelsEndpointCandidates".to_string(), serde_json::Value::Array(Vec::new()));
+        custom_settings.insert("queryParams".to_string(), serde_json::to_value(BTreeMap::<String, String>::new()).unwrap());
+        custom_settings.insert("httpHeaders".to_string(), serde_json::to_value(BTreeMap::<String, String>::new()).unwrap());
+        custom_settings.insert("envHttpHeaders".to_string(), serde_json::to_value(BTreeMap::<String, String>::new()).unwrap());
+        custom_settings.insert("realtimeEndpoint".to_string(), match self.default_realtime_endpoint {
+            Some(val) => serde_json::Value::String(val.to_string()),
+            None => serde_json::Value::Null,
+        });
+        custom_settings.insert("supportsWebsockets".to_string(), serde_json::Value::Bool(self.default_supports_websockets));
+        custom_settings.insert("streamTransport".to_string(), serde_json::Value::String(self.default_stream_transport.to_string()));
+        custom_settings.insert("credential".to_string(), serde_json::Value::Null);
+        custom_settings.insert("credentialEnv".to_string(), serde_json::Value::String(self.default_credential_env.to_string()));
+
         ProviderConfig {
             kind: self.kind.to_string(),
-            api_endpoint: self.default_api_endpoint.to_string(),
-            models_endpoint_candidates: Vec::new(),
-            query_params: BTreeMap::new(),
-            http_headers: BTreeMap::new(),
-            env_http_headers: BTreeMap::new(),
-            realtime_endpoint: self
-                .default_realtime_endpoint
-                .map(|value| value.to_string()),
-            supports_websockets: self.default_supports_websockets,
-            stream_transport: self.default_stream_transport.to_string(),
-            credential: None,
-            credential_env: self.default_credential_env.to_string(),
-            request_timeout_seconds: None,
-            request_max_retries: None,
-            stream_max_retries: None,
-            stream_idle_timeout_ms: None,
-            websocket_connect_timeout_ms: None,
             models,
+            custom_settings,
         }
     }
 }
@@ -126,36 +125,189 @@ pub fn builtin_provider_definitions() -> Vec<ProviderDefinition> {
     ]
 }
 
-pub fn provider_definition(provider_kind: &str) -> Option<ProviderDefinition> {
+use std::sync::{OnceLock, RwLock};
+
+static DYNAMIC_REGISTRY: OnceLock<RwLock<Vec<DynamicProviderDefinition>>> = OnceLock::new();
+
+fn get_registry() -> &'static RwLock<Vec<DynamicProviderDefinition>> {
+    DYNAMIC_REGISTRY.get_or_init(|| {
+        RwLock::new(
+            builtin_provider_definitions()
+                .into_iter()
+                .map(|builtin| DynamicProviderDefinition {
+                    kind: builtin.kind.to_string(),
+                    display_name: builtin.display_name.to_string(),
+                    config_schema: builtin.config_schema(),
+                    capabilities: builtin.capabilities,
+                    tool_schema_format: builtin.tool_schema_format,
+                    default_model_ids: builtin.default_model_ids.iter().map(|s| s.to_string()).collect(),
+                    default_config: builtin.build_default_config(),
+                })
+                .collect()
+        )
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct DynamicProviderDefinition {
+    pub kind: String,
+    pub display_name: String,
+    pub config_schema: serde_json::Value,
+    pub capabilities: ProviderCapabilities,
+    pub tool_schema_format: ToolSchemaFormat,
+    pub default_model_ids: Vec<String>,
+    pub default_config: ProviderConfig,
+}
+
+impl ProviderDefinition {
+    pub fn config_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "apiEndpoint": {
+                    "type": "string",
+                    "default": self.default_api_endpoint,
+                    "title": "API Endpoint"
+                },
+                "modelsEndpointCandidates": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "default": []
+                },
+                "queryParams": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "default": {}
+                },
+                "httpHeaders": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "default": {}
+                },
+                "envHttpHeaders": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "default": {}
+                },
+                "realtimeEndpoint": {
+                    "type": ["string", "null"],
+                    "default": self.default_realtime_endpoint
+                },
+                "supportsWebsockets": {
+                    "type": "boolean",
+                    "default": self.default_supports_websockets
+                },
+                "streamTransport": {
+                    "type": "string",
+                    "default": self.default_stream_transport
+                },
+                "credential": {
+                    "type": ["string", "null"],
+                    "default": null,
+                    "sensitive": true
+                },
+                "credentialEnv": {
+                    "type": "string",
+                    "default": self.default_credential_env
+                }
+            }
+        })
+    }
+}
+
+pub fn register_plugin_provider(
+    plugin_provider: crate::plugin_runtime::PluginProviderDefinition,
+) {
+    let mut registry = get_registry().write().unwrap();
+    let kind = plugin_provider.kind.trim().to_lowercase();
+    if registry.iter().any(|d| d.kind == kind) {
+        return;
+    }
+
+    let mut models = BTreeMap::new();
+    for model_id in &plugin_provider.default_model_ids {
+        models.insert(
+            model_id.clone(),
+            ProviderModelConfig {
+                model: model_id.clone(),
+                enabled: true,
+                request: ModelRequestConfig::default(),
+            },
+        );
+    }
+
+    let mut custom_settings = serde_json::Map::new();
+    if let Some(obj) = plugin_provider.config_schema.as_object() {
+        if let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {
+            for (key, schema_val) in properties {
+                let default_val = schema_val.get("default").cloned().unwrap_or(serde_json::Value::Null);
+                custom_settings.insert(key.clone(), default_val);
+            }
+        }
+    }
+
+    let default_config = ProviderConfig {
+        kind: kind.clone(),
+        models,
+        custom_settings,
+    };
+
+    registry.push(DynamicProviderDefinition {
+        kind: kind.clone(),
+        display_name: plugin_provider.display_name,
+        config_schema: plugin_provider.config_schema,
+        capabilities: ProviderCapabilities::chat_completions(), // Fallback capabilities
+        tool_schema_format: ToolSchemaFormat::ChatCompletions, // Fallback tools format
+        default_model_ids: plugin_provider.default_model_ids,
+        default_config,
+    });
+}
+
+pub fn unregister_plugin_provider(provider_kind: &str) {
+    let mut registry = get_registry().write().unwrap();
     let normalized = provider_kind.trim().to_lowercase();
-    builtin_provider_definitions()
-        .into_iter()
+    registry.retain(|d| d.kind != normalized);
+}
+
+pub fn provider_definitions() -> Vec<DynamicProviderDefinition> {
+    get_registry().read().unwrap().clone()
+}
+
+pub fn provider_definition(provider_kind: &str) -> Option<DynamicProviderDefinition> {
+    let normalized = provider_kind.trim().to_lowercase();
+    get_registry()
+        .read()
+        .unwrap()
+        .iter()
         .find(|definition| definition.kind == normalized)
+        .cloned()
 }
 
-pub fn default_provider_definition() -> ProviderDefinition {
+pub fn default_provider_definition() -> DynamicProviderDefinition {
     provider_definition("openai-responses")
-        .unwrap_or_else(|| builtin_provider_definitions().into_iter().next().unwrap())
+        .unwrap_or_else(|| get_registry().read().unwrap().first().unwrap().clone())
 }
 
-pub fn default_provider_kind() -> &'static str {
+pub fn default_provider_kind() -> String {
     default_provider_definition().kind
 }
 
 pub fn provider_kind_options() -> Vec<(String, String)> {
-    builtin_provider_definitions()
-        .into_iter()
+    get_registry()
+        .read()
+        .unwrap()
+        .iter()
         .map(|definition| {
             (
-                definition.display_name.to_string(),
-                definition.kind.to_string(),
+                definition.display_name.clone(),
+                definition.kind.clone(),
             )
         })
         .collect()
 }
 
 pub fn default_provider_config() -> ProviderConfig {
-    default_provider_definition().build_default_config()
+    default_provider_definition().default_config
 }
 
 pub fn provider_capabilities(provider_kind: &str) -> Option<ProviderCapabilities> {

@@ -75,12 +75,12 @@ pub async fn fetch_remote_models_with_strategy(
         .timeout(Duration::from_secs(resolved.timeout_seconds))
         .build()
         .map_err(|e| format!("Failed to initialize HTTP client: {e}"))?;
-    let max_retries = resolved.provider.request_max_retries.unwrap_or(0);
+    let max_retries = resolved.provider.request_max_retries().unwrap_or(0);
 
     let mut errors = Vec::new();
     for candidate in &strategy.endpoint_candidates {
-        let endpoint = build_models_endpoint(&resolved.provider.api_endpoint, candidate);
-        let mut query_params = resolved.provider.query_params.clone();
+        let endpoint = build_models_endpoint(&resolved.provider.api_endpoint(), candidate);
+        let mut query_params = resolved.provider.query_params();
         if let Some(param_name) = strategy.credential_query_param {
             if let Some(credential) = credential
                 .as_deref()

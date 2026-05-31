@@ -20,7 +20,7 @@ pub async fn fetch_remote_models(
     resolved: &ResolvedModelConfig,
 ) -> Result<Vec<ProviderModelDescriptor>, String> {
     let strategy = responses::models::ModelsFetchStrategy::openai_compatible()
-        .with_provider_overrides(&resolved.provider.models_endpoint_candidates);
+        .with_provider_overrides(&resolved.provider.models_endpoint_candidates());
     responses::models::fetch_remote_models_with_strategy(resolved, &strategy).await
 }
 

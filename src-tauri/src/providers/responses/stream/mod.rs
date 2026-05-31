@@ -71,7 +71,7 @@ pub async fn stream_response_with_behavior(
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<ResponseStreamResult, String> {
-    let max_retries = resolved.provider.stream_max_retries.unwrap_or(0);
+    let max_retries = resolved.provider.stream_max_retries().unwrap_or(0);
     let mut attempt = 0u32;
 
     loop {
@@ -109,7 +109,7 @@ async fn stream_response_attempt_with_behavior(
 ) -> Result<ResponseStreamResult, String> {
     let websocket_key = websocket_fallback_key(resolved);
     let use_sse =
-        resolved.provider.stream_transport == "sse" || websocket_is_downgraded(&websocket_key);
+        resolved.provider.stream_transport() == "sse" || websocket_is_downgraded(&websocket_key);
 
     let first_attempt = if use_sse {
         transport::create_response_streaming_sse(resolved, req, behavior, cancel_rx, on_delta).await

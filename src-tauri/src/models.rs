@@ -159,7 +159,7 @@ pub async fn sync_remote_model_cache_with_config(cfg: &AppConfig) -> Result<Mode
                         models: dedup_model_descriptors(ids),
                         source_api_endpoint: cfg
                             .resolved_provider(&provider_key)
-                            .map(|p| p.api_endpoint)
+                            .map(|p| p.api_endpoint())
                             .unwrap_or_default(),
                     },
                 );

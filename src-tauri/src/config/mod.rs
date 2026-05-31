@@ -234,15 +234,15 @@ mod tests {
             .providers
             .get_mut("openai-responses")
             .expect("openai-responses provider exists");
-        provider.supports_websockets = false;
-        provider.stream_transport = "websocket".to_string();
+        provider.custom_settings.insert("supportsWebsockets".to_string(), serde_json::Value::Bool(false));
+        provider.custom_settings.insert("streamTransport".to_string(), serde_json::Value::String("websocket".to_string()));
 
         let normalized = cfg.normalize();
         let provider = normalized
             .providers
             .get("openai-responses")
             .expect("normalized provider exists");
-        assert_eq!(provider.stream_transport, "sse");
+        assert_eq!(provider.stream_transport(), "sse");
     }
 
     #[test]
@@ -251,17 +251,21 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut provider = ProviderConfig::default();
-        provider
-            .http_headers
-            .insert("X-Feature".to_string(), "static".to_string());
-        provider.env_http_headers.insert(
+        
+        let mut http_headers = serde_json::Map::new();
+        http_headers.insert("X-Feature".to_string(), serde_json::Value::String("static".to_string()));
+        provider.custom_settings.insert("httpHeaders".to_string(), serde_json::Value::Object(http_headers));
+        
+        let mut env_http_headers = serde_json::Map::new();
+        env_http_headers.insert(
             "Authorization".to_string(),
-            "TEST_AGENTJAX_AUTH".to_string(),
+            serde_json::Value::String("TEST_AGENTJAX_AUTH".to_string()),
         );
-        provider.env_http_headers.insert(
+        env_http_headers.insert(
             "X-Feature".to_string(),
-            "TEST_AGENTJAX_X_FEATURE".to_string(),
+            serde_json::Value::String("TEST_AGENTJAX_X_FEATURE".to_string()),
         );
+        provider.custom_settings.insert("envHttpHeaders".to_string(), serde_json::Value::Object(env_http_headers));
 
         unsafe {
             std::env::set_var("TEST_AGENTJAX_AUTH", "Bearer token-from-env");
@@ -444,5 +448,68 @@ mod tests {
                 .contains("## System / instructions")
         );
         assert!(compiled.preview_markdown.contains("## Developer messages"));
+    }
+
+    #[test]
+    fn test_plugin_provider_registration_and_config_self_healing() {
+        use crate::providers::registry::{register_plugin_provider, unregister_plugin_provider};
+        use crate::plugin_runtime::PluginProviderDefinition;
+
+        let plugin_provider = PluginProviderDefinition {
+            kind: "custom-oauth-llm".to_string(),
+            display_name: "Custom OAuth LLM".to_string(),
+            config_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "apiKey": {
+                        "type": "string",
+                        "default": "default-oauth-key"
+                    },
+                    "apiEndpoint": {
+                        "type": "string",
+                        "default": "https://api.custom-oauth.com/v1"
+                    },
+                    "customParam": {
+                        "type": "string",
+                        "default": "custom-value"
+                    }
+                }
+            }),
+            default_model_ids: vec!["custom-model-1".to_string(), "custom-model-2".to_string()],
+        };
+
+        // Register the provider
+        register_plugin_provider(plugin_provider);
+
+        // Create an AppConfig where the provider config is registered but custom_settings is empty
+        let mut cfg = AppConfig::default();
+        let mut provider_cfg = ProviderConfig::default();
+        provider_cfg.kind = "custom-oauth-llm".to_string();
+        cfg.providers.insert("custom-oauth-llm".to_string(), provider_cfg);
+
+        // Normalize
+        let normalized = cfg.normalize();
+        let provider = normalized.providers.get("custom-oauth-llm").expect("custom-oauth-llm provider exists");
+
+        // Verify custom_settings has been auto-completed with defaults from the schema
+        assert_eq!(
+            provider.custom_settings.get("apiKey").and_then(|v| v.as_str()),
+            Some("default-oauth-key")
+        );
+        assert_eq!(
+            provider.custom_settings.get("apiEndpoint").and_then(|v| v.as_str()),
+            Some("https://api.custom-oauth.com/v1")
+        );
+        assert_eq!(
+            provider.custom_settings.get("customParam").and_then(|v| v.as_str()),
+            Some("custom-value")
+        );
+
+        // Verify defaults models are populated and enabled
+        assert!(provider.models.contains_key("custom-model-1"));
+        assert!(provider.models.get("custom-model-1").unwrap().enabled);
+
+        // Clean up
+        unregister_plugin_provider("custom-oauth-llm");
     }
 }

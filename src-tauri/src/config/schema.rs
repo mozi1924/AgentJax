@@ -127,28 +127,147 @@ pub enum McpTransportKind {
 #[serde(default)]
 pub struct ProviderConfig {
     pub kind: String,
-    pub api_endpoint: String,
-    #[serde(default)]
-    pub models_endpoint_candidates: Vec<String>,
-    #[serde(default)]
-    pub query_params: BTreeMap<String, String>,
-    #[serde(default)]
-    pub http_headers: BTreeMap<String, String>,
-    #[serde(default)]
-    pub env_http_headers: BTreeMap<String, String>,
-    pub realtime_endpoint: Option<String>,
-    #[serde(default = "default_true")]
-    pub supports_websockets: bool,
-    pub stream_transport: String,
-    pub credential: Option<String>,
-    pub credential_env: String,
-    pub request_timeout_seconds: Option<u64>,
-    pub request_max_retries: Option<u32>,
-    pub stream_max_retries: Option<u32>,
-    pub stream_idle_timeout_ms: Option<u64>,
-    pub websocket_connect_timeout_ms: Option<u64>,
     #[serde(default)]
     pub models: BTreeMap<String, ProviderModelConfig>,
+    #[serde(flatten)]
+    pub custom_settings: serde_json::Map<String, Value>,
+}
+
+impl ProviderConfig {
+    pub fn api_endpoint(&self) -> String {
+        self.custom_settings
+            .get("apiEndpoint")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    }
+
+    pub fn models_endpoint_candidates(&self) -> Vec<String> {
+        self.custom_settings
+            .get("modelsEndpointCandidates")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|val| val.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn query_params(&self) -> BTreeMap<String, String> {
+        self.custom_settings
+            .get("queryParams")
+            .and_then(Value::as_object)
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn http_headers(&self) -> BTreeMap<String, String> {
+        self.custom_settings
+            .get("httpHeaders")
+            .and_then(Value::as_object)
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn env_http_headers(&self) -> BTreeMap<String, String> {
+        self.custom_settings
+            .get("envHttpHeaders")
+            .and_then(Value::as_object)
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn realtime_endpoint(&self) -> Option<String> {
+        self.custom_settings
+            .get("realtimeEndpoint")
+            .and_then(|val| {
+                if val.is_null() {
+                    None
+                } else {
+                    val.as_str().map(String::from)
+                }
+            })
+    }
+
+    pub fn supports_websockets(&self) -> bool {
+        self.custom_settings
+            .get("supportsWebsockets")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+    }
+
+    pub fn stream_transport(&self) -> String {
+        self.custom_settings
+            .get("streamTransport")
+            .and_then(Value::as_str)
+            .unwrap_or("sse")
+            .to_string()
+    }
+
+    pub fn credential(&self) -> Option<String> {
+        self.custom_settings
+            .get("credential")
+            .and_then(|val| {
+                if val.is_null() {
+                    None
+                } else {
+                    val.as_str().map(String::from)
+                }
+            })
+    }
+
+    pub fn credential_env(&self) -> String {
+        self.custom_settings
+            .get("credentialEnv")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    }
+
+    pub fn request_timeout_seconds(&self) -> Option<u64> {
+        self.custom_settings
+            .get("requestTimeoutSeconds")
+            .and_then(Value::as_u64)
+    }
+
+    pub fn request_max_retries(&self) -> Option<u32> {
+        self.custom_settings
+            .get("requestMaxRetries")
+            .and_then(Value::as_u64)
+            .map(|v| v as u32)
+    }
+
+    pub fn stream_max_retries(&self) -> Option<u32> {
+        self.custom_settings
+            .get("streamMaxRetries")
+            .and_then(Value::as_u64)
+            .map(|v| v as u32)
+    }
+
+    pub fn stream_idle_timeout_ms(&self) -> Option<u64> {
+        self.custom_settings
+            .get("streamIdleTimeoutMs")
+            .and_then(Value::as_u64)
+    }
+
+    pub fn websocket_connect_timeout_ms(&self) -> Option<u64> {
+        self.custom_settings
+            .get("websocketConnectTimeoutMs")
+            .and_then(Value::as_u64)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,7 +309,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         let mut providers = BTreeMap::new();
         let default_provider = registry::default_provider_definition();
-        providers.insert(default_provider.kind.to_string(), ProviderConfig::default());
+        providers.insert(default_provider.kind.to_string(), registry::default_provider_config());
 
         Self {
             active_provider: default_provider.kind.to_string(),
@@ -277,7 +396,11 @@ impl Default for McpRuntimeConfig {
 
 impl Default for ProviderConfig {
     fn default() -> Self {
-        registry::default_provider_config()
+        Self {
+            kind: String::new(),
+            models: BTreeMap::new(),
+            custom_settings: serde_json::Map::new(),
+        }
     }
 }
 

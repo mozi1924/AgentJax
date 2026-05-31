@@ -29,11 +29,11 @@ pub async fn fetch_remote_models(
 
 fn models_fetch_strategy(resolved: &ResolvedModelConfig) -> responses::models::ModelsFetchStrategy {
     let mut strategy = responses::models::ModelsFetchStrategy::openai_compatible()
-        .with_provider_overrides(&resolved.provider.models_endpoint_candidates);
+        .with_provider_overrides(&resolved.provider.models_endpoint_candidates());
 
     // Google Gemini's public REST API accepts API keys as a `key` query
     // parameter for both generation and model catalog endpoints.
-    if should_use_key_query_param(&resolved.provider.api_endpoint) {
+    if should_use_key_query_param(&resolved.provider.api_endpoint()) {
         strategy = strategy.with_credential_query_param("key");
     }
 
@@ -188,9 +188,10 @@ fn build_stream_endpoint(
     credential: Option<&str>,
 ) -> Result<String, String> {
     let model = resolved.model_id.trim().trim_start_matches("models/");
-    let base = resolved.provider.api_endpoint.trim_end_matches('/');
+    let base = resolved.provider.api_endpoint();
+    let base = base.trim_end_matches('/');
     let endpoint = format!("{base}/models/{model}:streamGenerateContent");
-    let mut query_params = resolved.provider.query_params.clone();
+    let mut query_params = resolved.provider.query_params();
     query_params
         .entry("alt".to_string())
         .or_insert_with(|| "sse".to_string());
@@ -229,6 +230,7 @@ fn build_request_headers(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use super::{build_gemini_payload, models_fetch_strategy, process_gemini_event};
     use crate::config::{
         ModelRequestConfig, PromptComposerConfig, ProviderConfig, ResolvedModelConfig,
@@ -240,10 +242,15 @@ mod tests {
 
     fn test_resolved() -> ResolvedModelConfig {
         let prompt_assembly = compile_prompt_composer(&PromptComposerConfig::default());
+        let mut custom_settings = serde_json::Map::new();
+        custom_settings.insert(
+            "apiEndpoint".to_string(),
+            serde_json::Value::String("https://generativelanguage.googleapis.com/v1beta".to_string()),
+        );
         let provider = ProviderConfig {
             kind: "gemini".to_string(),
-            api_endpoint: "https://generativelanguage.googleapis.com/v1beta".to_string(),
-            ..Default::default()
+            models: BTreeMap::new(),
+            custom_settings,
         };
         ResolvedModelConfig {
             profile_key: "test".to_string(),

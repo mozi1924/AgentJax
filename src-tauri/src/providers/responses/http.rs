@@ -130,16 +130,15 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut provider = ProviderConfig::default();
-        provider
-            .http_headers
-            .insert("X-Test".to_string(), "provider".to_string());
-        provider
-            .env_http_headers
-            .insert("X-Test".to_string(), "TEST_X_HEADER".to_string());
-        provider.http_headers.insert(
-            "Authorization".to_string(),
-            "ApiKey provider-auth".to_string(),
-        );
+        
+        let mut http_headers = serde_json::Map::new();
+        http_headers.insert("X-Test".to_string(), serde_json::Value::String("provider".to_string()));
+        http_headers.insert("Authorization".to_string(), serde_json::Value::String("ApiKey provider-auth".to_string()));
+        provider.custom_settings.insert("httpHeaders".to_string(), serde_json::Value::Object(http_headers));
+        
+        let mut env_http_headers = serde_json::Map::new();
+        env_http_headers.insert("X-Test".to_string(), serde_json::Value::String("TEST_X_HEADER".to_string()));
+        provider.custom_settings.insert("envHttpHeaders".to_string(), serde_json::Value::Object(env_http_headers));
 
         unsafe {
             std::env::set_var("TEST_X_HEADER", "env");

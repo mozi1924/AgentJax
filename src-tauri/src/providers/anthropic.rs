@@ -25,10 +25,10 @@ pub async fn fetch_remote_models(
 ) -> Result<Vec<ProviderModelDescriptor>, String> {
     let endpoint = format!(
         "{}/models",
-        resolved.provider.api_endpoint.trim_end_matches('/')
+        resolved.provider.api_endpoint().trim_end_matches('/')
     );
     let endpoint =
-        responses::http::apply_query_params_to_url(&endpoint, &resolved.provider.query_params)
+        responses::http::apply_query_params_to_url(&endpoint, &resolved.provider.query_params())
             .map_err(|e| format!("Failed to build Anthropic models endpoint URL: {e}"))?;
     let headers =
         build_request_headers(resolved, resolved.provider.resolved_credential().as_deref());
@@ -73,10 +73,10 @@ pub async fn stream_response(
     let headers = build_request_headers(resolved, credential.as_deref());
     let endpoint = format!(
         "{}/messages",
-        resolved.provider.api_endpoint.trim_end_matches('/')
+        resolved.provider.api_endpoint().trim_end_matches('/')
     );
     let endpoint =
-        responses::http::apply_query_params_to_url(&endpoint, &resolved.provider.query_params)
+        responses::http::apply_query_params_to_url(&endpoint, &resolved.provider.query_params())
             .map_err(|e| format!("Failed to build Anthropic messages endpoint URL: {e}"))?;
     let body = build_anthropic_payload(resolved, req)?;
 

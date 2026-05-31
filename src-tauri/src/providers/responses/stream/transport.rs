@@ -25,7 +25,7 @@ use crate::providers::sse::split_sse_event_block;
 fn resolved_stream_idle_timeout(resolved: &ResolvedModelConfig) -> Duration {
     let ms = resolved
         .provider
-        .stream_idle_timeout_ms
+        .stream_idle_timeout_ms()
         .unwrap_or_else(|| resolved.timeout_seconds.saturating_mul(1000))
         .max(1);
     Duration::from_millis(ms)
@@ -34,7 +34,7 @@ fn resolved_stream_idle_timeout(resolved: &ResolvedModelConfig) -> Duration {
 fn resolved_websocket_connect_timeout(resolved: &ResolvedModelConfig) -> Duration {
     let ms = resolved
         .provider
-        .websocket_connect_timeout_ms
+        .websocket_connect_timeout_ms()
         .unwrap_or_else(|| resolved.timeout_seconds.saturating_mul(1000))
         .max(1);
     Duration::from_millis(ms)
@@ -58,7 +58,7 @@ pub(crate) async fn create_response_streaming_sse(
     on_delta: &mut ProviderEventSink<'_>,
 ) -> Result<ResponseStreamResult, String> {
     let credential = resolved.provider.resolved_credential();
-    let request_max_retries = resolved.provider.request_max_retries.unwrap_or(0);
+    let request_max_retries = resolved.provider.request_max_retries().unwrap_or(0);
     let idle_timeout = resolved_stream_idle_timeout(resolved);
     let request_headers = http::merge_request_headers(
         &[("Content-Type", "application/json")],
@@ -69,9 +69,9 @@ pub(crate) async fn create_response_streaming_sse(
 
     let endpoint = format!(
         "{}/responses",
-        resolved.provider.api_endpoint.trim_end_matches('/')
+        resolved.provider.api_endpoint().trim_end_matches('/')
     );
-    let endpoint = http::apply_query_params_to_url(&endpoint, &resolved.provider.query_params)
+    let endpoint = http::apply_query_params_to_url(&endpoint, &resolved.provider.query_params())
         .map_err(|e| format!("Failed to build SSE endpoint URL: {e}"))?;
 
     let body = build_streaming_request_payload(resolved, req, true);
@@ -265,7 +265,7 @@ pub(crate) async fn create_response_streaming_websocket(
             .resolved_realtime_endpoint()
             .trim_end_matches('/')
     );
-    let ws_url = http::apply_query_params_to_url(&ws_url, &resolved.provider.query_params)
+    let ws_url = http::apply_query_params_to_url(&ws_url, &resolved.provider.query_params())
         .map_err(|e| format!("Failed to build websocket endpoint URL: {e}"))?;
 
     let mut request = ws_url

@@ -26,7 +26,7 @@ pub async fn fetch_remote_models(
     resolved: &ResolvedModelConfig,
 ) -> Result<Vec<ProviderModelDescriptor>, String> {
     let strategy = responses::models::ModelsFetchStrategy::openai_compatible()
-        .with_provider_overrides(&resolved.provider.models_endpoint_candidates);
+        .with_provider_overrides(&resolved.provider.models_endpoint_candidates());
     responses::models::fetch_remote_models_with_strategy(resolved, &strategy).await
 }
 
@@ -45,10 +45,10 @@ pub async fn stream_response(
     );
     let endpoint = format!(
         "{}/chat/completions",
-        resolved.provider.api_endpoint.trim_end_matches('/')
+        resolved.provider.api_endpoint().trim_end_matches('/')
     );
     let endpoint =
-        responses::http::apply_query_params_to_url(&endpoint, &resolved.provider.query_params)
+        responses::http::apply_query_params_to_url(&endpoint, &resolved.provider.query_params())
             .map_err(|e| format!("Failed to build Chat Completions endpoint URL: {e}"))?;
     let body = build_chat_completions_payload(resolved, req)?;
 

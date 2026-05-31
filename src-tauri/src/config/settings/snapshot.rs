@@ -57,13 +57,13 @@ fn redact_secret_values(
                 provider_object.insert("credential".to_string(), Value::Null);
                 let provider_config = config.providers.get(provider_key);
                 let inline_credential = provider_config
-                    .and_then(|entry| entry.credential.as_deref())
-                    .map(str::trim)
+                    .and_then(|entry| entry.credential())
+                    .map(|v| v.trim().to_string())
                     .filter(|value| !value.is_empty())
                     .is_some();
                 let env_credential = provider_config
                     .and_then(|entry| {
-                        std::env::var(&entry.credential_env)
+                        std::env::var(&entry.credential_env())
                             .ok()
                             .map(|value| value.trim().to_string())
                     })
