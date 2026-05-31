@@ -5,12 +5,16 @@
 //! forwarding normalized AgentJax stream events. Vendor-specific payloads,
 //! headers, model catalog parsing, reasoning metadata, and stream event parsing
 //! are supplied by the provider plugin itself.
+//!
+//! NOTE: This module is being phased out. New code should use the unified
+//! `plugin_runtime::DenoCorePluginRuntime` which provides persistent JsRuntime
+//! instances per plugin. For async contexts (streaming), this module still
+//! creates temporary runtimes via `PluginInstance` from `runtime.rs`.
 
 use std::collections::BTreeMap;
 use std::str::FromStr;
 use std::time::Duration;
 
-use deno_core::{JsRuntime, RuntimeOptions, serde_v8, v8};
 use futures_util::StreamExt;
 use reqwest::Method;
 use serde::Deserialize;
@@ -18,7 +22,7 @@ use serde_json::{Value, json};
 use tokio::sync::watch;
 
 use crate::config::{AppConfig, ResolvedModelConfig};
-use crate::plugin_runtime::{PluginPackage, PluginRuntimeError};
+use crate::plugin_runtime::{PluginPackage, create_temp_plugin_instance};
 
 use super::core::ProviderIdFactory;
 use super::network::{apply_headers_to_reqwest, split_sse_event_block};
@@ -581,11 +585,14 @@ fn resolved_context(resolved: &ResolvedModelConfig) -> Value {
     })
 }
 
-struct ProviderPluginInstance {
-    runtime: JsRuntime,
-    provider_kind: String,
-}
-
+/// Call a function on a provider plugin, creating a temporary runtime.
+///
+/// This is the legacy path used by `stream_response`, `fetch_remote_models`,
+/// and `get_reasoning_capability` where the async HTTP context prevents using
+/// a persistent `DenoCorePluginRuntime` (because `JsRuntime` is not `Send`).
+///
+/// Each call creates a fresh `PluginInstance` which evaluates the SDK bootstrap
+/// and the plugin entrypoint. The JS function call itself is synchronous.
 fn call_provider_function<T>(
     package: &PluginPackage,
     provider_kind: &str,
@@ -595,90 +602,9 @@ fn call_provider_function<T>(
 where
     T: for<'de> Deserialize<'de>,
 {
-    let mut plugin = ProviderPluginInstance::new(package, provider_kind)?;
-    plugin.call_provider_function(function_name, argument)
-}
-
-impl ProviderPluginInstance {
-    fn new(package: &PluginPackage, provider_kind: &str) -> Result<Self, String> {
-        let mut runtime = JsRuntime::new(RuntimeOptions::default());
-        let (entrypoint_name, source) = package_entrypoint_script(package)?;
-        runtime
-            .execute_script(entrypoint_name, source)
-            .map_err(|err| format!("Failed to execute provider plugin '{}': {err}", package.manifest.id))?;
-
-        Ok(Self {
-            runtime,
-            provider_kind: provider_kind.to_string(),
-        })
-    }
-
-    fn call_provider_function<T>(&mut self, function_name: &str, argument: Value) -> Result<T, String>
-    where
-        T: for<'de> Deserialize<'de>,
-    {
-        let provider_kind = serde_json::to_string(&self.provider_kind)
-            .map_err(|err| format!("Failed to serialize provider kind: {err}"))?;
-        let function_name_json = serde_json::to_string(function_name)
-            .map_err(|err| format!("Failed to serialize provider function name: {err}"))?;
-        let argument_json = serde_json::to_string(&argument)
-            .map_err(|err| format!("Failed to serialize provider plugin argument: {err}"))?;
-        let bridge_source = format!(
-            r#"
-(() => {{
-  const plugin = globalThis.AgentJaxPlugin;
-  if (!plugin || typeof plugin !== "object") {{
-    throw new Error("Provider plugin entrypoint must set globalThis.AgentJaxPlugin.");
-  }}
-  const providerKind = {provider_kind};
-  const functionName = {function_name_json};
-  const providers = plugin.providers;
-  const provider = Array.isArray(providers)
-    ? providers.find((candidate) => candidate && candidate.kind === providerKind)
-    : providers && providers[providerKind];
-  if (!provider || typeof provider !== "object") {{
-    throw new Error(`Provider '${{providerKind}}' is not exported by this plugin.`);
-  }}
-  const handler = provider[functionName];
-  if (typeof handler !== "function") {{
-    throw new Error(`Provider '${{providerKind}}' does not implement ${{functionName}}().`);
-  }}
-  const result = handler({argument_json});
-  return result === undefined ? null : result;
-}})()
-"#
-        );
-        let result = self
-            .runtime
-            .execute_script("<agentjax-provider-plugin-call>", bridge_source)
-            .map_err(|err| format!("Provider plugin JavaScript error: {err}"))?;
-
-        deno_core::scope!(scope, &mut self.runtime);
-        let local = v8::Local::new(scope, result);
-        serde_v8::from_v8::<T>(scope, local)
-            .map_err(|err| format!("Invalid provider plugin result from {function_name}(): {err}"))
-    }
-}
-
-fn package_entrypoint_script(package: &PluginPackage) -> Result<(String, String), String> {
-    if let Some(source) = &package.entrypoint_source {
-        return Ok((
-            format!(
-                "<agentjax-provider-plugin:{}:{}>",
-                package.manifest.id, package.manifest.entrypoint
-            ),
-            source.clone(),
-        ));
-    }
-
-    let entrypoint_path = package.root_dir.join(&package.manifest.entrypoint);
-    let source = std::fs::read_to_string(&entrypoint_path).map_err(|err| {
-        PluginRuntimeError::Io(format!(
-            "failed to read provider plugin entrypoint '{}': {}",
-            entrypoint_path.display(),
-            err
-        ))
-        .to_string()
-    })?;
-    Ok((entrypoint_path.to_string_lossy().to_string(), source))
+    let mut instance = create_temp_plugin_instance(package)
+        .map_err(|err| format!("Failed to create plugin instance: {err}"))?;
+    instance
+        .call_provider_function::<T>(provider_kind, function_name, argument)
+        .map_err(|err| err.to_string())
 }

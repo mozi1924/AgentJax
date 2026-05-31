@@ -1,32 +1,7 @@
 // Built-in provider plugin for Gemini APIs.
-// Dependencies: AgentJax host networking primitives for HTTPS and SSE.
-// Provider defaults, request conversion, model parsing, and stream parsing live here.
-
-function withQuery(url, queryParams) {
-  const pairs = Object.entries(queryParams || {})
-    .filter(([key, value]) => String(key).trim() && String(value).trim())
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-  if (!pairs.length) return url;
-  const separator = url.includes("?") ? (url.endsWith("?") || url.endsWith("&") ? "" : "&") : "?";
-  return `${url}${separator}${pairs.join("&")}`;
-}
-
-function headerMap(baseHeaders, resolved, useKeyQuery) {
-  const headers = { ...baseHeaders, ...(resolved.resolvedHttpHeaders || {}) };
-  const hasAuth = Object.keys(headers).some((key) => key.toLowerCase() === "authorization");
-  if (!useKeyQuery && !hasAuth && resolved.credential) headers.Authorization = `Bearer ${resolved.credential}`;
-  return headers;
-}
-
-function event(type, data) {
-  return data ? { type, data } : { type };
-}
-
-function textFromContent(content) {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content.map((part) => part.text || part.input_text || "").join("");
-}
+// Dependencies: agentjax SDK bootstrap provides withQuery, event, textFromContent,
+// parseArgs, headerMap, usageFrom as globals.
+// The plugin owns provider-specific request conversion, stream parsing, etc.
 
 function geminiContents(items) {
   return (items || []).map((item) => {
@@ -40,21 +15,6 @@ function geminiContents(items) {
     const text = textFromContent(item.content);
     return text.trim() ? { role, parts: [{ text }] } : null;
   }).filter(Boolean);
-}
-
-function parseArgs(value) {
-  if (!value) return {};
-  if (typeof value === "object") return value;
-  try { return JSON.parse(value); } catch { return {}; }
-}
-
-function usageFrom(value) {
-  const raw = value.usageMetadata || value.usage_metadata || {};
-  const promptTokens = raw.promptTokenCount || raw.prompt_tokens || 0;
-  const completionTokens = raw.candidatesTokenCount || raw.completion_tokens || 0;
-  const totalTokens = raw.totalTokenCount || promptTokens + completionTokens;
-  if (!promptTokens && !completionTokens && !totalTokens) return null;
-  return { promptTokens, completionTokens, totalTokens };
 }
 
 function initialState(state) {
@@ -122,7 +82,7 @@ const geminiProvider = {
       method: "POST",
       url: withQuery(`${base}/models/${model}:streamGenerateContent`, query),
       streamProtocol: "sse",
-      headers: headerMap({ "Content-Type": "application/json", Accept: "text/event-stream" }, resolved, useKeyQuery),
+      headers: headerMap({ "Content-Type": "application/json", Accept: "text/event-stream" }, resolved, useKeyQuery ? "key-query" : "bearer"),
       body,
     };
   },
@@ -174,7 +134,7 @@ const geminiProvider = {
     return {
       method: "GET",
       url: withQuery(candidates[0] || `${base}/models`, query),
-      headers: headerMap({}, resolved, useKeyQuery),
+      headers: headerMap({}, resolved, useKeyQuery ? "key-query" : "bearer"),
     };
   },
   parseModelsResponse({ response }) {

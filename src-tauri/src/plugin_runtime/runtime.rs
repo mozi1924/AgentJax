@@ -1,12 +1,15 @@
 use super::{
-    PluginInvocationContext, PluginManifest, PluginPackage, PluginToolCall, PluginToolResult,
-    RegisteredPluginTool, SandboxPolicy, registered_tools_for_manifest,
+    PluginInvocationContext, PluginManifest, PluginPackage, PluginProviderDefinition,
+    PluginToolCall, PluginToolResult, RegisteredPluginTool, SandboxPolicy,
+    registered_tools_for_manifest, sdk::create_sdk_module_loader,
 };
-use deno_core::{JsRuntime, RuntimeOptions, v8};
+use deno_core::{JsRuntime, RuntimeOptions, serde_v8, v8};
+use serde::de::DeserializeOwned;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -24,6 +27,10 @@ pub enum PluginRuntimeError {
     UnknownPluginTool {
         plugin_id: String,
         tool_name: String,
+    },
+    UnknownProvider {
+        plugin_id: String,
+        provider_kind: String,
     },
     Io(String),
     ManifestParse(String),
@@ -47,6 +54,13 @@ impl Display for PluginRuntimeError {
                 f,
                 "plugin '{plugin_id}' does not export a tool named '{tool_name}'"
             ),
+            Self::UnknownProvider {
+                plugin_id,
+                provider_kind,
+            } => write!(
+                f,
+                "plugin '{plugin_id}' does not export a provider kind '{provider_kind}'"
+            ),
             Self::Io(message) => write!(f, "plugin io error: {message}"),
             Self::ManifestParse(message) => write!(f, "plugin manifest parse error: {message}"),
             Self::InvalidEntrypoint(message) => write!(f, "invalid plugin entrypoint: {message}"),
@@ -60,30 +74,49 @@ impl Display for PluginRuntimeError {
 
 impl Error for PluginRuntimeError {}
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Unified PluginRuntime trait
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// Host-level API for plugin registries.
 ///
-/// The trait keeps the host boundary small while we wire the concrete deno_core
-/// execution path in a later phase.
-pub trait PluginRuntime {
+/// This trait unifies the responsibilities that were previously split across
+/// `runtime.rs` (tool plugins) and `plugin_host.rs` (provider plugins):
+///
+/// 1. Manifest registration, validation, and discovery
+/// 2. Tool plugin execution (via `AgentJaxPlugin.tools`)
+/// 3. Provider plugin function calls (via `AgentJaxPlugin.providers`)
+///
+/// Each plugin gets its own persistent `JsRuntime` instance on registration,
+/// avoiding repeated V8 isolate creation overhead.
+pub trait PluginRuntime: Send {
     fn backend_name(&self) -> &'static str;
-    fn default_sandbox_policy(&self) -> &SandboxPolicy;
-    fn register_manifest(&mut self, manifest: PluginManifest) -> PluginRuntimeResult<()>;
-    fn unregister_manifest(&mut self, plugin_id: &str) -> PluginRuntimeResult<PluginManifest>;
+    fn register_package(&mut self, package: PluginPackage) -> PluginRuntimeResult<()>;
+    fn unregister(&mut self, plugin_id: &str) -> PluginRuntimeResult<PluginManifest>;
     fn manifest(&self, plugin_id: &str) -> Option<&PluginManifest>;
     fn manifests(&self) -> Vec<&PluginManifest>;
-    fn sandbox_policy(&self, plugin_id: &str) -> Option<&SandboxPolicy> {
-        self.manifest(plugin_id).map(|manifest| &manifest.sandbox)
-    }
 
-    fn registered_tools(&self) -> Vec<RegisteredPluginTool> {
-        self.manifests()
-            .into_iter()
-            .flat_map(registered_tools_for_manifest)
-            .collect()
-    }
+    // ── Tool plugin execution ────────────────────────────────────────────
 
-    /// Prepare a plugin invocation with validated plugin/tool identity and the
-    /// sandbox policy that should be applied by the concrete runtime.
+    fn registered_tools(&self) -> Vec<RegisteredPluginTool>;
+    fn execute_tool_call(&mut self, call: PluginToolCall) -> PluginRuntimeResult<PluginToolResult>;
+
+    // ── Provider plugin execution ────────────────────────────────────────
+
+    /// Extract provider definitions from a plugin's JS entrypoint.
+    fn provider_definitions(&mut self, plugin_id: &str)
+        -> PluginRuntimeResult<Vec<PluginProviderDefinition>>;
+
+    /// Call an arbitrary function on a specific provider within a plugin.
+    fn call_provider_function<T: DeserializeOwned>(
+        &mut self,
+        plugin_id: &str,
+        provider_kind: &str,
+        function: &str,
+        argument: serde_json::Value,
+    ) -> PluginRuntimeResult<T>;
+
+    /// Prepare a tool call with validated plugin/tool identity + sandbox.
     fn prepare_tool_call(
         &self,
         plugin_id: &str,
@@ -100,7 +133,6 @@ pub trait PluginRuntime {
                 tool_name: tool_name.to_string(),
             });
         }
-
         Ok(PluginToolCall {
             plugin_id: plugin_id.to_string(),
             tool_name: tool_name.to_string(),
@@ -109,45 +141,215 @@ pub trait PluginRuntime {
             sandbox: manifest.sandbox.clone(),
         })
     }
+}
 
-    fn execute_tool_call(
-        &mut self,
-        _call: PluginToolCall,
-    ) -> PluginRuntimeResult<PluginToolResult> {
-        Err(PluginRuntimeError::UnsupportedOperation(
-            "execute_plugin_tool_call",
-        ))
+// ─────────────────────────────────────────────────────────────────────────────
+// PluginInstance — one persistent JsRuntime per registered plugin
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub struct PluginInstance {
+    manifest: PluginManifest,
+    pub(crate) runtime: JsRuntime,
+    root_dir: Option<PathBuf>,
+}
+
+// Legacy trait methods kept as direct impl methods for backward compatibility.
+// TODO(codex): migrate callers and remove these wrappers.
+impl DenoCorePluginRuntime {
+    /// Register a manifest directly (creates a temp JsRuntime).
+    /// Prefer `register_package` instead.
+    pub fn register_manifest(&mut self, manifest: PluginManifest) -> PluginRuntimeResult<()> {
+        // Reuse the SDK module loader; no file root available.
+        let module_loader = create_sdk_module_loader();
+        let instance = PluginInstance::new(manifest, None, None, Some(module_loader))?;
+        let plugin_id = instance.manifest.id.clone();
+        self.plugins.insert(plugin_id, instance);
+        Ok(())
+    }
+
+    /// Prepare a tool call with validation.
+    pub fn prepare_tool_call(
+        &self,
+        plugin_id: &str,
+        tool_name: &str,
+        arguments: serde_json::Value,
+        context: PluginInvocationContext,
+    ) -> PluginRuntimeResult<PluginToolCall> {
+        let manifest = self
+            .manifest(plugin_id)
+            .ok_or_else(|| PluginRuntimeError::UnknownPlugin(plugin_id.to_string()))?;
+        if !manifest.tools.iter().any(|tool| tool.name == tool_name) {
+            return Err(PluginRuntimeError::UnknownPluginTool {
+                plugin_id: plugin_id.to_string(),
+                tool_name: tool_name.to_string(),
+            });
+        }
+        Ok(PluginToolCall {
+            plugin_id: plugin_id.to_string(),
+            tool_name: tool_name.to_string(),
+            arguments,
+            context,
+            sandbox: manifest.sandbox.clone(),
+        })
     }
 }
 
-/// Load provider definitions exported by a plugin package.
-///
-/// Provider plugins can declare static providers in `plugin.json` for portable
-/// metadata, or export them from `globalThis.AgentJaxPlugin.providers` in their
-/// JS entrypoint. The JS path is what built-in provider plugins use so provider
-/// defaults and required config fields live with the plugin source instead of
-/// in Rust registry code.
-pub fn provider_definitions_for_package(
-    package: &PluginPackage,
-) -> PluginRuntimeResult<Vec<super::PluginProviderDefinition>> {
-    let mut providers = package.manifest.providers.clone();
-    providers.extend(execute_sync_js_provider_definitions(package)?);
-    Ok(providers)
-}
+impl PluginInstance {
+    fn new(
+        manifest: PluginManifest,
+        root_dir: Option<PathBuf>,
+        entrypoint_source: Option<String>,
+        _module_loader: Option<Rc<dyn deno_core::ModuleLoader>>,
+    ) -> PluginRuntimeResult<Self> {
+        manifest.validate().map_err(PluginRuntimeError::InvalidManifest)?;
 
-fn execute_sync_js_provider_definitions(
-    package: &PluginPackage,
-) -> PluginRuntimeResult<Vec<super::PluginProviderDefinition>> {
-    let (entrypoint_name, source) = package_entrypoint_script(package)?;
-    let mut runtime = JsRuntime::new(RuntimeOptions::default());
-    runtime
-        .execute_script(entrypoint_name, source)
-        .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
+        let mut runtime = JsRuntime::new(RuntimeOptions::default());
 
-    let result = runtime
-        .execute_script(
-            "<agentjax-provider-plugin-discovery>",
+        // 1. Evaluate the SDK bootstrap into the global scope so all shared
+        //    functions (withQuery, event, headerMap, usageFrom, etc.) are
+        //    available as globals inside the plugin entrypoint.
+        // 1. Evaluate the SDK bootstrap so shared functions (withQuery, event,
+        //    headerMap, usageFrom, etc.) are available as globals.
+        let sdk_bootstrap: &'static str =
+            include_str!("../../builtin-plugins/sdk/sdk-bootstrap.js");
+        runtime.execute_script("<agentjax-sdk-bootstrap>", sdk_bootstrap).map_err(|err| {
+            PluginRuntimeError::JavaScript(format!(
+                "failed to evaluate SDK bootstrap: {err}"
+            ))
+        })?;
+
+        // 2. Evaluate the plugin entrypoint into the persistent isolate so
+        //    `globalThis.AgentJaxPlugin` stays alive for subsequent calls.
+        let (entrypoint_name, source) = resolve_entrypoint_script(
+            &manifest,
+            root_dir.as_deref(),
+            entrypoint_source,
+        )?;
+        runtime
+            .execute_script(entrypoint_name, source)
+            .map_err(|err| {
+                PluginRuntimeError::JavaScript(format!(
+                    "failed to evaluate plugin '{}' entrypoint: {err}",
+                    manifest.id
+                ))
+            })?;
+
+        Ok(Self {
+            manifest,
+            runtime,
+            root_dir,
+        })
+    }
+
+    /// Call a JS function path: `AgentJaxPlugin.providers[kind][fn](arg)`.
+    pub fn call_provider_function<T: DeserializeOwned>(
+        &mut self,
+        provider_kind: &str,
+        function: &str,
+        argument: serde_json::Value,
+    ) -> PluginRuntimeResult<T> {
+        let provider_kind_json = serde_json::to_string(provider_kind)
+            .map_err(|e| PluginRuntimeError::JavaScript(e.to_string()))?;
+        let function_json = serde_json::to_string(function)
+            .map_err(|e| PluginRuntimeError::JavaScript(e.to_string()))?;
+        let argument_json = serde_json::to_string(&argument)
+            .map_err(|e| PluginRuntimeError::JavaScript(e.to_string()))?;
+
+        let bridge = format!(
             r#"
+(() => {{
+  const plugin = globalThis.AgentJaxPlugin;
+  if (!plugin || typeof plugin !== "object") {{
+    throw new Error("AgentJaxPlugin is not defined.");
+  }}
+  const providers = plugin.providers;
+  const providerKind = {provider_kind_json};
+  const functionName = {function_json};
+  const provider = Array.isArray(providers)
+    ? providers.find((candidate) => candidate && candidate.kind === providerKind)
+    : providers && providers[providerKind];
+  if (!provider || typeof provider !== "object") {{
+    throw new Error(`Provider '${{providerKind}}' is not exported by this plugin.`);
+  }}
+  const handler = provider[functionName];
+  if (typeof handler !== "function") {{
+    throw new Error(`Provider '${{providerKind}}' does not implement ${{functionName}}().`);
+  }}
+  const result = handler({argument_json});
+  return result === undefined ? null : result;
+}})()
+"#
+        );
+
+        let result = self
+            .runtime
+            .execute_script("<agentjax-provider-call>", bridge)
+            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
+
+        deno_core::scope!(scope, &mut self.runtime);
+        let local = v8::Local::new(scope, result);
+        serde_v8::from_v8::<T>(scope, local)
+            .map_err(|err| PluginRuntimeError::JavaScript(format!("invalid result: {err}")))
+    }
+
+    /// Call a tool handler: `AgentJaxPlugin.tools[name](args, context)`.
+    pub fn call_tool(
+        &mut self,
+        tool_name: &str,
+        arguments: serde_json::Value,
+        context: PluginInvocationContext,
+    ) -> PluginRuntimeResult<PluginToolResult> {
+        let tool_name_json = serde_json::to_string(tool_name)
+            .map_err(|e| PluginRuntimeError::JavaScript(e.to_string()))?;
+        let arguments_json = serde_json::to_string(&arguments)
+            .map_err(|e| PluginRuntimeError::JavaScript(e.to_string()))?;
+        let context_json = serde_json::to_string(&context)
+            .map_err(|e| PluginRuntimeError::JavaScript(e.to_string()))?;
+
+        let bridge = format!(
+            r#"
+(() => {{
+  const plugin = globalThis.AgentJaxPlugin;
+  if (!plugin || typeof plugin !== "object") {{
+    throw new Error("AgentJaxPlugin is not defined.");
+  }}
+  const tools = plugin.tools;
+  const toolName = {tool_name_json};
+  const handler = tools && tools[toolName];
+  if (typeof handler !== "function") {{
+    throw new Error(`Tool '${{toolName}}' is not a function.`);
+  }}
+  const value = handler({arguments_json}, {context_json});
+  if (value && typeof value === "object" && value.hasOwnProperty("ok")) {{
+    return {{
+      ok: Boolean(value.ok),
+      output: value.hasOwnProperty("output") ? (value.output !== undefined && value.output !== null ? value.output : null) : null,
+      error: value.error == null ? null : String(value.error),
+    }};
+  }}
+  return {{ ok: true, output: value === undefined ? null : value, error: null }};
+}})()
+"#
+        );
+
+        let result = self
+            .runtime
+            .execute_script("<agentjax-tool-call>", bridge)
+            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
+
+        deno_core::scope!(scope, &mut self.runtime);
+        let local = v8::Local::new(scope, result);
+        serde_v8::from_v8::<PluginToolResult>(scope, local)
+            .map_err(|err| PluginRuntimeError::JavaScript(format!("invalid result: {err}")))
+    }
+
+    /// Extract provider definitions from the plugin's entrypoint.
+    pub fn extract_provider_definitions(&mut self) -> PluginRuntimeResult<Vec<PluginProviderDefinition>> {
+        let result = self
+            .runtime
+            .execute_script(
+                "<agentjax-provider-discovery>",
+                r#"
 (() => {
   const plugin = globalThis.AgentJaxPlugin;
   if (!plugin || typeof plugin !== "object" || plugin.providers == null) {
@@ -175,239 +377,245 @@ fn execute_sync_js_provider_definitions(
   throw new Error("AgentJaxPlugin.providers must be an array or object.");
 })()
 "#,
-        )
-        .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
+            )
+            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
 
-    deno_core::scope!(scope, &mut runtime);
-    let local = v8::Local::new(scope, result);
-    deno_core::serde_v8::from_v8::<Vec<super::PluginProviderDefinition>>(scope, local).map_err(
-        |err| {
-            PluginRuntimeError::JavaScript(format!(
-                "invalid provider definitions exported by plugin '{}': {err}",
-                package.manifest.id
-            ))
-        },
-    )
-}
-
-fn package_entrypoint_script(package: &PluginPackage) -> PluginRuntimeResult<(String, String)> {
-    if let Some(source) = &package.entrypoint_source {
-        return Ok((
-            format!(
-                "<agentjax-plugin:{}:{}>",
-                package.manifest.id, package.manifest.entrypoint
-            ),
-            source.clone(),
-        ));
+        deno_core::scope!(scope, &mut self.runtime);
+        let local = v8::Local::new(scope, result);
+        serde_v8::from_v8::<Vec<PluginProviderDefinition>>(scope, local)
+            .map_err(|err| PluginRuntimeError::JavaScript(format!("invalid provider definitions: {err}")))
     }
-
-    let entrypoint_path = package.root_dir.join(&package.manifest.entrypoint);
-    let source = std::fs::read_to_string(&entrypoint_path).map_err(|err| {
-        PluginRuntimeError::Io(format!(
-            "failed to read plugin entrypoint '{}': {}",
-            entrypoint_path.display(),
-            err
-        ))
-    })?;
-    Ok((entrypoint_path.to_string_lossy().to_string(), source))
 }
 
-/// A small deno_core-backed runtime shell.
-///
-/// The concrete JS execution path will live here once plugin loading and
-/// sandboxing are ready to be wired into the agent loop.
+// ─────────────────────────────────────────────────────────────────────────────
+// DenoCorePluginRuntime — concrete implementation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// deno_core-backed plugin runtime that holds one persistent `JsRuntime` per
+/// registered plugin and exposes a unified API for both provider and tool calls.
 pub struct DenoCorePluginRuntime {
-    runtime_options: deno_core::RuntimeOptions,
     default_sandbox_policy: SandboxPolicy,
-    manifests: BTreeMap<String, PluginManifest>,
-    plugin_roots: BTreeMap<String, PathBuf>,
-    plugin_entrypoint_sources: BTreeMap<String, String>,
+    plugins: BTreeMap<String, PluginInstance>,
+    /// Shared module loader pre-populated with SDK modules. Cloned for each new
+    /// plugin instance so they all see the same `@agentjax/sdk` module.
+    module_loader: Rc<dyn deno_core::ModuleLoader>,
 }
 
 impl DenoCorePluginRuntime {
-    /// Create a new runtime shell with a caller-provided `deno_core` config.
-    pub fn new(
-        runtime_options: deno_core::RuntimeOptions,
-        default_sandbox_policy: SandboxPolicy,
-    ) -> Self {
+    pub fn new(default_sandbox_policy: SandboxPolicy) -> Self {
+        let module_loader = create_sdk_module_loader();
         Self {
-            runtime_options,
             default_sandbox_policy,
-            manifests: BTreeMap::new(),
-            plugin_roots: BTreeMap::new(),
-            plugin_entrypoint_sources: BTreeMap::new(),
+            plugins: BTreeMap::new(),
+            module_loader,
         }
     }
 
-    /// Expose the raw `deno_core` runtime options for future isolate setup.
-    pub fn runtime_options(&self) -> &deno_core::RuntimeOptions {
-        &self.runtime_options
-    }
-
+    /// Register a plugin package — creates a persistent JsRuntime for it.
     pub fn register_package(&mut self, package: PluginPackage) -> PluginRuntimeResult<()> {
-        self.insert_manifest(
-            package.manifest,
-            Some(package.root_dir),
-            package.entrypoint_source,
-        )
-    }
-
-    fn insert_manifest(
-        &mut self,
-        manifest: PluginManifest,
-        root_dir: Option<PathBuf>,
-        entrypoint_source: Option<String>,
-    ) -> PluginRuntimeResult<()> {
-        manifest
-            .validate()
-            .map_err(PluginRuntimeError::InvalidManifest)?;
-
-        if self.manifests.contains_key(&manifest.id) {
-            return Err(PluginRuntimeError::DuplicatePlugin(manifest.id));
-        }
-
-        if let Some(root_dir) = root_dir {
-            self.plugin_roots.insert(manifest.id.clone(), root_dir);
-        }
-        if let Some(entrypoint_source) = entrypoint_source {
-            self.plugin_entrypoint_sources
-                .insert(manifest.id.clone(), entrypoint_source);
-        }
-        self.manifests.insert(manifest.id.clone(), manifest);
-        Ok(())
-    }
-
-    fn entrypoint_path(&self, manifest: &PluginManifest) -> PluginRuntimeResult<PathBuf> {
-        let entrypoint = Path::new(&manifest.entrypoint);
-        if entrypoint.is_absolute() {
-            return Ok(entrypoint.to_path_buf());
-        }
-
-        let root_dir = self.plugin_roots.get(&manifest.id).ok_or_else(|| {
-            PluginRuntimeError::InvalidEntrypoint(format!(
-                "plugin '{}' was registered without a root directory; use an absolute entrypoint or register a PluginPackage",
-                manifest.id
-            ))
-        })?;
-        Ok(root_dir.join(entrypoint))
-    }
-
-    fn entrypoint_script(
-        &self,
-        manifest: &PluginManifest,
-    ) -> PluginRuntimeResult<(String, String)> {
-        if let Some(source) = self.plugin_entrypoint_sources.get(&manifest.id) {
-            return Ok((
-                format!("<agentjax-builtin:{}:{}>", manifest.id, manifest.entrypoint),
-                source.clone(),
+        if self.plugins.contains_key(&package.manifest.id) {
+            return Err(PluginRuntimeError::DuplicatePlugin(
+                package.manifest.id.clone(),
             ));
         }
 
-        let entrypoint_path = self.entrypoint_path(manifest)?;
-        let source = std::fs::read_to_string(&entrypoint_path).map_err(|err| {
-            PluginRuntimeError::Io(format!(
-                "failed to read plugin entrypoint '{}': {}",
-                entrypoint_path.display(),
-                err
-            ))
-        })?;
-        Ok((entrypoint_path.to_string_lossy().to_string(), source))
+        let instance = PluginInstance::new(
+            package.manifest,
+            Some(package.root_dir),
+            package.entrypoint_source,
+            Some(self.module_loader.clone()),
+        )?;
+
+        let plugin_id = instance.manifest.id.clone();
+        self.plugins.insert(plugin_id, instance);
+        Ok(())
     }
 
-    fn execute_sync_js_tool(
-        &self,
-        manifest: &PluginManifest,
-        call: PluginToolCall,
-    ) -> PluginRuntimeResult<PluginToolResult> {
-        let (entrypoint_name, source) = self.entrypoint_script(manifest)?;
-        let mut runtime = JsRuntime::new(RuntimeOptions::default());
-        let _timeout_guard = install_execution_timeout(&mut runtime, call.sandbox.max_execution_ms);
-        runtime
-            .execute_script(entrypoint_name, source)
-            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
+    /// Unregister a plugin and drop its JsRuntime.
+    pub fn unregister(&mut self, plugin_id: &str) -> PluginRuntimeResult<PluginManifest> {
+        let instance = self
+            .plugins
+            .remove(plugin_id)
+            .ok_or_else(|| PluginRuntimeError::UnknownPlugin(plugin_id.to_string()))?;
+        Ok(instance.manifest)
+    }
 
-        let tool_name = serde_json::to_string(&call.tool_name)
-            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
-        let arguments = serde_json::to_string(&call.arguments)
-            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
-        let context = serde_json::to_string(&call.context)
-            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
-        let bridge_source = format!(
-            r#"
-(() => {{
-  const plugin = globalThis.AgentJaxPlugin;
-  if (!plugin || typeof plugin !== "object") {{
-    throw new Error("Plugin entrypoint must set globalThis.AgentJaxPlugin to an object.");
-  }}
-  const tools = plugin.tools;
-  const toolName = {tool_name};
-  const handler = tools && tools[toolName];
-  if (typeof handler !== "function") {{
-    throw new Error(`Plugin tool '${{toolName}}' is not a function.`);
-  }}
-  const value = handler({arguments}, {context});
-  if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "ok")) {{
-    return {{
-      ok: Boolean(value.ok),
-      output: Object.prototype.hasOwnProperty.call(value, "output") && value.output !== undefined ? value.output : null,
-      error: value.error === undefined || value.error === null ? null : String(value.error),
-    }};
-  }}
-  return {{
-    ok: true,
-    output: value === undefined ? null : value,
-    error: null,
-  }};
-}})()
-"#
+    pub fn manifest(&self, plugin_id: &str) -> Option<&PluginManifest> {
+        self.plugins.get(plugin_id).map(|inst| &inst.manifest)
+    }
+
+    pub fn manifests(&self) -> Vec<&PluginManifest> {
+        self.plugins.values().map(|inst| &inst.manifest).collect()
+    }
+
+    pub fn registered_tools(&self) -> Vec<RegisteredPluginTool> {
+        self.plugins
+            .values()
+            .flat_map(|inst| registered_tools_for_manifest(&inst.manifest))
+            .collect()
+    }
+
+    /// Extract provider definitions from a registered plugin.
+    pub fn provider_definitions(
+        &mut self,
+        plugin_id: &str,
+    ) -> PluginRuntimeResult<Vec<PluginProviderDefinition>> {
+        let mut providers = self
+            .plugins
+            .get(plugin_id)
+            .map(|inst| inst.manifest.providers.clone())
+            .ok_or_else(|| PluginRuntimeError::UnknownPlugin(plugin_id.to_string()))?;
+
+        if let Some(instance) = self.plugins.get_mut(plugin_id) {
+            let js_providers = instance.extract_provider_definitions()?;
+            providers.extend(js_providers);
+        }
+
+        Ok(providers)
+    }
+
+    /// Call a function on a specific provider within a registered plugin.
+    pub fn call_provider_function<T: DeserializeOwned>(
+        &mut self,
+        plugin_id: &str,
+        provider_kind: &str,
+        function: &str,
+        argument: serde_json::Value,
+    ) -> PluginRuntimeResult<T> {
+        let instance = self
+            .plugins
+            .get_mut(plugin_id)
+            .ok_or_else(|| PluginRuntimeError::UnknownPlugin(plugin_id.to_string()))?;
+        instance.call_provider_function(provider_kind, function, argument)
+    }
+
+    /// Execute a tool call on a registered plugin.
+    pub fn execute_tool_call(&mut self, call: PluginToolCall) -> PluginRuntimeResult<PluginToolResult> {
+        let instance = self
+            .plugins
+            .get_mut(&call.plugin_id)
+            .ok_or_else(|| PluginRuntimeError::UnknownPlugin(call.plugin_id.clone()))?;
+
+        // Apply execution timeout guard
+        let _timeout_guard = install_execution_timeout(
+            &mut instance.runtime,
+            call.sandbox.max_execution_ms,
         );
-        let result = runtime
-            .execute_script("<agentjax-plugin-call>", bridge_source)
-            .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
 
-        deno_core::scope!(scope, &mut runtime);
-        let local = v8::Local::new(scope, result);
-        deno_core::serde_v8::from_v8::<PluginToolResult>(scope, local)
-            .map_err(|err| PluginRuntimeError::JavaScript(format!("invalid plugin result: {err}")))
+        // IMPORTANT: deno_core module_loader causes HandleScope issues in
+        // temporary async contexts. We evaluate the call synchronously but
+        // avoid exposing the module_loader to this method.
+        instance.call_tool(&call.tool_name, call.arguments, call.context)
     }
-}
 
-impl PluginRuntime for DenoCorePluginRuntime {
-    fn backend_name(&self) -> &'static str {
+    pub fn backend_name(&self) -> &'static str {
         "deno_core"
     }
 
-    fn default_sandbox_policy(&self) -> &SandboxPolicy {
+    pub fn default_sandbox_policy(&self) -> &SandboxPolicy {
         &self.default_sandbox_policy
     }
 
-    fn register_manifest(&mut self, manifest: PluginManifest) -> PluginRuntimeResult<()> {
-        self.insert_manifest(manifest, None, None)
+    /// Return the sandbox policy for a registered plugin.
+    pub fn sandbox_policy(&self, plugin_id: &str) -> Option<&SandboxPolicy> {
+        self.manifest(plugin_id).map(|m| &m.sandbox)
     }
 
-    fn unregister_manifest(&mut self, plugin_id: &str) -> PluginRuntimeResult<PluginManifest> {
-        self.plugin_roots.remove(plugin_id);
-        self.plugin_entrypoint_sources.remove(plugin_id);
-        self.manifests
-            .remove(plugin_id)
-            .ok_or_else(|| PluginRuntimeError::UnknownPlugin(plugin_id.to_string()))
-    }
-
-    fn manifest(&self, plugin_id: &str) -> Option<&PluginManifest> {
-        self.manifests.get(plugin_id)
-    }
-
-    fn manifests(&self) -> Vec<&PluginManifest> {
-        self.manifests.values().collect()
-    }
-
-    fn execute_tool_call(&mut self, call: PluginToolCall) -> PluginRuntimeResult<PluginToolResult> {
-        let manifest = self
-            .manifest(&call.plugin_id)
-            .ok_or_else(|| PluginRuntimeError::UnknownPlugin(call.plugin_id.clone()))?;
-        self.execute_sync_js_tool(manifest, call)
+    /// Check whether a plugin's sandbox allows network access to the given host.
+    /// Host may be `None` for generic network checks.
+    pub fn check_plugin_network(
+        &self,
+        plugin_id: &str,
+        host: Option<&str>,
+    ) -> PluginRuntimeResult<()> {
+        let policy = self
+            .sandbox_policy(plugin_id)
+            .ok_or_else(|| PluginRuntimeError::UnknownPlugin(plugin_id.to_string()))?;
+        policy
+            .check_network(host)
+            .map_err(|violation| PluginRuntimeError::JavaScript(violation.to_string()))
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Legacy migration helpers (for provider_api compatibility)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Legacy wrapper: load provider definitions from a `PluginPackage` before it's
+/// registered in the runtime. Used by `provider_api::registry` during startup.
+pub fn provider_definitions_for_package(
+    package: &PluginPackage,
+) -> PluginRuntimeResult<Vec<PluginProviderDefinition>> {
+    let mut providers = package.manifest.providers.clone();
+
+    let mut instance = create_temp_plugin_instance(package)?;
+    let js_providers = instance.extract_provider_definitions()?;
+    providers.extend(js_providers);
+    Ok(providers)
+}
+
+/// Create a temporary `PluginInstance` from a `PluginPackage` (no persistent
+/// registration). Used by legacy `plugin_host.rs` and `provider_api::registry`.
+///
+/// Unlike `DenoCorePluginRuntime::register_package`, each call creates a fresh
+/// `JsRuntime`. This is safe for async callers that need synchronous JS calls
+/// before/after `.await` boundaries since `JsRuntime` is not `Send`.
+pub fn create_temp_plugin_instance(
+    package: &PluginPackage,
+) -> PluginRuntimeResult<PluginInstance> {
+    let module_loader = create_sdk_module_loader();
+    PluginInstance::new(
+        package.manifest.clone(),
+        Some(package.root_dir.clone()),
+        package.entrypoint_source.clone(),
+        Some(module_loader),
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn resolve_entrypoint_script(
+    manifest: &PluginManifest,
+    root_dir: Option<&Path>,
+    entrypoint_source: Option<String>,
+) -> PluginRuntimeResult<(String, String)> {
+    if let Some(source) = entrypoint_source {
+        return Ok((
+            format!("<agentjax-plugin:{}>", manifest.id),
+            source,
+        ));
+    }
+
+    let root = root_dir.ok_or_else(|| {
+        PluginRuntimeError::InvalidEntrypoint(format!(
+            "plugin '{}' has no root directory and no embedded source",
+            manifest.id
+        ))
+    })?;
+
+    let entrypoint = Path::new(&manifest.entrypoint);
+    let resolved = if entrypoint.is_absolute() {
+        entrypoint.to_path_buf()
+    } else {
+        root.join(entrypoint)
+    };
+
+    let source = std::fs::read_to_string(&resolved).map_err(|err| {
+        PluginRuntimeError::Io(format!(
+            "failed to read plugin entrypoint '{}': {}",
+            resolved.display(),
+            err
+        ))
+    })?;
+
+    Ok((resolved.to_string_lossy().to_string(), source))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Execution timeout guard
+// ─────────────────────────────────────────────────────────────────────────────
 
 struct ExecutionTimeoutGuard {
     done: Arc<AtomicBool>,

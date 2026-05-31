@@ -11,6 +11,7 @@ mod manifest;
 mod orchestration;
 mod runtime;
 mod sandbox;
+mod sdk;
 
 pub use api::{
     PLUGIN_API_VERSION, PLUGIN_SOURCE_TYPE, PLUGIN_TOOL_NAME_PREFIX, PluginInvocationContext,
@@ -28,11 +29,12 @@ pub use manifest::{
 pub use orchestration::{
     ToolCallBatch, ToolCallExecutionPolicy, ToolCallOutcome, ToolCallRequest, ToolCallSource,
 };
+pub use sdk::create_sdk_module_loader;
 pub use runtime::{
-    DenoCorePluginRuntime, PluginRuntime, PluginRuntimeError, PluginRuntimeResult,
-    provider_definitions_for_package,
+    DenoCorePluginRuntime, PluginInstance, PluginRuntime, PluginRuntimeError, PluginRuntimeResult,
+    create_temp_plugin_instance, provider_definitions_for_package,
 };
-pub use sandbox::SandboxPolicy;
+pub use sandbox::{SandboxPolicy, SandboxViolation};
 
 #[cfg(test)]
 mod tests {
@@ -196,13 +198,17 @@ mod tests {
             sandbox: sandbox.clone(),
         };
         let mut runtime = DenoCorePluginRuntime::new(
-            deno_core::RuntimeOptions::default(),
             SandboxPolicy::default(),
         );
 
         runtime
-            .register_manifest(manifest)
-            .expect("register manifest");
+            .register_package(PluginPackage {
+                manifest,
+                root_dir: std::env::temp_dir(),
+                manifest_path: std::env::temp_dir().join("plugin.json"),
+                entrypoint_source: Some("globalThis.AgentJaxPlugin = { tools: { echo() { return {}; } }, providers: [] };".to_string()),
+            })
+            .expect("register package");
         let call = runtime
             .prepare_tool_call(
                 "demo",
@@ -419,7 +425,6 @@ globalThis.AgentJaxPlugin = {
         assert_eq!(package.manifest.settings_sections.len(), 1);
         assert_eq!(package.manifest.settings_data["items"][0]["id"], "primary");
         let mut runtime = DenoCorePluginRuntime::new(
-            deno_core::RuntimeOptions::default(),
             SandboxPolicy::default(),
         );
         runtime

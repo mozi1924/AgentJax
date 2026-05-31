@@ -1,11 +1,15 @@
 use super::types::ToolCatalogExecution;
 use crate::plugin_runtime::{
-    DenoCorePluginRuntime, PluginInvocationContext, PluginPackage, PluginRuntime, SandboxPolicy,
+    PluginInvocationContext, PluginPackage, create_temp_plugin_instance,
 };
 use crate::tools::ToolExecutionContext;
 use serde_json::Value;
 
 /// Execute a packaged plugin tool through an isolated deno_core runtime.
+///
+/// Uses a temporary `PluginInstance` (fresh JsRuntime per call) rather than
+/// the persistent `DenoCorePluginRuntime` because JsRuntime is not `Send` and
+/// this function may be called from async contexts.
 pub(super) fn execute_plugin_package_tool(
     package: &PluginPackage,
     plugin_id: &str,
@@ -13,16 +17,21 @@ pub(super) fn execute_plugin_package_tool(
     arguments: &Value,
     context: &ToolExecutionContext,
 ) -> Result<ToolCatalogExecution, String> {
-    let mut plugin_runtime = DenoCorePluginRuntime::new(
-        deno_core::RuntimeOptions::default(),
-        SandboxPolicy::default(),
-    );
-    plugin_runtime
-        .register_package(package.clone())
-        .map_err(|err| err.to_string())?;
-    let call = plugin_runtime
-        .prepare_tool_call(
-            plugin_id,
+    // Validate the tool exists in the manifest
+    let manifest = &package.manifest;
+    if !manifest.tools.iter().any(|t| t.name == tool_name) {
+        return Err(format!(
+            "Plugin '{}' does not export a tool named '{}'",
+            plugin_id, tool_name
+        ));
+    }
+
+    // Create a temporary PluginInstance, call the tool, then drop it
+    let mut instance = create_temp_plugin_instance(package)
+        .map_err(|err| format!("Failed to create plugin instance: {err}"))?;
+
+    let result = instance
+        .call_tool(
             tool_name,
             arguments.clone(),
             PluginInvocationContext {
@@ -30,9 +39,7 @@ pub(super) fn execute_plugin_package_tool(
             },
         )
         .map_err(|err| err.to_string())?;
-    let result = plugin_runtime
-        .execute_tool_call(call)
-        .map_err(|err| err.to_string())?;
+
     if result.ok {
         Ok(ToolCatalogExecution {
             output: result.output,

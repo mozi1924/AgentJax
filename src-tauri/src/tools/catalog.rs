@@ -126,7 +126,6 @@ impl ToolCatalog {
         packages: impl IntoIterator<Item = PluginPackage>,
     ) -> Result<Self, String> {
         let mut runtime = DenoCorePluginRuntime::new(
-            deno_core::RuntimeOptions::default(),
             SandboxPolicy::default(),
         );
         let mut manifests = BTreeMap::new();

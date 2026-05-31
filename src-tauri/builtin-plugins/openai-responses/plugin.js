@@ -1,39 +1,7 @@
 // Built-in provider plugin for OpenAI Responses-compatible APIs.
-// Dependencies: AgentJax host networking primitives for HTTPS, SSE, and WebSocket.
-// The plugin owns provider metadata, request payloads, model parsing, reasoning
-// metadata, and stream event parsing.
-
-function headerMap(baseHeaders, resolved) {
-  const headers = { ...baseHeaders, ...(resolved.resolvedHttpHeaders || {}) };
-  const hasAuth = Object.keys(headers).some((key) => key.toLowerCase() === "authorization");
-  if (!hasAuth && resolved.credential) {
-    headers.Authorization = `Bearer ${resolved.credential}`;
-  }
-  return headers;
-}
-
-function withQuery(url, queryParams) {
-  const pairs = Object.entries(queryParams || {})
-    .filter(([key, value]) => String(key).trim() && String(value).trim())
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-  if (!pairs.length) return url;
-  const separator = url.includes("?") ? (url.endsWith("?") || url.endsWith("&") ? "" : "&") : "?";
-  return `${url}${separator}${pairs.join("&")}`;
-}
-
-function event(type, data) {
-  return data ? { type, data } : { type };
-}
-
-function usageFrom(value) {
-  const raw = value && (value.response && value.response.usage ? value.response.usage : value.usage);
-  if (!raw) return null;
-  const promptTokens = raw.prompt_tokens ?? raw.input_tokens ?? raw.inputTokens ?? 0;
-  const completionTokens = raw.completion_tokens ?? raw.output_tokens ?? raw.outputTokens ?? 0;
-  const totalTokens = raw.total_tokens ?? raw.totalTokens ?? promptTokens + completionTokens;
-  if (!promptTokens && !completionTokens && !totalTokens) return null;
-  return { promptTokens, completionTokens, totalTokens };
-}
+// Dependencies: agentjax SDK bootstrap provides withQuery, event, headerMap,
+// usageFrom, applyRequestConfig as globals.
+// The plugin owns provider metadata, request payloads, stream parsing, etc.
 
 function applyRequestConfig(payload, requestConfig, request) {
   const cfg = requestConfig || {};

@@ -1,43 +1,7 @@
 // Built-in provider plugin for Chat Completions-compatible APIs.
-// Dependencies: AgentJax host networking primitives for HTTPS and SSE.
-// The plugin owns provider metadata, request conversion, model parsing, and
-// Chat Completions stream parsing.
-
-function headerMap(baseHeaders, resolved) {
-  const headers = { ...baseHeaders, ...(resolved.resolvedHttpHeaders || {}) };
-  const hasAuth = Object.keys(headers).some((key) => key.toLowerCase() === "authorization");
-  if (!hasAuth && resolved.credential) headers.Authorization = `Bearer ${resolved.credential}`;
-  return headers;
-}
-
-function withQuery(url, queryParams) {
-  const pairs = Object.entries(queryParams || {})
-    .filter(([key, value]) => String(key).trim() && String(value).trim())
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-  if (!pairs.length) return url;
-  const separator = url.includes("?") ? (url.endsWith("?") || url.endsWith("&") ? "" : "&") : "?";
-  return `${url}${separator}${pairs.join("&")}`;
-}
-
-function event(type, data) {
-  return data ? { type, data } : { type };
-}
-
-function usageFrom(value) {
-  const raw = value && value.usage;
-  if (!raw) return null;
-  const promptTokens = raw.prompt_tokens ?? raw.input_tokens ?? 0;
-  const completionTokens = raw.completion_tokens ?? raw.output_tokens ?? 0;
-  const totalTokens = raw.total_tokens ?? promptTokens + completionTokens;
-  if (!promptTokens && !completionTokens && !totalTokens) return null;
-  return { promptTokens, completionTokens, totalTokens };
-}
-
-function textFromContent(content) {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content.map((part) => part.text || part.input_text || "").join("");
-}
+// Dependencies: agentjax SDK bootstrap provides withQuery, event, textFromContent,
+// headerMap, usageFrom, applyRequestConfig as globals.
+// The plugin owns provider-specific request conversion, stream parsing, etc.
 
 function responseItemsToMessages(items) {
   const messages = [];
@@ -62,19 +26,6 @@ function responseItemsToMessages(items) {
     if (content.trim()) messages.push({ role, content });
   }
   return messages;
-}
-
-function applyRequestConfig(payload, cfg) {
-  cfg = cfg || {};
-  if (cfg.temperature != null) payload.temperature = cfg.temperature;
-  if (cfg.topP != null) payload.top_p = cfg.topP;
-  if (cfg.maxOutputTokens != null) payload.max_tokens = cfg.maxOutputTokens;
-  if (cfg.frequencyPenalty != null) payload.frequency_penalty = cfg.frequencyPenalty;
-  if (cfg.presencePenalty != null) payload.presence_penalty = cfg.presencePenalty;
-  for (const [key, value] of Object.entries(cfg.extraBody || {})) {
-    const normalized = key.trim().toLowerCase();
-    if (normalized && !["messages", "model", "stream"].includes(normalized)) payload[key] = value;
-  }
 }
 
 function initialState(state) {

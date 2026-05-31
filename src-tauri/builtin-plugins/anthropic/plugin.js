@@ -1,38 +1,7 @@
 // Built-in provider plugin for Anthropic Messages-compatible APIs.
-// Dependencies: AgentJax host networking primitives for HTTPS and SSE.
-// Provider defaults, request conversion, model parsing, and stream parsing live here.
-
-function withQuery(url, queryParams) {
-  const pairs = Object.entries(queryParams || {})
-    .filter(([key, value]) => String(key).trim() && String(value).trim())
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-  if (!pairs.length) return url;
-  const separator = url.includes("?") ? (url.endsWith("?") || url.endsWith("&") ? "" : "&") : "?";
-  return `${url}${separator}${pairs.join("&")}`;
-}
-
-function headerMap(baseHeaders, resolved) {
-  const headers = { ...baseHeaders, ...(resolved.resolvedHttpHeaders || {}) };
-  const hasCredential = Object.keys(headers).some((key) => ["x-api-key", "authorization"].includes(key.toLowerCase()));
-  if (!hasCredential && resolved.credential) headers["x-api-key"] = resolved.credential;
-  return headers;
-}
-
-function event(type, data) {
-  return data ? { type, data } : { type };
-}
-
-function textFromContent(content) {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content.map((part) => part.text || part.input_text || "").join("");
-}
-
-function parseArgs(value) {
-  if (!value) return {};
-  if (typeof value === "object") return value;
-  try { return JSON.parse(value); } catch { return {}; }
-}
+// Dependencies: agentjax SDK bootstrap provides withQuery, event, textFromContent,
+// parseArgs, headerMap, usageFrom as globals.
+// Provider-specific conversion, stream parsing, and model parsing live here.
 
 function anthropicMessages(items) {
   const messages = [];
@@ -55,16 +24,6 @@ function anthropicMessages(items) {
     }
   }
   return { messages, systemSections };
-}
-
-function usageFrom(value, previous) {
-  const raw = value.message?.usage || value.usage;
-  if (!raw) return null;
-  const promptTokens = (raw.input_tokens || 0) + (raw.cache_creation_input_tokens || 0) + (raw.cache_read_input_tokens || 0) || previous?.promptTokens || 0;
-  const completionTokens = raw.output_tokens || previous?.completionTokens || 0;
-  const totalTokens = promptTokens + completionTokens;
-  if (!promptTokens && !completionTokens) return null;
-  return { promptTokens, completionTokens, totalTokens };
 }
 
 function initialState(state) {
@@ -139,7 +98,7 @@ const anthropicProvider = {
       method: "POST",
       url: withQuery(`${resolved.provider.apiEndpoint.replace(/\/+$/, "")}/messages`, resolved.provider.queryParams),
       streamProtocol: "sse",
-      headers: headerMap({ "Content-Type": "application/json", Accept: "text/event-stream", "anthropic-version": "2023-06-01" }, resolved),
+      headers: headerMap({ "Content-Type": "application/json", Accept: "text/event-stream", "anthropic-version": "2023-06-01" }, resolved, "x-api-key"),
       body,
     };
   },
@@ -196,7 +155,7 @@ const anthropicProvider = {
     return {
       method: "GET",
       url: withQuery(candidates[0] || `${resolved.provider.apiEndpoint.replace(/\/+$/, "")}/models`, resolved.provider.queryParams),
-      headers: headerMap({ "anthropic-version": "2023-06-01" }, resolved),
+      headers: headerMap({ "anthropic-version": "2023-06-01" }, resolved, "x-api-key"),
     };
   },
   parseModelsResponse({ response }) {
