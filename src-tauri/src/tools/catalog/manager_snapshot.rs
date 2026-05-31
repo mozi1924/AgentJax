@@ -1,11 +1,7 @@
 use super::ToolCatalog;
 use super::names::{mount_tool_name_for_server, prefixed_mcp_tool_name};
 use super::schemas::{
-    CANCEL_BACKGROUND_TOOL_NAME, LIST_BACKGROUND_TOOLS_NAME, START_BACKGROUND_TOOL_NAME,
-    WAIT_BACKGROUND_TOOL_NAME, build_cancel_background_tool_schema,
-    build_list_background_tools_schema, build_manage_mcp_server_tool_schema,
-    build_start_background_tool_schema, build_wait_background_tool_schema,
-    normalize_mcp_tool_definitions,
+    build_manage_mcp_server_tool_schema, normalize_mcp_tool_definitions,
 };
 use crate::plugin_runtime::{prefixed_plugin_tool_name, registered_tools_for_manifest};
 use crate::tools::{ToolExecutionContext, ToolSchemaFormat, humanize_tool_name};
@@ -54,7 +50,6 @@ pub enum ToolManagerSourceType {
     Mcp,
     Plugin,
     Dynamic,
-    Background,
     Control,
 }
 
@@ -136,7 +131,6 @@ impl ToolCatalog {
         );
         sources.extend(self.plugin_sources_snapshot());
         sources.push(self.dynamic_tools_snapshot(&context));
-        sources.push(self.background_tools_snapshot());
         sources.push(self.control_tools_snapshot(&mounted_servers));
         ToolManagerSnapshot { sources }
     }
@@ -418,71 +412,6 @@ impl ToolCatalog {
             .to_string(),
             exposure_mode: "session".to_string(),
             source_capabilities: vec!["session".to_string()],
-            policy_paths: ToolManagerSourcePolicyPaths::default(),
-            tools,
-            error: None,
-        }
-    }
-
-    fn background_tools_snapshot(&self) -> ToolManagerSourceSnapshot {
-        let tools = [
-            (
-                START_BACKGROUND_TOOL_NAME,
-                "Start Background Tool",
-                "Starts a tool as a background job.",
-                Some("Rocket".to_string()),
-                build_start_background_tool_schema(ToolSchemaFormat::Responses),
-            ),
-            (
-                WAIT_BACKGROUND_TOOL_NAME,
-                "Wait Background Tool",
-                "Waits for a background tool job.",
-                Some("Timer".to_string()),
-                build_wait_background_tool_schema(ToolSchemaFormat::Responses),
-            ),
-            (
-                CANCEL_BACKGROUND_TOOL_NAME,
-                "Cancel Background Tool",
-                "Cancels a background tool job.",
-                Some("CircleStop".to_string()),
-                build_cancel_background_tool_schema(ToolSchemaFormat::Responses),
-            ),
-            (
-                LIST_BACKGROUND_TOOLS_NAME,
-                "List Background Tools",
-                "Lists background tool jobs.",
-                Some("ListChecks".to_string()),
-                build_list_background_tools_schema(ToolSchemaFormat::Responses),
-            ),
-        ]
-        .into_iter()
-        .map(|(id, friendly_name, description, icon, schema)| {
-            let input_schema = schema_parameters(&schema).clone();
-            ToolManagerToolSnapshot {
-                id: id.to_string(),
-                friendly_name: friendly_name.to_string(),
-                model_name: id.to_string(),
-                description: description.to_string(),
-                icon,
-                enabled: true,
-                availability: "available".to_string(),
-                schema_summary: schema_summary(&input_schema),
-                input_schema: Some(input_schema),
-                schema_format: ToolManagerSchemaFormat::OpenaiFunction,
-                source_capabilities: vec!["background".to_string()],
-                policy_paths: ToolManagerToolPolicyPaths::default(),
-            }
-        })
-        .collect();
-
-        ToolManagerSourceSnapshot {
-            source_type: ToolManagerSourceType::Background,
-            source_id: "background".to_string(),
-            source_name: "Background Tools".to_string(),
-            enabled: true,
-            status: "ready".to_string(),
-            exposure_mode: "control".to_string(),
-            source_capabilities: vec!["background".to_string()],
             policy_paths: ToolManagerSourcePolicyPaths::default(),
             tools,
             error: None,

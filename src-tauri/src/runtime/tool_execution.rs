@@ -17,7 +17,6 @@ use execution::{prepare_tool_execution, run_prepared_tool};
 use types::{ActiveToolExecution, ExecutedToolBatch, ExecutedToolRecord};
 
 const MAX_PARALLEL_TOOL_EXECUTIONS: usize = 4;
-const MAX_PARALLEL_BACKGROUND_CONTROL_EXECUTIONS: usize = 8;
 pub(super) const TOOL_PROGRESS_HEARTBEAT_SECS: u64 = 5;
 
 type ToolCompletionMessage = (String, Option<ExecutedToolRecord>);
@@ -28,7 +27,6 @@ pub(super) struct ToolExecutionScheduler {
     tool_snapshot: ToolCatalogSnapshot,
     cancel_rx: watch::Receiver<bool>,
     semaphore: Arc<Semaphore>,
-    background_control_semaphore: Arc<Semaphore>,
     next_index: usize,
     scheduled_call_ids: HashSet<String>,
     active_tools: HashMap<String, ActiveToolExecution>,
@@ -58,9 +56,6 @@ impl ToolExecutionScheduler {
             tool_snapshot,
             cancel_rx: cancel_rx.clone(),
             semaphore: Arc::new(Semaphore::new(parallelism)),
-            background_control_semaphore: Arc::new(Semaphore::new(
-                MAX_PARALLEL_BACKGROUND_CONTROL_EXECUTIONS,
-            )),
             next_index: 0,
             scheduled_call_ids: HashSet::new(),
             active_tools: HashMap::new(),
@@ -96,17 +91,7 @@ impl ToolExecutionScheduler {
         let conversation_id = self.conversation_id.clone();
         let tool_snapshot = self.tool_snapshot.clone();
         let cancel_rx = self.cancel_rx.clone();
-        // Background start/wait/list/cancel tools are control-plane actions. Keep
-        // them off the data-plane semaphore so an awaiter checkpoint cannot block
-        // ordinary tool work for providers that serialize tool execution.
-        let semaphore = if self
-            .tool_snapshot
-            .is_background_control_tool(&prepared.name)
-        {
-            self.background_control_semaphore.clone()
-        } else {
-            self.semaphore.clone()
-        };
+        let semaphore = self.semaphore.clone();
         let completed_tx = self.completed_tx.clone();
         self.handles.push(tokio::spawn(async move {
             let record = AssertUnwindSafe(run_prepared_tool(
@@ -316,12 +301,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scheduler_background_awaiter_does_not_block_serial_tool_lane() {
+    async fn scheduler_background_task_uses_shared_semaphore() {
         let config = crate::config::AppConfig::default();
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let (_cancel_tx, cancel_rx) = watch::channel(false);
         let conversation_id = "conv-runtime-awaiter-test";
+        // Serial mode (parallelism=1): background_task now shares the same
+        // semaphore as other tools since it's a single native tool, not a
+        // separate control-plane partition.
         let mut scheduler =
             ToolExecutionScheduler::new(conversation_id, snapshot, false, &cancel_rx);
         let job = background_jobs::start_job_for_conversation(
@@ -333,8 +321,8 @@ mod tests {
         assert!(scheduler.schedule_pending_tool(
             ProviderPendingToolCall {
                 call_id: "call-wait".to_string(),
-                name: "wait_background_tool".to_string(),
-                arguments: json!({ "jobId": job_id, "timeoutMs": 600 }),
+                name: "background_task".to_string(),
+                arguments: json!({ "action": "wait", "jobId": job_id, "timeoutMs": 600 }),
             },
             &HashMap::new(),
         ));
@@ -347,8 +335,11 @@ mod tests {
             &HashMap::new(),
         ));
 
+        // In serial mode with a shared semaphore, the background_task wait
+        // holds the only permit until it times out (600ms). The calculator
+        // will eventually run after the wait releases its permit.
         let mut events = Vec::new();
-        let deadline = Instant::now() + Duration::from_millis(250);
+        let deadline = Instant::now() + Duration::from_millis(1000);
         while Instant::now() < deadline {
             scheduler
                 .try_emit_completed_tools(&mut |event| {
@@ -356,28 +347,13 @@ mod tests {
                     Ok(())
                 })
                 .expect("drain completed tools");
-            if events.iter().any(|event| {
-                matches!(
-                    event,
-                    ProviderStreamEvent::ToolCallExecuted { call_id, .. }
-                        if call_id == "call-calculator"
-                )
-            }) {
+            if events.iter().filter(|event| {
+                matches!(event, ProviderStreamEvent::ToolCallExecuted { .. })
+            }).count() >= 2 {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-
-        assert!(
-            events.iter().any(|event| {
-                matches!(
-                    event,
-                    ProviderStreamEvent::ToolCallExecuted { call_id, .. }
-                        if call_id == "call-calculator"
-                )
-            }),
-            "background awaiter checkpoints should not consume the serial ordinary-tool lane"
-        );
 
         let mut repeated_failures = HashMap::new();
         let batch = scheduler

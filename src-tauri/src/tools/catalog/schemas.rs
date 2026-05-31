@@ -3,10 +3,7 @@ use super::types::MountedToolDefinition;
 use crate::tools::{ToolSchemaFormat, background_jobs, format_tool_schema, humanize_tool_name};
 use serde_json::{Value, json};
 
-pub(super) const START_BACKGROUND_TOOL_NAME: &str = "start_background_tool";
-pub(super) const WAIT_BACKGROUND_TOOL_NAME: &str = "wait_background_tool";
-pub(super) const CANCEL_BACKGROUND_TOOL_NAME: &str = "cancel_background_tool";
-pub(super) const LIST_BACKGROUND_TOOLS_NAME: &str = "list_background_tools";
+pub(super) const BACKGROUND_TASK_NAME: &str = "background_task";
 
 /// Build the schema for a collapsed MCP server control tool.
 pub(super) fn build_manage_mcp_server_tool_schema(
@@ -37,79 +34,47 @@ pub(super) fn build_manage_mcp_server_tool_schema(
     )
 }
 
-pub(super) fn build_start_background_tool_schema(format: ToolSchemaFormat) -> Value {
+/// Consolidated background task tool schema.
+///
+/// A single tool that handles all background lifecycle operations:
+/// start, wait, cancel, and list. The `action` field selects which
+/// operation to perform. This replaces the old four-tool design
+/// (start_background_tool / wait_background_tool / cancel_background_tool /
+/// list_background_tools).
+pub(super) fn build_background_task_schema(format: ToolSchemaFormat) -> Value {
     format_tool_schema(
         format,
-        START_BACKGROUND_TOOL_NAME,
-        "Starts one currently available native or MCP tool in the background and returns immediately with a jobId. Use this when a tool may take a long time and you can make progress elsewhere before waiting for the result. Waiting is a separate awaiter step: later call wait_background_tool only when the result is on your critical path, or call list_background_tools to inspect progress. Do not use this for MCP server mount/unmount control tools.",
+        BACKGROUND_TASK_NAME,
+        "Manages background tool jobs — start a tool and keep working, wait/check later, cancel, or list all jobs. Use action='start' to launch a native or MCP tool in a background task and get back a jobId immediately. Later use action='wait' as an awaiter checkpoint, action='cancel' to abort a running job, or action='list' to inspect all jobs. The start action returns the jobId plus usage hints for subsequent actions.",
         json!({
             "type": "object",
             "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "wait", "cancel", "list"],
+                    "description": "Which background operation to perform: 'start' to launch a tool, 'wait' to await completion, 'cancel' to abort, 'list' to enumerate all jobs."
+                },
+                "jobId": {
+                    "type": "string",
+                    "description": "Required for 'wait' and 'cancel'. The jobId returned by a previous 'start' action."
+                },
                 "toolName": {
                     "type": "string",
-                    "description": "The exact active tool name to run in the background, for example 'calculator' or 'mcp__server__tool'."
+                    "description": "Required for 'start'. The exact active tool name to run in the background, e.g. 'calculator' or 'mcp__server__tool'."
                 },
                 "arguments": {
                     "type": "object",
-                    "description": "Arguments to pass to the target tool. Use an empty object when the target tool takes no arguments."
-                }
-            },
-            "required": ["toolName", "arguments"]
-        }),
-    )
-}
-
-pub(super) fn build_wait_background_tool_schema(format: ToolSchemaFormat) -> Value {
-    format_tool_schema(
-        format,
-        WAIT_BACKGROUND_TOOL_NAME,
-        "Awaiter checkpoint for a background tool job. Waits briefly for completion, or returns the current in-progress status and next actions when the timeout elapses. Use this only when the result is on your critical path; otherwise continue useful work and check later. Prefer short timeoutMs values for polling. Long waits must be an explicit choice.",
-        json!({
-            "type": "object",
-            "properties": {
-                "jobId": {
-                    "type": "string",
-                    "description": "The jobId returned by start_background_tool."
+                    "description": "Required for 'start'. Arguments to pass to the target tool. Use an empty object when the target tool takes no arguments."
                 },
                 "timeoutMs": {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": background_jobs::MAX_WAIT_TIMEOUT_MS,
                     "default": background_jobs::DEFAULT_WAIT_TIMEOUT_MS,
-                    "description": "Optional awaiter timeout in milliseconds. Defaults to a short 5000ms checkpoint and is capped at 120000. Use a small value when deciding whether to continue other work or wait again."
+                    "description": "Optional, for 'wait' only. Awaiter timeout in milliseconds. Defaults to 5000, capped at 120000. Use a small value when deciding whether to continue other work or wait again."
                 }
             },
-            "required": ["jobId"]
-        }),
-    )
-}
-
-pub(super) fn build_cancel_background_tool_schema(format: ToolSchemaFormat) -> Value {
-    format_tool_schema(
-        format,
-        CANCEL_BACKGROUND_TOOL_NAME,
-        "Cancels a background tool job if it is still running. Use this when the result is no longer needed or the job is taking the wrong path.",
-        json!({
-            "type": "object",
-            "properties": {
-                "jobId": {
-                    "type": "string",
-                    "description": "The jobId returned by start_background_tool."
-                }
-            },
-            "required": ["jobId"]
-        }),
-    )
-}
-
-pub(super) fn build_list_background_tools_schema(format: ToolSchemaFormat) -> Value {
-    format_tool_schema(
-        format,
-        LIST_BACKGROUND_TOOLS_NAME,
-        "Lists background tool jobs and their current lifecycle state. Use this to inspect jobs before deciding whether to wait.",
-        json!({
-            "type": "object",
-            "properties": {}
+            "required": ["action"]
         }),
     )
 }

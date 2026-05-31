@@ -19,7 +19,7 @@ mod tests {
     use std::sync::Arc;
 
     const DEFAULT_REGISTRY_TOOL_COUNT: usize = 7;
-    const DEFAULT_CATALOG_TOOL_COUNT: usize = DEFAULT_REGISTRY_TOOL_COUNT + 4;
+    const DEFAULT_CATALOG_TOOL_COUNT: usize = DEFAULT_REGISTRY_TOOL_COUNT + 1;
 
     struct TestHomeGuard {
         home: std::path::PathBuf,
@@ -871,41 +871,22 @@ mod tests {
         assert!(snapshot.active_tool_names().contains("calculator"));
         assert!(snapshot.active_tool_names().contains("get_system_time"));
         assert!(snapshot.active_tool_names().contains("list_files"));
-        assert!(
-            snapshot
-                .active_tool_names()
-                .contains("start_background_tool")
-        );
-        assert!(
-            snapshot
-                .active_tool_names()
-                .contains("wait_background_tool")
-        );
-        assert!(
-            snapshot
-                .active_tool_names()
-                .contains("cancel_background_tool")
-        );
-        assert!(
-            snapshot
-                .active_tool_names()
-                .contains("list_background_tools")
-        );
-        let wait_schema = snapshot
+        assert!(snapshot.active_tool_names().contains("background_task"));
+        let bg_schema = snapshot
             .schemas()
             .iter()
             .find(|schema| {
-                schema.get("name").and_then(|value| value.as_str()) == Some("wait_background_tool")
+                schema.get("name").and_then(|value| value.as_str()) == Some("background_task")
             })
-            .expect("wait_background_tool schema");
+            .expect("background_task schema");
         assert!(
-            wait_schema["description"]
+            bg_schema["description"]
                 .as_str()
                 .unwrap_or_default()
-                .contains("Awaiter checkpoint")
+                .contains("background")
         );
         assert_eq!(
-            wait_schema["parameters"]["properties"]["timeoutMs"]["default"],
+            bg_schema["parameters"]["properties"]["timeoutMs"]["default"],
             json!(crate::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
         );
 
@@ -921,7 +902,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_background_tool_sidecar_start_wait_and_list() {
+    async fn test_background_task_start_wait_and_list() {
         let config = crate::config::AppConfig::default();
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
@@ -929,8 +910,9 @@ mod tests {
 
         let started = snapshot
             .execute(
-                "start_background_tool",
+                "background_task",
                 &json!({
+                    "action": "start",
                     "toolName": "calculator",
                     "arguments": { "expression": "21 * 2" }
                 }),
@@ -950,8 +932,8 @@ mod tests {
 
         let waited = snapshot
             .execute(
-                "wait_background_tool",
-                &json!({ "jobId": job_id, "timeoutMs": 10_000 }),
+                "background_task",
+                &json!({ "action": "wait", "jobId": job_id, "timeoutMs": 10_000 }),
                 &ctx,
             )
             .await
@@ -964,7 +946,7 @@ mod tests {
         assert_eq!(waited["job"]["output"]["result"].as_f64(), Some(42.0));
 
         let jobs = snapshot
-            .execute("list_background_tools", &json!({}), &ctx)
+            .execute("background_task", &json!({ "action": "list" }), &ctx)
             .await
             .expect("list background jobs");
         assert_eq!(jobs["role"], "background_tool_observer");
@@ -976,7 +958,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_background_tool_sidecar_is_conversation_scoped() {
+    async fn test_background_task_is_conversation_scoped() {
         let config = crate::config::AppConfig::default();
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let ctx_a = ToolExecutionContext {
@@ -989,8 +971,9 @@ mod tests {
 
         let started = snapshot
             .execute(
-                "start_background_tool",
+                "background_task",
                 &json!({
+                    "action": "start",
                     "toolName": "calculator",
                     "arguments": { "expression": "5 * 9" }
                 }),
@@ -1005,7 +988,7 @@ mod tests {
         );
 
         let other_conversation_jobs = snapshot
-            .execute("list_background_tools", &json!({}), &ctx_b)
+            .execute("background_task", &json!({ "action": "list" }), &ctx_b)
             .await
             .expect("list other conversation jobs");
         assert!(
@@ -1018,8 +1001,8 @@ mod tests {
 
         let wrong_conversation_wait = snapshot
             .execute(
-                "wait_background_tool",
-                &json!({ "jobId": job_id, "timeoutMs": 100 }),
+                "background_task",
+                &json!({ "action": "wait", "jobId": job_id, "timeoutMs": 100 }),
                 &ctx_b,
             )
             .await;
@@ -1027,8 +1010,8 @@ mod tests {
 
         let waited = snapshot
             .execute(
-                "wait_background_tool",
-                &json!({ "jobId": job_id, "timeoutMs": 10_000 }),
+                "background_task",
+                &json!({ "action": "wait", "jobId": job_id, "timeoutMs": 10_000 }),
                 &ctx_a,
             )
             .await
@@ -1038,7 +1021,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_background_tool_sidecar_cancel() {
+    async fn test_background_task_cancel() {
         let config = crate::config::AppConfig::default();
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
@@ -1057,7 +1040,7 @@ mod tests {
         crate::tools::background_jobs::register_job_handle(&job, handle);
 
         let cancelled = snapshot
-            .execute("cancel_background_tool", &json!({ "jobId": job_id }), &ctx)
+            .execute("background_task", &json!({ "action": "cancel", "jobId": job_id }), &ctx)
             .await
             .expect("cancel background job");
         assert_eq!(cancelled["ok"], true);
@@ -1066,8 +1049,8 @@ mod tests {
 
         let waited = snapshot
             .execute(
-                "wait_background_tool",
-                &json!({ "jobId": job_id, "timeoutMs": 1_000 }),
+                "background_task",
+                &json!({ "action": "wait", "jobId": job_id, "timeoutMs": 1_000 }),
                 &ctx,
             )
             .await

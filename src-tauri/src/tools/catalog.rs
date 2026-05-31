@@ -25,10 +25,7 @@ use names::{
     mount_tool_name_for_server, prefixed_mcp_tool_name, presentation_for_manage_mcp_server,
 };
 use schemas::{
-    CANCEL_BACKGROUND_TOOL_NAME, LIST_BACKGROUND_TOOLS_NAME, START_BACKGROUND_TOOL_NAME,
-    WAIT_BACKGROUND_TOOL_NAME, build_cancel_background_tool_schema,
-    build_list_background_tools_schema, build_manage_mcp_server_tool_schema,
-    build_start_background_tool_schema, build_wait_background_tool_schema,
+    BACKGROUND_TASK_NAME, build_background_task_schema, build_manage_mcp_server_tool_schema,
     normalize_mcp_tool_definitions,
 };
 use serde_json::Value;
@@ -375,58 +372,23 @@ impl ToolCatalog {
             );
         }
 
-        for (tool_name, schema, entry, presentation) in [
-            (
-                START_BACKGROUND_TOOL_NAME.to_string(),
-                build_start_background_tool_schema(format),
-                ToolSnapshotEntry::StartBackgroundTool,
-                ToolPresentation::new(
-                    "Start Background Tool",
-                    "Starts a tool as a background job.",
-                    Some("Rocket"),
-                ),
+        let bg_name = BACKGROUND_TASK_NAME.to_string();
+        presentations.insert(
+            bg_name.clone(),
+            ToolPresentation::new(
+                "Background Task",
+                "Manages background tool jobs — start, wait, cancel, or list.",
+                Some("Rocket"),
             ),
-            (
-                WAIT_BACKGROUND_TOOL_NAME.to_string(),
-                build_wait_background_tool_schema(format),
-                ToolSnapshotEntry::WaitBackgroundTool,
-                ToolPresentation::new(
-                    "Wait Background Tool",
-                    "Waits for a background tool job.",
-                    Some("Timer"),
-                ),
-            ),
-            (
-                CANCEL_BACKGROUND_TOOL_NAME.to_string(),
-                build_cancel_background_tool_schema(format),
-                ToolSnapshotEntry::CancelBackgroundTool,
-                ToolPresentation::new(
-                    "Cancel Background Tool",
-                    "Cancels a background tool job.",
-                    Some("CircleStop"),
-                ),
-            ),
-            (
-                LIST_BACKGROUND_TOOLS_NAME.to_string(),
-                build_list_background_tools_schema(format),
-                ToolSnapshotEntry::ListBackgroundTools,
-                ToolPresentation::new(
-                    "List Background Tools",
-                    "Lists background tool jobs.",
-                    Some("ListChecks"),
-                ),
-            ),
-        ] {
-            presentations.insert(tool_name.clone(), presentation);
-            insert_snapshot_tool(
-                &mut schemas,
-                schema,
-                &mut active_tool_names,
-                &mut entries,
-                tool_name,
-                entry,
-            );
-        }
+        );
+        insert_snapshot_tool(
+            &mut schemas,
+            build_background_task_schema(format),
+            &mut active_tool_names,
+            &mut entries,
+            bg_name,
+            ToolSnapshotEntry::BackgroundTask,
+        );
 
         ToolCatalogSnapshot {
             schemas,

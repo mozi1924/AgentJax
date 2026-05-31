@@ -4,9 +4,6 @@ use super::background::{
 };
 use super::names::{mount_tool_name_for_server, prefixed_mcp_tool_name};
 use super::plugin_execution::execute_plugin_package_tool;
-use super::schemas::{
-    CANCEL_BACKGROUND_TOOL_NAME, LIST_BACKGROUND_TOOLS_NAME, WAIT_BACKGROUND_TOOL_NAME,
-};
 use super::types::{MountedToolSourceSession, ToolCatalogExecution, ToolCatalogStateChange};
 use crate::plugin_runtime::PluginPackage;
 use crate::tools::{Tool, ToolExecutionContext, ToolPresentation, background_jobs};
@@ -34,10 +31,10 @@ pub(super) enum ToolSnapshotEntry {
         server_config: crate::config::McpServerConfig,
         mounted_session: Option<MountedToolSourceSession>,
     },
-    StartBackgroundTool,
-    WaitBackgroundTool,
-    CancelBackgroundTool,
-    ListBackgroundTools,
+    /// Consolidated background task tool — replaces the old four-variant
+    /// design (StartBackgroundTool / WaitBackgroundTool / CancelBackgroundTool
+    /// / ListBackgroundTools). Uses an `action` field to dispatch.
+    BackgroundTask,
 }
 
 /// Insert or replace a tool in every snapshot index used for schema emission and dispatch.
@@ -92,18 +89,6 @@ impl ToolCatalogSnapshot {
 
     pub fn presentation_for(&self, tool_name: &str) -> Option<&ToolPresentation> {
         self.presentations.get(tool_name)
-    }
-
-    pub(crate) fn is_background_control_tool(&self, tool_name: &str) -> bool {
-        matches!(
-            self.entries.get(tool_name),
-            Some(
-                ToolSnapshotEntry::StartBackgroundTool
-                    | ToolSnapshotEntry::WaitBackgroundTool
-                    | ToolSnapshotEntry::CancelBackgroundTool
-                    | ToolSnapshotEntry::ListBackgroundTools
-            )
-        )
     }
 
     pub async fn execute(
@@ -164,111 +149,126 @@ impl ToolCatalogSnapshot {
                 })?;
                 execute_plugin_package_tool(package, plugin_id, tool_name, arguments, context)
             }
-            ToolSnapshotEntry::StartBackgroundTool => {
-                let target_tool_name = background_tool_name(arguments)?;
-                let target_arguments = background_tool_arguments(arguments);
-                let target_entry = self
-                    .entries
-                    .get(&target_tool_name)
-                    .cloned()
-                    .ok_or_else(|| {
-                        format!(
-                            "Cannot start background tool job because target tool '{}' is not active in this turn",
-                            target_tool_name
-                        )
-                    })?;
-                if !is_backgroundable_entry(&target_entry) {
-                    return Err(format!(
-                        "Tool '{}' cannot run in the background. Only native and MCP tools are supported.",
-                        target_tool_name
-                    ));
-                }
+            ToolSnapshotEntry::BackgroundTask => {
+                use super::schemas::BACKGROUND_TASK_NAME;
 
-                let job = background_jobs::start_job_for_conversation(
-                    target_tool_name.clone(),
-                    context.conversation_id.clone(),
-                );
-                let job_id = background_jobs::job_id(&job);
-                let context = context.clone();
-                let mcp_manager = self.mcp_manager.clone();
-                let mcp_runtime = self.mcp_runtime.clone();
-                let job_for_task = job.clone();
-
-                let handle = tokio::spawn(async move {
-                    // A background job must always become terminal. Convert a
-                    // panicking target tool into a failed job instead of leaving
-                    // waiters/listeners with a permanent in-progress snapshot.
-                    let result = AssertUnwindSafe(execute_backgroundable_entry(
-                        target_entry,
-                        target_arguments,
-                        context,
-                        mcp_manager,
-                        mcp_runtime,
-                    ))
-                    .catch_unwind()
-                    .await
-                    .unwrap_or_else(|_| Err("Background tool task panicked".to_string()));
-                    background_jobs::complete_job(&job_for_task, result);
-                });
-                background_jobs::register_job_handle(&job, handle);
-
-                Ok(ToolCatalogExecution {
-                    output: json!({
-                        "ok": true,
-                        "role": "background_tool_starter",
-                        "decision": "continue_or_await_later",
-                        "jobId": job_id,
-                        "toolName": target_tool_name,
-                        "status": "in_progress",
-                        "job": background_jobs::job_snapshot(&job),
-                        "usage": {
-                            "wait": {
-                                "tool": WAIT_BACKGROUND_TOOL_NAME,
-                                "arguments": {
-                                    "jobId": job_id,
-                                    "timeoutMs": background_jobs::DEFAULT_WAIT_TIMEOUT_MS
-                                }
-                            },
-                            "list": {
-                                "tool": LIST_BACKGROUND_TOOLS_NAME,
-                                "arguments": {}
-                            },
-                            "cancel": {
-                                "tool": CANCEL_BACKGROUND_TOOL_NAME,
-                                "arguments": { "jobId": job_id }
-                            }
+                let action = arguments
+                    .get("action")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                match action {
+                    "start" => {
+                        let target_tool_name = background_tool_name(arguments)?;
+                        let target_arguments = background_tool_arguments(arguments);
+                        let target_entry = self
+                            .entries
+                            .get(&target_tool_name)
+                            .cloned()
+                            .ok_or_else(|| {
+                                format!(
+                                    "Cannot start background tool job because target tool '{}' is not active in this turn",
+                                    target_tool_name
+                                )
+                            })?;
+                        if !is_backgroundable_entry(&target_entry) {
+                            return Err(format!(
+                                "Tool '{}' cannot run in the background. Only native and MCP tools are supported.",
+                                target_tool_name
+                            ));
                         }
+
+                        let job = background_jobs::start_job_for_conversation(
+                            target_tool_name.clone(),
+                            context.conversation_id.clone(),
+                        );
+                        let job_id = background_jobs::job_id(&job);
+                        let context = context.clone();
+                        let mcp_manager = self.mcp_manager.clone();
+                        let mcp_runtime = self.mcp_runtime.clone();
+                        let job_for_task = job.clone();
+
+                        let handle = tokio::spawn(async move {
+                            // A background job must always become terminal. Convert a
+                            // panicking target tool into a failed job instead of leaving
+                            // waiters/listeners with a permanent in-progress snapshot.
+                            let result = AssertUnwindSafe(execute_backgroundable_entry(
+                                target_entry,
+                                target_arguments,
+                                context,
+                                mcp_manager,
+                                mcp_runtime,
+                            ))
+                            .catch_unwind()
+                            .await
+                            .unwrap_or_else(|_| Err("Background tool task panicked".to_string()));
+                            background_jobs::complete_job(&job_for_task, result);
+                        });
+                        background_jobs::register_job_handle(&job, handle);
+
+                        Ok(ToolCatalogExecution {
+                            output: json!({
+                                "ok": true,
+                                "role": "background_tool_starter",
+                                "decision": "continue_or_await_later",
+                                "jobId": job_id,
+                                "toolName": target_tool_name,
+                                "status": "in_progress",
+                                "job": background_jobs::job_snapshot(&job),
+                                "usage": {
+                                    "wait": {
+                                        "tool": BACKGROUND_TASK_NAME,
+                                        "arguments": {
+                                            "action": "wait",
+                                            "jobId": job_id,
+                                            "timeoutMs": background_jobs::DEFAULT_WAIT_TIMEOUT_MS
+                                        }
+                                    },
+                                    "list": {
+                                        "tool": BACKGROUND_TASK_NAME,
+                                        "arguments": { "action": "list" }
+                                    },
+                                    "cancel": {
+                                        "tool": BACKGROUND_TASK_NAME,
+                                        "arguments": { "action": "cancel", "jobId": job_id }
+                                    }
+                                }
+                            }),
+                            state_changes: Vec::new(),
+                        })
+                    }
+                    "wait" => {
+                        let job_id = background_job_id(arguments)?;
+                        let timeout_ms = background_wait_timeout_ms(arguments);
+                        Ok(ToolCatalogExecution {
+                            output: background_jobs::wait_for_job(
+                                &job_id,
+                                timeout_ms,
+                                context.conversation_id.as_deref(),
+                            )
+                            .await?,
+                            state_changes: Vec::new(),
+                        })
+                    }
+                    "cancel" => {
+                        let job_id = background_job_id(arguments)?;
+                        Ok(ToolCatalogExecution {
+                            output: background_jobs::cancel_job(
+                                &job_id,
+                                context.conversation_id.as_deref(),
+                            )?,
+                            state_changes: Vec::new(),
+                        })
+                    }
+                    "list" => Ok(ToolCatalogExecution {
+                        output: background_jobs::list_jobs(context.conversation_id.as_deref()),
+                        state_changes: Vec::new(),
                     }),
-                    state_changes: Vec::new(),
-                })
-            }
-            ToolSnapshotEntry::WaitBackgroundTool => {
-                let job_id = background_job_id(arguments)?;
-                let timeout_ms = background_wait_timeout_ms(arguments);
-                Ok(ToolCatalogExecution {
-                    output: background_jobs::wait_for_job(
-                        &job_id,
-                        timeout_ms,
-                        context.conversation_id.as_deref(),
-                    )
-                    .await?,
-                    state_changes: Vec::new(),
-                })
-            }
-            ToolSnapshotEntry::CancelBackgroundTool => {
-                let job_id = background_job_id(arguments)?;
-                Ok(ToolCatalogExecution {
-                    output: background_jobs::cancel_job(
-                        &job_id,
-                        context.conversation_id.as_deref(),
-                    )?,
-                    state_changes: Vec::new(),
-                })
-            }
-            ToolSnapshotEntry::ListBackgroundTools => Ok(ToolCatalogExecution {
-                output: background_jobs::list_jobs(context.conversation_id.as_deref()),
-                state_changes: Vec::new(),
-            }),
+                    _ => Err(format!(
+                        "background_task: unknown action '{}'. Valid actions: start, wait, cancel, list",
+                        action
+                    )),
+                }
+            },
             ToolSnapshotEntry::ManageMcpServer {
                 server_id,
                 server_config,

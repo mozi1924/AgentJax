@@ -12,7 +12,7 @@ pub(super) fn background_tool_name(arguments: &Value) -> Result<String, String> 
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-        .ok_or_else(|| "start_background_tool requires a non-empty toolName".to_string())
+        .ok_or_else(|| "background_task action='start' requires a non-empty toolName".to_string())
 }
 
 pub(super) fn background_tool_arguments(arguments: &Value) -> Value {
@@ -31,7 +31,7 @@ pub(super) fn background_job_id(arguments: &Value) -> Result<String, String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-        .ok_or_else(|| "wait_background_tool requires a non-empty jobId".to_string())
+        .ok_or_else(|| "background_task action='wait' requires a non-empty jobId".to_string())
 }
 
 pub(super) fn background_wait_timeout_ms(arguments: &Value) -> Option<u64> {

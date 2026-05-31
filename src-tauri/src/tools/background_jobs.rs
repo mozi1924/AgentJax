@@ -431,19 +431,20 @@ pub(crate) async fn wait_for_job(
         } else {
             json!({
                 "waitAgain": {
-                    "tool": "wait_background_tool",
+                    "tool": "background_task",
                     "arguments": {
+                        "action": "wait",
                         "jobId": job_id,
                         "timeoutMs": DEFAULT_WAIT_TIMEOUT_MS
                     }
                 },
                 "list": {
-                    "tool": "list_background_tools",
-                    "arguments": {}
+                    "tool": "background_task",
+                    "arguments": { "action": "list" }
                 },
                 "cancel": {
-                    "tool": "cancel_background_tool",
-                    "arguments": { "jobId": job_id }
+                    "tool": "background_task",
+                    "arguments": { "action": "cancel", "jobId": job_id }
                 }
             })
         },
