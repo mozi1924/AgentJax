@@ -433,29 +433,38 @@ export function DataSourceRenderer({
               {meta && <div className="mt-2 text-[10.5px] text-neutral-500">{meta}</div>}
             </div>
             {templateProperties}
-            {template?.actions?.some((action) => dataSourceActionVisible(action, record)) ? (
-              <div className="rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-3 py-2">
-                <div className="flex items-center justify-between gap-3">
-                  {bindings.actionsTitle && (
-                    <span className="text-[12px] font-medium text-neutral-200">
-                      {t(bindings.actionsTitle)}
-                    </span>
-                  )}
-                  <div className="flex items-center gap-2">
-                    {template.actions.map((action) =>
-                      <DataSourceActionControl
-                        key={action.id}
-                        action={action}
-                        item={record}
-                        dataSource={node.dataSource}
-                        dataContext={dataContext}
-                        translate={translate}
-                      />
+            {(() => {
+              const linkedActionIds = new Set(
+                detailItems.map((item) => textItemValue(item, 'actionId')).filter(Boolean)
+              );
+              const visibleActions = (template?.actions || []).filter(
+                (action) => !linkedActionIds.has(action.id) && dataSourceActionVisible(action, record)
+              );
+
+              return visibleActions.length > 0 ? (
+                <div className="rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-3 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    {bindings.actionsTitle && (
+                      <span className="text-[12px] font-medium text-neutral-200">
+                        {t(bindings.actionsTitle)}
+                      </span>
                     )}
+                    <div className="flex items-center gap-2">
+                      {visibleActions.map((action) =>
+                        <DataSourceActionControl
+                          key={action.id}
+                          action={action}
+                          item={record}
+                          dataSource={node.dataSource}
+                          dataContext={dataContext}
+                          translate={translate}
+                        />
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null;
+            })()}
             {detailItemsPath && (
               <div>
                 <button
@@ -477,27 +486,48 @@ export function DataSourceRenderer({
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {detailItems.map((property) => (
-                        <div
-                          key={textItemValue(property, detailItemName)}
-                          className="rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/20 px-3 py-2"
-                        >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-mono text-[11px] text-neutral-200">
-                              {textItemValue(property, detailItemName)}
-                            </span>
-                            <DataSourceBadge>{textItemValue(property, detailItemType)}</DataSourceBadge>
-                            {boolItemValue(property, detailItemRequired) && (
-                              <DataSourceBadge tone="warning">{requiredLabel}</DataSourceBadge>
+                      {detailItems.map((property) => {
+                        const propName = textItemValue(property, detailItemName);
+                        const actionId = textItemValue(property, 'actionId');
+                        const permissionAction = actionId
+                          ? template?.actions?.find((act) => act.id === actionId)
+                          : undefined;
+
+                        return (
+                          <div
+                            key={propName}
+                            className="rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/20 px-3 py-2"
+                          >
+                            <div className="flex items-center justify-between gap-4">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-[11px] text-neutral-200">
+                                  {propName}
+                                </span>
+                                <DataSourceBadge>{textItemValue(property, detailItemType)}</DataSourceBadge>
+                                {boolItemValue(property, detailItemRequired) && (
+                                  <DataSourceBadge tone="warning">{requiredLabel}</DataSourceBadge>
+                                )}
+                              </div>
+                              {permissionAction && (
+                                <div className="flex shrink-0 items-center">
+                                  <DataSourceActionControl
+                                    action={permissionAction}
+                                    item={record}
+                                    dataSource={node.dataSource}
+                                    dataContext={dataContext}
+                                    translate={translate}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                            {textItemValue(property, detailItemDescription) && (
+                              <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-neutral-500">
+                                {textItemValue(property, detailItemDescription)}
+                              </p>
                             )}
                           </div>
-                          {textItemValue(property, detailItemDescription) && (
-                            <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-neutral-500">
-                              {textItemValue(property, detailItemDescription)}
-                            </p>
-                          )}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )
                 ) : null}

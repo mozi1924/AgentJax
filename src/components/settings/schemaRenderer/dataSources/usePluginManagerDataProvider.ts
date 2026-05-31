@@ -26,6 +26,8 @@ const declaredPermissionList = (plugin: PluginEntrySnapshot | null) => {
     type: string;
     description: string;
     required: boolean;
+    permissionKey?: string;
+    actionId?: string;
   }> = [];
 
   if (perms.allowNetwork) {
@@ -34,6 +36,8 @@ const declaredPermissionList = (plugin: PluginEntrySnapshot | null) => {
       type: perms.allowedHosts.length > 0 ? `Hosts: ${perms.allowedHosts.join(', ')}` : 'Any',
       description: 'Allows the plugin to make network requests.',
       required: false,
+      permissionKey: 'allowNetwork',
+      actionId: 'togglePermission_allowNetwork',
     });
   }
   if (perms.allowFileRead) {
@@ -42,6 +46,8 @@ const declaredPermissionList = (plugin: PluginEntrySnapshot | null) => {
       type: 'Permission',
       description: 'Allows the plugin to read files from the filesystem.',
       required: false,
+      permissionKey: 'allowFileRead',
+      actionId: 'togglePermission_allowFileRead',
     });
   }
   if (perms.allowFileWrite) {
@@ -50,6 +56,8 @@ const declaredPermissionList = (plugin: PluginEntrySnapshot | null) => {
       type: 'Permission',
       description: 'Allows the plugin to write files to the filesystem.',
       required: false,
+      permissionKey: 'allowFileWrite',
+      actionId: 'togglePermission_allowFileWrite',
     });
   }
   if (perms.allowProcessSpawn) {
@@ -58,6 +66,8 @@ const declaredPermissionList = (plugin: PluginEntrySnapshot | null) => {
       type: 'Permission',
       description: 'Allows the plugin to spawn child processes.',
       required: false,
+      permissionKey: 'allowProcessSpawn',
+      actionId: 'togglePermission_allowProcessSpawn',
     });
   }
   if (perms.allowEnvRead) {
@@ -66,6 +76,8 @@ const declaredPermissionList = (plugin: PluginEntrySnapshot | null) => {
       type: 'Permission',
       description: 'Allows the plugin to read environment variables.',
       required: false,
+      permissionKey: 'allowEnvRead',
+      actionId: 'togglePermission_allowEnvRead',
     });
   }
 
