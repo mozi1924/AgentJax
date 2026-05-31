@@ -1396,6 +1396,7 @@ mod tests {
             }],
             settings_sections: Vec::new(),
             settings_data: Default::default(),
+            providers: Vec::new(),
             sandbox: SandboxPolicy::default(),
         };
 
@@ -1701,6 +1702,7 @@ globalThis.AgentJaxPlugin = {
             }],
             settings_sections: Vec::new(),
             settings_data: Default::default(),
+            providers: Vec::new(),
             sandbox: SandboxPolicy::default(),
         };
 

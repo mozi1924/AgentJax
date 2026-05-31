@@ -102,6 +102,7 @@ mod tests {
                 tools: Vec::new(),
                 settings_sections: Vec::new(),
                 settings_data,
+                providers: Vec::new(),
                 sandbox: SandboxPolicy::default(),
             },
             root_dir: PathBuf::from("/tmp/plugin"),

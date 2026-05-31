@@ -24,13 +24,43 @@ pub struct PluginToolDefinition {
     pub kind: PluginToolKind,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginToolKind {
     #[default]
     Function,
     Resource,
     Prompt,
+}
+
+/// Declarative provider definition exported by a model provider plugin.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PluginProviderDefinition {
+    pub kind: String,
+    pub display_name: String,
+    #[serde(default = "default_config_schema")]
+    pub config_schema: Value,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub default_model_ids: Vec<String>,
+}
+
+impl Default for PluginProviderDefinition {
+    fn default() -> Self {
+        Self {
+            kind: String::new(),
+            display_name: String::new(),
+            config_schema: default_config_schema(),
+            default_model_ids: Vec::new(),
+        }
+    }
+}
+
+fn default_config_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {}
+    })
 }
 
 /// Declarative plugin metadata that the host can validate before loading code.
@@ -51,9 +81,12 @@ pub struct PluginManifest {
     pub settings_sections: Vec<Value>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub settings_data: BTreeMap<String, Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub providers: Vec<PluginProviderDefinition>,
     #[serde(default)]
     pub sandbox: SandboxPolicy,
 }
+
 
 fn default_input_schema() -> Value {
     serde_json::json!({
@@ -78,6 +111,7 @@ impl Default for PluginManifest {
             tools: Vec::new(),
             settings_sections: Vec::new(),
             settings_data: BTreeMap::new(),
+            providers: Vec::new(),
             sandbox: SandboxPolicy::default(),
         }
     }
@@ -115,6 +149,29 @@ impl PluginManifest {
                 return Err(format!(
                     "plugin '{}' exports the tool '{}' more than once",
                     self.id, tool_name
+                ));
+            }
+        }
+
+        let mut provider_kinds = HashSet::new();
+        for provider in &self.providers {
+            let kind = provider.kind.trim().to_lowercase();
+            if kind.is_empty() {
+                return Err(format!(
+                    "plugin '{}' exports a model provider with an empty kind",
+                    self.id
+                ));
+            }
+            if provider.display_name.trim().is_empty() {
+                return Err(format!(
+                    "plugin '{}' exports the model provider '{}' without a display name",
+                    self.id, provider.kind
+                ));
+            }
+            if !provider_kinds.insert(kind.clone()) {
+                return Err(format!(
+                    "plugin '{}' exports the model provider '{}' more than once",
+                    self.id, provider.kind
                 ));
             }
         }

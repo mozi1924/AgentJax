@@ -20,7 +20,7 @@ pub use discovery::{
     PLUGIN_MANIFEST_FILE, PluginPackage, discover_home_plugin_packages, discover_plugin_packages,
     load_plugin_package,
 };
-pub use manifest::{PluginManifest, PluginToolDefinition, PluginToolKind};
+pub use manifest::{PluginManifest, PluginProviderDefinition, PluginToolDefinition, PluginToolKind};
 pub use orchestration::{
     ToolCallBatch, ToolCallExecutionPolicy, ToolCallOutcome, ToolCallRequest, ToolCallSource,
 };
@@ -44,6 +44,7 @@ mod tests {
             tools: Vec::new(),
             settings_sections: Vec::new(),
             settings_data: Default::default(),
+            providers: Vec::new(),
             sandbox: SandboxPolicy::default(),
         };
 
@@ -81,10 +82,47 @@ mod tests {
             tools: Vec::new(),
             settings_sections: Vec::new(),
             settings_data: Default::default(),
+            providers: Vec::new(),
             sandbox: SandboxPolicy::default(),
         };
 
         assert!(manifest.validate().is_err());
+    }
+
+    #[test]
+    fn manifest_validation_validates_custom_providers() {
+        let manifest_ok = PluginManifest {
+            id: "oauth-llm".to_string(),
+            name: "OAuth LLM".to_string(),
+            version: "1.0.0".to_string(),
+            api_version: PLUGIN_API_VERSION,
+            entrypoint: "plugin.js".to_string(),
+            providers: vec![PluginProviderDefinition {
+                kind: "custom-oauth".to_string(),
+                display_name: "OAuth Provider".to_string(),
+                config_schema: serde_json::json!({
+                    "type": "object"
+                }),
+                default_model_ids: vec!["llama-3".to_string()],
+            }],
+            ..Default::default()
+        };
+        assert!(manifest_ok.validate().is_ok());
+
+        let manifest_err = PluginManifest {
+            id: "oauth-llm".to_string(),
+            name: "OAuth LLM".to_string(),
+            version: "1.0.0".to_string(),
+            api_version: PLUGIN_API_VERSION,
+            entrypoint: "plugin.js".to_string(),
+            providers: vec![PluginProviderDefinition {
+                kind: "".to_string(),
+                display_name: "OAuth Provider".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(manifest_err.validate().is_err());
     }
 
     #[test]
@@ -109,6 +147,7 @@ mod tests {
             }],
             settings_sections: Vec::new(),
             settings_data: Default::default(),
+            providers: Vec::new(),
             sandbox: SandboxPolicy::default(),
         };
 
@@ -145,6 +184,7 @@ mod tests {
             }],
             settings_sections: Vec::new(),
             settings_data: Default::default(),
+            providers: Vec::new(),
             sandbox: sandbox.clone(),
         };
         let mut runtime = DenoCorePluginRuntime::new(
@@ -230,6 +270,7 @@ mod tests {
                 }]
             })],
             settings_data: Default::default(),
+            providers: Vec::new(),
             sandbox: SandboxPolicy::default(),
         };
 
@@ -254,6 +295,7 @@ mod tests {
                 }]
             })],
             settings_data: Default::default(),
+            providers: Vec::new(),
             sandbox: SandboxPolicy::default(),
         };
 
