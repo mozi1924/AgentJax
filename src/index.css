@@ -147,16 +147,38 @@ h1, h2, h3, h4, h5, h6 {
   animation: sidebar-menu-pop 140ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Settings UI schema workbench layouts need container-sized breakpoints, not viewport-sized Tailwind breakpoints. */
-.settings-schema-workbench {
+/* Settings UI schema layouts need container-sized breakpoints, not viewport-sized Tailwind breakpoints. */
+.settings-schema-layout {
   min-width: 0;
   min-height: 0;
+}
+
+.settings-schema-layout-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.settings-schema-layout-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.settings-schema-layout-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.settings-schema-workbench {
   display: flex;
   flex-direction: column;
   flex: 1;
 }
 
-.settings-schema-split-three-pane {
+.settings-schema-split {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-height: 420px;
@@ -164,17 +186,28 @@ h1, h2, h3, h4, h5, h6 {
   flex: 1;
 }
 
-.settings-schema-split-three-pane > * {
+.settings-schema-split > * {
   min-width: 0;
   min-height: 0;
 }
 
 @media (min-width: 860px) {
+  .settings-schema-split-auto {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    height: 100%;
+  }
+
+  .settings-schema-split-two-pane {
+    grid-template-columns: minmax(220px, 0.85fr) minmax(320px, 1.15fr);
+    height: 100%;
+  }
+
   .settings-schema-split-three-pane {
     grid-template-columns: minmax(180px, 220px) minmax(300px, 1fr) minmax(280px, 0.95fr);
     height: 100%;
   }
-  .settings-schema-split-three-pane > * {
+
+  .settings-schema-split > * {
     height: 100% !important;
   }
 }

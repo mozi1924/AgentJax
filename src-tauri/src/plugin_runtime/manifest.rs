@@ -2,7 +2,7 @@ use super::SandboxPolicy;
 use super::api::PLUGIN_API_VERSION;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 /// Tool declaration exported by a plugin.
 ///
@@ -47,6 +47,10 @@ pub struct PluginManifest {
     pub description: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<PluginToolDefinition>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub settings_sections: Vec<Value>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub settings_data: BTreeMap<String, Value>,
     #[serde(default)]
     pub sandbox: SandboxPolicy,
 }
@@ -72,6 +76,8 @@ impl Default for PluginManifest {
             entrypoint: String::new(),
             description: String::new(),
             tools: Vec::new(),
+            settings_sections: Vec::new(),
+            settings_data: BTreeMap::new(),
             sandbox: SandboxPolicy::default(),
         }
     }
@@ -113,6 +119,72 @@ impl PluginManifest {
             }
         }
 
+        validate_settings_sections(&self.id, &self.settings_sections)?;
+
         Ok(())
     }
+}
+
+fn validate_settings_sections(plugin_id: &str, sections: &[Value]) -> Result<(), String> {
+    let mut ids = HashSet::new();
+    for section in sections {
+        walk_settings_node(plugin_id, section, &mut ids)?;
+    }
+    Ok(())
+}
+
+fn walk_settings_node(
+    plugin_id: &str,
+    node: &Value,
+    ids: &mut HashSet<String>,
+) -> Result<(), String> {
+    let object = node
+        .as_object()
+        .ok_or_else(|| format!("plugin '{plugin_id}' settings schema node must be an object"))?;
+    let id = object
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            format!("plugin '{plugin_id}' settings schema node is missing a non-empty id")
+        })?;
+    if !ids.insert(id.to_string()) {
+        return Err(format!(
+            "plugin '{plugin_id}' settings schema contains duplicate node id '{id}'"
+        ));
+    }
+
+    if let Some(children) = object.get("children") {
+        let children = children.as_array().ok_or_else(|| {
+            format!("plugin '{plugin_id}' settings schema node '{id}' children must be an array")
+        })?;
+        for child in children {
+            walk_settings_node(plugin_id, child, ids)?;
+        }
+    }
+
+    if let Some(tabs) = object.get("tabs") {
+        let tabs = tabs.as_array().ok_or_else(|| {
+            format!("plugin '{plugin_id}' settings schema node '{id}' tabs must be an array")
+        })?;
+        for tab in tabs {
+            if let Some(children) = tab.get("children") {
+                let children = children.as_array().ok_or_else(|| {
+                    format!(
+                        "plugin '{plugin_id}' settings schema tab in node '{id}' children must be an array"
+                    )
+                })?;
+                for child in children {
+                    walk_settings_node(plugin_id, child, ids)?;
+                }
+            }
+        }
+    }
+
+    if let Some(item_template) = object.get("itemTemplate") {
+        walk_settings_node(plugin_id, item_template, ids)?;
+    }
+
+    Ok(())
 }

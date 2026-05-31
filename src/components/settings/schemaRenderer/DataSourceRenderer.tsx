@@ -1,9 +1,32 @@
-import { AlertCircle, LoaderCircle, RefreshCcw, Search } from 'lucide-react';
+import { useState } from 'react';
+import { AlertCircle, ChevronRight, LoaderCircle } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useI18n } from '../../../features/i18n';
-import type { SettingsSchemaNode, SettingsUiAction, SettingsUiSchemaNode } from '../../../features/settings/types';
+import type {
+  SettingsSchemaNode,
+  SettingsUiAction,
+  SettingsUiSchemaNode,
+} from '../../../features/settings/types';
 import type { SchemaRendererDataContext, SchemaRendererProps } from './types';
 import { OverlayScrollArea } from '../../OverlayScrollArea';
+import {
+  boolItemValue,
+  getItemPath,
+  textItemValue,
+} from './dataSources/conditions';
+import {
+  settingsUiLayoutClassName,
+  settingsUiSplitClassName,
+} from './layoutClasses';
+import {
+  classNames,
+  dataSourceActionDisabled,
+  dataSourceActionVisible,
+  DataSourceActionControl,
+  DataSourceBadge,
+  DataSourceProperties,
+  DataSourceSearchInput,
+} from './dataSources/ui';
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
@@ -18,149 +41,32 @@ const resolveTemplate = (node: SettingsUiSchemaNode) =>
     ? (node.itemTemplate as SettingsUiSchemaNode)
     : undefined;
 
-const getPath = (root: unknown, path?: string): unknown => {
-  if (!path) return undefined;
-  return path.split('.').reduce<unknown>((current, segment) => {
-    if (!current || typeof current !== 'object') return undefined;
-    return (current as Record<string, unknown>)[segment];
-  }, root);
-};
-
-const textValue = (root: unknown, path?: string) => {
-  const value = getPath(root, path);
-  if (value === null || value === undefined) return '';
-  return String(value);
-};
-
-const boolValue = (root: unknown, path?: string) => !!getPath(root, path);
-
 const renderMeta = (item: unknown, bindings?: Record<string, string>) => {
   const values = [bindings?.meta, bindings?.secondaryMeta, bindings?.count]
-    .map((path) => textValue(item, path))
+    .map((path) => textItemValue(item, path))
     .filter(Boolean);
   return values.join(' · ');
 };
 
-const classNames = (...values: Array<string | false | null | undefined>) =>
-  values.filter(Boolean).join(' ');
+const nodeBoundText = (
+  item: unknown,
+  path: string | undefined,
+  fallback: unknown,
+  translate: (label?: string) => string
+) => {
+  const value = textItemValue(item, path);
+  if (value) return value;
+  if (typeof fallback === 'string') return translate(fallback);
+  if (fallback === undefined || fallback === null) return '';
+  return String(fallback);
+};
 
-function DataSwitch({
-  checked,
-  loading,
-  disabled,
-  onChange,
-}: {
-  checked: boolean;
-  loading?: boolean;
-  disabled?: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label
-      className={`relative inline-flex h-5 w-9 items-center ${
-        disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-      }`}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-        className="peer sr-only"
-      />
-      <span className="absolute inset-0 rounded-full bg-[#3e3e42] transition peer-checked:bg-[#007aff]" />
-      <span className="absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white transition-transform duration-200 peer-checked:translate-x-4">
-        {loading && <LoaderCircle className="h-2.5 w-2.5 animate-spin text-neutral-700" />}
-      </span>
-    </label>
-  );
-}
-
-function renderActionControl({
-  action,
-  item,
-  dataSource,
-  dataContext,
-  translate,
-}: {
-  action: SettingsUiAction;
-  item: unknown;
-  dataSource?: string;
-  dataContext: SchemaRendererDataContext;
-  translate: (label?: string) => string;
-}) {
-  if (action.variant === 'switch') {
-    const checked = boolValue(item, action.value);
-    const savingKey = textValue(item, action.savingKey);
-    const disabled = !textValue(item, action.path);
-    return (
-      <DataSwitch
-        key={action.id}
-        checked={checked}
-        disabled={disabled || dataContext.isSaving?.(savingKey)}
-        loading={dataContext.isSaving?.(savingKey)}
-        onChange={(nextChecked) => {
-          void dataContext.dispatch(action.id, {
-            dataSource: action.dataSource || dataSource,
-            item,
-            path: textValue(item, action.path),
-            value: nextChecked,
-          });
-        }}
-      />
-    );
-  }
-
-  if (action.variant === 'segmented') {
-    const currentValue = textValue(item, action.value);
-    const savingKey = textValue(item, action.savingKey);
-    return (
-      <div key={action.id} className="inline-flex h-7 overflow-hidden rounded-md border border-[#2b2b2d] bg-[#171719]">
-        {(action.options || []).map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            disabled={currentValue === option.value || dataContext.isSaving?.(savingKey)}
-            onClick={() => {
-              void dataContext.dispatch(action.id, {
-                dataSource: action.dataSource || dataSource,
-                item,
-                path: textValue(item, action.path),
-                value: option.value,
-              });
-            }}
-            className={`px-2.5 text-[11px] transition ${
-              currentValue === option.value
-                ? 'bg-[#2a2a2c] text-white'
-                : 'text-neutral-400 hover:bg-[#202022] hover:text-white'
-            } disabled:cursor-default disabled:opacity-70`}
-          >
-            {translate(option.label) || option.value}
-          </button>
-        ))}
-      </div>
-    );
-  }
-
-  if (action.variant === 'button') {
-    return (
-      <button
-        key={action.id}
-        type="button"
-        onClick={() => {
-          void dataContext.dispatch(action.id, { dataSource: action.dataSource || dataSource, item });
-        }}
-        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#2b2b2d] px-2 text-[12px] text-neutral-300 transition hover:bg-[#202022]"
-      >
-        {action.icon === 'RefreshCcw' && <RefreshCcw className="h-3.5 w-3.5" />}
-        {translate(action.label)}
-      </button>
-    );
-  }
-
-  return null;
-}
+const actionFromNode = (node: SettingsUiSchemaNode): SettingsUiAction => ({
+  id: node.action || node.id,
+  label: node.label || node.title,
+  icon: node.icon,
+  variant: node.variant || 'button',
+});
 
 export function DataSourceRenderer({
   node,
@@ -180,10 +86,13 @@ export function DataSourceRenderer({
   const data = dataContext.getDataSource(node.dataSource);
   const status = dataContext.getStatus?.(node.dataSource);
   const template = resolveTemplate(node);
+  const [detailItemsExpanded, setDetailItemsExpanded] = useState(
+    template?.defaultExpanded ?? true
+  );
   const bindings = template?.bindings || node.bindings || {};
 
-  if (node.kind === 'layout' && node.dataSource) {
-    if (status?.loading) {
+  if (node.kind === 'layout') {
+    if (node.dataSource && status?.loading) {
       return (
         <div className="flex h-48 items-center justify-center gap-2 text-sm text-neutral-400">
           <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -191,7 +100,7 @@ export function DataSourceRenderer({
         </div>
       );
     }
-    if (status?.error) {
+    if (node.dataSource && status?.error) {
       return (
         <div className="flex h-48 items-center justify-center gap-2 px-4 text-sm text-rose-300">
           <AlertCircle className="h-4 w-4 shrink-0" />
@@ -201,20 +110,92 @@ export function DataSourceRenderer({
         </div>
       );
     }
-    if (node.variant === 'workbench') {
-      return (
-        <div className="settings-schema-workbench flex min-h-0 flex-col">
-          {node.children ? renderChildren(node.children, undefined, { container: 'fragment' }) : null}
-        </div>
-      );
-    }
-    return <>{node.children ? renderChildren(node.children) : null}</>;
+    return (
+      <div className={settingsUiLayoutClassName(node.layout, node.variant)}>
+        {node.children ? renderChildren(node.children, undefined, { container: 'fragment' }) : null}
+      </div>
+    );
   }
 
-  if (node.kind === 'split' && node.layout === 'three-pane') {
+  if (node.kind === 'split') {
     return (
-      <div className="settings-schema-split-three-pane">
+      <div className={settingsUiSplitClassName(node.layout)}>
         {node.children ? renderChildren(node.children, undefined, { container: 'fragment' }) : null}
+      </div>
+    );
+  }
+
+  if (node.kind === 'empty_state') {
+    const record = asRecord(data);
+    const title = nodeBoundText(record, bindings.title, node.title, translate);
+    const description = nodeBoundText(record, bindings.description, node.description, translate);
+    return (
+      <div className="rounded-lg border border-dashed border-[#242426] px-4 py-6 text-center">
+        {title ? <div className="text-xs font-medium text-neutral-300">{title}</div> : null}
+        {description ? (
+          <p className="mx-auto mt-1 max-w-md text-[11px] leading-relaxed text-neutral-500">
+            {description}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (node.kind === 'badge') {
+    const record = asRecord(data);
+    const value = nodeBoundText(
+      record,
+      bindings.value || bindings.title,
+      node.value ?? node.title,
+      translate
+    );
+    return value ? <DataSourceBadge mono={node.variant === 'code'}>{value}</DataSourceBadge> : null;
+  }
+
+  if (node.kind === 'metric') {
+    const record = asRecord(data);
+    const label = nodeBoundText(
+      record,
+      bindings.label || bindings.title,
+      node.title || node.label,
+      translate
+    );
+    const value = nodeBoundText(record, bindings.value || 'value', node.value, translate);
+    const description = nodeBoundText(record, bindings.description, node.description, translate);
+    return (
+      <div className="min-w-0 rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/30 px-3 py-2.5">
+        {label ? (
+          <div className="truncate text-[10px] font-medium uppercase tracking-wider text-neutral-500">
+            {label}
+          </div>
+        ) : null}
+        <div className="mt-1 truncate text-[18px] font-semibold text-neutral-100">
+          {value}
+        </div>
+        {description ? (
+          <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-neutral-500">
+            {description}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (node.kind === 'action') {
+    const record = asRecord(data);
+    const actions = node.actions && node.actions.length > 0 ? node.actions : [actionFromNode(node)];
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {actions.map((action) => (
+          <DataSourceActionControl
+            key={action.id}
+            action={action}
+            item={record}
+            dataSource={node.dataSource}
+            dataContext={dataContext}
+            translate={translate}
+          />
+        ))}
       </div>
     );
   }
@@ -222,12 +203,12 @@ export function DataSourceRenderer({
   if (node.kind === 'tabs') {
     const items = asArray(data);
     const activeState = dataContext.getDataSource(node.bindings?.activeSource);
-    const activeId = textValue(activeState, node.bindings?.activeKey);
+    const activeId = textItemValue(activeState, node.bindings?.activeKey);
     return (
       <div className="flex flex-wrap items-center gap-1 border-b border-[#242426] px-6 py-2">
         {items.map((item) => {
-          const itemId = textValue(item, bindings.id || 'id');
-          const label = textValue(item, bindings.label || 'label');
+          const itemId = textItemValue(item, bindings.id || 'id');
+          const label = textItemValue(item, bindings.label || 'label');
           return (
             <button
               key={itemId}
@@ -249,11 +230,15 @@ export function DataSourceRenderer({
 
   if (node.kind === 'toolbar') {
     const record = asRecord(data);
-    const title = textValue(record, bindings.title);
-    const description = textValue(record, bindings.description);
-    const actionError = textValue(record, bindings.error);
-    const searchAction = node.actions?.find((action) => action.variant === 'search');
-    const search = textValue(
+    const title = textItemValue(record, bindings.title);
+    const description = textItemValue(record, bindings.description);
+    const actionError = textItemValue(record, bindings.error);
+    const properties = (
+      <DataSourceProperties item={record} properties={node.properties} translate={translate} />
+    );
+    const actions = (node.actions || []).filter((action) => dataSourceActionVisible(action, record));
+    const searchAction = actions.find((action) => action.variant === 'search');
+    const search = textItemValue(
       dataContext.getDataSource(searchAction?.dataSource || node.bindings?.querySource),
       searchAction?.value || 'search'
     );
@@ -262,32 +247,45 @@ export function DataSourceRenderer({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             {title && <h5 className="truncate text-[13px] font-medium text-neutral-100">{title}</h5>}
-            {node.actions?.filter((action) => action.variant !== 'search' && action.variant !== 'button').map((action) =>
-              renderActionControl({ action, item: record, dataSource: node.dataSource, dataContext, translate })
+            {actions.filter((action) => action.variant !== 'search' && action.variant !== 'button').map((action) =>
+              <DataSourceActionControl
+                key={action.id}
+                action={action}
+                item={record}
+                dataSource={node.dataSource}
+                dataContext={dataContext}
+                translate={translate}
+              />
             )}
           </div>
           {description && <p className="mt-0.5 text-[11px] text-neutral-500">{description}</p>}
+          {properties && <div className="mt-2">{properties}</div>}
           {actionError && <p className="mt-0.5 truncate text-[11px] text-rose-300">{actionError}</p>}
         </div>
         <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
-          {node.actions?.filter((action) => action.variant === 'search').map((action) => (
-            <div key={action.id} className="relative">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-500" />
-              <input
-                value={search}
-                onChange={(event) => {
-                  void dataContext.dispatch(action.id, {
-                    dataSource: action.dataSource || node.dataSource,
-                    value: event.target.value,
-                  });
-                }}
-                placeholder={action.label ? t(action.label) : ''}
-                className="h-7 w-48 rounded-md border border-[#2b2b2d] bg-[#171719] pl-7 pr-2 text-[12px] text-neutral-200 outline-none transition placeholder:text-neutral-600 focus:border-neutral-500"
-              />
-            </div>
+          {actions.filter((action) => action.variant === 'search').map((action) => (
+            <DataSourceSearchInput
+              key={action.id}
+              value={search}
+              disabled={dataSourceActionDisabled(action, record)}
+              placeholder={action.label ? t(action.label) : ''}
+              onChange={(value) => {
+                void dataContext.dispatch(action.id, {
+                  dataSource: action.dataSource || node.dataSource,
+                  value,
+                });
+              }}
+            />
           ))}
-          {node.actions?.filter((action) => action.variant === 'button').map((action) =>
-            renderActionControl({ action, item: record, dataSource: node.dataSource, dataContext, translate })
+          {actions.filter((action) => action.variant === 'button').map((action) =>
+            <DataSourceActionControl
+              key={action.id}
+              action={action}
+              item={record}
+              dataSource={node.dataSource}
+              dataContext={dataContext}
+              translate={translate}
+            />
           )}
         </div>
       </div>
@@ -313,7 +311,6 @@ export function DataSourceRenderer({
       </section>
     );
   }
-
   if (node.kind === 'list') {
     const items = asArray(data);
     const containerClass = classNames(
@@ -337,11 +334,11 @@ export function DataSourceRenderer({
           ) : (
             <div className="space-y-1">
               {items.map((item) => {
-                const key = textValue(item, bindings.id || 'id');
-                const activeKey = textValue(item, bindings.activeKey);
+                const key = textItemValue(item, bindings.id || 'id');
+                const activeKey = textItemValue(item, bindings.activeKey);
                 const active = activeKey && activeKey === key;
-                const title = textValue(item, bindings.title);
-                const description = textValue(item, bindings.description);
+                const title = textItemValue(item, bindings.title);
+                const description = textItemValue(item, bindings.description);
                 const meta = renderMeta(item, bindings);
                 return (
                   <div
@@ -359,10 +356,17 @@ export function DataSourceRenderer({
                         {description && <p className="mt-1 line-clamp-2 text-[11.5px] leading-relaxed text-neutral-400">{description}</p>}
                         {meta && <div className="mt-1 truncate text-[10px] text-neutral-500">{meta}</div>}
                       </div>
-                      {template?.actions?.length ? (
+                      {template?.actions?.some((action) => dataSourceActionVisible(action, item)) ? (
                         <div className="flex w-10 shrink-0 justify-end pt-0.5">
                           {template.actions.map((action) =>
-                            renderActionControl({ action, item, dataSource: node.dataSource, dataContext, translate })
+                            <DataSourceActionControl
+                              key={action.id}
+                              action={action}
+                              item={item}
+                              dataSource={node.dataSource}
+                              dataContext={dataContext}
+                              translate={translate}
+                            />
                           )}
                         </div>
                       ) : null}
@@ -388,12 +392,19 @@ export function DataSourceRenderer({
         </section>
       );
     }
-    const title = textValue(record, bindings.title);
-    const description = textValue(record, bindings.description);
+    const title = textItemValue(record, bindings.title);
+    const description = textItemValue(record, bindings.description);
     const meta = renderMeta(record, bindings);
+    const templateProperties = (
+      <DataSourceProperties
+        item={record}
+        properties={template?.properties}
+        translate={translate}
+      />
+    );
     const detailItemsPath = bindings.detailItems || bindings.schemaProperties;
     const detailItems = detailItemsPath
-      ? asArray(getPath(record, detailItemsPath))
+      ? asArray(getItemPath(record, detailItemsPath))
       : [];
     const detailItemsTitle = bindings.detailItemsTitle || bindings.schemaTitle;
     const detailItemsEmptyText = bindings.detailItemsEmptyText || bindings.schemaEmptyText;
@@ -414,16 +425,15 @@ export function DataSourceRenderer({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 {title && <h5 className="min-w-0 flex-1 truncate text-[13px] font-medium text-neutral-100">{title}</h5>}
-                {textValue(record, bindings.badge) && (
-                  <span className="rounded bg-[#2a2a2c] px-1.5 py-0.5 text-[10px] text-neutral-400">
-                    {textValue(record, bindings.badge)}
-                  </span>
+                {textItemValue(record, bindings.badge) && (
+                  <DataSourceBadge>{textItemValue(record, bindings.badge)}</DataSourceBadge>
                 )}
               </div>
               {description && <p className="mt-1 text-[11.5px] leading-relaxed text-neutral-400">{description}</p>}
               {meta && <div className="mt-2 text-[10.5px] text-neutral-500">{meta}</div>}
             </div>
-            {template?.actions?.length ? (
+            {templateProperties}
+            {template?.actions?.some((action) => dataSourceActionVisible(action, record)) ? (
               <div className="rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/40 px-3 py-2">
                 <div className="flex items-center justify-between gap-3">
                   {bindings.actionsTitle && (
@@ -433,7 +443,14 @@ export function DataSourceRenderer({
                   )}
                   <div className="flex items-center gap-2">
                     {template.actions.map((action) =>
-                      renderActionControl({ action, item: record, dataSource: node.dataSource, dataContext, translate })
+                      <DataSourceActionControl
+                        key={action.id}
+                        action={action}
+                        item={record}
+                        dataSource={node.dataSource}
+                        dataContext={dataContext}
+                        translate={translate}
+                      />
                     )}
                   </div>
                 </div>
@@ -441,44 +458,49 @@ export function DataSourceRenderer({
             ) : null}
             {detailItemsPath && (
               <div>
-                {detailTitle && (
-                  <h6 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
-                    {detailTitle}
-                  </h6>
-                )}
-                {detailItems.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-[#2b2b2d] px-3 py-4 text-center text-[11px] text-neutral-500">
-                    {detailEmptyText}
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {detailItems.map((property) => (
-                      <div
-                        key={textValue(property, detailItemName)}
-                        className="rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/20 px-3 py-2"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-[11px] text-neutral-200">
-                            {textValue(property, detailItemName)}
-                          </span>
-                          <span className="rounded bg-[#2a2a2c] px-1.5 py-0.5 text-[10px] text-neutral-300">
-                            {textValue(property, detailItemType)}
-                          </span>
-                          {boolValue(property, detailItemRequired) && (
-                            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200">
-                              {requiredLabel}
+                <button
+                  type="button"
+                  onClick={() => setDetailItemsExpanded((current) => !current)}
+                  className="mb-2 flex w-full items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-wider text-neutral-500 transition hover:text-neutral-300"
+                >
+                  <ChevronRight
+                    className={`h-3 w-3 shrink-0 transition-transform ${
+                      detailItemsExpanded ? 'rotate-90' : ''
+                    }`}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{detailTitle}</span>
+                </button>
+                {detailItemsExpanded ? (
+                  detailItems.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-[#2b2b2d] px-3 py-4 text-center text-[11px] text-neutral-500">
+                      {detailEmptyText}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {detailItems.map((property) => (
+                        <div
+                          key={textItemValue(property, detailItemName)}
+                          className="rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/20 px-3 py-2"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-[11px] text-neutral-200">
+                              {textItemValue(property, detailItemName)}
                             </span>
+                            <DataSourceBadge>{textItemValue(property, detailItemType)}</DataSourceBadge>
+                            {boolItemValue(property, detailItemRequired) && (
+                              <DataSourceBadge tone="warning">{requiredLabel}</DataSourceBadge>
+                            )}
+                          </div>
+                          {textItemValue(property, detailItemDescription) && (
+                            <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-neutral-500">
+                              {textItemValue(property, detailItemDescription)}
+                            </p>
                           )}
                         </div>
-                        {textValue(property, detailItemDescription) && (
-                          <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-neutral-500">
-                            {textValue(property, detailItemDescription)}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )
+                ) : null}
               </div>
             )}
           </div>

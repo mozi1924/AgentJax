@@ -1394,6 +1394,8 @@ mod tests {
                 }),
                 kind: PluginToolKind::Function,
             }],
+            settings_sections: Vec::new(),
+            settings_data: Default::default(),
             sandbox: SandboxPolicy::default(),
         };
 
@@ -1697,6 +1699,8 @@ globalThis.AgentJaxPlugin = {
                 }),
                 kind: PluginToolKind::Function,
             }],
+            settings_sections: Vec::new(),
+            settings_data: Default::default(),
             sandbox: SandboxPolicy::default(),
         };
 

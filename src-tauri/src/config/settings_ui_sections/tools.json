@@ -48,7 +48,8 @@
               "variant": "switch",
               "path": "policyPaths.sourceEnabledPath",
               "value": "enabled",
-              "savingKey": "sourceSavingKey"
+              "savingKey": "sourceSavingKey",
+              "visibleWhen": [{ "path": "policyPaths.sourceEnabledPath", "truthy": true }]
             },
             {
               "id": "setMcpExposure",
@@ -56,6 +57,7 @@
               "path": "policyPaths.exposurePath",
               "value": "normalizedExposureMode",
               "savingKey": "exposureSavingKey",
+              "visibleWhen": [{ "path": "policyPaths.exposurePath", "truthy": true }],
               "options": [
                 { "label": "collapsed", "value": "collapsed" },
                 { "label": "unfolded", "value": "unfolded" }
@@ -65,7 +67,8 @@
               "id": "discoverSource",
               "variant": "button",
               "label": "settings.tools.discover",
-              "icon": "RefreshCcw"
+              "icon": "RefreshCcw",
+              "visibleWhen": [{ "path": "sourceType", "equals": "mcp" }]
             }
           ]
         },
@@ -101,7 +104,8 @@
                     "variant": "switch",
                     "path": "policyPaths.sourceEnabledPath",
                     "value": "enabled",
-                    "savingKey": "sourceSavingKey"
+                    "savingKey": "sourceSavingKey",
+                    "visibleWhen": [{ "path": "policyPaths.sourceEnabledPath", "truthy": true }]
                   }
                 ]
               }
@@ -132,7 +136,8 @@
                     "variant": "switch",
                     "path": "policyPaths.toolEnabledPath",
                     "value": "enabled",
-                    "savingKey": "toolSavingKey"
+                    "savingKey": "toolSavingKey",
+                    "visibleWhen": [{ "path": "policyPaths.toolEnabledPath", "truthy": true }]
                   }
                 ]
               }
@@ -146,12 +151,10 @@
               "itemTemplate": {
                 "kind": "detail",
                 "id": "tool-detail-template",
+                "defaultExpanded": true,
                 "bindings": {
                   "title": "friendlyName",
                   "description": "description",
-                  "meta": "id",
-                  "secondaryMeta": "modelName",
-                  "badge": "schemaFormat",
                   "actionsTitle": "settings.tools.policy",
                   "detailItemsTitle": "settings.tools.parameters",
                   "detailItems": "schemaProperties",
@@ -162,13 +165,34 @@
                   "detailItemRequired": "required",
                   "requiredLabel": "settings.tools.required"
                 },
+                "properties": [
+                  {
+                    "id": "tool-id",
+                    "label": "settings.tools.property.id",
+                    "value": "id",
+                    "variant": "code"
+                  },
+                  {
+                    "id": "model-name",
+                    "label": "settings.tools.property.model",
+                    "value": "modelName",
+                    "variant": "code"
+                  },
+                  {
+                    "id": "schema-format",
+                    "label": "settings.tools.property.schema_format",
+                    "value": "schemaFormat",
+                    "variant": "badge"
+                  }
+                ],
                 "actions": [
                   {
                     "id": "toggleToolEnabled",
                     "variant": "switch",
                     "path": "policyPaths.toolEnabledPath",
                     "value": "enabled",
-                    "savingKey": "toolSavingKey"
+                    "savingKey": "toolSavingKey",
+                    "visibleWhen": [{ "path": "policyPaths.toolEnabledPath", "truthy": true }]
                   }
                 ]
               }

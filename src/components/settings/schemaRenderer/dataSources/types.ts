@@ -3,6 +3,7 @@ import type { SchemaRendererDataContext, SchemaRendererQueryState } from '../typ
 
 export interface SchemaDataProviderArgs {
   nodes: SettingsSchemaNode[];
+  requestedDataSourceNamespaces: string[];
   queryState?: SchemaRendererQueryState;
   onSaveField: (path: string, value: unknown) => Promise<void>;
 }

@@ -42,6 +42,8 @@ mod tests {
             entrypoint: String::new(),
             description: String::new(),
             tools: Vec::new(),
+            settings_sections: Vec::new(),
+            settings_data: Default::default(),
             sandbox: SandboxPolicy::default(),
         };
 
@@ -77,6 +79,8 @@ mod tests {
             entrypoint: "plugin.ts".to_string(),
             description: String::new(),
             tools: Vec::new(),
+            settings_sections: Vec::new(),
+            settings_data: Default::default(),
             sandbox: SandboxPolicy::default(),
         };
 
@@ -103,6 +107,8 @@ mod tests {
                 }),
                 kind: PluginToolKind::Function,
             }],
+            settings_sections: Vec::new(),
+            settings_data: Default::default(),
             sandbox: SandboxPolicy::default(),
         };
 
@@ -137,6 +143,8 @@ mod tests {
                 }),
                 kind: PluginToolKind::Function,
             }],
+            settings_sections: Vec::new(),
+            settings_data: Default::default(),
             sandbox: sandbox.clone(),
         };
         let mut runtime = DenoCorePluginRuntime::new(
@@ -199,6 +207,60 @@ mod tests {
     }
 
     #[test]
+    fn manifest_accepts_declarative_settings_sections() {
+        let manifest = PluginManifest {
+            id: "demo.settings".to_string(),
+            name: "Demo Settings".to_string(),
+            version: "0.1.0".to_string(),
+            api_version: PLUGIN_API_VERSION,
+            entrypoint: "plugin.ts".to_string(),
+            description: String::new(),
+            tools: Vec::new(),
+            settings_sections: vec![serde_json::json!({
+                "id": "plugin.demo.settings",
+                "title": "Demo Settings",
+                "icon": "Puzzle",
+                "order": 900,
+                "children": [{
+                    "kind": "collapsible",
+                    "id": "plugin.demo.settings.advanced",
+                    "title": "Advanced",
+                    "defaultExpanded": false,
+                    "children": []
+                }]
+            })],
+            settings_data: Default::default(),
+            sandbox: SandboxPolicy::default(),
+        };
+
+        assert!(manifest.validate().is_ok());
+    }
+
+    #[test]
+    fn manifest_rejects_invalid_settings_sections() {
+        let manifest = PluginManifest {
+            id: "demo.settings".to_string(),
+            name: "Demo Settings".to_string(),
+            version: "0.1.0".to_string(),
+            api_version: PLUGIN_API_VERSION,
+            entrypoint: "plugin.ts".to_string(),
+            description: String::new(),
+            tools: Vec::new(),
+            settings_sections: vec![serde_json::json!({
+                "id": "plugin.demo.settings",
+                "children": [{
+                    "kind": "panel",
+                    "id": "plugin.demo.settings"
+                }]
+            })],
+            settings_data: Default::default(),
+            sandbox: SandboxPolicy::default(),
+        };
+
+        assert!(manifest.validate().is_err());
+    }
+
+    #[test]
     fn deno_core_runtime_executes_sync_plugin_tool() {
         let root =
             std::env::temp_dir().join(format!("agentjax-plugin-runtime-{}", uuid::Uuid::new_v4()));
@@ -237,6 +299,20 @@ globalThis.AgentJaxPlugin = {
                         }
                     }
                 }],
+                "settingsSections": [{
+                    "id": "plugin.demo.settings",
+                    "title": "Demo Settings",
+                    "icon": "Puzzle",
+                    "order": 900,
+                    "children": []
+                }],
+                "settingsData": {
+                    "items": [{
+                        "id": "primary",
+                        "name": "Primary item",
+                        "description": "Rendered by the shared SchemaRenderer plugin provider."
+                    }]
+                },
                 "sandbox": {
                     "maxExecutionMs": 30000
                 }
@@ -245,6 +321,8 @@ globalThis.AgentJaxPlugin = {
         )
         .expect("write plugin manifest");
         let package = load_plugin_package(&root).expect("load plugin package");
+        assert_eq!(package.manifest.settings_sections.len(), 1);
+        assert_eq!(package.manifest.settings_data["items"][0]["id"], "primary");
         let mut runtime = DenoCorePluginRuntime::new(
             deno_core::RuntimeOptions::default(),
             SandboxPolicy::default(),

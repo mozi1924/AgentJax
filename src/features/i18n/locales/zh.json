@@ -269,6 +269,9 @@
   "settings.tools.schema_summary": "{count} 个参数",
   "settings.tools.policy": "策略",
   "settings.tools.parameters": "参数",
+  "settings.tools.property.id": "ID",
+  "settings.tools.property.model": "模型",
+  "settings.tools.property.schema_format": "Schema",
   "settings.tools.no_parameters": "无参数",
   "settings.tools.required": "必填",
   

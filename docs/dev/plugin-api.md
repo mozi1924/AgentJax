@@ -42,6 +42,32 @@ manifest before loading any JavaScript.
       }
     }
   ],
+  "settingsSections": [
+    {
+      "id": "plugin.local.demo.settings",
+      "title": "Local Demo",
+      "icon": "Puzzle",
+      "order": 900,
+      "children": [
+        {
+          "kind": "collapsible",
+          "id": "plugin.local.demo.settings.advanced",
+          "title": "Advanced",
+          "defaultExpanded": false,
+          "children": []
+        }
+      ]
+    }
+  ],
+  "settingsData": {
+    "items": [
+      {
+        "id": "primary",
+        "name": "Primary item",
+        "description": "Rendered by the shared SchemaRenderer plugin provider."
+      }
+    ]
+  },
   "sandbox": {
     "allowFileRead": false,
     "allowFileWrite": false,
@@ -95,3 +121,16 @@ which the host wraps as `{ ok: true, output: value }`, or it may return an
 explicit `{ ok, output, error }` object. The next phase should add ESM entrypoint
 loading, async handlers, and explicit host ops instead of expanding this global
 bridge.
+
+## Settings UI
+
+Plugins should not ship standalone React settings panels. Static and
+configuration-backed settings UI can be declared in manifest `settingsSections`
+with SchemaRenderer nodes. Dynamic panels should use those schema nodes with a
+namespaced data provider.
+
+Simple plugin-owned data can be declared in manifest `settingsData`. Relative
+keys are materialized as `plugin.{pluginId}.{key}` data sources; fully qualified
+keys beginning with `plugin.` are preserved. See
+[schema-renderer-runtime.md](schema-renderer-runtime.md) for the shared layout,
+binding, property, action, and provider contract.

@@ -137,6 +137,7 @@ pub fn run() {
             commands::config::get_settings_ui_snapshot,
             commands::config::apply_settings_patch,
             commands::tools::get_tool_manager_snapshot,
+            commands::tools::get_plugin_settings_snapshot,
             commands::models::get_model_catalog,
             commands::models::force_sync_model_cache,
             commands::devtools::open_devtools

@@ -1,4 +1,4 @@
-import { escapePathSegment } from './utils';
+import { escapePathSegment } from '../../../../features/settings/utils';
 
 export type ToolSourceType = 'native' | 'mcp' | 'plugin' | 'dynamic' | 'background' | 'control';
 export type ToolCategory = 'native' | 'mcp' | 'plugin' | 'session' | 'background';
@@ -55,8 +55,8 @@ export const TOOL_MANAGER_CATEGORIES: Array<{ id: ToolCategory; labelKey: string
   { id: 'background', labelKey: 'settings.tools.category.background' },
 ];
 
-// Keep source-to-tab mapping centralized so the read-only view and tests agree
-// on where control/dynamic tools belong without duplicating UI conditionals.
+// Keeps Tool Manager data shaping beside its SchemaRenderer provider instead of
+// as a standalone settings view module. The UI remains fully described by schema.
 export const categoryForSource = (sourceType: ToolSourceType): ToolCategory => {
   if (sourceType === 'dynamic') return 'session';
   if (sourceType === 'control') return 'mcp';
@@ -68,8 +68,9 @@ export const sourcesForCategory = (
   category: ToolCategory
 ) => sources.filter((source) => categoryForSource(source.sourceType) === category);
 
-export const sourceIdentityKey = (source: Pick<ToolManagerSourceSnapshot, 'sourceType' | 'sourceId'>) =>
-  `${source.sourceType}:${source.sourceId}`;
+export const sourceIdentityKey = (
+  source: Pick<ToolManagerSourceSnapshot, 'sourceType' | 'sourceId'>
+) => `${source.sourceType}:${source.sourceId}`;
 
 export const selectToolManagerSource = (
   sources: ToolManagerSourceSnapshot[],
@@ -91,6 +92,36 @@ export const matchesToolSearch = (tool: ToolManagerToolSnapshot, query: string) 
 
 export const filterToolsForQuery = (tools: ToolManagerToolSnapshot[], query: string) =>
   tools.filter((tool) => matchesToolSearch(tool, query));
+
+export const toolManagerSourceMatchesQuery = (
+  source: ToolManagerSourceSnapshot,
+  query: string
+) => {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return false;
+  const sourceText = [
+    source.sourceType,
+    source.sourceId,
+    source.sourceName,
+    source.status,
+    source.exposureMode,
+    source.error,
+  ]
+    .join(' ')
+    .toLowerCase();
+  return sourceText.includes(normalized) || source.tools.some((tool) => matchesToolSearch(tool, query));
+};
+
+export const toolManagerSnapshotMatchesQuery = (
+  snapshot: ToolManagerSnapshot | null,
+  query: string
+) => {
+  const normalized = query.trim();
+  if (!normalized) return false;
+  return (snapshot?.sources || []).some((source) =>
+    toolManagerSourceMatchesQuery(source, normalized)
+  );
+};
 
 export const sourcePolicyEnabledPath = (source: ToolManagerSourceSnapshot) => {
   if (source.policyPaths?.sourceEnabledPath) {

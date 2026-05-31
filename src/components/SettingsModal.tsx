@@ -14,17 +14,23 @@ import {
   buildOptimisticSnapshot,
   findFirstSection,
 } from '../features/settings/utils';
-import { filterSchemaNodesForSearch } from '../features/settings/schemaRendererView';
+import {
+  collectSchemaDataSourceNamespaces,
+  filterSchemaNodesForSearch,
+  schemaUsesDataSource,
+} from '../features/settings/schemaRendererView';
 import { resolveLucideIcon } from '../features/icons/lucide';
 import { tryGetCurrentWindow } from '../features/tauri/runtime';
 import { OverlayScrollArea } from './OverlayScrollArea';
+import { useDynamicSettingsSearchIndex } from './settings/schemaRenderer/dataSources/useDynamicSettingsSearchIndex';
 
 const getSectionIcon = (iconName?: string) => resolveLucideIcon(iconName, Settings2);
 
 const sectionMatchesSearch = (
   section: SettingsSectionSchema,
   search: string,
-  translate: (key: string) => string
+  translate: (key: string) => string,
+  dynamicSearchDataSources: ReadonlySet<string>
 ) => {
   const normalizedSearch = search.trim().toLocaleLowerCase();
   if (!normalizedSearch) return true;
@@ -40,7 +46,12 @@ const sectionMatchesSearch = (
     .toLocaleLowerCase();
   return (
     sectionText.includes(normalizedSearch) ||
-    filterSchemaNodesForSearch(section.children, search, translate).length > 0
+    [...dynamicSearchDataSources].some((dataSource) =>
+      schemaUsesDataSource(section.children, dataSource)
+    ) ||
+    filterSchemaNodesForSearch(section.children, search, translate, {
+      preserveDataSourceNodes: false,
+    }).length > 0
   );
 };
 
@@ -142,9 +153,20 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     };
   }, [isOpen]);
 
+  const dataSourceNamespaces = useMemo(
+    () => collectSchemaDataSourceNamespaces(sections.flatMap((section) => section.children)),
+    [sections]
+  );
+  const dynamicSearchDataSources = useDynamicSettingsSearchIndex({
+    search: settingsSearch,
+    namespaces: dataSourceNamespaces,
+  });
   const visibleSections = useMemo(
-    () => sections.filter((section) => sectionMatchesSearch(section, settingsSearch, t)),
-    [sections, settingsSearch, t]
+    () =>
+      sections.filter((section) =>
+        sectionMatchesSearch(section, settingsSearch, t, dynamicSearchDataSources)
+      ),
+    [dynamicSearchDataSources, sections, settingsSearch, t]
   );
 
   const activeSection =

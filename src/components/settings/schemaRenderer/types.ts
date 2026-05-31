@@ -1,11 +1,10 @@
-import type { Dispatch, ReactElement, ReactNode, SetStateAction } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import type {
   SecretStatus,
   SettingsFieldSchema,
   SettingsSchemaNode,
   SettingsSnapshot,
   SettingsUiAction,
-  SettingsUiSchemaNode,
 } from '../../../features/settings/types';
 
 export interface SchemaRendererActions {
@@ -42,7 +41,6 @@ export interface SchemaRendererProps {
   actions: SchemaRendererActions;
   queryState?: SchemaRendererQueryState;
   dataContext?: SchemaRendererDataContext;
-  renderUiNode?: (props: SchemaRendererUiNodeRenderProps) => ReactNode;
 }
 
 export interface SchemaRendererDataContext {
@@ -57,16 +55,6 @@ export interface SchemaRendererDataContext {
         errorText?: string;
       }
     | undefined;
-}
-
-export interface SchemaRendererUiNodeRenderProps {
-  node: SettingsUiSchemaNode;
-  defaultRender: () => ReactElement;
-  renderChildren: (
-    nodes: SettingsSchemaNode[],
-    contextPath?: string,
-    options?: { container?: SchemaRendererProps['container'] }
-  ) => ReactElement;
 }
 
 export interface FieldControlProps {

@@ -7,12 +7,15 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 
-const sourcePath = new URL('../src/features/settings/toolManagerView.ts', import.meta.url);
-const outDir = join(tmpdir(), 'agentjax-tool-manager-view-tests');
+const sourcePath = new URL(
+  '../src/components/settings/schemaRenderer/dataSources/toolManagerData.ts',
+  import.meta.url
+);
+const outDir = join(tmpdir(), 'agentjax-tool-manager-data-tests');
 await mkdir(outDir, { recursive: true });
 
 const sourceText = (await readFile(sourcePath, 'utf8')).replace(
-  "import { escapePathSegment } from './utils';",
+  "import { escapePathSegment } from '../../../../features/settings/utils';",
   "const escapePathSegment = (segment) => `${segment || ''}`.replace(/\\\\/g, '\\\\\\\\').replace(/\\./g, '\\\\.');"
 );
 const compiled = ts.transpileModule(sourceText, {
@@ -23,7 +26,7 @@ const compiled = ts.transpileModule(sourceText, {
   },
 }).outputText;
 
-const modulePath = join(outDir, `toolManagerView-${Date.now()}.mjs`);
+const modulePath = join(outDir, `toolManagerData-${Date.now()}.mjs`);
 await writeFile(modulePath, compiled, 'utf8');
 
 const view = await import(`file://${modulePath}`);
@@ -149,6 +152,29 @@ test('filters only the currently selected source tools', () => {
     view.filterToolsForQuery(active.tools, 'time').map((item) => item.id),
     ['system_time']
   );
+});
+
+test('matches tool manager snapshots for global settings search discovery', () => {
+  const snapshot = {
+    sources: [
+      source({
+        sourceType: 'mcp',
+        sourceId: 'docs',
+        sourceName: 'Docs Server',
+        tools: [
+          tool({
+            id: 'search_docs',
+            friendlyName: 'Search Docs',
+            description: 'Search developer documentation',
+          }),
+        ],
+      }),
+    ],
+  };
+
+  assert.equal(view.toolManagerSnapshotMatchesQuery(snapshot, 'developer documentation'), true);
+  assert.equal(view.toolManagerSnapshotMatchesQuery(snapshot, 'docs server'), true);
+  assert.equal(view.toolManagerSnapshotMatchesQuery(snapshot, 'missing query'), false);
 });
 
 test('selects sources by typed identity when source ids collide across categories', () => {

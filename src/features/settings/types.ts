@@ -31,6 +31,7 @@ export type SettingsUiNodeKind =
   | 'toolbar'
   | 'list'
   | 'detail'
+  | 'collapsible'
   | 'badge'
   | 'metric'
   | 'empty_state'
@@ -39,6 +40,14 @@ export type SettingsUiNodeKind =
 export interface SettingsOption {
   label: string;
   value: string;
+}
+
+export interface SettingsUiProperty {
+  id: string;
+  label?: string;
+  value: string;
+  variant?: 'text' | 'code' | 'badge' | 'status' | string;
+  visibleWhen?: SettingsCondition[];
 }
 
 export interface SecretStatus {
@@ -100,7 +109,9 @@ export interface SettingsCommonUiProps {
   icon?: string;
   badge?: string | number | boolean | Record<string, unknown>;
   status?: string;
+  defaultExpanded?: boolean;
   actions?: SettingsUiAction[];
+  properties?: SettingsUiProperty[];
   dataSource?: string;
   itemTemplate?: SettingsSchemaNode;
   bindings?: Record<string, string>;
@@ -114,6 +125,7 @@ export interface SettingsUiAction {
   action?: string;
   icon?: string;
   variant?: string;
+  visibleWhen?: SettingsCondition[];
   disabledWhen?: SettingsCondition[];
   dataSource?: string;
   path?: string;

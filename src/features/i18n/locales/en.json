@@ -269,6 +269,9 @@
   "settings.tools.schema_summary": "{count} params",
   "settings.tools.policy": "Policy",
   "settings.tools.parameters": "Parameters",
+  "settings.tools.property.id": "ID",
+  "settings.tools.property.model": "Model",
+  "settings.tools.property.schema_format": "Schema",
   "settings.tools.no_parameters": "No parameters",
   "settings.tools.required": "required",
   

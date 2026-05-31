@@ -45,7 +45,6 @@ export function SchemaRenderer(props: SchemaRendererProps) {
       }}
       queryState={props.queryState}
       dataContext={props.dataContext}
-      renderUiNode={props.renderUiNode}
     />
   );
 
@@ -112,26 +111,14 @@ export function SchemaRenderer(props: SchemaRendererProps) {
             </Fragment>
           );
         }
-        const defaultRender = () => (
-          <UiLayoutRenderer
-            node={uiNode}
-            actions={props.actions}
-            contextPath={props.contextPath}
-            renderChildren={renderChildren}
-          />
-        );
-        const customRender = props.renderUiNode?.({
-          node: uiNode,
-          defaultRender,
-          renderChildren,
-        });
-        if (customRender !== undefined && customRender !== null) {
-          return <Fragment key={key}>{customRender}</Fragment>;
-        }
-
         return (
           <Fragment key={key}>
-            {defaultRender()}
+            <UiLayoutRenderer
+              node={uiNode}
+              actions={props.actions}
+              contextPath={props.contextPath}
+              renderChildren={renderChildren}
+            />
           </Fragment>
         );
       });

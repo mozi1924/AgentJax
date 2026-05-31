@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { schemaUsesDataSource } from '../../../../features/settings/schemaRendererView';
 import {
   TOOL_MANAGER_CATEGORIES,
   filterToolsForQuery,
@@ -15,7 +14,7 @@ import {
   type ToolManagerSnapshot,
   type ToolManagerSourceSnapshot,
   type ToolManagerToolSnapshot,
-} from '../../../../features/settings/toolManagerView';
+} from './toolManagerData';
 import type { SchemaDataProvider, SchemaDataProviderArgs } from './types';
 
 const asRecord = (value: unknown): Record<string, unknown> =>
@@ -59,7 +58,7 @@ const normalizedExposure = (source: ToolManagerSourceSnapshot): McpExposureMode 
 // Loads and mutates only Tool Manager data; the visual structure stays in tools.json
 // and is rendered by the shared SchemaRenderer data-source components.
 export function useToolManagerDataProvider({
-  nodes,
+  requestedDataSourceNamespaces,
   search,
   onSearchChange,
   onSaveField,
@@ -67,7 +66,7 @@ export function useToolManagerDataProvider({
   search?: string;
   onSearchChange?: (search: string) => void;
 }): SchemaDataProvider {
-  const enabled = useMemo(() => schemaUsesDataSource(nodes, 'toolManager'), [nodes]);
+  const enabled = requestedDataSourceNamespaces.includes('toolManager');
   const [snapshot, setSnapshot] = useState<ToolManagerSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
