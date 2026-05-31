@@ -36,6 +36,8 @@
   "settings.modal.load_error": "无法加载设置。",
   "settings.modal.reloaded_external": "配置已从磁盘重新加载。",
   "settings.modal.saved": "设置已保存。",
+  "settings.modal.search": "搜索设置",
+  "settings.modal.no_results": "没有匹配的设置项。",
   "settings.modal.save_failed": "保存失败，请稍后重试。",
   "settings.modal.removing_item": "正在移除...",
   "settings.modal.item_removed": "已移除。",

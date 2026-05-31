@@ -8,8 +8,6 @@ import type {
   SettingsUiSchemaNode,
 } from '../../../features/settings/types';
 
-export type RendererValueSource = 'settings' | 'toolManager' | 'static';
-
 export interface SchemaRendererActions {
   saveField: (path: string, value: unknown) => Promise<void>;
   deletePath?: (path: string) => Promise<void>;
@@ -27,6 +25,7 @@ export interface SchemaRendererActions {
 
 export interface SchemaRendererQueryState {
   search?: string;
+  onSearchChange?: (search: string) => void;
   filter?: string;
   activeTab?: string;
   selectedItem?: string;
@@ -40,7 +39,6 @@ export interface SchemaRendererProps {
   fieldErrors: Record<string, string>;
   contextPath?: string;
   container?: 'stack' | 'fragment';
-  valueSource?: RendererValueSource;
   actions: SchemaRendererActions;
   queryState?: SchemaRendererQueryState;
   dataContext?: SchemaRendererDataContext;
@@ -51,6 +49,14 @@ export interface SchemaRendererDataContext {
   getDataSource: (dataSource?: string) => unknown;
   dispatch: (action: string, payload?: unknown) => void | Promise<void>;
   isSaving?: (savingKey?: string) => boolean;
+  getStatus?: (dataSource?: string) =>
+    | {
+        loading?: boolean;
+        error?: string;
+        loadingText?: string;
+        errorText?: string;
+      }
+    | undefined;
 }
 
 export interface SchemaRendererUiNodeRenderProps {

@@ -1,4 +1,4 @@
-import { LoaderCircle, RefreshCcw, Search } from 'lucide-react';
+import { AlertCircle, LoaderCircle, RefreshCcw, Search } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useI18n } from '../../../features/i18n';
 import type { SettingsSchemaNode, SettingsUiAction, SettingsUiSchemaNode } from '../../../features/settings/types';
@@ -80,11 +80,13 @@ function DataSwitch({
 function renderActionControl({
   action,
   item,
+  dataSource,
   dataContext,
   translate,
 }: {
   action: SettingsUiAction;
   item: unknown;
+  dataSource?: string;
   dataContext: SchemaRendererDataContext;
   translate: (label?: string) => string;
 }) {
@@ -100,6 +102,7 @@ function renderActionControl({
         loading={dataContext.isSaving?.(savingKey)}
         onChange={(nextChecked) => {
           void dataContext.dispatch(action.id, {
+            dataSource: action.dataSource || dataSource,
             item,
             path: textValue(item, action.path),
             value: nextChecked,
@@ -121,6 +124,7 @@ function renderActionControl({
             disabled={currentValue === option.value || dataContext.isSaving?.(savingKey)}
             onClick={() => {
               void dataContext.dispatch(action.id, {
+                dataSource: action.dataSource || dataSource,
                 item,
                 path: textValue(item, action.path),
                 value: option.value,
@@ -145,7 +149,7 @@ function renderActionControl({
         key={action.id}
         type="button"
         onClick={() => {
-          void dataContext.dispatch(action.id, { item });
+          void dataContext.dispatch(action.id, { dataSource: action.dataSource || dataSource, item });
         }}
         className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#2b2b2d] px-2 text-[12px] text-neutral-300 transition hover:bg-[#202022]"
       >
@@ -174,10 +178,29 @@ export function DataSourceRenderer({
   const { t } = useI18n();
   const translate = (label?: string) => (label ? t(label) : '');
   const data = dataContext.getDataSource(node.dataSource);
+  const status = dataContext.getStatus?.(node.dataSource);
   const template = resolveTemplate(node);
   const bindings = template?.bindings || node.bindings || {};
 
   if (node.kind === 'layout' && node.dataSource) {
+    if (status?.loading) {
+      return (
+        <div className="flex h-48 items-center justify-center gap-2 text-sm text-neutral-400">
+          <LoaderCircle className="h-4 w-4 animate-spin" />
+          {status.loadingText ? t(status.loadingText) : ''}
+        </div>
+      );
+    }
+    if (status?.error) {
+      return (
+        <div className="flex h-48 items-center justify-center gap-2 px-4 text-sm text-rose-300">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>
+            {status.errorText ? t(status.errorText, { message: status.error }) : status.error}
+          </span>
+        </div>
+      );
+    }
     if (node.variant === 'workbench') {
       return (
         <div className="settings-schema-workbench flex min-h-0 flex-col">
@@ -209,7 +232,7 @@ export function DataSourceRenderer({
             <button
               key={itemId}
               type="button"
-              onClick={() => void dataContext.dispatch(node.action || 'selectTab', { item, value: itemId })}
+              onClick={() => void dataContext.dispatch(node.action || 'selectTab', { dataSource: node.dataSource, item, value: itemId })}
               className={`rounded-md px-2.5 py-1 text-[12px] transition ${
                 activeId === itemId
                   ? 'bg-[#2a2a2c] text-white'
@@ -240,7 +263,7 @@ export function DataSourceRenderer({
           <div className="flex items-center gap-2">
             {title && <h5 className="truncate text-[13px] font-medium text-neutral-100">{title}</h5>}
             {node.actions?.filter((action) => action.variant !== 'search' && action.variant !== 'button').map((action) =>
-              renderActionControl({ action, item: record, dataContext, translate })
+              renderActionControl({ action, item: record, dataSource: node.dataSource, dataContext, translate })
             )}
           </div>
           {description && <p className="mt-0.5 text-[11px] text-neutral-500">{description}</p>}
@@ -253,7 +276,10 @@ export function DataSourceRenderer({
               <input
                 value={search}
                 onChange={(event) => {
-                  void dataContext.dispatch(action.id, { value: event.target.value });
+                  void dataContext.dispatch(action.id, {
+                    dataSource: action.dataSource || node.dataSource,
+                    value: event.target.value,
+                  });
                 }}
                 placeholder={action.label ? t(action.label) : ''}
                 className="h-7 w-48 rounded-md border border-[#2b2b2d] bg-[#171719] pl-7 pr-2 text-[12px] text-neutral-200 outline-none transition placeholder:text-neutral-600 focus:border-neutral-500"
@@ -261,7 +287,7 @@ export function DataSourceRenderer({
             </div>
           ))}
           {node.actions?.filter((action) => action.variant === 'button').map((action) =>
-            renderActionControl({ action, item: record, dataContext, translate })
+            renderActionControl({ action, item: record, dataSource: node.dataSource, dataContext, translate })
           )}
         </div>
       </div>
@@ -320,7 +346,7 @@ export function DataSourceRenderer({
                 return (
                   <div
                     key={key}
-                    onClick={() => void dataContext.dispatch(node.action || 'selectItem', { item, value: key })}
+                    onClick={() => void dataContext.dispatch(node.action || 'selectItem', { dataSource: node.dataSource, item, value: key })}
                     className={`w-full rounded-md border px-2.5 py-2 text-left transition cursor-pointer select-none ${
                       active
                         ? 'border-neutral-500 bg-[#2a2a2c]/60 text-white'
@@ -336,7 +362,7 @@ export function DataSourceRenderer({
                       {template?.actions?.length ? (
                         <div className="flex w-10 shrink-0 justify-end pt-0.5">
                           {template.actions.map((action) =>
-                            renderActionControl({ action, item, dataContext, translate })
+                            renderActionControl({ action, item, dataSource: node.dataSource, dataContext, translate })
                           )}
                         </div>
                       ) : null}
@@ -365,11 +391,18 @@ export function DataSourceRenderer({
     const title = textValue(record, bindings.title);
     const description = textValue(record, bindings.description);
     const meta = renderMeta(record, bindings);
-    const schemaProperties = bindings.schemaProperties
-      ? asArray(getPath(record, bindings.schemaProperties))
+    const detailItemsPath = bindings.detailItems || bindings.schemaProperties;
+    const detailItems = detailItemsPath
+      ? asArray(getPath(record, detailItemsPath))
       : [];
-    const schemaTitle = bindings.schemaTitle ? t(bindings.schemaTitle) : '';
-    const schemaEmptyText = bindings.schemaEmptyText ? t(bindings.schemaEmptyText) : '';
+    const detailItemsTitle = bindings.detailItemsTitle || bindings.schemaTitle;
+    const detailItemsEmptyText = bindings.detailItemsEmptyText || bindings.schemaEmptyText;
+    const detailTitle = detailItemsTitle ? t(detailItemsTitle) : '';
+    const detailEmptyText = detailItemsEmptyText ? t(detailItemsEmptyText) : '';
+    const detailItemName = bindings.detailItemName || 'name';
+    const detailItemType = bindings.detailItemType || 'type';
+    const detailItemDescription = bindings.detailItemDescription || 'description';
+    const detailItemRequired = bindings.detailItemRequired || 'required';
     const requiredLabel = bindings.requiredLabel ? t(bindings.requiredLabel) : 'required';
     return (
       <section className="min-w-0 border-t border-[#242426]/50 bg-[#171719]/20 xl:border-l xl:border-t-0 flex flex-col h-full">
@@ -400,46 +433,46 @@ export function DataSourceRenderer({
                   )}
                   <div className="flex items-center gap-2">
                     {template.actions.map((action) =>
-                      renderActionControl({ action, item: record, dataContext, translate })
+                      renderActionControl({ action, item: record, dataSource: node.dataSource, dataContext, translate })
                     )}
                   </div>
                 </div>
               </div>
             ) : null}
-            {bindings.schemaProperties && (
+            {detailItemsPath && (
               <div>
-                {schemaTitle && (
+                {detailTitle && (
                   <h6 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
-                    {schemaTitle}
+                    {detailTitle}
                   </h6>
                 )}
-                {schemaProperties.length === 0 ? (
+                {detailItems.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-[#2b2b2d] px-3 py-4 text-center text-[11px] text-neutral-500">
-                    {schemaEmptyText}
+                    {detailEmptyText}
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {schemaProperties.map((property) => (
+                    {detailItems.map((property) => (
                       <div
-                        key={textValue(property, 'name')}
+                        key={textValue(property, detailItemName)}
                         className="rounded-lg border border-[#2b2b2d] bg-[#1a1b1d]/20 px-3 py-2"
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono text-[11px] text-neutral-200">
-                            {textValue(property, 'name')}
+                            {textValue(property, detailItemName)}
                           </span>
                           <span className="rounded bg-[#2a2a2c] px-1.5 py-0.5 text-[10px] text-neutral-300">
-                            {textValue(property, 'type')}
+                            {textValue(property, detailItemType)}
                           </span>
-                          {boolValue(property, 'required') && (
+                          {boolValue(property, detailItemRequired) && (
                             <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200">
                               {requiredLabel}
                             </span>
                           )}
                         </div>
-                        {textValue(property, 'description') && (
+                        {textValue(property, detailItemDescription) && (
                           <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-neutral-500">
-                            {textValue(property, 'description')}
+                            {textValue(property, detailItemDescription)}
                           </p>
                         )}
                       </div>

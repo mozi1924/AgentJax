@@ -4,12 +4,14 @@ import type {
   SettingsSectionSchema,
   SettingsSnapshot,
 } from '../../../features/settings/types';
+import type { SchemaRendererQueryState } from '../schemaRenderer';
 
 export interface SettingsRendererProps {
   section: SettingsSectionSchema;
   snapshot: SettingsSnapshot;
   savingPath: string | null;
   fieldErrors: Record<string, string>;
+  queryState?: SchemaRendererQueryState;
   onSaveField: (path: string, value: unknown) => Promise<void>;
   onDeletePath: (path: string) => Promise<void>;
   onAddCollectionItem: (

@@ -36,6 +36,8 @@
   "settings.modal.load_error": "Failed to load settings.",
   "settings.modal.reloaded_external": "Configuration reloaded from disk.",
   "settings.modal.saved": "Settings saved.",
+  "settings.modal.search": "Search settings",
+  "settings.modal.no_results": "No matching settings.",
   "settings.modal.save_failed": "Save failed, please try again later.",
   "settings.modal.removing_item": "Removing item...",
   "settings.modal.item_removed": "Item removed.",

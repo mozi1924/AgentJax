@@ -62,13 +62,6 @@
               ]
             },
             {
-              "id": "setSearch",
-              "variant": "search",
-              "label": "settings.tools.search",
-              "dataSource": "toolManager.query",
-              "value": "search"
-            },
-            {
               "id": "discoverSource",
               "variant": "button",
               "label": "settings.tools.discover",
@@ -160,9 +153,13 @@
                   "secondaryMeta": "modelName",
                   "badge": "schemaFormat",
                   "actionsTitle": "settings.tools.policy",
-                  "schemaTitle": "settings.tools.parameters",
-                  "schemaProperties": "schemaProperties",
-                  "schemaEmptyText": "settings.tools.no_parameters",
+                  "detailItemsTitle": "settings.tools.parameters",
+                  "detailItems": "schemaProperties",
+                  "detailItemsEmptyText": "settings.tools.no_parameters",
+                  "detailItemName": "name",
+                  "detailItemType": "type",
+                  "detailItemDescription": "description",
+                  "detailItemRequired": "required",
                   "requiredLabel": "settings.tools.required"
                 },
                 "actions": [

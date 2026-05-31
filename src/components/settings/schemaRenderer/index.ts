@@ -6,7 +6,6 @@ export { ActionRenderer } from './ActionRenderer';
 export { DataSourceRenderer } from './DataSourceRenderer';
 export type {
   FieldControlProps,
-  RendererValueSource,
   SchemaRendererDataContext,
   SchemaRendererActions,
   SchemaRendererProps,

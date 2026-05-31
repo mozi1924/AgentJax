@@ -43,6 +43,8 @@ export function SchemaRenderer(props: SchemaRendererProps) {
         deletePath: nodeListProps.onDeletePath,
         addCollectionItem: nodeListProps.onAddCollectionItem,
       }}
+      queryState={props.queryState}
+      dataContext={props.dataContext}
       renderUiNode={props.renderUiNode}
     />
   );
