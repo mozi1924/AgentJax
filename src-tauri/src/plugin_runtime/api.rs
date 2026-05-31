@@ -27,11 +27,41 @@ impl RegisteredPluginTool {
 }
 
 /// Conversation metadata passed to plugin tool handlers.
+///
+/// This carries contextual information about the current invocation so plugins
+/// can make informed decisions about context access, token budgets, and
+/// conversation state without requiring additional RPC.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInvocationContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_id: Option<String>,
+
+    /// The model identifier being used for this request (e.g. "gpt-4o").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+
+    /// Current turn identifier, set when the runtime processes a user message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+
+    /// Current hop index in the tool-call loop (0-based). `None` when not
+    /// inside a tool-call continuation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hop_index: Option<u32>,
+
+    /// Estimated token count of the assembled request context (approximate).
+    /// This is a rough estimate for budgeting, not an exact tokenizer count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_token_estimate: Option<usize>,
+
+    /// Number of conversation messages (lines) loaded for this request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_count: Option<usize>,
+
+    /// Number of tool call entries in the assembled context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_count: Option<usize>,
 }
 
 /// Host-normalized request for a plugin tool invocation.

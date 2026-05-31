@@ -253,12 +253,8 @@ mod tests {
         conversation_store::ensure_conversation(&conversation_a).unwrap();
         conversation_store::ensure_conversation(&conversation_b).unwrap();
 
-        let ctx_a = ToolExecutionContext {
-            conversation_id: Some(conversation_a.clone()),
-        };
-        let ctx_b = ToolExecutionContext {
-            conversation_id: Some(conversation_b.clone()),
-        };
+        let ctx_a = ToolExecutionContext::with_conversation_id(conversation_a.clone());
+        let ctx_b = ToolExecutionContext::with_conversation_id(conversation_b.clone());
 
         let filename = "nested/same_name.txt";
         writer
@@ -286,9 +282,7 @@ mod tests {
         let registry = ToolRegistry::new_with_defaults();
         let conversation_id = format!("test-file-paths-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
-        let ctx = ToolExecutionContext {
-            conversation_id: Some(conversation_id.clone()),
-        };
+        let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         registry
             .execute(
@@ -324,9 +318,7 @@ mod tests {
         let registry = ToolRegistry::new_with_defaults();
         let conversation_id = format!("test-directory-tools-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
-        let ctx = ToolExecutionContext {
-            conversation_id: Some(conversation_id.clone()),
-        };
+        let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         registry
             .execute("mkdir", &json!({"path": "src/components"}), &ctx)
@@ -381,9 +373,7 @@ mod tests {
         let registry = ToolRegistry::new_with_defaults();
         let conversation_id = format!("test-read-truncation-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
-        let ctx = ToolExecutionContext {
-            conversation_id: Some(conversation_id.clone()),
-        };
+        let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         let content = "0123456789abcdef".repeat(4_096);
         registry
@@ -422,9 +412,7 @@ mod tests {
         let registry = ToolRegistry::new_with_defaults();
         let conversation_id = format!("test-content-sniffing-text-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
-        let ctx = ToolExecutionContext {
-            conversation_id: Some(conversation_id.clone()),
-        };
+        let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         registry
             .execute(
@@ -452,9 +440,7 @@ mod tests {
         let registry = ToolRegistry::new_with_defaults();
         let conversation_id = format!("test-list-truncation-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
-        let ctx = ToolExecutionContext {
-            conversation_id: Some(conversation_id.clone()),
-        };
+        let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         for index in 0..400 {
             registry
@@ -495,9 +481,7 @@ mod tests {
         let registry = ToolRegistry::new_with_defaults();
         let conversation_id = format!("test-content-sniffing-binary-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
-        let ctx = ToolExecutionContext {
-            conversation_id: Some(conversation_id.clone()),
-        };
+        let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         let workspace = conversation_store::conversation_workspace_path(&conversation_id).unwrap();
         let disguised_binary = workspace.join("assets/fake-notes.txt");
@@ -525,9 +509,7 @@ mod tests {
         let registry = ToolRegistry::new_with_defaults();
         let conversation_id = format!("test-binary-guards-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
-        let ctx = ToolExecutionContext {
-            conversation_id: Some(conversation_id.clone()),
-        };
+        let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         let workspace = conversation_store::conversation_workspace_path(&conversation_id).unwrap();
         let binary_path = workspace.join("assets/image.bin");
@@ -578,9 +560,7 @@ mod tests {
         let registry = ToolRegistry::new_with_defaults();
         let conversation_id = format!("test-text-edits-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
-        let ctx = ToolExecutionContext {
-            conversation_id: Some(conversation_id.clone()),
-        };
+        let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         registry
             .execute(
@@ -703,9 +683,7 @@ mod tests {
         let registry = ToolRegistry::new_with_defaults();
         let conversation_id = format!("test-apply-patch-atomic-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
-        let ctx = ToolExecutionContext {
-            conversation_id: Some(conversation_id.clone()),
-        };
+        let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         registry
             .execute(
@@ -961,12 +939,8 @@ mod tests {
     async fn test_background_task_is_conversation_scoped() {
         let config = crate::config::AppConfig::default();
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
-        let ctx_a = ToolExecutionContext {
-            conversation_id: Some(format!("test-bg-a-{}", uuid::Uuid::new_v4())),
-        };
-        let ctx_b = ToolExecutionContext {
-            conversation_id: Some(format!("test-bg-b-{}", uuid::Uuid::new_v4())),
-        };
+        let ctx_a = ToolExecutionContext::with_conversation_id(format!("test-bg-a-{}", uuid::Uuid::new_v4()));
+        let ctx_b = ToolExecutionContext::with_conversation_id(format!("test-bg-b-{}", uuid::Uuid::new_v4()));
         let snapshot = catalog.snapshot(&ctx_a).await;
 
         let started = snapshot
@@ -1193,9 +1167,7 @@ mod tests {
         let config = crate::config::AppConfig::default();
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog
-            .snapshot(&ToolExecutionContext {
-                conversation_id: Some(conversation_id.clone()),
-            })
+            .snapshot(&ToolExecutionContext::with_conversation_id(conversation_id.clone()))
             .await;
 
         assert!(snapshot.active_tool_names().contains("math_alias"));
@@ -1213,9 +1185,7 @@ mod tests {
             .execute(
                 "math_alias",
                 &json!({ "expression": "9 + 10" }),
-                &ToolExecutionContext {
-                    conversation_id: Some(conversation_id.clone()),
-                },
+                &ToolExecutionContext::with_conversation_id(conversation_id.clone()),
             )
             .await
             .expect("execute aliased tool");
@@ -1260,9 +1230,7 @@ mod tests {
             .insert("openai_docs".to_string(), McpServerConfig::default());
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog
-            .snapshot(&ToolExecutionContext {
-                conversation_id: Some(conversation_id.clone()),
-            })
+            .snapshot(&ToolExecutionContext::with_conversation_id(conversation_id.clone()))
             .await;
 
         assert_eq!(
@@ -1464,9 +1432,7 @@ globalThis.AgentJaxPlugin = {
             Arc::new(crate::mcp::McpManager::new()),
             &AppConfig::default(),
         );
-        let context = ToolExecutionContext {
-            conversation_id: Some("conversation-1".to_string()),
-        };
+        let context = ToolExecutionContext::with_conversation_id("conversation-1".to_string());
         let snapshot = catalog
             .snapshot_with_format(ToolSchemaFormat::Responses, &context)
             .await;
@@ -1517,9 +1483,7 @@ globalThis.AgentJaxPlugin = {
             .insert("openai_docs".to_string(), McpServerConfig::default());
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog
-            .snapshot(&ToolExecutionContext {
-                conversation_id: Some(conversation_id.clone()),
-            })
+            .snapshot(&ToolExecutionContext::with_conversation_id(conversation_id.clone()))
             .await;
 
         assert!(

@@ -84,9 +84,7 @@ async fn execute_prepared_tool(
         is_repeated_failure_guarded,
     } = pending;
 
-    let context = ToolExecutionContext {
-        conversation_id: Some(conversation_id),
-    };
+    let context = ToolExecutionContext::with_conversation_id(conversation_id);
     let start_time = Instant::now();
     let started_at_unix_ms = now_unix_ms();
     let mut last_error: Option<String> = None;

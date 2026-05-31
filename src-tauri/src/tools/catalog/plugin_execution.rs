@@ -36,6 +36,12 @@ pub(super) fn execute_plugin_package_tool(
             arguments.clone(),
             PluginInvocationContext {
                 conversation_id: context.conversation_id.clone(),
+                model_id: context.model_id.clone(),
+                turn_id: context.turn_id.clone(),
+                hop_index: context.hop_index,
+                context_token_estimate: None,
+                message_count: None,
+                tool_call_count: None,
             },
         )
         .map_err(|err| err.to_string())?;

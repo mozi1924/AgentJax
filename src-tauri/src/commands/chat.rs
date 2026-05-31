@@ -71,7 +71,7 @@ pub async fn chat_stream(
 
     registry.clear_conversation_deleted(&conversation_id)?;
 
-    let context = match {
+    let mut context = match {
         let conversation_id = conversation_id.clone();
         let local_dynamic_tools = local_dynamic_tools.clone();
         run_blocking(move || {
@@ -82,7 +82,7 @@ pub async fn chat_stream(
                     dynamic_tools,
                 )?;
             }
-            conversation_store::load_context_for_request(&conversation_id)
+            conversation_store::load_context_for_request(&conversation_id, None)
         })
         .await
     } {
@@ -126,10 +126,18 @@ pub async fn chat_stream(
 
     let resolved_model = resolve_prompt_counting_model(&config, req.model.as_deref());
     let model_id: Option<String> = resolved_model.as_ref().map(|m| m.model_id.clone());
+
+    // ── Apply token budget truncation now that we know the model ──────
+    if let Some(resolved_model) = resolved_model.as_ref() {
+        let budget = conversation_store::TokenBudget::for_model(&resolved_model.model_id);
+        context.input_items = conversation_store::truncate_items_to_budget(
+            std::mem::take(&mut context.input_items),
+            &budget,
+        );
+    }
+
     let context_token_count = if let Some(resolved_model) = resolved_model.as_ref() {
-        let tool_context = ToolExecutionContext {
-            conversation_id: Some(conversation_id.clone()),
-        };
+        let tool_context = ToolExecutionContext::with_conversation_id(conversation_id.clone());
         let tool_schema_format = match get_tool_schema_format(&resolved_model.provider.kind) {
             Ok(format) => format,
             Err(err) => {

@@ -138,4 +138,25 @@ pub trait Tool: Send + Sync {
 #[derive(Debug, Clone, Default)]
 pub struct ToolExecutionContext {
     pub conversation_id: Option<String>,
+
+    /// The model identifier being used for this request.
+    pub model_id: Option<String>,
+
+    /// Current turn identifier.
+    pub turn_id: Option<String>,
+
+    /// Current hop index in the tool-call loop.
+    pub hop_index: Option<u32>,
+}
+
+impl ToolExecutionContext {
+    /// Create a new context with just a conversation ID (all other fields default).
+    pub fn with_conversation_id(conversation_id: impl Into<String>) -> Self {
+        Self {
+            conversation_id: Some(conversation_id.into()),
+            model_id: None,
+            turn_id: None,
+            hop_index: None,
+        }
+    }
 }

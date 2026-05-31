@@ -31,9 +31,7 @@ async fn tool_snapshot_for_conversation(
     conversation_id: &str,
     provider_kind: &str,
 ) -> Result<ToolCatalogSnapshot, String> {
-    let tool_context = ToolExecutionContext {
-        conversation_id: Some(conversation_id.to_string()),
-    };
+    let tool_context = ToolExecutionContext::with_conversation_id(conversation_id.to_string());
     let tool_schema_format = get_tool_schema_format(provider_kind)?;
     let mounted_mcp_servers = tools_catalog.load_persisted_mounted_servers(&tool_context);
     Ok(tools_catalog
@@ -86,7 +84,7 @@ pub(super) async fn load_conversation_prompt_token_count(
         .ok()
         .flatten();
 
-    match conversation_store::load_context_for_request(conversation_id) {
+    match conversation_store::load_context_for_request(conversation_id, None) {
         Ok(context) => {
             let archived_context_items =
                 crate::runtime::tool_archiving::archive_unavailable_historical_tool_calls(

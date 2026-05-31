@@ -293,6 +293,10 @@ impl PluginInstance {
     }
 
     /// Call a tool handler: `AgentJaxPlugin.tools[name](args, context)`.
+    ///
+    /// Sets `globalThis.__agentjax_context__` before the call so the SDK's
+    /// `getInvocationContext()` and related helpers can read context fields
+    /// during tool execution.
     pub fn call_tool(
         &mut self,
         tool_name: &str,
@@ -303,12 +307,16 @@ impl PluginInstance {
             .map_err(|e| PluginRuntimeError::JavaScript(e.to_string()))?;
         let arguments_json = serde_json::to_string(&arguments)
             .map_err(|e| PluginRuntimeError::JavaScript(e.to_string()))?;
+        // Serialize context for __agentjax_context__ injection
         let context_json = serde_json::to_string(&context)
             .map_err(|e| PluginRuntimeError::JavaScript(e.to_string()))?;
 
         let bridge = format!(
             r#"
 (() => {{
+  // Inject invocation context so SDK getInvocationContext() works.
+  globalThis.__agentjax_context__ = {context_json};
+
   const plugin = globalThis.AgentJaxPlugin;
   if (!plugin || typeof plugin !== "object") {{
     throw new Error("AgentJaxPlugin is not defined.");

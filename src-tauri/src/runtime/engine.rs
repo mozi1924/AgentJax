@@ -56,6 +56,8 @@ impl AgentRuntime {
 
         let tool_context = ToolExecutionContext {
             conversation_id: Some(conversation_id.to_string()),
+            model_id: Some(resolved_model.model_id.clone()),
+            ..Default::default()
         };
         let mut mounted_mcp_servers = tools_catalog.load_persisted_mounted_servers(&tool_context);
         let initial_snapshot = tools_catalog

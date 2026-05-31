@@ -102,3 +102,58 @@ function applyRequestConfig(payload, cfg, skip) {
     }
   }
 }
+
+// ── Context API (for tool plugins) ──────────────────────────────────────────
+
+/**
+ * Extract the invocation context passed to the current tool call.
+ *
+ * This reads `globalThis.__agentjax_context__` which is set by the host
+ * before each tool call via the JS bridge. Returns an object or null.
+ *
+ * @returns {object|null} The invocation context with fields like:
+ *   - conversationId: string | undefined
+ *   - modelId: string | undefined
+ *   - turnId: string | undefined
+ *   - hopIndex: number | undefined
+ *   - contextTokenEstimate: number | undefined
+ *   - messageCount: number | undefined
+ *   - toolCallCount: number | undefined
+ */
+function getInvocationContext() {
+  return globalThis.__agentjax_context__ || null;
+}
+
+/**
+ * Extract a specific context field by name.
+ * @param {string} field - Field name (camelCase, e.g. "conversationId")
+ * @returns {*}
+ */
+function getContextField(field) {
+  const ctx = getInvocationContext();
+  return ctx && ctx[field] !== undefined ? ctx[field] : null;
+}
+
+/**
+ * Get the current conversation ID.
+ * @returns {string|null}
+ */
+function getConversationId() {
+  return getContextField("conversationId");
+}
+
+/**
+ * Get the current model ID.
+ * @returns {string|null}
+ */
+function getModelId() {
+  return getContextField("modelId");
+}
+
+/**
+ * Get an estimated token count for the assembled request context.
+ * @returns {number|null}
+ */
+function getContextTokenEstimate() {
+  return getContextField("contextTokenEstimate");
+}

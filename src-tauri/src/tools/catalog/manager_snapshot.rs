@@ -109,12 +109,8 @@ impl ToolCatalog {
         request: ToolManagerSnapshotRequest,
     ) -> ToolManagerSnapshot {
         let context = ToolExecutionContext {
-            conversation_id: request
-                .conversation_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned),
+            conversation_id: None,
+            ..Default::default()
         };
         let discover_source_id = request
             .discover

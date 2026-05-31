@@ -7,6 +7,7 @@
 mod api;
 mod builtin;
 mod discovery;
+mod hooks;
 mod manifest;
 mod orchestration;
 mod runtime;
@@ -22,6 +23,10 @@ pub use builtin::builtin_plugin_packages;
 pub use discovery::{
     PLUGIN_MANIFEST_FILE, PluginPackage, discover_all_plugin_packages,
     discover_home_plugin_packages, discover_plugin_packages, load_plugin_package,
+};
+pub use hooks::{
+    ContextAssembleData, ContextAssembleResult, ContextHook, ContextHookPoint, HookRegistry,
+    ToolResultData, ToolResultTransform, serialize_hook_registration,
 };
 pub use manifest::{
     PluginManifest, PluginProviderDefinition, PluginToolDefinition, PluginToolKind,
@@ -217,6 +222,12 @@ mod tests {
                 serde_json::json!({ "message": "hi" }),
                 PluginInvocationContext {
                     conversation_id: Some("conversation-1".to_string()),
+                    model_id: None,
+                    turn_id: None,
+                    hop_index: None,
+                    context_token_estimate: None,
+                    message_count: None,
+                    tool_call_count: None,
                 },
             )
             .expect("prepare plugin tool call");
@@ -438,6 +449,12 @@ globalThis.AgentJaxPlugin = {
                 serde_json::json!({ "message": "hello" }),
                 PluginInvocationContext {
                     conversation_id: Some("conversation-1".to_string()),
+                    model_id: None,
+                    turn_id: None,
+                    hop_index: None,
+                    context_token_estimate: None,
+                    message_count: None,
+                    tool_call_count: None,
                 },
             )
             .expect("prepare plugin call");

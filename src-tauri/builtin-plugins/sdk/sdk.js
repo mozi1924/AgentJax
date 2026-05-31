@@ -142,3 +142,48 @@ export function applyRequestConfig(payload, cfg, skip) {
     }
   }
 }
+
+// ── Context API (for tool plugins) ──────────────────────────────────────────
+
+/**
+ * Get the current invocation context.
+ * Reads from `globalThis.__agentjax_context__`, set by the host.
+ * @returns {object|null}
+ */
+export function getInvocationContext() {
+  return globalThis.__agentjax_context__ || null;
+}
+
+/**
+ * Get a specific field from the invocation context.
+ * @param {string} field
+ * @returns {*}
+ */
+export function getContextField(field) {
+  const ctx = getInvocationContext();
+  return ctx && ctx[field] !== undefined ? ctx[field] : null;
+}
+
+/**
+ * Get the current conversation ID.
+ * @returns {string|null}
+ */
+export function getConversationId() {
+  return getContextField("conversationId");
+}
+
+/**
+ * Get the current model ID.
+ * @returns {string|null}
+ */
+export function getModelId() {
+  return getContextField("modelId");
+}
+
+/**
+ * Get the estimated token count for the current request context.
+ * @returns {number|null}
+ */
+export function getContextTokenEstimate() {
+  return getContextField("contextTokenEstimate");
+}

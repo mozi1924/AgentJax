@@ -119,7 +119,7 @@ fn load_context_merges_user_and_assistant() {
         ),
     })
     .expect("a");
-    let ctx = load_context_for_request(&cid).expect("ctx");
+    let ctx = load_context_for_request(&cid, None).expect("ctx");
     assert!(ctx.input_items.len() >= 2);
     assert!(
         ctx.input_items
@@ -166,7 +166,7 @@ fn load_context_replays_commentary_and_final_with_phase() {
     })
     .expect("final");
 
-    let ctx = load_context_for_request(&cid).expect("ctx");
+    let ctx = load_context_for_request(&cid, None).expect("ctx");
     let assistant_phases: Vec<&str> = ctx
         .input_items
         .iter()
@@ -191,7 +191,7 @@ fn load_context_omits_phase_field_for_unknown_assistant_phase() {
     })
     .expect("assistant");
 
-    let ctx = load_context_for_request(&cid).expect("ctx");
+    let ctx = load_context_for_request(&cid, None).expect("ctx");
     let assistant_item = ctx
         .input_items
         .iter()
@@ -227,7 +227,7 @@ fn load_context_includes_tool_calls_with_outputs() {
         ),
     })
     .expect("t");
-    let ctx = load_context_for_request(&cid).expect("ctx");
+    let ctx = load_context_for_request(&cid, None).expect("ctx");
     assert!(
         ctx.input_items
             .iter()
@@ -280,7 +280,7 @@ fn update_line_preserves_existing_tool_args_when_exec_event_omits_them() {
     })
     .expect("done");
 
-    let ctx = load_context_for_request(&cid).expect("ctx");
+    let ctx = load_context_for_request(&cid, None).expect("ctx");
     let args = ctx
         .input_items
         .iter()
@@ -564,7 +564,7 @@ fn load_context_filters_orphan_tool_calls() {
         ),
     })
     .expect("orphan");
-    let ctx = load_context_for_request(&cid).expect("ctx");
+    let ctx = load_context_for_request(&cid, None).expect("ctx");
     assert!(
         ctx.input_items
             .iter()
@@ -606,7 +606,7 @@ fn load_context_truncates_without_splitting_tool_pairs() {
         ),
     })
     .expect("t");
-    let ctx = load_context_for_request(&cid).expect("ctx");
+    let ctx = load_context_for_request(&cid, None).expect("ctx");
     assert!(ctx.input_items.len() <= TEST_MAX_CONTEXT_ITEMS_PER_REQUEST);
     assert!(
         ctx.input_items
