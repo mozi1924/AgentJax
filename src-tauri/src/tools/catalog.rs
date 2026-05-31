@@ -9,8 +9,8 @@ mod snapshot;
 mod types;
 
 use crate::plugin_runtime::{
-    DenoCorePluginRuntime, PluginManifest, PluginPackage, SandboxPolicy,
-    discover_all_plugin_packages, prefixed_plugin_tool_name, registered_tools_for_manifest,
+    PluginManifest, PluginPackage, discover_all_plugin_packages, prefixed_plugin_tool_name,
+    registered_tools_for_manifest,
 };
 use crate::tools::{
     CalculatorTool, EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool,
@@ -125,9 +125,6 @@ impl ToolCatalog {
         mut self,
         packages: impl IntoIterator<Item = PluginPackage>,
     ) -> Result<Self, String> {
-        let mut runtime = DenoCorePluginRuntime::new(
-            SandboxPolicy::default(),
-        );
         let mut manifests = BTreeMap::new();
         let mut registered_packages = BTreeMap::new();
         for package in packages {
@@ -137,9 +134,11 @@ impl ToolCatalog {
             {
                 return Err(format!("plugin '{}' is already registered", manifest.id));
             }
-            runtime
-                .register_package(package.clone())
-                .map_err(|err| err.to_string())?;
+            // Validate the manifest without creating a JsRuntime -
+            // tool execution creates a temp PluginInstance on demand.
+            manifest.validate().map_err(|err| {
+                format!("plugin '{}' has an invalid manifest: {err}", manifest.id)
+            })?;
             manifests.insert(manifest.id.clone(), manifest);
             registered_packages.insert(package.manifest.id.clone(), package);
         }
