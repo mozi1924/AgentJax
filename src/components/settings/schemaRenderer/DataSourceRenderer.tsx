@@ -118,9 +118,21 @@ export function DataSourceRenderer({
   }
 
   if (node.kind === 'split') {
+    let layout = node.layout;
+    let children = node.children;
+
+    if (node.id === 'tool-manager-layout') {
+      const queryState = asRecord(dataContext.getDataSource('toolManager.query'));
+      const activeTab = queryState.activeTab;
+      if (activeTab === 'native' || activeTab === 'session') {
+        layout = 'two-pane';
+        children = children?.filter((child) => child.id !== 'tool-source-list');
+      }
+    }
+
     return (
-      <div className={settingsUiSplitClassName(node.layout)}>
-        {node.children ? renderChildren(node.children, undefined, { container: 'fragment' }) : null}
+      <div className={settingsUiSplitClassName(layout)}>
+        {children ? renderChildren(children, undefined, { container: 'fragment' }) : null}
       </div>
     );
   }
