@@ -741,10 +741,44 @@ Phase 4 (收尾)
 1. ✅ 阅读并分析 LCM 论文
 2. ✅ 探索现有代码库架构
 3. ✅ 制定本实现计划
-4. 🔜 开始 Phase 1: 创建 `src-tauri/src/lcm/` 模块骨架 + 核心类型定义
+4. ✅ 开始 Phase 1: 创建 `src-tauri/src/lcm/` 模块骨架 + 核心类型定义 ✅
 5. 🔜 Phase 2: 实现上下文控制循环 + 摘要引擎
 6. 🔜 Phase 3: 实现 LCM 工具 + 注册到 ToolCatalog
 7. 🔜 Phase 4: 大文件处理 + 集成测试 + 前端 UI
+
+---
+
+## Phase 1 实施记录 (2026-06-01)
+
+### 新增文件
+
+| 文件 | 行数 | 说明 |
+|------|------|------|
+| `src-tauri/src/lcm/mod.rs` | ~40 | 模块入口 + 公共 re-export |
+| `src-tauri/src/lcm/types.rs` | ~380 | 完整类型系统 (LcmId, StoredMessage, SummaryNode, ContextEntry, LcmConfig, LcmError 等) |
+| `src-tauri/src/lcm/store.rs` | ~700 | SQLite 支持的 Immutable Store (FTS5 全文搜索, 事务性写入, 外键完整性) |
+| `src-tauri/src/lcm/dag.rs` | ~450 | Summary DAG 管理 (创建/遍历/验证, 循环检测) |
+
+### 关键设计决策（已实施）
+
+| 决策 | 选择 | 理由 |
+|------|------|------|
+| 存储后端 | **SQLite** (rusqlite, bundled) | 零配置嵌入式数据库, FTS5 全文搜索, 事务支持 |
+| 消息存储 | `messages` 表 + `messages_fts` 虚拟表 | 不可变消息 + 实时 FTS5 索引 |
+| DAG 结构 | `summaries` 表 + `summary_children` 边表 | 支持 leaf/condensed 两种节点类型 |
+| 文件引用 | `file_refs` 表 | 大文件不进入 context，仅保留探索摘要 |
+| 依赖新增 | `rusqlite` + `thiserror` | 嵌入式 SQLite + 类型安全错误处理 |
+
+### 测试覆盖
+
+- ✅ `test_lcm_id_creation` — ID 生成
+- ✅ `test_stored_message_new` — 消息创建
+- ✅ `test_estimate_tokens` / `test_estimate_context_tokens` — Token 估算
+- ✅ `test_lcm_config_defaults` — 默认配置验证
+- ✅ `test_create_leaf_summary` — 叶子摘要创建 + DAG 完整性
+- ✅ `test_create_condensed_summary` — 浓缩摘要创建
+- ✅ `test_get_descendant_messages` — DAG 遍历
+- ✅ `test_detect_no_cycle` — 循环检测
 
 ---
 
