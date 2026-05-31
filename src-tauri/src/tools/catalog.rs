@@ -4,6 +4,7 @@ mod manager_snapshot;
 mod mounted;
 mod names;
 mod plugin_execution;
+mod plugin_manager_snapshot;
 mod schemas;
 mod snapshot;
 mod types;
@@ -20,6 +21,10 @@ use crate::tools::{
 pub use manager_snapshot::{
     ToolManagerSchemaFormat, ToolManagerSnapshot, ToolManagerSnapshotRequest,
     ToolManagerSourceSnapshot, ToolManagerSourceType, ToolManagerToolSnapshot,
+};
+pub use plugin_manager_snapshot::{
+    DeclaredPermissions, EffectivePermissions, PluginEntryPolicyPaths, PluginEntrySnapshot,
+    PluginManagerSnapshot, build_plugin_manager_snapshot,
 };
 use names::{
     mount_tool_name_for_server, prefixed_mcp_tool_name, presentation_for_manage_mcp_server,
@@ -45,6 +50,7 @@ pub struct ToolCatalog {
     mcp_runtime: crate::config::McpRuntimeConfig,
     mcp_config: BTreeMap<String, crate::config::McpServerConfig>,
     tool_manager: crate::config::ToolManagerConfig,
+    plugin_manager: crate::config::PluginManagerConfig,
     plugin_manifests: BTreeMap<String, PluginManifest>,
     plugin_packages: BTreeMap<String, PluginPackage>,
 }
@@ -68,6 +74,7 @@ impl ToolCatalog {
             mcp_runtime: config.mcp_runtime.clone(),
             mcp_config: config.mcp_servers.clone(),
             tool_manager: config.tool_manager.clone(),
+            plugin_manager: config.plugin_manager.clone(),
             plugin_manifests: BTreeMap::new(),
             plugin_packages: BTreeMap::new(),
         }
@@ -432,7 +439,19 @@ impl ToolCatalog {
             .unwrap_or(true)
     }
 
+    /// Check if the plugin is enabled at the plugin-manager level.
+    pub(crate) fn plugin_enabled(&self, plugin_id: &str) -> bool {
+        self.plugin_manager
+            .plugins
+            .get(&plugin_id.to_ascii_lowercase())
+            .map(|entry| entry.enabled)
+            .unwrap_or(true)
+    }
+
     pub(crate) fn plugin_source_enabled(&self, plugin_id: &str) -> bool {
+        if !self.plugin_enabled(plugin_id) {
+            return false;
+        }
         self.tool_manager
             .plugin_tools
             .get(&plugin_id.to_ascii_lowercase())
@@ -441,6 +460,9 @@ impl ToolCatalog {
     }
 
     pub(crate) fn plugin_tool_enabled(&self, plugin_id: &str, tool_name: &str) -> bool {
+        if !self.plugin_enabled(plugin_id) {
+            return false;
+        }
         let plugin_id = plugin_id.to_ascii_lowercase();
         let tool_name = tool_name.to_ascii_lowercase();
         self.tool_manager

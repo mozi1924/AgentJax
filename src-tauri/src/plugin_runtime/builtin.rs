@@ -44,5 +44,6 @@ fn builtin_plugin_package(
             "src-tauri/builtin-plugins/{package_dir}/plugin.json"
         )),
         entrypoint_source: Some(entrypoint_source.to_string()),
+        is_builtin: true,
     })
 }

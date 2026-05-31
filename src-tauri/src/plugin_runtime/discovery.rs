@@ -12,6 +12,9 @@ pub struct PluginPackage {
     pub root_dir: PathBuf,
     pub manifest_path: PathBuf,
     pub entrypoint_source: Option<String>,
+    /// Whether this plugin is compiled into the binary (built-in) or installed
+    /// later by the user under `$AGENTJAX_HOME/plugins`.
+    pub is_builtin: bool,
 }
 
 /// Load and validate a plugin package from either a plugin directory or a
@@ -57,6 +60,7 @@ pub fn load_plugin_package(path: impl AsRef<Path>) -> PluginRuntimeResult<Plugin
         root_dir,
         manifest_path,
         entrypoint_source: None,
+        is_builtin: false,
     })
 }
 

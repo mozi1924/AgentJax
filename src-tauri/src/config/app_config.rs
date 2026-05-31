@@ -3,8 +3,8 @@ use crate::config::model_ref::{model_ref, parse_model_ref};
 use crate::config::prompt_composer::{compile_prompt_composer, normalize_prompt_composer};
 use crate::config::schema::{
     AppConfig, McpRuntimeConfig, McpServerConfig, McpToolSourcePolicyConfig, McpTransportKind,
-    ModelRequestConfig, ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
-    ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
+    ModelRequestConfig, PluginManagerConfig, ProviderConfig, ProviderModelConfig,
+    ResolvedModelConfig, ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
 };
 use crate::provider_api::registry;
 use std::collections::BTreeMap;
@@ -309,6 +309,21 @@ impl ToolSourcePolicyConfig {
     }
 }
 
+impl PluginManagerConfig {
+    pub fn normalize(mut self) -> Self {
+        let mut normalized = BTreeMap::new();
+        for (raw_key, entry) in std::mem::take(&mut self.plugins) {
+            let key = raw_key.trim().to_lowercase();
+            if key.is_empty() {
+                continue;
+            }
+            normalized.insert(key, entry);
+        }
+        self.plugins = normalized;
+        self
+    }
+}
+
 impl McpToolSourcePolicyConfig {
     fn normalize(mut self) -> Self {
         self.exposure = self
@@ -452,6 +467,7 @@ impl AppConfig {
 
         self.mcp_runtime = self.mcp_runtime.normalize();
         self.tool_manager = self.tool_manager.normalize();
+        self.plugin_manager = self.plugin_manager.normalize();
 
         let mut normalized_mcp_servers = BTreeMap::new();
         for (raw_key, mcp_server) in std::mem::take(&mut self.mcp_servers) {

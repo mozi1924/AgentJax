@@ -301,6 +301,9 @@ impl ToolCatalog {
     fn plugin_sources_snapshot(&self) -> Vec<ToolManagerSourceSnapshot> {
         self.plugin_manifests
             .values()
+            // Only show plugins that register tools in the tool manager.
+            // Provider-only plugins are managed via the Plugin Manager instead.
+            .filter(|manifest| !manifest.tools.is_empty())
             .map(|manifest| {
                 let source_enabled = self.plugin_source_enabled(&manifest.id);
                 let tools = registered_tools_for_manifest(manifest)

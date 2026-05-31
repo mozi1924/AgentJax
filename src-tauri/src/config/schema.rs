@@ -30,6 +30,8 @@ pub struct AppConfig {
     pub mcp_servers: BTreeMap<String, McpServerConfig>,
     #[serde(default)]
     pub tool_manager: ToolManagerConfig,
+    #[serde(default)]
+    pub plugin_manager: PluginManagerConfig,
     #[serde(default = "default_language")]
     pub language: String,
 }
@@ -48,6 +50,72 @@ pub struct ToolManagerConfig {
     pub plugin_tools: BTreeMap<String, ToolSourcePolicyConfig>,
     #[serde(default)]
     pub mcp_tools: BTreeMap<String, McpToolSourcePolicyConfig>,
+}
+
+/// Plugin lifecycle and permission configuration.
+///
+/// Controls whether a plugin is enabled at the plugin-manager level and
+/// allows the user to override individual sandbox permissions declared in the
+/// plugin's manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct PluginManagerConfig {
+    #[serde(default)]
+    pub plugins: BTreeMap<String, PluginEntryConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PluginEntryConfig {
+    /// Whether the plugin is enabled at the plugin-manager level.
+    /// A disabled plugin cannot register tools or providers.
+    pub enabled: bool,
+    /// Optional per-plugin permission overrides.
+    /// When `None`, the plugin's manifest-declared sandbox policy is used.
+    /// When `Some`, these values override the corresponding manifest fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<PluginPermissionOverride>,
+}
+
+impl Default for PluginEntryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            permissions: None,
+        }
+    }
+}
+
+/// Per-plugin sandbox permission overrides that users can toggle individually.
+///
+/// Each field is `Option<bool>` so we can distinguish between "user has not
+/// set an override" (`None`) and "user explicitly set to false" (`Some(false)`).
+/// When `None`, the effective permission falls back to the manifest-declared value.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PluginPermissionOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_network: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_file_read: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_file_write: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_process_spawn: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_env_read: Option<bool>,
+}
+
+impl Default for PluginPermissionOverride {
+    fn default() -> Self {
+        Self {
+            allow_network: None,
+            allow_file_read: None,
+            allow_file_write: None,
+            allow_process_spawn: None,
+            allow_env_read: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -324,6 +392,7 @@ impl Default for AppConfig {
             mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
             tool_manager: ToolManagerConfig::default(),
+            plugin_manager: PluginManagerConfig::default(),
             language: default_language(),
         }
     }

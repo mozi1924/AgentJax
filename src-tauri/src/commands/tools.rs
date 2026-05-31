@@ -1,6 +1,9 @@
 use crate::config;
 use crate::plugin_runtime::{PluginPackage, discover_all_plugin_packages};
-use crate::tools::{ToolCatalog, ToolManagerSnapshot, ToolManagerSnapshotRequest};
+use crate::tools::{
+    PluginManagerSnapshot, ToolCatalog, ToolManagerSnapshot, ToolManagerSnapshotRequest,
+    build_plugin_manager_snapshot,
+};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -17,6 +20,18 @@ pub async fn get_tool_manager_snapshot(
     Ok(catalog
         .tool_manager_snapshot(request.unwrap_or_default())
         .await)
+}
+
+/// Snapshot of all discovered plugins for the Plugin Manager UI.
+#[tauri::command]
+pub fn get_plugin_manager_snapshot() -> Result<PluginManagerSnapshot, String> {
+    let config = config::load_config()?;
+    let packages = discover_all_plugin_packages().map_err(|err| err.to_string())?;
+    let package_map: BTreeMap<String, PluginPackage> = packages
+        .into_iter()
+        .map(|pkg| (pkg.manifest.id.clone(), pkg))
+        .collect();
+    Ok(build_plugin_manager_snapshot(&package_map, &config.plugin_manager))
 }
 
 /// Snapshot of plugin-owned SchemaRenderer data sources.
@@ -108,6 +123,7 @@ mod tests {
             root_dir: PathBuf::from("/tmp/plugin"),
             manifest_path: PathBuf::from("/tmp/plugin/plugin.json"),
             entrypoint_source: None,
+            is_builtin: false,
         }
     }
 

@@ -1,0 +1,168 @@
+{
+  "id": "plugin_manager",
+  "title": "settings.plugins.title",
+  "icon": "Puzzle",
+  "order": 60,
+  "description": "settings.plugins.description",
+  "children": [
+    {
+      "kind": "layout",
+      "id": "plugin-manager",
+      "title": "settings.plugins.manager.title",
+      "description": "settings.plugins.manager.description",
+      "dataSource": "pluginManager",
+      "layout": "vertical",
+      "variant": "workbench",
+      "density": "compact",
+      "children": [
+        {
+          "kind": "split",
+          "id": "plugin-manager-layout",
+          "layout": "two-pane",
+          "responsive": "stack",
+          "children": [
+            {
+              "kind": "list",
+              "id": "plugin-list",
+              "dataSource": "pluginManager.plugins",
+              "action": "selectPlugin",
+              "variant": "sidebar",
+              "emptyText": "settings.plugins.empty",
+              "width": 260,
+              "scroll": "y",
+              "itemTemplate": {
+                "kind": "detail",
+                "id": "plugin-list-item-template",
+                "defaultExpanded": false,
+                "bindings": {
+                  "id": "id",
+                  "activeKey": "activePluginId",
+                  "title": "name",
+                  "meta": "version",
+                  "secondaryMeta": "originLabel",
+                  "description": "description"
+                },
+                "actions": [
+                  {
+                    "id": "togglePluginEnabled",
+                    "variant": "switch",
+                    "path": "policyPaths.pluginEnabledPath",
+                    "value": "enabled",
+                    "savingKey": "pluginSavingKey",
+                    "visibleWhen": [{ "path": "policyPaths.pluginEnabledPath", "truthy": true }]
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "detail",
+              "id": "plugin-detail",
+              "dataSource": "pluginManager.selectedPlugin",
+              "emptyText": "settings.plugins.select_plugin",
+              "scroll": "y",
+              "itemTemplate": {
+                "kind": "detail",
+                "id": "plugin-detail-template",
+                "defaultExpanded": true,
+                "bindings": {
+                  "title": "name",
+                  "description": "description",
+                  "actionsTitle": "settings.plugins.permissions",
+                  "detailItemsTitle": "settings.plugins.declared_permissions",
+                  "detailItems": "declaredPermissionList",
+                  "detailItemsEmptyText": "settings.plugins.no_declared_permissions",
+                  "detailItemName": "name",
+                  "detailItemType": "type",
+                  "detailItemDescription": "description",
+                  "detailItemRequired": "required",
+                  "requiredLabel": "settings.plugins.required"
+                },
+                "properties": [
+                  {
+                    "id": "plugin-id",
+                    "label": "settings.plugins.property.id",
+                    "value": "id",
+                    "variant": "code"
+                  },
+                  {
+                    "id": "plugin-version",
+                    "label": "settings.plugins.property.version",
+                    "value": "version",
+                    "variant": "badge"
+                  },
+                  {
+                    "id": "plugin-origin",
+                    "label": "settings.plugins.property.origin",
+                    "value": "originLabel",
+                    "variant": "badge"
+                  },
+                  {
+                    "id": "plugin-has-tools",
+                    "label": "settings.plugins.property.has_tools",
+                    "value": "hasToolsLabel",
+                    "variant": "badge"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "togglePluginEnabled",
+                    "variant": "switch",
+                    "path": "policyPaths.pluginEnabledPath",
+                    "value": "enabled",
+                    "savingKey": "pluginSavingKey",
+                    "visibleWhen": [{ "path": "policyPaths.pluginEnabledPath", "truthy": true }]
+                  },
+                  {
+                    "id": "togglePermission_allowNetwork",
+                    "label": "settings.plugins.permission.network",
+                    "variant": "switch",
+                    "path": "policyPaths.permissionNetworkPath",
+                    "value": "effectivePermissions.allowNetwork",
+                    "savingKey": "permissionSavingKey_allowNetwork",
+                    "visibleWhen": [{ "path": "declaredPermissions.allowNetwork", "truthy": true }]
+                  },
+                  {
+                    "id": "togglePermission_allowFileRead",
+                    "label": "settings.plugins.permission.file_read",
+                    "variant": "switch",
+                    "path": "policyPaths.permissionFileReadPath",
+                    "value": "effectivePermissions.allowFileRead",
+                    "savingKey": "permissionSavingKey_allowFileRead",
+                    "visibleWhen": [{ "path": "declaredPermissions.allowFileRead", "truthy": true }]
+                  },
+                  {
+                    "id": "togglePermission_allowFileWrite",
+                    "label": "settings.plugins.permission.file_write",
+                    "variant": "switch",
+                    "path": "policyPaths.permissionFileWritePath",
+                    "value": "effectivePermissions.allowFileWrite",
+                    "savingKey": "permissionSavingKey_allowFileWrite",
+                    "visibleWhen": [{ "path": "declaredPermissions.allowFileWrite", "truthy": true }]
+                  },
+                  {
+                    "id": "togglePermission_allowProcessSpawn",
+                    "label": "settings.plugins.permission.process_spawn",
+                    "variant": "switch",
+                    "path": "policyPaths.permissionProcessSpawnPath",
+                    "value": "effectivePermissions.allowProcessSpawn",
+                    "savingKey": "permissionSavingKey_allowProcessSpawn",
+                    "visibleWhen": [{ "path": "declaredPermissions.allowProcessSpawn", "truthy": true }]
+                  },
+                  {
+                    "id": "togglePermission_allowEnvRead",
+                    "label": "settings.plugins.permission.env_read",
+                    "variant": "switch",
+                    "path": "policyPaths.permissionEnvReadPath",
+                    "value": "effectivePermissions.allowEnvRead",
+                    "savingKey": "permissionSavingKey_allowEnvRead",
+                    "visibleWhen": [{ "path": "declaredPermissions.allowEnvRead", "truthy": true }]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

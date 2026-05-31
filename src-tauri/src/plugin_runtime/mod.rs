@@ -207,6 +207,7 @@ mod tests {
                 root_dir: std::env::temp_dir(),
                 manifest_path: std::env::temp_dir().join("plugin.json"),
                 entrypoint_source: Some("globalThis.AgentJaxPlugin = { tools: { echo() { return {}; } }, providers: [] };".to_string()),
+                is_builtin: false,
             })
             .expect("register package");
         let call = runtime

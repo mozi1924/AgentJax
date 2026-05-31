@@ -1,3 +1,4 @@
+import { usePluginManagerDataProvider } from './usePluginManagerDataProvider';
 import { usePluginSettingsDataProvider } from './usePluginSettingsDataProvider';
 import { useToolManagerDataProvider } from './useToolManagerDataProvider';
 import type { SchemaDataProvider, SchemaDataProviderArgs } from './types';
@@ -13,6 +14,7 @@ export function useRegisteredSchemaDataProviders(
     search: args.queryState?.search,
     onSearchChange: args.queryState?.onSearchChange,
   });
+  const pluginManagerProvider = usePluginManagerDataProvider(args);
 
-  return [toolManagerProvider, pluginProvider];
+  return [toolManagerProvider, pluginProvider, pluginManagerProvider];
 }

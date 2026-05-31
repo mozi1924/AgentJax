@@ -19,8 +19,9 @@ pub use prompt_composer::{
 #[allow(unused_imports)]
 pub use schema::{
     AppConfig, McpRuntimeConfig, McpServerConfig, McpToolSourcePolicyConfig, McpTransportKind,
-    ModelRequestConfig, ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
-    ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
+    ModelRequestConfig, PluginEntryConfig, PluginManagerConfig, PluginPermissionOverride,
+    ProviderConfig, ProviderModelConfig, ResolvedModelConfig, ToolEnabledConfig,
+    ToolManagerConfig, ToolSourcePolicyConfig,
 };
 #[allow(unused_imports)]
 pub use settings::{
@@ -67,19 +68,19 @@ mod tests {
     #[test]
     fn keeps_unresolved_model_refs_during_normalize() {
         let mut cfg = AppConfig::default();
-        cfg.default_model = "cm/gpt-5.4".to_string();
-        cfg.utility_small_model = "cm/gpt-5.4".to_string();
+        cfg.default_model = "cm/gpt-5.4-mini".to_string();
+        cfg.utility_small_model = "cm/gpt-5.4-mini".to_string();
 
         let normalized = cfg.normalize();
-        assert_eq!(normalized.default_model, "cm/gpt-5.4");
-        assert_eq!(normalized.utility_small_model, "cm/gpt-5.4");
+        assert_eq!(normalized.default_model, "cm/gpt-5.4-mini");
+        assert_eq!(normalized.utility_small_model, "cm/gpt-5.4-mini");
     }
 
     #[test]
     fn resolve_profile_falls_back_to_first_enabled_model_when_defaults_are_unresolved() {
         let mut cfg = AppConfig::default();
-        cfg.default_model = "cm/gpt-5.4".to_string();
-        cfg.utility_small_model = "cm/gpt-5.4".to_string();
+        cfg.default_model = "cm/gpt-5.4-mini".to_string();
+        cfg.utility_small_model = "cm/gpt-5.4-mini".to_string();
 
         let normalized = cfg.normalize();
         let resolved = normalized
@@ -104,18 +105,18 @@ mod tests {
             .insert(
                 "custom_key".to_string(),
                 super::schema::ProviderModelConfig {
-                    model: "gpt-5.4".to_string(),
+                    model: "gpt-5.4-mini".to_string(),
                     enabled: true,
                     request: ModelRequestConfig::default(),
                 },
             );
-        cfg.default_model = "openai-responses/gpt-5.4".to_string();
+        cfg.default_model = "openai-responses/gpt-5.4-mini".to_string();
 
         let normalized = cfg.normalize();
         let resolved = normalized
             .resolve_model_profile(None)
             .expect("resolve by model id");
-        assert_eq!(resolved.model_id, "gpt-5.4");
+        assert_eq!(resolved.model_id, "gpt-5.4-mini");
     }
 
     #[test]
@@ -174,8 +175,8 @@ mod tests {
         let path = home.join("config.yaml");
         let raw = [
             "active_provider: \"cm\"",
-            "default_model: \"cm/gpt-5.4\"",
-            "utility_small_model: \"cm/gpt-5.4\"",
+            "default_model: \"cm/gpt-5.4-mini\"",
+            "utility_small_model: \"cm/gpt-5.4-mini\"",
             "request_timeout_seconds: 77",
             "prompt_composer:",
             "  blocks:",
@@ -198,7 +199,7 @@ mod tests {
             "    request_timeout_seconds: 66",
             "    models:",
             "      profile_a:",
-            "        model: \"gpt-5.4\"",
+            "        model: \"gpt-5.4-mini\"",
             "        enabled: true",
             "        request:",
             "          reasoning_effort: \"high\"",

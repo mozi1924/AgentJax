@@ -201,19 +201,19 @@ fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
 
     let snapshot = get_settings_snapshot().expect("snapshot");
     let updated = apply_settings_patch(SettingsPatch {
-        path: "providers.openai-responses.models.GPT-5\\.4.model".to_string(),
-        value: Some(Value::from("gpt-5.4")),
+        path: "providers.openai-responses.models.GPT-5\\.4-mini.model".to_string(),
+        value: Some(Value::from("gpt-5.4-mini")),
         expected_revision: snapshot.revision,
         operation: SettingsPatchOperation::Set,
     })
     .expect("apply patch with escaped model profile key");
 
     assert_eq!(
-        updated.values["providers"]["openai-responses"]["models"]["GPT-5.4"]["model"],
-        Value::from("gpt-5.4")
+        updated.values["providers"]["openai-responses"]["models"]["GPT-5.4-Mini"]["model"],
+        Value::from("gpt-5.4-mini")
     );
     let raw = fs::read_to_string(&path).expect("read config");
-    assert!(raw.contains("GPT-5.4:"));
+    assert!(raw.contains("GPT-5.4-Mini:"));
 
     unsafe {
         std::env::remove_var(AGENTJAX_HOME_ENV);
