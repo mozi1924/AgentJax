@@ -161,6 +161,10 @@ fn validate_path_semantics(segments: &[String], root: &Value) -> Result<(), Stri
         validate_key(&segments[1], "MCP server key")?;
     }
 
+    if segments[0] == "tool_manager" {
+        validate_tool_manager_path(segments)?;
+    }
+
     if let Some(Value::Object(providers)) = root.get("providers") {
         for provider_key in providers.keys() {
             validate_key(provider_key, "provider key")?;
@@ -173,6 +177,50 @@ fn validate_path_semantics(segments: &[String], root: &Value) -> Result<(), Stri
         }
     }
 
+    if let Some(Value::Object(tool_manager)) = root.get("tool_manager") {
+        validate_tool_manager_keys(tool_manager)?;
+    }
+
+    Ok(())
+}
+
+fn validate_tool_manager_path(segments: &[String]) -> Result<(), String> {
+    if segments.len() >= 3 {
+        match segments[1].as_str() {
+            "native_tools" => validate_key(&segments[2], "native tool key")?,
+            "plugin_tools" => validate_key(&segments[2], "plugin id")?,
+            "mcp_tools" => validate_key(&segments[2], "MCP server key")?,
+            _ => {}
+        }
+    }
+    if segments.len() >= 5 && segments[3] == "tools" {
+        validate_key(&segments[4], "tool key")?;
+    }
+    Ok(())
+}
+
+fn validate_tool_manager_keys(tool_manager: &Map<String, Value>) -> Result<(), String> {
+    for (section, label) in [
+        ("native_tools", "native tool key"),
+        ("plugin_tools", "plugin id"),
+        ("mcp_tools", "MCP server key"),
+    ] {
+        let Some(Value::Object(sources)) = tool_manager.get(section) else {
+            continue;
+        };
+        for (source_key, source_value) in sources {
+            validate_key(source_key, label)?;
+            let Some(source_object) = source_value.as_object() else {
+                continue;
+            };
+            let Some(Value::Object(tools)) = source_object.get("tools") else {
+                continue;
+            };
+            for tool_key in tools.keys() {
+                validate_key(tool_key, "tool key")?;
+            }
+        }
+    }
     Ok(())
 }
 

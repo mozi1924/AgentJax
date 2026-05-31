@@ -3,7 +3,7 @@ use crate::config::constants::{
     default_mcp_startup_timeout_ms, default_mcp_tool_timeout_ms, default_true,
 };
 use crate::config::prompt_composer::{CompiledPromptAssembly, PromptComposerConfig};
-use crate::providers::registry;
+use crate::provider_api::registry;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -28,8 +28,117 @@ pub struct AppConfig {
     pub mcp_runtime: McpRuntimeConfig,
     #[serde(default)]
     pub mcp_servers: BTreeMap<String, McpServerConfig>,
+    #[serde(default)]
+    pub tool_manager: ToolManagerConfig,
+    #[serde(default)]
+    pub plugin_manager: PluginManagerConfig,
     #[serde(default = "default_language")]
     pub language: String,
+}
+
+/// User-facing tool exposure policy.
+///
+/// The first read-only Tools Manager surface uses this to report effective
+/// availability. Later management actions can patch the same structure without
+/// changing provider execution paths or source-specific config models.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ToolManagerConfig {
+    #[serde(default)]
+    pub native_tools: BTreeMap<String, ToolEnabledConfig>,
+    #[serde(default)]
+    pub plugin_tools: BTreeMap<String, ToolSourcePolicyConfig>,
+    #[serde(default)]
+    pub mcp_tools: BTreeMap<String, McpToolSourcePolicyConfig>,
+}
+
+/// Plugin lifecycle and permission configuration.
+///
+/// Controls whether a plugin is enabled at the plugin-manager level and
+/// allows the user to override individual sandbox permissions declared in the
+/// plugin's manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct PluginManagerConfig {
+    #[serde(default)]
+    pub plugins: BTreeMap<String, PluginEntryConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PluginEntryConfig {
+    /// Whether the plugin is enabled at the plugin-manager level.
+    /// A disabled plugin cannot register tools or providers.
+    pub enabled: bool,
+    /// Optional per-plugin permission overrides.
+    /// When `None`, the plugin's manifest-declared sandbox policy is used.
+    /// When `Some`, these values override the corresponding manifest fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<PluginPermissionOverride>,
+}
+
+impl Default for PluginEntryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            permissions: None,
+        }
+    }
+}
+
+/// Per-plugin sandbox permission overrides that users can toggle individually.
+///
+/// Each field is `Option<bool>` so we can distinguish between "user has not
+/// set an override" (`None`) and "user explicitly set to false" (`Some(false)`).
+/// When `None`, the effective permission falls back to the manifest-declared value.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PluginPermissionOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_network: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_file_read: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_file_write: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_process_spawn: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_env_read: Option<bool>,
+}
+
+impl Default for PluginPermissionOverride {
+    fn default() -> Self {
+        Self {
+            allow_network: None,
+            allow_file_read: None,
+            allow_file_write: None,
+            allow_process_spawn: None,
+            allow_env_read: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ToolEnabledConfig {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ToolSourcePolicyConfig {
+    pub enabled: bool,
+    #[serde(default)]
+    pub tools: BTreeMap<String, ToolEnabledConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct McpToolSourcePolicyConfig {
+    pub enabled: bool,
+    pub exposure: Option<String>,
+    #[serde(default)]
+    pub tools: BTreeMap<String, ToolEnabledConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,28 +195,145 @@ pub enum McpTransportKind {
 #[serde(default)]
 pub struct ProviderConfig {
     pub kind: String,
-    pub api_endpoint: String,
-    #[serde(default)]
-    pub models_endpoint_candidates: Vec<String>,
-    #[serde(default)]
-    pub query_params: BTreeMap<String, String>,
-    #[serde(default)]
-    pub http_headers: BTreeMap<String, String>,
-    #[serde(default)]
-    pub env_http_headers: BTreeMap<String, String>,
-    pub realtime_endpoint: Option<String>,
-    #[serde(default = "default_true")]
-    pub supports_websockets: bool,
-    pub stream_transport: String,
-    pub credential: Option<String>,
-    pub credential_env: String,
-    pub request_timeout_seconds: Option<u64>,
-    pub request_max_retries: Option<u32>,
-    pub stream_max_retries: Option<u32>,
-    pub stream_idle_timeout_ms: Option<u64>,
-    pub websocket_connect_timeout_ms: Option<u64>,
     #[serde(default)]
     pub models: BTreeMap<String, ProviderModelConfig>,
+    #[serde(flatten)]
+    pub custom_settings: serde_json::Map<String, Value>,
+}
+
+impl ProviderConfig {
+    pub fn api_endpoint(&self) -> String {
+        self.custom_settings
+            .get("apiEndpoint")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    }
+
+    pub fn models_endpoint_candidates(&self) -> Vec<String> {
+        self.custom_settings
+            .get("modelsEndpointCandidates")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|val| val.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn query_params(&self) -> BTreeMap<String, String> {
+        self.custom_settings
+            .get("queryParams")
+            .and_then(Value::as_object)
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn http_headers(&self) -> BTreeMap<String, String> {
+        self.custom_settings
+            .get("httpHeaders")
+            .and_then(Value::as_object)
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn env_http_headers(&self) -> BTreeMap<String, String> {
+        self.custom_settings
+            .get("envHttpHeaders")
+            .and_then(Value::as_object)
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn realtime_endpoint(&self) -> Option<String> {
+        self.custom_settings
+            .get("realtimeEndpoint")
+            .and_then(|val| {
+                if val.is_null() {
+                    None
+                } else {
+                    val.as_str().map(String::from)
+                }
+            })
+    }
+
+    pub fn supports_websockets(&self) -> bool {
+        self.custom_settings
+            .get("supportsWebsockets")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+    }
+
+    pub fn stream_transport(&self) -> String {
+        self.custom_settings
+            .get("streamTransport")
+            .and_then(Value::as_str)
+            .unwrap_or("sse")
+            .to_string()
+    }
+
+    pub fn credential(&self) -> Option<String> {
+        self.custom_settings.get("credential").and_then(|val| {
+            if val.is_null() {
+                None
+            } else {
+                val.as_str().map(String::from)
+            }
+        })
+    }
+
+    pub fn credential_env(&self) -> String {
+        self.custom_settings
+            .get("credentialEnv")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    }
+
+    pub fn request_timeout_seconds(&self) -> Option<u64> {
+        self.custom_settings
+            .get("requestTimeoutSeconds")
+            .and_then(Value::as_u64)
+    }
+
+    pub fn request_max_retries(&self) -> Option<u32> {
+        self.custom_settings
+            .get("requestMaxRetries")
+            .and_then(Value::as_u64)
+            .map(|v| v as u32)
+    }
+
+    pub fn stream_max_retries(&self) -> Option<u32> {
+        self.custom_settings
+            .get("streamMaxRetries")
+            .and_then(Value::as_u64)
+            .map(|v| v as u32)
+    }
+
+    pub fn stream_idle_timeout_ms(&self) -> Option<u64> {
+        self.custom_settings
+            .get("streamIdleTimeoutMs")
+            .and_then(Value::as_u64)
+    }
+
+    pub fn websocket_connect_timeout_ms(&self) -> Option<u64> {
+        self.custom_settings
+            .get("websocketConnectTimeoutMs")
+            .and_then(Value::as_u64)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,7 +375,10 @@ impl Default for AppConfig {
     fn default() -> Self {
         let mut providers = BTreeMap::new();
         let default_provider = registry::default_provider_definition();
-        providers.insert(default_provider.kind.to_string(), ProviderConfig::default());
+        providers.insert(
+            default_provider.kind.to_string(),
+            registry::default_provider_config(),
+        );
 
         Self {
             active_provider: default_provider.kind.to_string(),
@@ -162,7 +391,34 @@ impl Default for AppConfig {
             enable_developer_tools: false,
             mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
+            tool_manager: ToolManagerConfig::default(),
+            plugin_manager: PluginManagerConfig::default(),
             language: default_language(),
+        }
+    }
+}
+
+impl Default for ToolEnabledConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+impl Default for ToolSourcePolicyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            tools: BTreeMap::new(),
+        }
+    }
+}
+
+impl Default for McpToolSourcePolicyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            exposure: None,
+            tools: BTreeMap::new(),
         }
     }
 }
@@ -210,7 +466,11 @@ impl Default for McpRuntimeConfig {
 
 impl Default for ProviderConfig {
     fn default() -> Self {
-        registry::default_provider_config()
+        Self {
+            kind: String::new(),
+            models: BTreeMap::new(),
+            custom_settings: serde_json::Map::new(),
+        }
     }
 }
 

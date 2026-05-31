@@ -3,8 +3,8 @@ use super::chat_registry::ChatRequestRegistry;
 use super::chat_utils::run_blocking;
 use crate::config;
 use crate::conversation_store;
-use crate::providers;
-use crate::providers::types::ResponseStreamRequest;
+use crate::provider_api;
+use crate::provider_api::types::ResponseStreamRequest;
 use tauri::{Emitter, Manager};
 use tokio::sync::watch;
 
@@ -77,7 +77,7 @@ async fn generate_title_and_emit(
     };
 
     let response =
-        providers::stream_response(&config, &title_request, &mut title_cancel_rx, |_| Ok(())).await;
+        provider_api::stream_response(&config, &title_request, &mut title_cancel_rx, |_| Ok(())).await;
 
     let cancelled = *title_cancel_rx.borrow();
     registry.finish_title_request(conversation_id, &job_id)?;

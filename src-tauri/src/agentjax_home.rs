@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 pub const AGENTJAX_HOME_ENV: &str = "AGENTJAX_HOME";
 const AGENTJAX_DIR_NAME: &str = ".agentjax";
+const PLUGINS_DIR_NAME: &str = "plugins";
 
 pub fn agentjax_home_dir() -> Result<PathBuf, String> {
     let configured = std::env::var(AGENTJAX_HOME_ENV)
@@ -16,6 +17,21 @@ pub fn agentjax_home_dir() -> Result<PathBuf, String> {
     let home = dirs::home_dir()
         .ok_or_else(|| "Failed to resolve home directory for AgentJax".to_string())?;
     Ok(home.join(AGENTJAX_DIR_NAME))
+}
+
+pub fn plugins_dir() -> Result<PathBuf, String> {
+    Ok(agentjax_home_dir()?.join(PLUGINS_DIR_NAME))
+}
+
+pub fn ensure_plugins_dir() -> Result<PathBuf, String> {
+    let dir = plugins_dir()?;
+    std::fs::create_dir_all(&dir).map_err(|err| {
+        format!(
+            "Failed to create plugins directory {}: {err}",
+            dir.display()
+        )
+    })?;
+    Ok(dir)
 }
 
 fn expand_home_prefix(value: &str) -> Result<PathBuf, String> {
@@ -102,6 +118,23 @@ mod tests {
 
         let config_dir = crate::config::config_dir_path().expect("resolve config dir");
         assert_eq!(config_dir, expected);
+        unsafe {
+            std::env::remove_var(AGENTJAX_HOME_ENV);
+        }
+    }
+
+    #[test]
+    fn plugins_dir_lives_under_agentjax_home() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let expected = PathBuf::from("/tmp/agentjax-plugin-home");
+        unsafe {
+            std::env::set_var(AGENTJAX_HOME_ENV, expected.as_os_str());
+        }
+
+        let plugins_dir = plugins_dir().expect("resolve plugins dir");
+        assert_eq!(plugins_dir, expected.join("plugins"));
         unsafe {
             std::env::remove_var(AGENTJAX_HOME_ENV);
         }

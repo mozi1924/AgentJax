@@ -1,8 +1,15 @@
 #[cfg(test)]
 mod tests {
     use crate::agentjax_home::AGENTJAX_HOME_ENV;
-    use crate::config::{AppConfig, McpServerConfig};
+    use crate::config::{
+        AppConfig, McpServerConfig, McpToolSourcePolicyConfig, ToolEnabledConfig,
+        ToolManagerConfig, ToolSourcePolicyConfig,
+    };
     use crate::conversation_store;
+    use crate::plugin_runtime::{
+        PLUGIN_API_VERSION, PLUGIN_MANIFEST_FILE, PluginManifest, PluginToolDefinition,
+        PluginToolKind, SandboxPolicy,
+    };
     use crate::tools::{
         CalculatorTool, FileReaderTool, FileWriterTool, MountedToolDefinition,
         MountedToolSourceSession, MountedToolSourceSessions, SystemTimeTool, Tool, ToolCatalog,
@@ -12,7 +19,7 @@ mod tests {
     use std::sync::Arc;
 
     const DEFAULT_REGISTRY_TOOL_COUNT: usize = 7;
-    const DEFAULT_CATALOG_TOOL_COUNT: usize = DEFAULT_REGISTRY_TOOL_COUNT + 4;
+    const DEFAULT_CATALOG_TOOL_COUNT: usize = DEFAULT_REGISTRY_TOOL_COUNT + 1;
 
     struct TestHomeGuard {
         home: std::path::PathBuf,
@@ -864,25 +871,23 @@ mod tests {
         assert!(snapshot.active_tool_names().contains("calculator"));
         assert!(snapshot.active_tool_names().contains("get_system_time"));
         assert!(snapshot.active_tool_names().contains("list_files"));
+        assert!(snapshot.active_tool_names().contains("background_task"));
+        let bg_schema = snapshot
+            .schemas()
+            .iter()
+            .find(|schema| {
+                schema.get("name").and_then(|value| value.as_str()) == Some("background_task")
+            })
+            .expect("background_task schema");
         assert!(
-            snapshot
-                .active_tool_names()
-                .contains("start_background_tool")
+            bg_schema["description"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("background")
         );
-        assert!(
-            snapshot
-                .active_tool_names()
-                .contains("wait_background_tool")
-        );
-        assert!(
-            snapshot
-                .active_tool_names()
-                .contains("cancel_background_tool")
-        );
-        assert!(
-            snapshot
-                .active_tool_names()
-                .contains("list_background_tools")
+        assert_eq!(
+            bg_schema["parameters"]["properties"]["timeoutMs"]["default"],
+            json!(crate::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
         );
 
         let result = snapshot
@@ -897,7 +902,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_background_tool_sidecar_start_wait_and_list() {
+    async fn test_background_task_start_wait_and_list() {
         let config = crate::config::AppConfig::default();
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
@@ -905,8 +910,9 @@ mod tests {
 
         let started = snapshot
             .execute(
-                "start_background_tool",
+                "background_task",
                 &json!({
+                    "action": "start",
                     "toolName": "calculator",
                     "arguments": { "expression": "21 * 2" }
                 }),
@@ -915,25 +921,36 @@ mod tests {
             .await
             .expect("start background calculator");
         assert_eq!(started["ok"], true);
+        assert_eq!(started["role"], "background_tool_starter");
+        assert_eq!(started["decision"], "continue_or_await_later");
         assert_eq!(started["status"], "in_progress");
         let job_id = started["jobId"].as_str().expect("job id");
+        assert_eq!(
+            started["usage"]["wait"]["arguments"]["timeoutMs"],
+            json!(crate::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
+        );
 
         let waited = snapshot
             .execute(
-                "wait_background_tool",
-                &json!({ "jobId": job_id, "timeoutMs": 10_000 }),
+                "background_task",
+                &json!({ "action": "wait", "jobId": job_id, "timeoutMs": 10_000 }),
                 &ctx,
             )
             .await
             .expect("wait for background calculator");
+        assert_eq!(waited["ok"], true);
         assert_eq!(waited["timedOut"], false);
+        assert_eq!(waited["role"], "background_tool_awaiter");
+        assert_eq!(waited["decision"], "result_ready");
         assert_eq!(waited["job"]["status"], "completed");
         assert_eq!(waited["job"]["output"]["result"].as_f64(), Some(42.0));
 
         let jobs = snapshot
-            .execute("list_background_tools", &json!({}), &ctx)
+            .execute("background_task", &json!({ "action": "list" }), &ctx)
             .await
             .expect("list background jobs");
+        assert_eq!(jobs["role"], "background_tool_observer");
+        assert_eq!(jobs["decision"], "inspect_jobs_before_awaiting");
         assert!(jobs["jobs"].as_array().unwrap().iter().any(|job| {
             job.get("jobId").and_then(|value| value.as_str()) == Some(job_id)
                 && job.get("status").and_then(|value| value.as_str()) == Some("completed")
@@ -941,7 +958,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_background_tool_sidecar_is_conversation_scoped() {
+    async fn test_background_task_is_conversation_scoped() {
         let config = crate::config::AppConfig::default();
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let ctx_a = ToolExecutionContext {
@@ -954,8 +971,9 @@ mod tests {
 
         let started = snapshot
             .execute(
-                "start_background_tool",
+                "background_task",
                 &json!({
+                    "action": "start",
                     "toolName": "calculator",
                     "arguments": { "expression": "5 * 9" }
                 }),
@@ -970,7 +988,7 @@ mod tests {
         );
 
         let other_conversation_jobs = snapshot
-            .execute("list_background_tools", &json!({}), &ctx_b)
+            .execute("background_task", &json!({ "action": "list" }), &ctx_b)
             .await
             .expect("list other conversation jobs");
         assert!(
@@ -983,8 +1001,8 @@ mod tests {
 
         let wrong_conversation_wait = snapshot
             .execute(
-                "wait_background_tool",
-                &json!({ "jobId": job_id, "timeoutMs": 100 }),
+                "background_task",
+                &json!({ "action": "wait", "jobId": job_id, "timeoutMs": 100 }),
                 &ctx_b,
             )
             .await;
@@ -992,8 +1010,8 @@ mod tests {
 
         let waited = snapshot
             .execute(
-                "wait_background_tool",
-                &json!({ "jobId": job_id, "timeoutMs": 10_000 }),
+                "background_task",
+                &json!({ "action": "wait", "jobId": job_id, "timeoutMs": 10_000 }),
                 &ctx_a,
             )
             .await
@@ -1003,7 +1021,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_background_tool_sidecar_cancel() {
+    async fn test_background_task_cancel() {
         let config = crate::config::AppConfig::default();
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
@@ -1022,7 +1040,7 @@ mod tests {
         crate::tools::background_jobs::register_job_handle(&job, handle);
 
         let cancelled = snapshot
-            .execute("cancel_background_tool", &json!({ "jobId": job_id }), &ctx)
+            .execute("background_task", &json!({ "action": "cancel", "jobId": job_id }), &ctx)
             .await
             .expect("cancel background job");
         assert_eq!(cancelled["ok"], true);
@@ -1031,8 +1049,8 @@ mod tests {
 
         let waited = snapshot
             .execute(
-                "wait_background_tool",
-                &json!({ "jobId": job_id, "timeoutMs": 1_000 }),
+                "background_task",
+                &json!({ "action": "wait", "jobId": job_id, "timeoutMs": 1_000 }),
                 &ctx,
             )
             .await
@@ -1088,7 +1106,16 @@ mod tests {
         .await
         .expect("wait other conversation job");
         assert_eq!(still_running["timedOut"], true);
+        assert_eq!(still_running["role"], "background_tool_awaiter");
+        assert_eq!(
+            still_running["decision"],
+            "continue_other_work_or_wait_again"
+        );
         assert_eq!(still_running["job"]["status"], "in_progress");
+        assert_eq!(
+            still_running["usage"]["waitAgain"]["arguments"]["timeoutMs"],
+            json!(crate::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
+        );
 
         crate::tools::background_jobs::cancel_conversation_jobs(&other_conversation_id);
     }
@@ -1329,6 +1356,133 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_plugin_manifest_tools_are_exposed_with_prefixed_names() {
+        let plugin_manifest = PluginManifest {
+            id: "local.demo".to_string(),
+            name: "Local Demo".to_string(),
+            version: "0.1.0".to_string(),
+            api_version: PLUGIN_API_VERSION,
+            entrypoint: "plugin.ts".to_string(),
+            description: "Demo plugin".to_string(),
+            tools: vec![PluginToolDefinition {
+                name: "say_hello".to_string(),
+                display_name: "Say Hello".to_string(),
+                description: "Returns a greeting from the demo plugin.".to_string(),
+                icon: Some("Puzzle".to_string()),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" }
+                    }
+                }),
+                kind: PluginToolKind::Function,
+            }],
+            settings_sections: Vec::new(),
+            settings_data: Default::default(),
+            providers: Vec::new(),
+            sandbox: SandboxPolicy::default(),
+        };
+
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &AppConfig::default(),
+        )
+        .with_plugin_manifests(vec![plugin_manifest])
+        .expect("plugin manifest should validate");
+        let snapshot = catalog
+            .snapshot_with_format(
+                ToolSchemaFormat::Responses,
+                &ToolExecutionContext::default(),
+            )
+            .await;
+
+        let plugin_tool_name = "plugin__local_demo__say_hello";
+        assert!(snapshot.active_tool_names().contains(plugin_tool_name));
+        assert!(snapshot.schemas().iter().any(|schema| {
+            schema.get("name").and_then(|value| value.as_str()) == Some(plugin_tool_name)
+        }));
+        assert_eq!(
+            snapshot
+                .presentation_for(plugin_tool_name)
+                .and_then(|presentation| presentation.icon.as_deref()),
+            Some("Puzzle")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_home_plugin_package_is_exposed_and_executable() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = setup_test_home();
+        let plugin_dir = home.home.join("plugins").join("home-demo");
+        std::fs::create_dir_all(&plugin_dir).expect("create plugin dir");
+        std::fs::write(
+            plugin_dir.join("plugin.js"),
+            r#"
+globalThis.AgentJaxPlugin = {
+  tools: {
+    echo(args, context) {
+      return {
+        message: args.message,
+        conversationId: context.conversationId
+      };
+    }
+  }
+};
+"#,
+        )
+        .expect("write plugin entrypoint");
+        std::fs::write(
+            plugin_dir.join(PLUGIN_MANIFEST_FILE),
+            serde_json::json!({
+                "id": "home.demo",
+                "name": "Home Demo",
+                "version": "0.1.0",
+                "apiVersion": PLUGIN_API_VERSION,
+                "entrypoint": "plugin.js",
+                "tools": [{
+                    "name": "echo",
+                    "displayName": "Echo",
+                    "description": "Echoes a message through a home plugin.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "message": { "type": "string" }
+                        }
+                    }
+                }],
+                "sandbox": {
+                    "maxExecutionMs": 30000
+                }
+            })
+            .to_string(),
+        )
+        .expect("write plugin manifest");
+
+        let catalog = ToolCatalog::new_with_home_plugins(
+            Arc::new(crate::mcp::McpManager::new()),
+            &AppConfig::default(),
+        );
+        let context = ToolExecutionContext {
+            conversation_id: Some("conversation-1".to_string()),
+        };
+        let snapshot = catalog
+            .snapshot_with_format(ToolSchemaFormat::Responses, &context)
+            .await;
+        let plugin_tool_name = "plugin__home_demo__echo";
+
+        assert!(snapshot.active_tool_names().contains(plugin_tool_name));
+        let output = snapshot
+            .execute(plugin_tool_name, &json!({ "message": "hello" }), &context)
+            .await
+            .expect("execute home plugin tool");
+
+        assert_eq!(output["message"], "hello");
+        assert_eq!(output["conversationId"], "conversation-1");
+    }
+
+    #[tokio::test]
     async fn test_snapshot_restores_persisted_mounted_mcp_server_from_conversation_metadata() {
         let _guard = crate::config::test_env_lock()
             .lock()
@@ -1406,6 +1560,284 @@ mod tests {
             !snapshot
                 .active_tool_names()
                 .contains("mcp_server__unfolded_server")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tool_manager_snapshot_groups_sources_without_eager_mcp_discovery() {
+        let mut config = AppConfig::default();
+        config
+            .mcp_servers
+            .insert("openai_docs".to_string(), McpServerConfig::default());
+
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.tool_manager_snapshot(Default::default()).await;
+
+        let native_source = snapshot
+            .sources
+            .iter()
+            .find(|source| source.source_id == "native")
+            .expect("native source exists");
+        assert!(
+            native_source
+                .tools
+                .iter()
+                .any(|tool| tool.id == "calculator")
+        );
+        let calculator = native_source
+            .tools
+            .iter()
+            .find(|tool| tool.id == "calculator")
+            .expect("calculator tool exists in manager snapshot");
+        assert_eq!(
+            calculator.schema_format,
+            crate::tools::ToolManagerSchemaFormat::JsonSchema
+        );
+        assert_eq!(
+            calculator.policy_paths.tool_enabled_path.as_deref(),
+            Some("tool_manager.native_tools.calculator.enabled")
+        );
+        assert_eq!(
+            calculator
+                .input_schema
+                .as_ref()
+                .and_then(|schema| schema.get("properties"))
+                .and_then(|properties| properties.get("expression"))
+                .and_then(|property| property.get("type"))
+                .and_then(serde_json::Value::as_str),
+            Some("string")
+        );
+
+        let mcp_source = snapshot
+            .sources
+            .iter()
+            .find(|source| source.source_id == "openai_docs")
+            .expect("configured MCP source exists");
+        assert_eq!(
+            mcp_source.source_type,
+            crate::tools::ToolManagerSourceType::Mcp
+        );
+        assert_eq!(mcp_source.status, "configured");
+        assert_eq!(
+            mcp_source.policy_paths.source_enabled_path.as_deref(),
+            Some("tool_manager.mcp_tools.openai_docs.enabled")
+        );
+        assert_eq!(
+            mcp_source.policy_paths.exposure_path.as_deref(),
+            Some("tool_manager.mcp_tools.openai_docs.exposure")
+        );
+        assert!(mcp_source.tools.is_empty());
+        assert!(mcp_source.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_tool_manager_mcp_discovery_failure_is_source_scoped() {
+        let mut config = AppConfig::default();
+        config
+            .mcp_servers
+            .insert("broken".to_string(), McpServerConfig::default());
+
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog
+            .tool_manager_snapshot(crate::tools::ToolManagerSnapshotRequest {
+                source_id: Some("broken".to_string()),
+                discover: true,
+                conversation_id: None,
+            })
+            .await;
+
+        let mcp_source = snapshot
+            .sources
+            .iter()
+            .find(|source| source.source_id == "broken")
+            .expect("broken MCP source exists");
+        assert_eq!(mcp_source.status, "error");
+        assert!(
+            mcp_source
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("requires `command`")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tool_manager_policy_filters_runtime_catalog_tools() {
+        let plugin_manifest = PluginManifest {
+            id: "local.demo".to_string(),
+            name: "Local Demo".to_string(),
+            version: "0.1.0".to_string(),
+            api_version: PLUGIN_API_VERSION,
+            entrypoint: "plugin.ts".to_string(),
+            description: "Demo plugin".to_string(),
+            tools: vec![PluginToolDefinition {
+                name: "say_hello".to_string(),
+                display_name: "Say Hello".to_string(),
+                description: "Returns a greeting from the demo plugin.".to_string(),
+                icon: Some("Puzzle".to_string()),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" }
+                    }
+                }),
+                kind: PluginToolKind::Function,
+            }],
+            settings_sections: Vec::new(),
+            settings_data: Default::default(),
+            providers: Vec::new(),
+            sandbox: SandboxPolicy::default(),
+        };
+
+        let mut config = AppConfig::default();
+        config.tool_manager = ToolManagerConfig {
+            native_tools: [(
+                "calculator".to_string(),
+                ToolEnabledConfig { enabled: false },
+            )]
+            .into_iter()
+            .collect(),
+            plugin_tools: [(
+                "local.demo".to_string(),
+                ToolSourcePolicyConfig {
+                    enabled: true,
+                    tools: [(
+                        "say_hello".to_string(),
+                        ToolEnabledConfig { enabled: false },
+                    )]
+                    .into_iter()
+                    .collect(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+            mcp_tools: Default::default(),
+        };
+
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config)
+            .with_plugin_manifests(vec![plugin_manifest])
+            .expect("plugin manifest should validate");
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+
+        assert!(!snapshot.active_tool_names().contains("calculator"));
+        assert!(
+            !snapshot
+                .active_tool_names()
+                .contains("plugin__local_demo__say_hello")
+        );
+
+        let manager_snapshot = catalog.tool_manager_snapshot(Default::default()).await;
+        let native_source = manager_snapshot
+            .sources
+            .iter()
+            .find(|source| source.source_id == "native")
+            .expect("native source exists");
+        let calculator = native_source
+            .tools
+            .iter()
+            .find(|tool| tool.id == "calculator")
+            .expect("calculator is visible in manager snapshot");
+        assert!(!calculator.enabled);
+
+        let mut reenabled_config = config.clone();
+        reenabled_config.tool_manager.native_tools.insert(
+            "calculator".to_string(),
+            ToolEnabledConfig { enabled: true },
+        );
+        let reenabled_catalog =
+            ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &reenabled_config);
+        let reenabled_snapshot = reenabled_catalog
+            .snapshot(&ToolExecutionContext::default())
+            .await;
+        assert!(
+            reenabled_snapshot
+                .active_tool_names()
+                .contains("calculator")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tool_manager_mcp_exposure_unfolded_replaces_control_with_server_tools() {
+        let _guard = crate::config::test_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = setup_test_home();
+        let server_script = home.home.join("mock-mcp-server.js");
+        std::fs::write(
+            &server_script,
+            r#"
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin });
+
+function respond(id, result) {
+  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
+}
+
+rl.on('line', (line) => {
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') {
+    respond(message.id, {
+      protocolVersion: message.params?.protocolVersion || '2024-11-05',
+      capabilities: { tools: { listChanged: false } },
+      serverInfo: { name: 'mock-mcp', version: '0.1.0' }
+    });
+    return;
+  }
+  if (message.method === 'tools/list') {
+    respond(message.id, {
+      tools: [{
+        name: 'search_docs',
+        description: 'Search mock docs.',
+        inputSchema: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+          required: ['query']
+        }
+      }]
+    });
+    return;
+  }
+  if (message.id !== undefined) {
+    respond(message.id, {});
+  }
+});
+"#,
+        )
+        .expect("write mock MCP server");
+
+        let mut config = AppConfig::default();
+        config.mcp_runtime.startup_timeout_ms = 5_000;
+        config.mcp_runtime.tool_timeout_ms = 5_000;
+        config.mcp_servers.insert(
+            "openai_docs".to_string(),
+            McpServerConfig {
+                enabled: true,
+                command: "node".to_string(),
+                args: vec![server_script.to_string_lossy().to_string()],
+                ..McpServerConfig::default()
+            },
+        );
+        config.tool_manager.mcp_tools.insert(
+            "openai_docs".to_string(),
+            McpToolSourcePolicyConfig {
+                enabled: true,
+                exposure: Some("unfolded".to_string()),
+                tools: Default::default(),
+            },
+        );
+
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+
+        assert!(
+            !snapshot
+                .active_tool_names()
+                .contains("mcp_server__openai_docs")
+        );
+        assert!(
+            snapshot
+                .active_tool_names()
+                .contains("mcp__openai_docs__search_docs")
         );
     }
 }

@@ -32,7 +32,13 @@ Context protocol:
 Verification protocol:
 - Reuse relevant information already present in the conversation and tool results.
 - After making changes, run the best available focused verification before concluding when feasible.
-- When you cannot verify something directly, say so plainly in the final answer."#;
+- When you cannot verify something directly, say so plainly in the final answer.
+
+Background tool protocol:
+- If a tool may take a long time and you can make progress elsewhere, start it with `background_task` with `action: "start"` instead of blocking on the target tool directly.
+- Treat waiting as a separate awaiter step. Call `background_task` with `action: "wait"` only when that background result is on the critical path.
+- Prefer short awaiter checkpoints. If `background_task` with `action: "wait"` reports `timedOut: true` or `decision: continue_other_work_or_wait_again`, decide whether to continue other useful work, wait again later, list jobs, or cancel.
+- Do not immediately use a long wait after starting a background job unless there is truly nothing else useful to do."#;
 pub const DEFAULT_TIMEOUT_SECONDS: u64 = 120;
 pub const DEFAULT_DEFAULT_MODEL_REF: &str = "openai-responses/gpt-5-mini";
 pub const DEFAULT_UTILITY_SMALL_MODEL_REF: &str = "openai-responses/gpt-5-mini";

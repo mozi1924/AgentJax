@@ -1,9 +1,5 @@
-use crate::config::constants::{
-    BUILTIN_CORE_SYSTEM_BLOCK_CONTENT, BUILTIN_CORE_SYSTEM_BLOCK_ID, BUILTIN_CORE_SYSTEM_SOURCE_ID,
-    BUILTIN_CORE_SYSTEM_TITLE, CONFIG_FILE_NAME, DEFAULT_DEFAULT_MODEL_REF,
-    DEFAULT_TIMEOUT_SECONDS, DEFAULT_UTILITY_SMALL_MODEL_REF,
-};
-use crate::config::schema::{AppConfig, ProviderConfig};
+use crate::config::constants::CONFIG_FILE_NAME;
+use crate::config::schema::AppConfig;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -51,6 +47,7 @@ pub fn init_config_if_missing() -> Result<PathBuf, String> {
 }
 
 pub fn load_config() -> Result<AppConfig, String> {
+    register_home_provider_plugins();
     let path = init_config_if_missing()?;
     let raw = read_config_file(&path)?;
     let parsed = parse_config_yaml(&path, &raw)?;
@@ -58,6 +55,7 @@ pub fn load_config() -> Result<AppConfig, String> {
 }
 
 pub fn upgrade_config_file() -> Result<ConfigUpgradeResult, String> {
+    register_home_provider_plugins();
     let path = init_config_if_missing()?;
     let raw = read_config_file(&path)?;
     let parsed = parse_config_yaml(&path, &raw)?;
@@ -68,6 +66,15 @@ pub fn upgrade_config_file() -> Result<ConfigUpgradeResult, String> {
         config_path: path.display().to_string(),
         upgraded,
     })
+}
+
+fn register_home_provider_plugins() {
+    match crate::plugin_runtime::discover_home_plugin_packages() {
+        Ok(packages) => {
+            crate::provider_api::registry::register_plugin_providers_from_packages(packages)
+        }
+        Err(err) => log::warn!("Failed to discover provider plugins: {err}"),
+    }
 }
 
 pub fn get_config_info() -> Result<ConfigInfo, String> {
@@ -84,97 +91,24 @@ pub fn get_config_info() -> Result<ConfigInfo, String> {
         utility_small_model: config.utility_small_model.clone(),
         models: config.configured_models(),
         has_credential: active_provider_config.resolved_credential().is_some(),
-        credential_env: active_provider_config.credential_env,
+        credential_env: active_provider_config.credential_env(),
         request_timeout_seconds: config.request_timeout_seconds,
     })
 }
 
 fn default_config_yaml() -> String {
-    let provider = ProviderConfig::default();
-
-    let mut lines = vec![
+    let config = AppConfig::default();
+    let mut lines = [
         "# AgentJax configuration".to_string(),
         "# Home directory: AGENTJAX_HOME (default: ~/.agentjax)".to_string(),
         "# Config path: $AGENTJAX_HOME/config.yaml".to_string(),
+        "# Plugin directory: $AGENTJAX_HOME/plugins".to_string(),
         String::new(),
-        format!("active_provider: \"{}\"", provider.kind),
-        format!("default_model: \"{}\"", DEFAULT_DEFAULT_MODEL_REF),
-        format!(
-            "utility_small_model: \"{}\"",
-            DEFAULT_UTILITY_SMALL_MODEL_REF
-        ),
-        format!("request_timeout_seconds: {}", DEFAULT_TIMEOUT_SECONDS),
-        "show_advanced_request_options: false".to_string(),
-        "enable_developer_tools: false".to_string(),
-        "language: \"auto\"".to_string(),
-        "prompt_composer:".to_string(),
-        "  blocks:".to_string(),
-        format!("    - id: \"{}\"", BUILTIN_CORE_SYSTEM_BLOCK_ID),
-        format!("      title: \"{}\"", BUILTIN_CORE_SYSTEM_TITLE),
-        "      role: \"system\"".to_string(),
-        "      enabled: true".to_string(),
-        "      source: \"builtin\"".to_string(),
-        format!("      source_id: \"{}\"", BUILTIN_CORE_SYSTEM_SOURCE_ID),
-        "      locked: true".to_string(),
-        "      content: |".to_string(),
-        indent_block(BUILTIN_CORE_SYSTEM_BLOCK_CONTENT, 8),
-        String::new(),
-        "providers:".to_string(),
-        format!("  {}:", provider.kind),
-        format!("    kind: \"{}\"", provider.kind),
-        format!("    api_endpoint: \"{}\"", provider.api_endpoint),
-        "    query_params: {}".to_string(),
-        "    http_headers: {}".to_string(),
-        "    env_http_headers: {}".to_string(),
-        "    realtime_endpoint: \"\"".to_string(),
-        format!("    supports_websockets: {}", provider.supports_websockets),
-        format!("    stream_transport: \"{}\"", provider.stream_transport),
-        "    credential: \"\"".to_string(),
-        format!("    credential_env: \"{}\"", provider.credential_env),
-        "    request_timeout_seconds: 120".to_string(),
-        "    request_max_retries: null".to_string(),
-        "    stream_max_retries: null".to_string(),
-        "    stream_idle_timeout_ms: null".to_string(),
-        "    websocket_connect_timeout_ms: null".to_string(),
-        "    models:".to_string(),
-    ];
-
-    for model_key in provider.models.keys() {
-        lines.push(format!("      {}:", model_key));
-        lines.push(format!("        model: \"{}\"", model_key));
-        lines.push("        enabled: true".to_string());
-        lines.push("        request:".to_string());
-        lines.push("          temperature: null".to_string());
-        lines.push("          top_p: null".to_string());
-        lines.push("          top_k: null".to_string());
-        lines.push("          max_output_tokens: null".to_string());
-        lines.push("          frequency_penalty: null".to_string());
-        lines.push("          presence_penalty: null".to_string());
-        lines.push("          reasoning_effort: null".to_string());
-        lines.push("          extra_body: {}".to_string());
-    }
-
-    lines.extend([
-        String::new(),
-        "mcp_runtime:".to_string(),
-        "  stdio:".to_string(),
-        "    inherit_parent_env: false".to_string(),
-        "    env: {}".to_string(),
-        String::new(),
-        "mcp_servers: {}".to_string(),
-        String::new(),
-    ]);
-
+        serde_yaml::to_string(&config).expect("default AppConfig should serialize to YAML"),
+    ]
+    .to_vec();
+    lines.push(String::new());
     lines.join("\n")
-}
-
-fn indent_block(value: &str, spaces: usize) -> String {
-    let indent = " ".repeat(spaces);
-    value
-        .lines()
-        .map(|line| format!("{indent}{line}"))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn read_config_file(path: &Path) -> Result<String, String> {

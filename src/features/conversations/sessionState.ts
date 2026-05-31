@@ -367,27 +367,49 @@ export const appendPendingToolCall = (
   toolIcon?: string,
   toolArguments?: string
 ): Conversation[] =>
-  updateConversation(conversations, conversationId, (conversation) => ({
-    ...conversation,
-    lines: [
-      ...conversation.lines,
-      {
+  updateConversation(conversations, conversationId, (conversation) => {
+    const now = Date.now();
+    const callId = toolCallId || '';
+    const hasArguments = toolArguments !== undefined;
+    const parsedArgs = hasArguments ? parsePossiblyJson(toolArguments) : '';
+    let found = false;
+    const lines = conversation.lines.map((line) => {
+      if (line.kind === 'tool' && (line as ToolLine).callId === callId) {
+        found = true;
+        const toolLine = line as ToolLine;
+        return {
+          ...toolLine,
+          name: toolName || toolLine.name || '',
+          displayName: toolDisplayName || toolLine.displayName || null,
+          description: toolDescription || toolLine.description || null,
+          icon: toolIcon || toolLine.icon || null,
+          args: hasArguments ? parsedArgs : toolLine.args,
+          status: 'pending' as const,
+        } satisfies ToolLine;
+      }
+      return line;
+    });
+
+    if (!found) {
+      lines.push({
         kind: 'tool' as const,
-        id: `tool-${requestId}-${toolCallId || ''}`,
-        ts: Date.now(),
-        startedTs: Date.now(),
+        id: `tool-${requestId}-${callId}`,
+        ts: now,
+        startedTs: now,
         completedTs: null,
         requestId,
-        callId: toolCallId || '',
+        callId,
         name: toolName || '',
         displayName: toolDisplayName || null,
         description: toolDescription || null,
         icon: toolIcon || null,
-        args: parsePossiblyJson(toolArguments),
+        args: parsedArgs,
         status: 'pending' as const,
-      },
-    ],
-  }));
+      });
+    }
+
+    return { ...conversation, lines };
+  });
 
 export const applyToolExecution = (
   conversations: Conversation[],
@@ -463,6 +485,8 @@ export const applyToolDelta = (
           args:
             typeof toolLine.args === 'string'
               ? toolLine.args + (delta || '')
+              : toolLine.args === undefined || toolLine.args === null
+                ? delta || ''
               : toolLine.args,
         } satisfies ToolLine;
       }

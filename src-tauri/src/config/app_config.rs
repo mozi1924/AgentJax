@@ -2,10 +2,11 @@ use crate::config::constants::{DEFAULT_DEFAULT_MODEL_REF, DEFAULT_TIMEOUT_SECOND
 use crate::config::model_ref::{model_ref, parse_model_ref};
 use crate::config::prompt_composer::{compile_prompt_composer, normalize_prompt_composer};
 use crate::config::schema::{
-    AppConfig, McpRuntimeConfig, McpServerConfig, McpTransportKind, ModelRequestConfig,
-    ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
+    AppConfig, McpRuntimeConfig, McpServerConfig, McpToolSourcePolicyConfig, McpTransportKind,
+    ModelRequestConfig, PluginManagerConfig, ProviderConfig, ProviderModelConfig,
+    ResolvedModelConfig, ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
 };
-use crate::providers::registry;
+use crate::provider_api::registry;
 use std::collections::BTreeMap;
 
 impl ProviderConfig {
@@ -15,81 +16,99 @@ impl ProviderConfig {
             self.kind = provider_key.to_string();
         }
 
-        let provider_definition = registry::provider_definition(&self.kind);
+        self.normalize_legacy_custom_setting_keys();
 
-        self.api_endpoint = self.api_endpoint.trim().trim_end_matches('/').to_string();
-        if self.api_endpoint.is_empty() {
-            self.api_endpoint = provider_definition
-                .as_ref()
-                .map(|definition| definition.default_api_endpoint.to_string())
-                .unwrap_or_default();
-        }
-        self.models_endpoint_candidates = self
-            .models_endpoint_candidates
-            .iter()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .collect();
-        self.query_params = normalize_string_map(std::mem::take(&mut self.query_params));
-        self.http_headers = normalize_string_map(std::mem::take(&mut self.http_headers));
-        self.env_http_headers = normalize_string_map(std::mem::take(&mut self.env_http_headers));
-
-        self.stream_transport = self.stream_transport.trim().to_lowercase();
-        if self.stream_transport != "websocket" && self.stream_transport != "sse" {
-            self.stream_transport = provider_definition
-                .as_ref()
-                .map(|definition| definition.default_stream_transport.to_string())
-                .unwrap_or_else(|| {
-                    if self.supports_websockets {
-                        "websocket".to_string()
-                    } else {
-                        "sse".to_string()
+        // Auto-complete custom_settings fields dynamically using registered config schema
+        if let Some(definition) = registry::provider_definition(&self.kind) {
+            if let Some(obj) = definition.config_schema.as_object() {
+                if let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {
+                    for (key, property_schema) in properties {
+                        if !self.custom_settings.contains_key(key) {
+                            let default_val = property_schema
+                                .get("default")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null);
+                            self.custom_settings.insert(key.clone(), default_val);
+                        }
                     }
-                });
-        }
-        if !self.supports_websockets && self.stream_transport == "websocket" {
-            self.stream_transport = "sse".to_string();
+                }
+            }
+
+            // Auto-complete models if completely empty
+            if self.models.is_empty() {
+                for model_id in &definition.default_model_ids {
+                    self.models.insert(
+                        model_id.clone(),
+                        ProviderModelConfig {
+                            model: model_id.clone(),
+                            enabled: true,
+                            request: ModelRequestConfig::default(),
+                        },
+                    );
+                }
+            }
         }
 
-        self.realtime_endpoint = self
-            .realtime_endpoint
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| s.trim_end_matches('/').to_string());
-        if self.realtime_endpoint.is_none() {
-            self.realtime_endpoint = provider_definition
-                .as_ref()
-                .and_then(|definition| definition.default_realtime_endpoint.map(ToOwned::to_owned));
+        // Perform custom settings self-healing and normalization
+        if let Some(serde_json::Value::String(api_endpoint)) =
+            self.custom_settings.get("apiEndpoint")
+        {
+            let trimmed = api_endpoint.trim().trim_end_matches('/').to_string();
+            self.custom_settings.insert(
+                "apiEndpoint".to_string(),
+                serde_json::Value::String(trimmed),
+            );
         }
 
-        self.credential_env = self.credential_env.trim().to_string();
-        if self.credential_env.is_empty() {
-            self.credential_env = provider_definition
-                .as_ref()
-                .map(|definition| definition.default_credential_env.to_string())
-                .unwrap_or_else(|| {
-                    format!(
-                        "{}_API_KEY",
-                        provider_key
-                            .chars()
-                            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-                            .collect::<String>()
-                            .to_uppercase()
-                    )
-                });
+        if let Some(serde_json::Value::String(realtime_endpoint)) =
+            self.custom_settings.get("realtimeEndpoint")
+        {
+            let trimmed = realtime_endpoint.trim().trim_end_matches('/').to_string();
+            self.custom_settings.insert(
+                "realtimeEndpoint".to_string(),
+                serde_json::Value::String(trimmed),
+            );
         }
 
-        if matches!(self.request_timeout_seconds, Some(0)) {
-            self.request_timeout_seconds = None;
+        let supports_ws = self.supports_websockets();
+        let mut transport = self.stream_transport().trim().to_lowercase();
+        if transport != "websocket" && transport != "sse" {
+            if let Some(definition) = registry::provider_definition(&self.kind) {
+                transport = definition.default_config.stream_transport();
+            } else {
+                transport = if supports_ws {
+                    "websocket".to_string()
+                } else {
+                    "sse".to_string()
+                };
+            }
         }
-        if matches!(self.stream_idle_timeout_ms, Some(0)) {
-            self.stream_idle_timeout_ms = None;
+        if !supports_ws && transport == "websocket" {
+            transport = "sse".to_string();
         }
-        if matches!(self.websocket_connect_timeout_ms, Some(0)) {
-            self.websocket_connect_timeout_ms = None;
+        self.custom_settings.insert(
+            "streamTransport".to_string(),
+            serde_json::Value::String(transport),
+        );
+
+        for key in &["queryParams", "httpHeaders", "envHttpHeaders"] {
+            if let Some(serde_json::Value::Object(obj)) = self.custom_settings.get(*key) {
+                let mut normalized = serde_json::Map::new();
+                for (k, v) in obj {
+                    let k = k.trim().to_string();
+                    if k.is_empty() {
+                        continue;
+                    }
+                    if let serde_json::Value::String(s) = v {
+                        normalized.insert(k, serde_json::Value::String(s.trim().to_string()));
+                    }
+                }
+                self.custom_settings
+                    .insert(key.to_string(), serde_json::Value::Object(normalized));
+            }
         }
 
+        // Normalize model configuration items
         let mut normalized_models = BTreeMap::new();
         for (raw_key, mut model_cfg) in std::mem::take(&mut self.models) {
             let model_key = raw_key.trim().to_string();
@@ -108,16 +127,48 @@ impl ProviderConfig {
         self
     }
 
+    /// Preserve compatibility with older YAML files that stored provider
+    /// extension settings as snake_case keys while the runtime schema now uses
+    /// camelCase. Existing camelCase values win so a partially migrated config
+    /// never has newer edits overwritten by legacy aliases.
+    fn normalize_legacy_custom_setting_keys(&mut self) {
+        for (legacy_key, canonical_key) in [
+            ("api_endpoint", "apiEndpoint"),
+            ("models_endpoint_candidates", "modelsEndpointCandidates"),
+            ("query_params", "queryParams"),
+            ("http_headers", "httpHeaders"),
+            ("env_http_headers", "envHttpHeaders"),
+            ("realtime_endpoint", "realtimeEndpoint"),
+            ("supports_websockets", "supportsWebsockets"),
+            ("stream_transport", "streamTransport"),
+            ("credential_env", "credentialEnv"),
+            ("request_timeout_seconds", "requestTimeoutSeconds"),
+            ("request_max_retries", "requestMaxRetries"),
+            ("stream_max_retries", "streamMaxRetries"),
+            ("stream_idle_timeout_ms", "streamIdleTimeoutMs"),
+            ("websocket_connect_timeout_ms", "websocketConnectTimeoutMs"),
+        ] {
+            if self.custom_settings.contains_key(canonical_key) {
+                self.custom_settings.remove(legacy_key);
+                continue;
+            }
+            if let Some(value) = self.custom_settings.remove(legacy_key) {
+                self.custom_settings
+                    .insert(canonical_key.to_string(), value);
+            }
+        }
+    }
+
     pub fn resolved_credential(&self) -> Option<String> {
         let from_config = self
-            .credential
+            .credential()
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(ToOwned::to_owned);
 
         from_config.or_else(|| {
-            std::env::var(&self.credential_env)
+            std::env::var(&self.credential_env())
                 .ok()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
@@ -125,28 +176,29 @@ impl ProviderConfig {
     }
 
     pub fn resolved_realtime_endpoint(&self) -> String {
-        if let Some(url) = &self.realtime_endpoint {
-            return url.clone();
+        if let Some(url) = self.realtime_endpoint() {
+            return url;
         }
 
-        if self.api_endpoint.starts_with("https://") {
-            return format!("wss://{}", self.api_endpoint.trim_start_matches("https://"));
+        let api_endpoint = self.api_endpoint();
+        if api_endpoint.starts_with("https://") {
+            return format!("wss://{}", api_endpoint.trim_start_matches("https://"));
         }
-        if self.api_endpoint.starts_with("http://") {
-            return format!("ws://{}", self.api_endpoint.trim_start_matches("http://"));
+        if api_endpoint.starts_with("http://") {
+            return format!("ws://{}", api_endpoint.trim_start_matches("http://"));
         }
 
-        format!("wss://{}", self.api_endpoint)
+        format!("wss://{}", api_endpoint)
     }
 
     pub fn resolved_timeout_seconds(&self, global_default: u64) -> u64 {
-        self.request_timeout_seconds.unwrap_or(global_default)
+        self.request_timeout_seconds().unwrap_or(global_default)
     }
 
     pub fn resolved_http_headers(&self) -> BTreeMap<String, String> {
-        let mut headers = self.http_headers.clone();
+        let mut headers = self.http_headers();
 
-        for (header_name, env_key) in &self.env_http_headers {
+        for (header_name, env_key) in &self.env_http_headers() {
             let env_key = env_key.trim();
             if env_key.is_empty() {
                 continue;
@@ -240,6 +292,51 @@ impl McpServerConfig {
     }
 }
 
+impl ToolManagerConfig {
+    pub fn normalize(mut self) -> Self {
+        self.native_tools = normalize_tool_enabled_map(std::mem::take(&mut self.native_tools));
+        self.plugin_tools =
+            normalize_tool_source_policy_map(std::mem::take(&mut self.plugin_tools));
+        self.mcp_tools = normalize_mcp_tool_source_policy_map(std::mem::take(&mut self.mcp_tools));
+        self
+    }
+}
+
+impl ToolSourcePolicyConfig {
+    fn normalize(mut self) -> Self {
+        self.tools = normalize_tool_enabled_map(std::mem::take(&mut self.tools));
+        self
+    }
+}
+
+impl PluginManagerConfig {
+    pub fn normalize(mut self) -> Self {
+        let mut normalized = BTreeMap::new();
+        for (raw_key, entry) in std::mem::take(&mut self.plugins) {
+            let key = raw_key.trim().to_lowercase();
+            if key.is_empty() {
+                continue;
+            }
+            normalized.insert(key, entry);
+        }
+        self.plugins = normalized;
+        self
+    }
+}
+
+impl McpToolSourcePolicyConfig {
+    fn normalize(mut self) -> Self {
+        self.exposure = self
+            .exposure
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_ascii_lowercase());
+        self.tools = normalize_tool_enabled_map(std::mem::take(&mut self.tools));
+        self
+    }
+}
+
 fn normalize_string_map(map: BTreeMap<String, String>) -> BTreeMap<String, String> {
     let mut normalized = BTreeMap::new();
     for (raw_key, raw_value) in map {
@@ -248,6 +345,48 @@ fn normalize_string_map(map: BTreeMap<String, String>) -> BTreeMap<String, Strin
             continue;
         }
         normalized.insert(key, raw_value.trim().to_string());
+    }
+    normalized
+}
+
+fn normalize_tool_enabled_map(
+    map: BTreeMap<String, ToolEnabledConfig>,
+) -> BTreeMap<String, ToolEnabledConfig> {
+    let mut normalized = BTreeMap::new();
+    for (raw_key, policy) in map {
+        let key = raw_key.trim().to_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        normalized.insert(key, policy);
+    }
+    normalized
+}
+
+fn normalize_tool_source_policy_map(
+    map: BTreeMap<String, ToolSourcePolicyConfig>,
+) -> BTreeMap<String, ToolSourcePolicyConfig> {
+    let mut normalized = BTreeMap::new();
+    for (raw_key, policy) in map {
+        let key = raw_key.trim().to_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        normalized.insert(key, policy.normalize());
+    }
+    normalized
+}
+
+fn normalize_mcp_tool_source_policy_map(
+    map: BTreeMap<String, McpToolSourcePolicyConfig>,
+) -> BTreeMap<String, McpToolSourcePolicyConfig> {
+    let mut normalized = BTreeMap::new();
+    for (raw_key, policy) in map {
+        let key = raw_key.trim().to_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        normalized.insert(key, policy.normalize());
     }
     normalized
 }
@@ -282,8 +421,8 @@ impl AppConfig {
         if normalized_providers.is_empty() {
             let default_provider = registry::default_provider_definition();
             normalized_providers.insert(
-                default_provider.kind.to_string(),
-                default_provider.build_default_config(),
+                default_provider.kind.clone(),
+                default_provider.default_config.clone(),
             );
         }
         self.providers = normalized_providers;
@@ -303,8 +442,8 @@ impl AppConfig {
         if !has_any_model {
             if let Some(provider) = self.providers.get_mut(&self.active_provider) {
                 let fallback_model_id = registry::provider_definition(&provider.kind)
-                    .and_then(|definition| definition.default_model_ids.first().copied())
-                    .unwrap_or("gpt-5-mini");
+                    .and_then(|definition| definition.default_model_ids.first().cloned())
+                    .unwrap_or_else(|| "gpt-5-mini".to_string());
                 provider.models.insert(
                     fallback_model_id.to_string(),
                     ProviderModelConfig {
@@ -327,6 +466,8 @@ impl AppConfig {
         }
 
         self.mcp_runtime = self.mcp_runtime.normalize();
+        self.tool_manager = self.tool_manager.normalize();
+        self.plugin_manager = self.plugin_manager.normalize();
 
         let mut normalized_mcp_servers = BTreeMap::new();
         for (raw_key, mcp_server) in std::mem::take(&mut self.mcp_servers) {

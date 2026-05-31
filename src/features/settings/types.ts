@@ -23,9 +23,31 @@ export type SettingsControlType =
   | 'json'
   | 'prompt_assembler';
 
+export type SettingsUiNodeKind =
+  | 'layout'
+  | 'panel'
+  | 'tabs'
+  | 'split'
+  | 'toolbar'
+  | 'list'
+  | 'detail'
+  | 'collapsible'
+  | 'badge'
+  | 'metric'
+  | 'empty_state'
+  | 'action';
+
 export interface SettingsOption {
   label: string;
   value: string;
+}
+
+export interface SettingsUiProperty {
+  id: string;
+  label?: string;
+  value: string;
+  variant?: 'text' | 'code' | 'badge' | 'status' | string;
+  visibleWhen?: SettingsCondition[];
 }
 
 export interface SecretStatus {
@@ -67,7 +89,7 @@ export interface SettingsCondition {
 
 interface SettingsNodeBase {
   id: string;
-  title: string;
+  title?: string;
   description?: string;
   helpText?: string;
   warningText?: string;
@@ -76,8 +98,45 @@ interface SettingsNodeBase {
   enabledWhen?: SettingsCondition[];
 }
 
-export interface SettingsFieldSchema extends SettingsNodeBase {
+export interface SettingsCommonUiProps {
+  layout?: string;
+  variant?: string;
+  density?: 'compact' | 'comfortable' | 'spacious' | string;
+  width?: string | number;
+  height?: string | number;
+  scroll?: boolean | 'x' | 'y' | 'both';
+  responsive?: string | Record<string, unknown>;
+  icon?: string;
+  badge?: string | number | boolean | Record<string, unknown>;
+  status?: string;
+  defaultExpanded?: boolean;
+  actions?: SettingsUiAction[];
+  properties?: SettingsUiProperty[];
+  dataSource?: string;
+  itemTemplate?: SettingsSchemaNode;
+  bindings?: Record<string, string>;
+  emptyText?: string;
+  action?: string;
+}
+
+export interface SettingsUiAction {
+  id: string;
+  label?: string;
+  action?: string;
+  icon?: string;
+  variant?: string;
+  visibleWhen?: SettingsCondition[];
+  disabledWhen?: SettingsCondition[];
+  dataSource?: string;
+  path?: string;
+  value?: string;
+  savingKey?: string;
+  options?: SettingsOption[];
+}
+
+export interface SettingsFieldSchema extends SettingsNodeBase, SettingsCommonUiProps {
   kind: 'field';
+  title: string;
   path: string;
   valueType: SettingsValueType;
   control: SettingsControlType;
@@ -93,13 +152,15 @@ export interface SettingsFieldSchema extends SettingsNodeBase {
   rows?: number;
 }
 
-export interface SettingsGroupSchema extends SettingsNodeBase {
+export interface SettingsGroupSchema extends SettingsNodeBase, SettingsCommonUiProps {
   kind: 'group';
+  title: string;
   children: SettingsSchemaNode[];
 }
 
-export interface SettingsCollectionSchema extends SettingsNodeBase {
+export interface SettingsCollectionSchema extends SettingsNodeBase, SettingsCommonUiProps {
   kind: 'collection';
+  title: string;
   path: string;
   valueType: 'object_collection';
   addLabel: string;
@@ -110,10 +171,27 @@ export interface SettingsCollectionSchema extends SettingsNodeBase {
   children: SettingsSchemaNode[];
 }
 
+export interface SettingsUiTab {
+  id: string;
+  title: string;
+  icon?: string;
+  children: SettingsSchemaNode[];
+}
+
+export interface SettingsUiSchemaNode extends SettingsNodeBase, SettingsCommonUiProps {
+  kind: SettingsUiNodeKind;
+  title?: string;
+  label?: string;
+  value?: unknown;
+  children?: SettingsSchemaNode[];
+  tabs?: SettingsUiTab[];
+}
+
 export type SettingsSchemaNode =
   | SettingsFieldSchema
   | SettingsGroupSchema
-  | SettingsCollectionSchema;
+  | SettingsCollectionSchema
+  | SettingsUiSchemaNode;
 
 export interface SettingsSectionSchema {
   id: string;

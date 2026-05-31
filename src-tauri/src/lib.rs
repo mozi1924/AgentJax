@@ -8,8 +8,8 @@ mod conversation_store_utils;
 pub mod mcp;
 mod message_phase;
 mod models;
+pub mod provider_api;
 pub mod plugin_runtime;
-mod providers;
 pub mod runtime;
 mod time_context;
 pub mod tools;
@@ -136,6 +136,9 @@ pub fn run() {
             commands::config::get_settings_snapshot,
             commands::config::get_settings_ui_snapshot,
             commands::config::apply_settings_patch,
+            commands::tools::get_tool_manager_snapshot,
+            commands::tools::get_plugin_manager_snapshot,
+            commands::tools::get_plugin_settings_snapshot,
             commands::models::get_model_catalog,
             commands::models::force_sync_model_cache,
             commands::devtools::open_devtools

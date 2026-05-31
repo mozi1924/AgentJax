@@ -18,8 +18,10 @@ pub use prompt_composer::{
 };
 #[allow(unused_imports)]
 pub use schema::{
-    AppConfig, McpRuntimeConfig, McpServerConfig, McpTransportKind, ModelRequestConfig,
-    ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
+    AppConfig, McpRuntimeConfig, McpServerConfig, McpToolSourcePolicyConfig, McpTransportKind,
+    ModelRequestConfig, PluginEntryConfig, PluginManagerConfig, PluginPermissionOverride,
+    ProviderConfig, ProviderModelConfig, ResolvedModelConfig, ToolEnabledConfig,
+    ToolManagerConfig, ToolSourcePolicyConfig,
 };
 #[allow(unused_imports)]
 pub use settings::{
@@ -66,19 +68,19 @@ mod tests {
     #[test]
     fn keeps_unresolved_model_refs_during_normalize() {
         let mut cfg = AppConfig::default();
-        cfg.default_model = "cm/gpt-5.4".to_string();
-        cfg.utility_small_model = "cm/gpt-5.4".to_string();
+        cfg.default_model = "cm/gpt-5.4-mini".to_string();
+        cfg.utility_small_model = "cm/gpt-5.4-mini".to_string();
 
         let normalized = cfg.normalize();
-        assert_eq!(normalized.default_model, "cm/gpt-5.4");
-        assert_eq!(normalized.utility_small_model, "cm/gpt-5.4");
+        assert_eq!(normalized.default_model, "cm/gpt-5.4-mini");
+        assert_eq!(normalized.utility_small_model, "cm/gpt-5.4-mini");
     }
 
     #[test]
     fn resolve_profile_falls_back_to_first_enabled_model_when_defaults_are_unresolved() {
         let mut cfg = AppConfig::default();
-        cfg.default_model = "cm/gpt-5.4".to_string();
-        cfg.utility_small_model = "cm/gpt-5.4".to_string();
+        cfg.default_model = "cm/gpt-5.4-mini".to_string();
+        cfg.utility_small_model = "cm/gpt-5.4-mini".to_string();
 
         let normalized = cfg.normalize();
         let resolved = normalized
@@ -103,18 +105,18 @@ mod tests {
             .insert(
                 "custom_key".to_string(),
                 super::schema::ProviderModelConfig {
-                    model: "gpt-5.4".to_string(),
+                    model: "gpt-5.4-mini".to_string(),
                     enabled: true,
                     request: ModelRequestConfig::default(),
                 },
             );
-        cfg.default_model = "openai-responses/gpt-5.4".to_string();
+        cfg.default_model = "openai-responses/gpt-5.4-mini".to_string();
 
         let normalized = cfg.normalize();
         let resolved = normalized
             .resolve_model_profile(None)
             .expect("resolve by model id");
-        assert_eq!(resolved.model_id, "gpt-5.4");
+        assert_eq!(resolved.model_id, "gpt-5.4-mini");
     }
 
     #[test]
@@ -123,6 +125,7 @@ mod tests {
         let resolved = cfg.resolve_model_profile(None).expect("resolve");
         assert!(resolved.system_prompt.contains("agentic coding assistant"));
         assert!(resolved.system_prompt.contains("Commentary protocol"));
+        assert!(resolved.system_prompt.contains("Background tool protocol"));
     }
 
     #[test]
@@ -172,8 +175,8 @@ mod tests {
         let path = home.join("config.yaml");
         let raw = [
             "active_provider: \"cm\"",
-            "default_model: \"cm/gpt-5.4\"",
-            "utility_small_model: \"cm/gpt-5.4\"",
+            "default_model: \"cm/gpt-5.4-mini\"",
+            "utility_small_model: \"cm/gpt-5.4-mini\"",
             "request_timeout_seconds: 77",
             "prompt_composer:",
             "  blocks:",
@@ -196,7 +199,7 @@ mod tests {
             "    request_timeout_seconds: 66",
             "    models:",
             "      profile_a:",
-            "        model: \"gpt-5.4\"",
+            "        model: \"gpt-5.4-mini\"",
             "        enabled: true",
             "        request:",
             "          reasoning_effort: \"high\"",
@@ -232,15 +235,47 @@ mod tests {
             .providers
             .get_mut("openai-responses")
             .expect("openai-responses provider exists");
-        provider.supports_websockets = false;
-        provider.stream_transport = "websocket".to_string();
+        provider.custom_settings.insert(
+            "supportsWebsockets".to_string(),
+            serde_json::Value::Bool(false),
+        );
+        provider.custom_settings.insert(
+            "streamTransport".to_string(),
+            serde_json::Value::String("websocket".to_string()),
+        );
 
         let normalized = cfg.normalize();
         let provider = normalized
             .providers
             .get("openai-responses")
             .expect("normalized provider exists");
-        assert_eq!(provider.stream_transport, "sse");
+        assert_eq!(provider.stream_transport(), "sse");
+    }
+
+    #[test]
+    fn provider_normalize_accepts_legacy_snake_case_custom_settings() {
+        let mut provider = ProviderConfig::default();
+        provider.kind = "openai-responses".to_string();
+        provider.custom_settings.insert(
+            "api_endpoint".to_string(),
+            serde_json::Value::String("https://gateway.example.test/v1/".to_string()),
+        );
+        provider.custom_settings.insert(
+            "credential_env".to_string(),
+            serde_json::Value::String("TEST_AGENTJAX_GATEWAY_KEY".to_string()),
+        );
+        provider.custom_settings.insert(
+            "stream_transport".to_string(),
+            serde_json::Value::String("websocket".to_string()),
+        );
+
+        let normalized = provider.normalize_for_key("gateway");
+
+        assert_eq!(normalized.api_endpoint(), "https://gateway.example.test/v1");
+        assert_eq!(normalized.credential_env(), "TEST_AGENTJAX_GATEWAY_KEY");
+        assert_eq!(normalized.stream_transport(), "websocket");
+        assert!(!normalized.custom_settings.contains_key("api_endpoint"));
+        assert!(!normalized.custom_settings.contains_key("credential_env"));
     }
 
     #[test]
@@ -249,16 +284,29 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut provider = ProviderConfig::default();
-        provider
-            .http_headers
-            .insert("X-Feature".to_string(), "static".to_string());
-        provider.env_http_headers.insert(
-            "Authorization".to_string(),
-            "TEST_AGENTJAX_AUTH".to_string(),
-        );
-        provider.env_http_headers.insert(
+
+        let mut http_headers = serde_json::Map::new();
+        http_headers.insert(
             "X-Feature".to_string(),
-            "TEST_AGENTJAX_X_FEATURE".to_string(),
+            serde_json::Value::String("static".to_string()),
+        );
+        provider.custom_settings.insert(
+            "httpHeaders".to_string(),
+            serde_json::Value::Object(http_headers),
+        );
+
+        let mut env_http_headers = serde_json::Map::new();
+        env_http_headers.insert(
+            "Authorization".to_string(),
+            serde_json::Value::String("TEST_AGENTJAX_AUTH".to_string()),
+        );
+        env_http_headers.insert(
+            "X-Feature".to_string(),
+            serde_json::Value::String("TEST_AGENTJAX_X_FEATURE".to_string()),
+        );
+        provider.custom_settings.insert(
+            "envHttpHeaders".to_string(),
+            serde_json::Value::Object(env_http_headers),
         );
 
         unsafe {
@@ -442,5 +490,86 @@ mod tests {
                 .contains("## System / instructions")
         );
         assert!(compiled.preview_markdown.contains("## Developer messages"));
+    }
+
+    #[test]
+    fn test_plugin_provider_registration_and_config_self_healing() {
+        use crate::plugin_runtime::PluginProviderDefinition;
+        use crate::provider_api::registry::{register_plugin_provider, unregister_plugin_provider};
+
+        let plugin_provider = PluginProviderDefinition {
+            kind: "custom-oauth-llm".to_string(),
+            display_name: "Custom OAuth LLM".to_string(),
+            config_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "apiKey": {
+                        "type": "string",
+                        "default": "default-oauth-key"
+                    },
+                    "apiEndpoint": {
+                        "type": "string",
+                        "default": "https://api.custom-oauth.com/v1"
+                    },
+                    "customParam": {
+                        "type": "string",
+                        "default": "custom-value"
+                    }
+                }
+            }),
+            default_model_ids: vec!["custom-model-1".to_string(), "custom-model-2".to_string()],
+            capabilities: Some(serde_json::json!(
+                crate::provider_api::ProviderCapabilities::chat_completions()
+            )),
+            tool_schema_format: Some("chat_completions".to_string()),
+            ..Default::default()
+        };
+
+        // Register the provider
+        register_plugin_provider(plugin_provider);
+
+        // Create an AppConfig where the provider config is registered but custom_settings is empty
+        let mut cfg = AppConfig::default();
+        let mut provider_cfg = ProviderConfig::default();
+        provider_cfg.kind = "custom-oauth-llm".to_string();
+        cfg.providers
+            .insert("custom-oauth-llm".to_string(), provider_cfg);
+
+        // Normalize
+        let normalized = cfg.normalize();
+        let provider = normalized
+            .providers
+            .get("custom-oauth-llm")
+            .expect("custom-oauth-llm provider exists");
+
+        // Verify custom_settings has been auto-completed with defaults from the schema
+        assert_eq!(
+            provider
+                .custom_settings
+                .get("apiKey")
+                .and_then(|v| v.as_str()),
+            Some("default-oauth-key")
+        );
+        assert_eq!(
+            provider
+                .custom_settings
+                .get("apiEndpoint")
+                .and_then(|v| v.as_str()),
+            Some("https://api.custom-oauth.com/v1")
+        );
+        assert_eq!(
+            provider
+                .custom_settings
+                .get("customParam")
+                .and_then(|v| v.as_str()),
+            Some("custom-value")
+        );
+
+        // Verify defaults models are populated and enabled
+        assert!(provider.models.contains_key("custom-model-1"));
+        assert!(provider.models.get("custom-model-1").unwrap().enabled);
+
+        // Clean up
+        unregister_plugin_provider("custom-oauth-llm");
     }
 }

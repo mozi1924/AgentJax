@@ -1,0 +1,14 @@
+{
+  "id": "agentjax.provider.openai-responses",
+  "name": "OpenAI Responses Provider",
+  "version": "0.0.0",
+  "apiVersion": 1,
+  "entrypoint": "plugin.js",
+  "description": "Built-in AgentJax provider plugin for OpenAI Responses-compatible APIs.",
+  "sandbox": {
+    "allowNetwork": true,
+    "allowFileRead": false,
+    "allowFileWrite": false,
+    "maxExecutionMs": 30000
+  }
+}

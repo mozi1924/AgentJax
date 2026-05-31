@@ -24,12 +24,12 @@ fn write_test_config(home: &Path) -> std::path::PathBuf {
         "providers:",
         "  openai-responses:",
         "    kind: \"openai-responses\"",
-        "    api_endpoint: \"https://api.openai.com/v1\"",
-        "    realtime_endpoint: \"\"",
-        "    stream_transport: \"websocket\"",
+        "    apiEndpoint: \"https://api.openai.com/v1\"",
+        "    realtimeEndpoint: \"\"",
+        "    streamTransport: \"websocket\"",
         "    credential: \"SECRET\"",
-        "    credential_env: \"OPENAI_API_KEY\"",
-        "    request_timeout_seconds: 120",
+        "    credentialEnv: \"OPENAI_API_KEY\"",
+        "    requestTimeoutSeconds: 120",
         "    models:",
         "      gpt-5-mini:",
         "        model: \"gpt-5-mini\"",
@@ -149,6 +149,43 @@ fn apply_patch_rejects_invalid_collection_keys() {
 }
 
 #[test]
+fn apply_patch_updates_tool_manager_policy() {
+    let _guard = crate::config::test_env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let home =
+        std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&home).expect("create home");
+    let path = write_test_config(&home);
+
+    unsafe {
+        std::env::set_var(AGENTJAX_HOME_ENV, &home);
+    }
+
+    let snapshot = get_settings_snapshot().expect("snapshot");
+    let updated = apply_settings_patch(SettingsPatch {
+        path: "tool_manager.native_tools.calculator.enabled".to_string(),
+        value: Some(Value::Bool(false)),
+        expected_revision: snapshot.revision,
+        operation: SettingsPatchOperation::Set,
+    })
+    .expect("apply tool manager patch");
+
+    assert_eq!(
+        updated.values["tool_manager"]["native_tools"]["calculator"]["enabled"],
+        Value::Bool(false)
+    );
+    let raw = fs::read_to_string(&path).expect("read config");
+    assert!(raw.contains("tool_manager:"));
+    assert!(raw.contains("calculator:"));
+
+    unsafe {
+        std::env::remove_var(AGENTJAX_HOME_ENV);
+    }
+    let _ = fs::remove_dir_all(home);
+}
+
+#[test]
 fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
     let _guard = crate::config::test_env_lock()
         .lock()
@@ -164,19 +201,19 @@ fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
 
     let snapshot = get_settings_snapshot().expect("snapshot");
     let updated = apply_settings_patch(SettingsPatch {
-        path: "providers.openai-responses.models.GPT-5\\.4.model".to_string(),
-        value: Some(Value::from("gpt-5.4")),
+        path: "providers.openai-responses.models.GPT-5\\.4-mini.model".to_string(),
+        value: Some(Value::from("gpt-5.4-mini")),
         expected_revision: snapshot.revision,
         operation: SettingsPatchOperation::Set,
     })
     .expect("apply patch with escaped model profile key");
 
     assert_eq!(
-        updated.values["providers"]["openai-responses"]["models"]["GPT-5.4"]["model"],
-        Value::from("gpt-5.4")
+        updated.values["providers"]["openai-responses"]["models"]["GPT-5.4-Mini"]["model"],
+        Value::from("gpt-5.4-mini")
     );
     let raw = fs::read_to_string(&path).expect("read config");
-    assert!(raw.contains("GPT-5.4:"));
+    assert!(raw.contains("GPT-5.4-Mini:"));
 
     unsafe {
         std::env::remove_var(AGENTJAX_HOME_ENV);

@@ -7,8 +7,8 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-const DEFAULT_WAIT_TIMEOUT_MS: u64 = 30_000;
-const MAX_WAIT_TIMEOUT_MS: u64 = 120_000;
+pub(crate) const DEFAULT_WAIT_TIMEOUT_MS: u64 = 5_000;
+pub(crate) const MAX_WAIT_TIMEOUT_MS: u64 = 120_000;
 // Terminal job snapshots are useful for follow-up waits/lists, but they should
 // not accumulate forever in the process-wide registry.
 const TERMINAL_JOB_RETENTION_MS: i64 = 6 * 60 * 60 * 1_000;
@@ -358,6 +358,8 @@ pub(crate) fn list_jobs(conversation_id: Option<&str>) -> Value {
     });
     json!({
         "ok": true,
+        "role": "background_tool_observer",
+        "decision": "inspect_jobs_before_awaiting",
         "jobs": items,
     })
 }
@@ -392,6 +394,8 @@ pub(crate) async fn wait_for_job(
             return Ok(json!({
                 "ok": ok,
                 "timedOut": false,
+                "role": "background_tool_awaiter",
+                "decision": if ok { "result_ready" } else { "terminal_failure" },
                 "job": snapshot,
             }));
         }
@@ -413,7 +417,37 @@ pub(crate) async fn wait_for_job(
     Ok(json!({
         "ok": completed,
         "timedOut": timed_out,
+        "role": "background_tool_awaiter",
+        "decision": if completed {
+            "result_ready"
+        } else if timed_out {
+            "continue_other_work_or_wait_again"
+        } else {
+            "terminal_failure"
+        },
         "job": snapshot,
+        "usage": if completed || serialized_status_is_terminal(&snapshot) {
+            json!({})
+        } else {
+            json!({
+                "waitAgain": {
+                    "tool": "background_task",
+                    "arguments": {
+                        "action": "wait",
+                        "jobId": job_id,
+                        "timeoutMs": DEFAULT_WAIT_TIMEOUT_MS
+                    }
+                },
+                "list": {
+                    "tool": "background_task",
+                    "arguments": { "action": "list" }
+                },
+                "cancel": {
+                    "tool": "background_task",
+                    "arguments": { "action": "cancel", "jobId": job_id }
+                }
+            })
+        },
     }))
 }
 

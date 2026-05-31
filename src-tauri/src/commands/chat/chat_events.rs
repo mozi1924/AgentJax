@@ -1,4 +1,4 @@
-use crate::providers::types::ProviderStreamEvent;
+use crate::provider_api::types::ProviderStreamEvent;
 use serde::Serialize;
 use tauri::Emitter;
 

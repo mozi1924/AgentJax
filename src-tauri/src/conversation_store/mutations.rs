@@ -19,7 +19,7 @@ use super::types::{
     DEFAULT_CONVERSATION_TITLE, LOG_VERSION, ToolStatus, UpdateLineInput,
 };
 use crate::conversation_store_utils::{normalize_title, now_unix_ms};
-use crate::providers::types::{ProviderUsage, ProviderUsageRecord};
+use crate::provider_api::types::{ProviderUsage, ProviderUsageRecord};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::fs;
@@ -87,6 +87,13 @@ pub fn append_line(input: AppendLineInput) -> Result<(), String> {
 pub fn update_line(input: UpdateLineInput) -> Result<(), String> {
     let conversation_id = input.conversation_id.clone();
     with_conversation_lock(&conversation_id, move || update_line_inner(input))
+}
+
+pub fn conversation_line_exists(conversation_id: &str, line_id: &str) -> Result<bool, String> {
+    with_conversation_lock(conversation_id, || {
+        let messages_path = conversation_messages_path(conversation_id)?;
+        line_id_exists(conversation_id, &messages_path, line_id)
+    })
 }
 
 pub fn update_conversation_token_usage(
