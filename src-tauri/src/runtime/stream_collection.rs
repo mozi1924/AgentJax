@@ -3,7 +3,7 @@ use super::tool_parsing::{
     is_valid_pending_tool_call, parse_tool_arguments, push_or_update_pending_tool_call,
 };
 use crate::config::AppConfig;
-use crate::providers::types::{
+use crate::provider_api::types::{
     ProviderPendingToolCall, ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult,
 };
 use serde_json::Value;
@@ -43,7 +43,7 @@ where
     let provider_request = stream_request.clone();
     let mut provider_cancel_rx = cancel_rx.clone();
     let mut provider_task = tokio::spawn(async move {
-        crate::providers::stream_response(
+        crate::provider_api::stream_response(
             &provider_config,
             &provider_request,
             &mut provider_cancel_rx,
@@ -110,7 +110,7 @@ where
     let has_invalid_event_pending = pending_tools.len() != event_pending_total;
 
     if pending_tools.is_empty() || has_invalid_event_pending {
-        let extracted_pending = crate::providers::extract_pending_tool_calls(
+        let extracted_pending = crate::provider_api::extract_pending_tool_calls(
             provider_kind,
             &response_result.output_items,
         )?;

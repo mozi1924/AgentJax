@@ -19,7 +19,7 @@ use super::types::{
     DEFAULT_CONVERSATION_TITLE, LOG_VERSION, ToolStatus, UpdateLineInput,
 };
 use crate::conversation_store_utils::{normalize_title, now_unix_ms};
-use crate::providers::types::{ProviderUsage, ProviderUsageRecord};
+use crate::provider_api::types::{ProviderUsage, ProviderUsageRecord};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::fs;

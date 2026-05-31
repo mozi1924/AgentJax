@@ -1,6 +1,6 @@
 use super::types::{ExecutedToolRecord, PreparedToolExecution};
 use crate::conversation_store_utils::now_unix_ms;
-use crate::providers::types::ProviderPendingToolCall;
+use crate::provider_api::types::ProviderPendingToolCall;
 use crate::runtime::tool_parsing::describe_item_shape;
 use crate::runtime::{MAX_REPEATED_FAILED_SIGNATURES, MAX_TOOL_EXEC_RETRIES};
 use crate::time_context::attach_tool_output_time_metadata;

@@ -1,5 +1,5 @@
 use crate::commands::chat::ChatRequest;
-use crate::providers::types::ResponseStreamRequest;
+use crate::provider_api::types::ResponseStreamRequest;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 

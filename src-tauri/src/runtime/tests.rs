@@ -5,7 +5,7 @@ use super::{
 use crate::commands::chat::ChatRequest;
 use crate::config::{AppConfig, PromptBlock, PromptBlockRole, PromptBlockSource};
 use crate::message_phase::AssistantPhase;
-use crate::providers::types::ProviderStreamEvent;
+use crate::provider_api::types::ProviderStreamEvent;
 use crate::tools::ToolCatalog;
 use serde_json::json;
 use std::sync::{Arc, Mutex, Once};
@@ -38,7 +38,7 @@ fn normalize_for_overlap_check(text: &str) -> String {
 async fn run_real_gateway_turn(
     input: &str,
 ) -> (
-    crate::providers::types::ResponseStreamResult,
+    crate::provider_api::types::ResponseStreamResult,
     Vec<serde_json::Value>,
     Vec<ProviderStreamEvent>,
 ) {
@@ -52,7 +52,7 @@ async fn run_real_gateway_turn_with_config(
     config: AppConfig,
     input: &str,
 ) -> (
-    crate::providers::types::ResponseStreamResult,
+    crate::provider_api::types::ResponseStreamResult,
     Vec<serde_json::Value>,
     Vec<ProviderStreamEvent>,
 ) {

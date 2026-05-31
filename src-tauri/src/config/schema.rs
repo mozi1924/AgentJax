@@ -3,7 +3,7 @@ use crate::config::constants::{
     default_mcp_startup_timeout_ms, default_mcp_tool_timeout_ms, default_true,
 };
 use crate::config::prompt_composer::{CompiledPromptAssembly, PromptComposerConfig};
-use crate::providers::registry;
+use crate::provider_api::registry;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;

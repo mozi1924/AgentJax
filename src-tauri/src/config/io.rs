@@ -1,8 +1,4 @@
-use crate::config::constants::{
-    BUILTIN_CORE_SYSTEM_BLOCK_CONTENT, BUILTIN_CORE_SYSTEM_BLOCK_ID, BUILTIN_CORE_SYSTEM_SOURCE_ID,
-    BUILTIN_CORE_SYSTEM_TITLE, CONFIG_FILE_NAME, DEFAULT_DEFAULT_MODEL_REF,
-    DEFAULT_TIMEOUT_SECONDS, DEFAULT_UTILITY_SMALL_MODEL_REF,
-};
+use crate::config::constants::CONFIG_FILE_NAME;
 use crate::config::schema::AppConfig;
 use serde::Serialize;
 use std::fs;
@@ -75,7 +71,7 @@ pub fn upgrade_config_file() -> Result<ConfigUpgradeResult, String> {
 fn register_home_provider_plugins() {
     match crate::plugin_runtime::discover_home_plugin_packages() {
         Ok(packages) => {
-            crate::providers::registry::register_plugin_providers_from_packages(packages)
+            crate::provider_api::registry::register_plugin_providers_from_packages(packages)
         }
         Err(err) => log::warn!("Failed to discover provider plugins: {err}"),
     }
@@ -101,97 +97,18 @@ pub fn get_config_info() -> Result<ConfigInfo, String> {
 }
 
 fn default_config_yaml() -> String {
-    let provider = crate::providers::registry::default_provider_config();
-
-    let mut lines = vec![
+    let config = AppConfig::default();
+    let mut lines = [
         "# AgentJax configuration".to_string(),
         "# Home directory: AGENTJAX_HOME (default: ~/.agentjax)".to_string(),
         "# Config path: $AGENTJAX_HOME/config.yaml".to_string(),
         "# Plugin directory: $AGENTJAX_HOME/plugins".to_string(),
         String::new(),
-        format!("active_provider: \"{}\"", provider.kind),
-        format!("default_model: \"{}\"", DEFAULT_DEFAULT_MODEL_REF),
-        format!(
-            "utility_small_model: \"{}\"",
-            DEFAULT_UTILITY_SMALL_MODEL_REF
-        ),
-        format!("request_timeout_seconds: {}", DEFAULT_TIMEOUT_SECONDS),
-        "show_advanced_request_options: false".to_string(),
-        "enable_developer_tools: false".to_string(),
-        "language: \"auto\"".to_string(),
-        "prompt_composer:".to_string(),
-        "  blocks:".to_string(),
-        format!("    - id: \"{}\"", BUILTIN_CORE_SYSTEM_BLOCK_ID),
-        format!("      title: \"{}\"", BUILTIN_CORE_SYSTEM_TITLE),
-        "      role: \"system\"".to_string(),
-        "      enabled: true".to_string(),
-        "      source: \"builtin\"".to_string(),
-        format!("      source_id: \"{}\"", BUILTIN_CORE_SYSTEM_SOURCE_ID),
-        "      locked: true".to_string(),
-        "      content: |".to_string(),
-        indent_block(BUILTIN_CORE_SYSTEM_BLOCK_CONTENT, 8),
-        String::new(),
-        "providers:".to_string(),
-        format!("  {}:", provider.kind),
-        format!("    kind: \"{}\"", provider.kind),
-        format!("    apiEndpoint: \"{}\"", provider.api_endpoint()),
-        "    queryParams: {}".to_string(),
-        "    httpHeaders: {}".to_string(),
-        "    envHttpHeaders: {}".to_string(),
-        "    realtimeEndpoint: \"\"".to_string(),
-        format!("    supportsWebsockets: {}", provider.supports_websockets()),
-        format!("    streamTransport: \"{}\"", provider.stream_transport()),
-        "    credential: \"\"".to_string(),
-        format!("    credentialEnv: \"{}\"", provider.credential_env()),
-        "    requestTimeoutSeconds: 120".to_string(),
-        "    requestMaxRetries: null".to_string(),
-        "    streamMaxRetries: null".to_string(),
-        "    streamIdleTimeoutMs: null".to_string(),
-        "    websocketConnectTimeoutMs: null".to_string(),
-        "    models:".to_string(),
-    ];
-
-    for model_key in provider.models.keys() {
-        lines.push(format!("      {}:", model_key));
-        lines.push(format!("        model: \"{}\"", model_key));
-        lines.push("        enabled: true".to_string());
-        lines.push("        request:".to_string());
-        lines.push("          temperature: null".to_string());
-        lines.push("          top_p: null".to_string());
-        lines.push("          top_k: null".to_string());
-        lines.push("          max_output_tokens: null".to_string());
-        lines.push("          frequency_penalty: null".to_string());
-        lines.push("          presence_penalty: null".to_string());
-        lines.push("          reasoning_effort: null".to_string());
-        lines.push("          extra_body: {}".to_string());
-    }
-
-    lines.extend([
-        String::new(),
-        "mcp_runtime:".to_string(),
-        "  stdio:".to_string(),
-        "    inherit_parent_env: false".to_string(),
-        "    env: {}".to_string(),
-        String::new(),
-        "mcp_servers: {}".to_string(),
-        String::new(),
-        "tool_manager:".to_string(),
-        "  native_tools: {}".to_string(),
-        "  plugin_tools: {}".to_string(),
-        "  mcp_tools: {}".to_string(),
-        String::new(),
-    ]);
-
+        serde_yaml::to_string(&config).expect("default AppConfig should serialize to YAML"),
+    ]
+    .to_vec();
+    lines.push(String::new());
     lines.join("\n")
-}
-
-fn indent_block(value: &str, spaces: usize) -> String {
-    let indent = " ".repeat(spaces);
-    value
-        .lines()
-        .map(|line| format!("{indent}{line}"))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn read_config_file(path: &Path) -> Result<String, String> {

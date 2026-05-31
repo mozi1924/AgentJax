@@ -28,7 +28,10 @@ pub use manifest::{
 pub use orchestration::{
     ToolCallBatch, ToolCallExecutionPolicy, ToolCallOutcome, ToolCallRequest, ToolCallSource,
 };
-pub use runtime::{DenoCorePluginRuntime, PluginRuntime, PluginRuntimeError, PluginRuntimeResult};
+pub use runtime::{
+    DenoCorePluginRuntime, PluginRuntime, PluginRuntimeError, PluginRuntimeResult,
+    provider_definitions_for_package,
+};
 pub use sandbox::SandboxPolicy;
 
 #[cfg(test)]
@@ -249,6 +252,51 @@ mod tests {
         assert_eq!(package.manifest.id, "demo");
         assert_eq!(package.root_dir, root);
         std::fs::remove_dir_all(package.root_dir).ok();
+    }
+
+    #[test]
+    fn builtin_provider_plugins_are_loaded_from_compiled_plugin_directories() {
+        let packages = builtin_plugin_packages();
+        let plugin_ids = packages
+            .iter()
+            .map(|package| package.manifest.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(packages.len(), 4);
+        assert!(plugin_ids.contains(&"agentjax.provider.openai-responses"));
+        assert!(plugin_ids.contains(&"agentjax.provider.chat-completions"));
+        assert!(plugin_ids.contains(&"agentjax.provider.gemini"));
+        assert!(plugin_ids.contains(&"agentjax.provider.anthropic"));
+
+        for package in packages {
+            let providers = provider_definitions_for_package(&package)
+                .expect("built-in provider plugin should export provider definitions");
+            assert!(
+                package.root_dir.starts_with("src-tauri/builtin-plugins"),
+                "built-in plugin should keep its visible source directory: {:?}",
+                package.root_dir
+            );
+            assert_eq!(package.manifest.entrypoint, "plugin.js");
+            assert!(
+                providers[0]
+                    .config_schema
+                    .get("properties")
+                    .and_then(serde_json::Value::as_object)
+                    .is_some_and(|properties| properties.contains_key("apiEndpoint")
+                        && properties.contains_key("credentialEnv")),
+                "built-in provider plugin should declare its required config fields"
+            );
+            assert!(
+                package
+                    .entrypoint_source
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("globalThis.AgentJaxPlugin"),
+                "built-in provider plugin should compile a JS entrypoint"
+            );
+            assert_eq!(package.manifest.providers.len(), 0);
+            assert_eq!(providers.len(), 1);
+        }
     }
 
     #[test]

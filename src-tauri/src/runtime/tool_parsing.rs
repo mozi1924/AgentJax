@@ -1,4 +1,4 @@
-use crate::providers::types::ProviderPendingToolCall;
+use crate::provider_api::types::ProviderPendingToolCall;
 use serde_json::{Value, json};
 
 pub(super) fn describe_item_shape(item: &Value) -> String {

@@ -1,4 +1,4 @@
-use crate::providers::types::{ProviderPendingToolCall, ProviderStreamEvent};
+use crate::provider_api::types::{ProviderPendingToolCall, ProviderStreamEvent};
 use crate::tools::ToolCatalogSnapshot;
 use futures_util::FutureExt;
 use std::collections::{HashMap, HashSet};
@@ -243,7 +243,7 @@ impl Drop for ToolExecutionScheduler {
 #[cfg(test)]
 mod tests {
     use super::ToolExecutionScheduler;
-    use crate::providers::types::{ProviderPendingToolCall, ProviderStreamEvent};
+    use crate::provider_api::types::{ProviderPendingToolCall, ProviderStreamEvent};
     use crate::tools::{ToolCatalog, ToolExecutionContext, background_jobs};
     use serde_json::json;
     use std::collections::HashMap;

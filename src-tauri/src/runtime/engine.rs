@@ -12,7 +12,7 @@ use super::tool_parsing::describe_item_shape;
 use crate::commands::chat::ChatRequest;
 use crate::config::AppConfig;
 use crate::message_phase::AssistantPhase;
-use crate::providers::types::{ProviderStreamEvent, ResponseStreamResult};
+use crate::provider_api::types::{ProviderStreamEvent, ResponseStreamResult};
 use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
 use crate::tools::{ToolCatalog, ToolExecutionContext};
 use output::{
@@ -43,9 +43,9 @@ impl AgentRuntime {
     {
         let resolved_model = config.resolve_model_profile(req.model.as_deref())?;
         let provider_capabilities =
-            crate::providers::get_capabilities(&resolved_model.provider.kind)?;
+            crate::provider_api::get_capabilities(&resolved_model.provider.kind)?;
         let tool_schema_format =
-            crate::providers::get_tool_schema_format(&resolved_model.provider.kind)?;
+            crate::provider_api::get_tool_schema_format(&resolved_model.provider.kind)?;
         let provider_kind = &resolved_model.provider.kind;
         let mut developer_items = resolved_model.prompt_assembly.developer_items.clone();
         let request_started_at_unix_ms = crate::conversation_store_utils::now_unix_ms();
@@ -89,7 +89,7 @@ impl AgentRuntime {
             std::mem::take(&mut developer_items),
             recovery_note,
             std::mem::take(&mut context_items),
-            crate::providers::build_user_input_item(
+            crate::provider_api::build_user_input_item(
                 provider_kind,
                 &render_timed_message("Current user message", user_message_ts, req.input.trim()),
             )?,
@@ -234,7 +234,7 @@ impl AgentRuntime {
             }
 
             // ── Build this hop's delta items ──────────────────────────────
-            let hop_delta = crate::providers::compose_tool_continuation_input(
+            let hop_delta = crate::provider_api::compose_tool_continuation_input(
                 provider_kind,
                 &collected.response_result.output_items,
                 executed_batch.tool_results_items,

@@ -1,4 +1,4 @@
-use crate::providers::types::{ProviderUsage, ProviderUsageRecord, ResponseStreamResult};
+use crate::provider_api::types::{ProviderUsage, ProviderUsageRecord, ResponseStreamResult};
 use serde_json::Value;
 
 /// Collects output and usage across all provider hops in a single agent turn.

@@ -6,7 +6,7 @@ use crate::config::schema::{
     ModelRequestConfig, ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
     ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
 };
-use crate::providers::registry;
+use crate::provider_api::registry;
 use std::collections::BTreeMap;
 
 impl ProviderConfig {

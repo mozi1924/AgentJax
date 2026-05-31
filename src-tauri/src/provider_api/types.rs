@@ -1,4 +1,4 @@
-use super::capabilities::ProviderCapabilities;
+use crate::provider_api::capabilities::ProviderCapabilities;
 use crate::message_phase::AssistantPhase;
 use crate::tools::ToolPresentation;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ pub struct ProviderModelDescriptor {
     pub supported_reasoning_levels: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelReasoningCapability {
     pub supports_reasoning: bool,
@@ -90,7 +90,8 @@ pub enum ProviderStreamEvent {
     ResponseCompleted,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderTurnRequest {
     pub input_items: Vec<Value>,
     pub model: Option<String>,

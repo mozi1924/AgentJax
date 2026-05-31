@@ -1,7 +1,7 @@
 use super::{AppConfig, SettingsOption};
 use crate::models;
 use crate::plugin_runtime::{PluginPackage, discover_all_plugin_packages};
-use crate::providers::registry;
+use crate::provider_api::registry;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;

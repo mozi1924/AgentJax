@@ -4,8 +4,8 @@ use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::{self, AppConfig};
-use crate::providers;
-use crate::providers::types::ProviderModelDescriptor;
+use crate::provider_api;
+use crate::provider_api::types::ProviderModelDescriptor;
 
 const MODEL_CACHE_FILE_NAME: &str = "models-cache.yaml";
 pub const MODEL_CACHE_SYNC_INTERVAL_SECONDS: u64 = 30 * 60;
@@ -149,7 +149,7 @@ pub async fn sync_remote_model_cache_with_config(cfg: &AppConfig) -> Result<Mode
     let mut sync_errors = Vec::new();
 
     for provider_key in cfg.provider_keys() {
-        match providers::fetch_remote_models(cfg, &provider_key).await {
+        match provider_api::fetch_remote_models(cfg, &provider_key).await {
             Ok(ids) => {
                 successful_providers += 1;
                 cache.providers.insert(
@@ -294,7 +294,7 @@ fn build_model_catalog_entries(
                         .map(|model| model.supported_reasoning_levels.as_slice())
                 });
 
-            let reasoning = providers::get_reasoning_capability(
+            let reasoning = provider_api::get_reasoning_capability(
                 &provider.kind,
                 &model_cfg.model,
                 cached_levels,

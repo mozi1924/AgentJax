@@ -494,7 +494,7 @@ mod tests {
     #[test]
     fn test_plugin_provider_registration_and_config_self_healing() {
         use crate::plugin_runtime::PluginProviderDefinition;
-        use crate::providers::registry::{register_plugin_provider, unregister_plugin_provider};
+        use crate::provider_api::registry::{register_plugin_provider, unregister_plugin_provider};
 
         let plugin_provider = PluginProviderDefinition {
             kind: "custom-oauth-llm".to_string(),
@@ -517,6 +517,10 @@ mod tests {
                 }
             }),
             default_model_ids: vec!["custom-model-1".to_string(), "custom-model-2".to_string()],
+            capabilities: Some(serde_json::json!(
+                crate::provider_api::ProviderCapabilities::chat_completions()
+            )),
+            tool_schema_format: Some("chat_completions".to_string()),
             ..Default::default()
         };
 

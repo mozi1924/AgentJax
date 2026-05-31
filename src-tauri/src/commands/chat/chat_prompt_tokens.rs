@@ -1,6 +1,6 @@
 use crate::config;
 use crate::conversation_store;
-use crate::providers::get_tool_schema_format;
+use crate::provider_api::get_tool_schema_format;
 use crate::tools::{ToolCatalog, ToolCatalogSnapshot, ToolExecutionContext};
 
 pub(super) fn resolve_prompt_counting_model(

@@ -1,4 +1,4 @@
-use crate::providers::types::ProviderStreamEvent;
+use crate::provider_api::types::ProviderStreamEvent;
 use crate::tools::{ToolCatalogSnapshot, ToolPresentation};
 
 pub(super) fn merge_tool_presentations(

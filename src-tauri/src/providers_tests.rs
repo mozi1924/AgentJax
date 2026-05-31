@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::providers;
-    use crate::providers::types::{ProviderStreamEvent, ResponseStreamRequest};
+    use crate::provider_api;
+    use crate::provider_api::types::{ProviderStreamEvent, ResponseStreamRequest};
     use crate::tools::ToolSchemaFormat;
     use serde_json::json;
     use std::sync::Once;
@@ -20,39 +20,39 @@ mod tests {
 
     #[test]
     fn test_provider_capability_lookup() {
-        let openai_responses = providers::get_capabilities("openai-responses")
+        let openai_responses = provider_api::get_capabilities("openai-responses")
             .expect("openai-responses adapter should exist");
         assert!(!openai_responses.supports_stored_responses);
 
-        let err = providers::get_capabilities("not-a-provider").unwrap_err();
+        let err = provider_api::get_capabilities("not-a-provider").unwrap_err();
         assert!(err.contains("Unsupported provider kind"));
 
-        let old_codex = providers::get_capabilities("codex").unwrap_err();
+        let old_codex = provider_api::get_capabilities("codex").unwrap_err();
         assert!(old_codex.contains("Unsupported provider kind"));
     }
 
     #[test]
     fn test_provider_tool_schema_format_lookup() {
-        let openai_responses = providers::get_tool_schema_format("openai-responses")
+        let openai_responses = provider_api::get_tool_schema_format("openai-responses")
             .expect("openai-responses adapter should exist");
         assert_eq!(openai_responses, ToolSchemaFormat::Responses);
 
-        let chat_completions = providers::get_tool_schema_format("chat-completions")
+        let chat_completions = provider_api::get_tool_schema_format("chat-completions")
             .expect("chat-completions adapter should exist");
         assert_eq!(chat_completions, ToolSchemaFormat::ChatCompletions);
 
         let gemini =
-            providers::get_tool_schema_format("gemini").expect("gemini adapter should exist");
+            provider_api::get_tool_schema_format("gemini").expect("gemini adapter should exist");
         assert_eq!(gemini, ToolSchemaFormat::Gemini);
 
         let anthropic =
-            providers::get_tool_schema_format("anthropic").expect("anthropic adapter should exist");
+            provider_api::get_tool_schema_format("anthropic").expect("anthropic adapter should exist");
         assert_eq!(anthropic, ToolSchemaFormat::Anthropic);
     }
 
     #[test]
     fn test_builtin_provider_plugins_seed_registry() {
-        let definitions = providers::registry::builtin_provider_definitions();
+        let definitions = provider_api::registry::builtin_provider_definitions();
         let kinds = definitions
             .iter()
             .map(|definition| definition.kind.as_str())
@@ -62,9 +62,14 @@ mod tests {
         assert!(kinds.contains(&"chat-completions"));
         assert!(kinds.contains(&"gemini"));
         assert!(kinds.contains(&"anthropic"));
+
+        let openai_responses = definitions
+            .iter()
+            .find(|definition| definition.kind == "openai-responses")
+            .expect("openai-responses provider plugin should be registered");
         assert_eq!(
-            providers::registry::provider_transport_family("openai-responses"),
-            Some(providers::registry::ProviderTransportFamily::Responses)
+            openai_responses.tool_schema_format,
+            ToolSchemaFormat::Responses
         );
     }
 
@@ -90,7 +95,7 @@ mod tests {
             }),
         ];
 
-        let pending = providers::extract_pending_tool_calls("openai-responses", &output_items)
+        let pending = provider_api::extract_pending_tool_calls("openai-responses", &output_items)
             .expect("openai-responses adapter should extract pending calls");
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].call_id, "call_b");
@@ -99,7 +104,7 @@ mod tests {
 
     #[test]
     fn test_provider_builds_tool_result_and_continuation_input_items() {
-        let user_input_item = providers::build_user_input_item("openai-responses", "hello")
+        let user_input_item = provider_api::build_user_input_item("openai-responses", "hello")
             .expect("openai-responses adapter should build user input item");
         assert_eq!(
             user_input_item.get("role").and_then(|v| v.as_str()),
@@ -107,7 +112,7 @@ mod tests {
         );
 
         let tool_output_item =
-            providers::build_tool_result_input_item("openai-responses", "call_1", "ok")
+            provider_api::build_tool_result_input_item("openai-responses", "call_1", "ok")
                 .expect("openai-responses adapter should build tool result item");
         assert_eq!(
             tool_output_item.get("type").and_then(|v| v.as_str()),
@@ -122,7 +127,7 @@ mod tests {
             json!({"type":"reasoning","id":"r1"}),
             json!({"type":"function_call","call_id":"call_1","name":"tool_a"}),
         ];
-        let continuation_items = providers::compose_tool_continuation_input(
+        let continuation_items = provider_api::compose_tool_continuation_input(
             "openai-responses",
             &output_items,
             vec![tool_output_item.clone()],
@@ -171,7 +176,7 @@ mod tests {
                 "provider kind {provider_kind} has no resolved credential"
             );
 
-            let user_item = providers::build_user_input_item(
+            let user_item = provider_api::build_user_input_item(
                 provider_kind,
                 "Reply with exactly this token and no extra words: agentjax-smoke-ok",
             )
@@ -195,7 +200,7 @@ mod tests {
             let mut events = Vec::new();
             let result = tokio::time::timeout(
                 Duration::from_secs(120),
-                providers::stream_response(&smoke_config, &request, &mut cancel_rx, |event| {
+                provider_api::stream_response(&smoke_config, &request, &mut cancel_rx, |event| {
                     events.push(event);
                     Ok(())
                 }),

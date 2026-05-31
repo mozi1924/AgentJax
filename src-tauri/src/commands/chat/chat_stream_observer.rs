@@ -2,7 +2,7 @@ use super::chat_persistence::{
     ToolProgressPersistInput, persist_assistant_line, persist_tool_progress_event,
 };
 use crate::conversation_store;
-use crate::providers::types::{ProviderStreamEvent, ProviderUsage, ResponseStreamResult};
+use crate::provider_api::types::{ProviderStreamEvent, ProviderUsage, ResponseStreamResult};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

@@ -120,6 +120,98 @@ pub trait PluginRuntime {
     }
 }
 
+/// Load provider definitions exported by a plugin package.
+///
+/// Provider plugins can declare static providers in `plugin.json` for portable
+/// metadata, or export them from `globalThis.AgentJaxPlugin.providers` in their
+/// JS entrypoint. The JS path is what built-in provider plugins use so provider
+/// defaults and required config fields live with the plugin source instead of
+/// in Rust registry code.
+pub fn provider_definitions_for_package(
+    package: &PluginPackage,
+) -> PluginRuntimeResult<Vec<super::PluginProviderDefinition>> {
+    let mut providers = package.manifest.providers.clone();
+    providers.extend(execute_sync_js_provider_definitions(package)?);
+    Ok(providers)
+}
+
+fn execute_sync_js_provider_definitions(
+    package: &PluginPackage,
+) -> PluginRuntimeResult<Vec<super::PluginProviderDefinition>> {
+    let (entrypoint_name, source) = package_entrypoint_script(package)?;
+    let mut runtime = JsRuntime::new(RuntimeOptions::default());
+    runtime
+        .execute_script(entrypoint_name, source)
+        .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
+
+    let result = runtime
+        .execute_script(
+            "<agentjax-provider-plugin-discovery>",
+            r#"
+(() => {
+  const plugin = globalThis.AgentJaxPlugin;
+  if (!plugin || typeof plugin !== "object" || plugin.providers == null) {
+    return [];
+  }
+  const providers = plugin.providers;
+  const metadata = (definition, fallbackKind) => {
+    const value = definition && typeof definition === "object" ? definition : {};
+    return {
+      kind: value.kind || fallbackKind || "",
+      displayName: value.displayName || "",
+      configSchema: value.configSchema || { type: "object", properties: {} },
+      defaultModelIds: Array.isArray(value.defaultModelIds) ? value.defaultModelIds : [],
+      defaultPriority: value.defaultPriority,
+      capabilities: value.capabilities,
+      toolSchemaFormat: value.toolSchemaFormat,
+    };
+  };
+  if (Array.isArray(providers)) {
+    return providers.map((provider) => metadata(provider));
+  }
+  if (typeof providers === "object") {
+    return Object.entries(providers).map(([kind, definition]) => metadata(definition, kind));
+  }
+  throw new Error("AgentJaxPlugin.providers must be an array or object.");
+})()
+"#,
+        )
+        .map_err(|err| PluginRuntimeError::JavaScript(err.to_string()))?;
+
+    deno_core::scope!(scope, &mut runtime);
+    let local = v8::Local::new(scope, result);
+    deno_core::serde_v8::from_v8::<Vec<super::PluginProviderDefinition>>(scope, local).map_err(
+        |err| {
+            PluginRuntimeError::JavaScript(format!(
+                "invalid provider definitions exported by plugin '{}': {err}",
+                package.manifest.id
+            ))
+        },
+    )
+}
+
+fn package_entrypoint_script(package: &PluginPackage) -> PluginRuntimeResult<(String, String)> {
+    if let Some(source) = &package.entrypoint_source {
+        return Ok((
+            format!(
+                "<agentjax-plugin:{}:{}>",
+                package.manifest.id, package.manifest.entrypoint
+            ),
+            source.clone(),
+        ));
+    }
+
+    let entrypoint_path = package.root_dir.join(&package.manifest.entrypoint);
+    let source = std::fs::read_to_string(&entrypoint_path).map_err(|err| {
+        PluginRuntimeError::Io(format!(
+            "failed to read plugin entrypoint '{}': {}",
+            entrypoint_path.display(),
+            err
+        ))
+    })?;
+    Ok((entrypoint_path.to_string_lossy().to_string(), source))
+}
+
 /// A small deno_core-backed runtime shell.
 ///
 /// The concrete JS execution path will live here once plugin loading and

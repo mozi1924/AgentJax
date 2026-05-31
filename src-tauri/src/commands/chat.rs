@@ -18,7 +18,7 @@ pub use chat_types::{
 
 use crate::config;
 use crate::conversation_store;
-use crate::providers::{build_user_input_item, get_tool_schema_format};
+use crate::provider_api::{build_user_input_item, get_tool_schema_format};
 use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
 use crate::tools::ToolCatalog;
 use crate::tools::ToolExecutionContext;
