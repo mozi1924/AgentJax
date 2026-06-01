@@ -159,6 +159,7 @@ pub fn normalize_prompt_composer(composer: PromptComposerConfig) -> PromptCompos
     }
 
     // Resolve builtin blocks: merge with canonical definitions.
+    // Locked blocks are always enabled (cannot be disabled).
     let mut resolved_builtins: Vec<PromptBlock> = Vec::new();
     for (builtin_id, canonical) in &builtins {
         let enabled = builtin_order
@@ -167,7 +168,7 @@ pub fn normalize_prompt_composer(composer: PromptComposerConfig) -> PromptCompos
             .map(|(_, e)| *e)
             .unwrap_or(true); // default to enabled
         let mut block = canonical.clone();
-        block.enabled = enabled;
+        block.enabled = if block.locked { true } else { enabled };
         resolved_builtins.push(block);
     }
 

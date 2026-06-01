@@ -218,6 +218,7 @@
   "main.headline.thinking": "Thinking...",
 
   "assembler.drag_hint": "Drag to reorder",
+  "assembler.required_block": "Required — cannot be disabled",
   "assembler.disable_block": "Disable block",
   "assembler.enable_block": "Enable block",
   "assembler.delete_block": "Delete block",

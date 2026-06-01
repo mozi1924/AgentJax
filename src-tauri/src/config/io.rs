@@ -99,13 +99,17 @@ pub fn get_config_info() -> Result<ConfigInfo, String> {
 
 fn default_config_yaml() -> String {
     let config = AppConfig::default();
+    let yaml_body = serialize_config_to_yaml(&config)
+        .unwrap_or_else(|e| {
+            panic!("Failed to serialize default config to YAML: {e}")
+        });
     let mut lines = [
         "# AgentJax configuration".to_string(),
         "# Home directory: AGENTJAX_HOME (default: ~/.agentjax)".to_string(),
         "# Config path: $AGENTJAX_HOME/config.yaml".to_string(),
         "# Plugin directory: $AGENTJAX_HOME/plugins".to_string(),
         String::new(),
-        serde_yaml::to_string(&config).expect("default AppConfig should serialize to YAML"),
+        yaml_body,
     ]
     .to_vec();
     lines.push(String::new());

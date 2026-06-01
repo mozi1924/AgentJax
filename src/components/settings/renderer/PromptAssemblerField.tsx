@@ -98,14 +98,23 @@ function SortableBlockItem({
         <GripVertical className="h-3.5 w-3.5" />
       </span>
 
-      <input
-        type="checkbox"
-        checked={block.enabled}
-        onClick={(e) => e.stopPropagation()}
-        onChange={(e) => onToggleEnabled(block.id, e.target.checked)}
-        className="h-3.5 w-3.5 rounded border-[#2e2e30] bg-[#111112] text-cyan-400 focus:ring-cyan-400/40 transition cursor-pointer shrink-0"
-        title={block.enabled ? t('assembler.disable_block') : t('assembler.enable_block')}
-      />
+      {block.locked ? (
+        <span
+          className="inline-flex h-3.5 w-3.5 items-center justify-center shrink-0 text-neutral-500"
+          title={t('assembler.required_block')}
+        >
+          <Shield className="h-3 w-3" />
+        </span>
+      ) : (
+        <input
+          type="checkbox"
+          checked={block.enabled}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => onToggleEnabled(block.id, e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-[#2e2e30] bg-[#111112] text-cyan-400 focus:ring-cyan-400/40 transition cursor-pointer shrink-0"
+          title={block.enabled ? t('assembler.disable_block') : t('assembler.enable_block')}
+        />
+      )}
 
       <div className="min-w-0 flex-1 pl-1">
         <div className="flex items-center gap-1.5">
@@ -276,6 +285,8 @@ export function PromptAssemblerField({
   };
 
   const handleToggleEnabled = async (blockId: string, enabled: boolean) => {
+    const block = composer.blocks.find((entry) => entry.id === blockId);
+    if (block?.locked) return;
     const nextComposer = normalizePromptComposer({
       blocks: composer.blocks.map((block) => (block.id === blockId ? { ...block, enabled } : block)),
     });
@@ -484,7 +495,7 @@ export function PromptAssemblerField({
                       <input
                         type="checkbox"
                         checked={selectedBlock.enabled}
-                        disabled={isSaving}
+                        disabled={isSaving || selectedBlock.locked}
                         onChange={(event) => {
                           void handleToggleEnabled(selectedBlock.id, event.target.checked);
                         }}
