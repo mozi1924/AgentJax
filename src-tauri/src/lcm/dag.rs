@@ -105,6 +105,11 @@ impl SummaryDag {
         };
         self.store.add_summary_child(&summary.id, &child)?;
 
+        // Write parent back-references to each child summary.
+        for child_id in child_summary_ids {
+            self.store.add_summary_parent(child_id, &summary.id)?;
+        }
+
         Ok(())
     }
 
@@ -329,11 +334,9 @@ impl SummaryDag {
 
     fn get_all_summaries_for_conv(
         &self,
-        _conversation_id: &str,
+        conversation_id: &str,
     ) -> Result<Vec<SummaryNode>, LcmError> {
-        // This would need a query to get all summaries for a conversation.
-        // For now, return empty — the store doesn't have this method yet.
-        Ok(Vec::new())
+        self.store.get_conversation_summaries(conversation_id)
     }
 
     fn detect_cycle(

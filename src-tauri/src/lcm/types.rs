@@ -117,6 +117,11 @@ pub struct StoredMessage {
     /// Additional metadata (provider-specific, tool names, etc.).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub metadata: BTreeMap<String, Value>,
+
+    /// File references associated with this message.
+    /// Populated when a tool reads a large file; propagated through compaction.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_refs: Vec<FileRefId>,
 }
 
 impl StoredMessage {
@@ -138,6 +143,7 @@ impl StoredMessage {
             timestamp_unix_ms,
             covered_by: None,
             metadata: BTreeMap::new(),
+            file_refs: Vec::new(),
         }
     }
 
@@ -229,6 +235,56 @@ impl SummaryChild {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+}
+
+// ── Conversation Metadata ───────────────────────────────────────────────────
+
+/// Metadata for a conversation stored in the LCM store.
+///
+/// This replaces the legacy `metadata.json` approach, providing
+/// a single source of truth for conversation-level information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationMeta {
+    /// Unique conversation identifier.
+    pub conversation_id: String,
+
+    /// Human-readable title.
+    pub title: String,
+
+    /// Source of the title: "user", "generated", "pending".
+    pub title_source: String,
+
+    /// When the conversation was created.
+    pub created_at_unix_ms: i64,
+
+    /// When the conversation was last updated.
+    pub updated_at_unix_ms: i64,
+
+    /// Number of messages in the conversation.
+    pub message_count: u32,
+
+    /// Type of conversation ("standard", etc.).
+    pub conversation_type: String,
+
+    /// Flexible JSON blob for dynamic_tools, mounted_servers, token_usage, etc.
+    pub metadata_json: String,
+}
+
+impl ConversationMeta {
+    /// Create default metadata for a new conversation.
+    pub fn new(conversation_id: impl Into<String>, created_at_unix_ms: i64) -> Self {
+        Self {
+            conversation_id: conversation_id.into(),
+            title: String::new(),
+            title_source: "pending".to_string(),
+            created_at_unix_ms,
+            updated_at_unix_ms: created_at_unix_ms,
+            message_count: 0,
+            conversation_type: "standard".to_string(),
+            metadata_json: "{}".to_string(),
+        }
     }
 }
 
@@ -420,6 +476,10 @@ pub struct LcmConfig {
     /// Default: 5.
     pub max_summary_depth: u32,
 
+    /// Maximum token count for Level 3 deterministic truncation.
+    /// Default: 128 tokens (~512 characters at 4:1 ratio).
+    pub truncation_max_tokens: u32,
+
     /// Page size for paginated grep results.
     /// Default: 20.
     pub grep_page_size: usize,
@@ -430,6 +490,13 @@ pub struct LcmConfig {
     /// Default: "" (uses utility_small_model).
     #[serde(default)]
     pub summarization_model: String,
+
+    /// Model ID for token counting within the LCM engine.
+    /// When set, LCM uses the real HuggingFace tokenizer for accurate token counts.
+    /// When `None`, falls back to the 4:1 character heuristic.
+    /// Default: None (uses char-based estimation).
+    #[serde(default)]
+    pub tokenizer_model_id: Option<String>,
 }
 
 impl Default for LcmConfig {
@@ -441,8 +508,10 @@ impl Default for LcmConfig {
             compaction_timeout_secs: 25,
             max_compact_block_size: 20,
             max_summary_depth: 5,
+            truncation_max_tokens: 128,
             grep_page_size: 20,
             summarization_model: String::new(),
+            tokenizer_model_id: None,
         }
     }
 }

@@ -19,11 +19,13 @@
 //! ```
 
 use crate::lcm::types::{
-    DescribeResult, FileRefId, FileReference, GrepResult, LcmConfig, LcmError,
+    ConversationMeta, DescribeResult, FileRefId, FileReference, GrepResult, LcmConfig, LcmError,
     LcmId, MessageId, MessageRole, PaginatedGrepResults, StoredMessage, SummaryChild, SummaryId,
     SummaryKind, SummaryNode,
 };
 use rusqlite::{Connection, params};
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -133,9 +135,12 @@ impl LcmStore {
             LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
         })?;
 
+        let metadata_json = serde_json::to_string(&msg.metadata).unwrap_or_default();
+        let file_refs_json = serde_json::to_string(&msg.file_refs).unwrap_or_default();
+
         conn.execute(
-            "INSERT OR IGNORE INTO messages (id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, search_text)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT OR IGNORE INTO messages (id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, search_text, metadata_json, file_refs_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 msg.id.as_str(),
                 msg.conversation_id,
@@ -145,6 +150,8 @@ impl LcmStore {
                 msg.timestamp_unix_ms,
                 msg.covered_by.as_ref().map(|s| s.as_str()),
                 msg.search_text(),
+                metadata_json,
+                file_refs_json,
             ],
         )
         .map_err(|e| LcmError::Store(format!("Failed to persist message {}: {e}", msg.id)))?;
@@ -165,12 +172,14 @@ impl LcmStore {
         {
             let mut stmt = tx
                 .prepare(
-                    "INSERT OR IGNORE INTO messages (id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, search_text)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    "INSERT OR IGNORE INTO messages (id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, search_text, metadata_json, file_refs_json)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 )
                 .map_err(|e| LcmError::Store(format!("Failed to prepare insert: {e}")))?;
 
             for msg in messages {
+                let metadata_json = serde_json::to_string(&msg.metadata).unwrap_or_default();
+                let file_refs_json = serde_json::to_string(&msg.file_refs).unwrap_or_default();
                 stmt.execute(params![
                     msg.id.as_str(),
                     msg.conversation_id,
@@ -180,6 +189,8 @@ impl LcmStore {
                     msg.timestamp_unix_ms,
                     msg.covered_by.as_ref().map(|s| s.as_str()),
                     msg.search_text(),
+                    metadata_json,
+                    file_refs_json,
                 ])
                 .map_err(|e| {
                     LcmError::Store(format!("Failed to insert message {}: {e}", msg.id))
@@ -203,7 +214,7 @@ impl LcmStore {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by
+                "SELECT id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, metadata_json, file_refs_json
                  FROM messages WHERE id = ?1",
             )
             .map_err(|e| LcmError::Store(format!("Failed to prepare query: {e}")))?;
@@ -211,6 +222,12 @@ impl LcmStore {
         let result = stmt
             .query_row(params![id.as_str()], |row| {
                 let covered_by: Option<String> = row.get(6)?;
+                let metadata_json: String = row.get::<_, String>(7).unwrap_or_default();
+                let file_refs_json: String = row.get::<_, String>(8).unwrap_or_default();
+                let metadata: BTreeMap<String, Value> =
+                    serde_json::from_str(&metadata_json).unwrap_or_default();
+                let file_refs: Vec<FileRefId> =
+                    serde_json::from_str(&file_refs_json).unwrap_or_default();
                 Ok(StoredMessage {
                     id: MessageId::from(row.get::<_, String>(0)?),
                     conversation_id: row.get(1)?,
@@ -219,7 +236,8 @@ impl LcmStore {
                     token_count: row.get(4)?,
                     timestamp_unix_ms: row.get(5)?,
                     covered_by: covered_by.map(SummaryId::from),
-                    metadata: std::collections::BTreeMap::new(),
+                    metadata,
+                    file_refs,
                 })
             })
             .optional()
@@ -239,7 +257,7 @@ impl LcmStore {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by
+                "SELECT id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, metadata_json, file_refs_json
                  FROM messages
                  WHERE conversation_id = ?1
                  ORDER BY timestamp_unix_ms ASC",
@@ -249,6 +267,12 @@ impl LcmStore {
         let rows = stmt
             .query_map(params![conversation_id], |row| {
                 let covered_by: Option<String> = row.get(6)?;
+                let metadata_json: String = row.get::<_, String>(7).unwrap_or_default();
+                let file_refs_json: String = row.get::<_, String>(8).unwrap_or_default();
+                let metadata: BTreeMap<String, Value> =
+                    serde_json::from_str(&metadata_json).unwrap_or_default();
+                let file_refs: Vec<FileRefId> =
+                    serde_json::from_str(&file_refs_json).unwrap_or_default();
                 Ok(StoredMessage {
                     id: MessageId::from(row.get::<_, String>(0)?),
                     conversation_id: row.get(1)?,
@@ -257,7 +281,8 @@ impl LcmStore {
                     token_count: row.get(4)?,
                     timestamp_unix_ms: row.get(5)?,
                     covered_by: covered_by.map(SummaryId::from),
-                    metadata: std::collections::BTreeMap::new(),
+                    metadata,
+                    file_refs,
                 })
             })
             .map_err(|e| LcmError::Store(format!("Failed to query messages: {e}")))?;
@@ -308,7 +333,7 @@ impl LcmStore {
         // back to messages for full data.
         let mut sql = String::from(
             "SELECT m.id, m.conversation_id, m.role, m.content, m.token_count,
-                    m.timestamp_unix_ms, m.covered_by,
+                    m.timestamp_unix_ms, m.covered_by, m.metadata_json, m.file_refs_json,
                     snippet(messages_fts, 2, '<mark>', '</mark>', '...', 40) as snippet
              FROM messages_fts
              JOIN messages m ON messages_fts.rowid = m.rowid
@@ -351,7 +376,13 @@ impl LcmStore {
         let rows = stmt
             .query_map(params_ref.as_slice(), |row| {
                 let covered_by: Option<String> = row.get(6)?;
-                let snippet: String = row.get(7)?;
+                let metadata_json: String = row.get::<_, String>(7).unwrap_or_default();
+                let file_refs_json: String = row.get::<_, String>(8).unwrap_or_default();
+                let snippet: String = row.get(9)?;
+                let metadata: BTreeMap<String, Value> =
+                    serde_json::from_str(&metadata_json).unwrap_or_default();
+                let file_refs: Vec<FileRefId> =
+                    serde_json::from_str(&file_refs_json).unwrap_or_default();
                 Ok((
                     StoredMessage {
                         id: MessageId::from(row.get::<_, String>(0)?),
@@ -361,7 +392,8 @@ impl LcmStore {
                         token_count: row.get(4)?,
                         timestamp_unix_ms: row.get(5)?,
                         covered_by: covered_by.map(SummaryId::from),
-                        metadata: std::collections::BTreeMap::new(),
+                        metadata,
+                        file_refs,
                     },
                     snippet,
                 ))
@@ -477,6 +509,92 @@ impl LcmStore {
         Ok(())
     }
 
+    /// Add a parent back-reference to a summary node.
+    /// Called when a condensed summary is created that covers this summary.
+    pub fn add_summary_parent(
+        &self,
+        summary_id: &SummaryId,
+        parent_id: &SummaryId,
+    ) -> Result<(), LcmError> {
+        let conn = self.conn.lock().map_err(|e| {
+            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
+        })?;
+
+        conn.execute(
+            "INSERT OR IGNORE INTO summary_parents (summary_id, parent_id) VALUES (?1, ?2)",
+            params![summary_id.as_str(), parent_id.as_str()],
+        )
+        .map_err(|e| LcmError::Store(format!("Failed to add parent {parent_id} to summary {summary_id}: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Get all summaries for a conversation.
+    pub fn get_conversation_summaries(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Vec<SummaryNode>, LcmError> {
+        let conn = self.conn.lock().map_err(|e| {
+            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
+        })?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, conversation_id, kind, text, token_count, created_at_unix_ms, compaction_level
+                 FROM summaries WHERE conversation_id = ?1
+                 ORDER BY created_at_unix_ms ASC",
+            )
+            .map_err(|e| LcmError::Store(format!("Failed to prepare query: {e}")))?;
+
+        let rows = stmt
+            .query_map(params![conversation_id], |row| {
+                Ok(SummaryNode {
+                    id: SummaryId::from(row.get::<_, String>(0)?),
+                    conversation_id: row.get(1)?,
+                    kind: parse_summary_kind(row.get::<_, String>(2)?.as_str())?,
+                    text: row.get(3)?,
+                    token_count: row.get(4)?,
+                    created_at_unix_ms: row.get(5)?,
+                    compaction_level: row.get(6)?,
+                    parents: Vec::new(),   // populated below
+                    file_refs: Vec::new(),
+                })
+            })
+            .map_err(|e| LcmError::Store(format!("Failed to query summaries: {e}")))?;
+
+        let mut summaries: Vec<SummaryNode> = Vec::new();
+        for row in rows {
+            let mut summary = row?;
+            // Populate parents for each summary.
+            summary.parents = self.get_summary_parents_internal(&conn, &summary.id)?;
+            summaries.push(summary);
+        }
+        Ok(summaries)
+    }
+
+    /// Internal helper: query parents for a summary (requires an open connection).
+    fn get_summary_parents_internal(
+        &self,
+        conn: &Connection,
+        summary_id: &SummaryId,
+    ) -> Result<Vec<SummaryId>, LcmError> {
+        let mut stmt = conn
+            .prepare("SELECT parent_id FROM summary_parents WHERE summary_id = ?1")
+            .map_err(|e| LcmError::Store(format!("Failed to prepare parents query: {e}")))?;
+
+        let rows = stmt
+            .query_map(params![summary_id.as_str()], |row| {
+                Ok(SummaryId::from(row.get::<_, String>(0)?))
+            })
+            .map_err(|e| LcmError::Store(format!("Failed to query parents: {e}")))?;
+
+        let mut parents = Vec::new();
+        for row in rows {
+            parents.push(row?);
+        }
+        Ok(parents)
+    }
+
     /// Update messages to mark them as covered by a summary.
     /// Called during compaction to link raw messages to their summary node.
     pub fn mark_messages_covered(
@@ -526,7 +644,7 @@ impl LcmStore {
             )
             .map_err(|e| LcmError::Store(format!("Failed to prepare query: {e}")))?;
 
-        let result = stmt
+        let mut result = stmt
             .query_row(params![id.as_str()], |row| {
                 Ok(SummaryNode {
                     id: SummaryId::from(row.get::<_, String>(0)?),
@@ -536,12 +654,19 @@ impl LcmStore {
                     token_count: row.get(4)?,
                     created_at_unix_ms: row.get(5)?,
                     compaction_level: row.get(6)?,
-                    parents: Vec::new(),   // loaded separately
-                    file_refs: Vec::new(), // loaded separately
+                    parents: Vec::new(),   // populated below
+                    file_refs: Vec::new(),
                 })
             })
             .optional()
             .map_err(|e| LcmError::Store(format!("Failed to query summary {id}: {e}")))?;
+
+        // Drop stmt to release its borrow on conn, then populate parents.
+        drop(stmt);
+
+        if let Some(ref mut summary) = result {
+            summary.parents = self.get_summary_parents_internal(&conn, &summary.id)?;
+        }
 
         Ok(result)
     }
@@ -754,6 +879,189 @@ impl LcmStore {
         Ok(())
     }
 
+    // ── Conversation Metadata ──────────────────────────────────────────
+
+    /// Ensure conversation metadata exists (create if missing).
+    pub fn ensure_conversation_meta(
+        &self,
+        conversation_id: &str,
+    ) -> Result<ConversationMeta, LcmError> {
+        let conn = self.conn.lock().map_err(|e| {
+            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
+        })?;
+
+        let existing = conn
+            .query_row(
+                "SELECT conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json
+                 FROM conversation_meta WHERE conversation_id = ?1",
+                params![conversation_id],
+                |row| {
+                    Ok(ConversationMeta {
+                        conversation_id: row.get(0)?,
+                        title: row.get(1)?,
+                        title_source: row.get(2)?,
+                        created_at_unix_ms: row.get(3)?,
+                        updated_at_unix_ms: row.get(4)?,
+                        message_count: row.get(5)?,
+                        conversation_type: row.get(6)?,
+                        metadata_json: row.get(7)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| LcmError::Store(format!("Failed to query conversation meta: {e}")))?;
+
+        if let Some(meta) = existing {
+            return Ok(meta);
+        }
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+
+        let meta = ConversationMeta::new(conversation_id, now_ms);
+        conn.execute(
+            "INSERT OR IGNORE INTO conversation_meta (conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                meta.conversation_id,
+                meta.title,
+                meta.title_source,
+                meta.created_at_unix_ms,
+                meta.updated_at_unix_ms,
+                meta.message_count,
+                meta.conversation_type,
+                meta.metadata_json,
+            ],
+        )
+        .map_err(|e| LcmError::Store(format!("Failed to insert conversation meta: {e}")))?;
+
+        Ok(meta)
+    }
+
+    /// Get conversation metadata.
+    pub fn get_conversation_meta(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<ConversationMeta>, LcmError> {
+        let conn = self.conn.lock().map_err(|e| {
+            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
+        })?;
+
+        conn.query_row(
+            "SELECT conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json
+             FROM conversation_meta WHERE conversation_id = ?1",
+            params![conversation_id],
+            |row| {
+                Ok(ConversationMeta {
+                    conversation_id: row.get(0)?,
+                    title: row.get(1)?,
+                    title_source: row.get(2)?,
+                    created_at_unix_ms: row.get(3)?,
+                    updated_at_unix_ms: row.get(4)?,
+                    message_count: row.get(5)?,
+                    conversation_type: row.get(6)?,
+                    metadata_json: row.get(7)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| LcmError::Store(format!("Failed to query conversation meta: {e}")))
+    }
+
+    /// Update conversation metadata fields.
+    pub fn update_conversation_meta(
+        &self,
+        conversation_id: &str,
+        title: Option<&str>,
+        title_source: Option<&str>,
+        message_count_delta: Option<i32>,
+        metadata_json: Option<&str>,
+    ) -> Result<(), LcmError> {
+        let conn = self.conn.lock().map_err(|e| {
+            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
+        })?;
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+
+        // Build dynamic UPDATE.
+        let mut sets: Vec<String> = vec!["updated_at_unix_ms = ?".to_string()];
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> =
+            vec![Box::new(now_ms)];
+
+        if let Some(t) = title {
+            sets.push("title = ?".to_string());
+            param_values.push(Box::new(t.to_string()));
+        }
+        if let Some(ts) = title_source {
+            sets.push("title_source = ?".to_string());
+            param_values.push(Box::new(ts.to_string()));
+        }
+        if let Some(delta) = message_count_delta {
+            sets.push("message_count = MAX(0, message_count + ?)".to_string());
+            param_values.push(Box::new(delta));
+        }
+        if let Some(mj) = metadata_json {
+            sets.push("metadata_json = ?".to_string());
+            param_values.push(Box::new(mj.to_string()));
+        }
+
+        let sql = format!(
+            "UPDATE conversation_meta SET {} WHERE conversation_id = ?",
+            sets.join(", ")
+        );
+        param_values.push(Box::new(conversation_id.to_string()));
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+
+        conn.execute(&sql, params_ref.as_slice()).map_err(|e| {
+            LcmError::Store(format!("Failed to update conversation meta: {e}"))
+        })?;
+
+        Ok(())
+    }
+
+    /// List all conversation metadata summaries, ordered by most recently updated.
+    pub fn list_conversation_metas(&self) -> Result<Vec<ConversationMeta>, LcmError> {
+        let conn = self.conn.lock().map_err(|e| {
+            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
+        })?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json
+                 FROM conversation_meta
+                 ORDER BY updated_at_unix_ms DESC",
+            )
+            .map_err(|e| LcmError::Store(format!("Failed to prepare query: {e}")))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(ConversationMeta {
+                    conversation_id: row.get(0)?,
+                    title: row.get(1)?,
+                    title_source: row.get(2)?,
+                    created_at_unix_ms: row.get(3)?,
+                    updated_at_unix_ms: row.get(4)?,
+                    message_count: row.get(5)?,
+                    conversation_type: row.get(6)?,
+                    metadata_json: row.get(7)?,
+                })
+            })
+            .map_err(|e| LcmError::Store(format!("Failed to list conversation metas: {e}")))?;
+
+        let mut metas = Vec::new();
+        for row in rows {
+            metas.push(row?);
+        }
+        Ok(metas)
+    }
+
     // ── Maintenance ────────────────────────────────────────────────────
 
     /// Remove all data for a conversation from the LCM store.
@@ -766,13 +1074,19 @@ impl LcmStore {
             .unchecked_transaction()
             .map_err(|e| LcmError::Store(format!("Failed to begin transaction: {e}")))?;
 
-        // Delete summary children first (foreign key), then summaries,
+        // Delete summary children and parents first (foreign keys), then summaries,
         // then messages, then file refs.
         tx.execute(
             "DELETE FROM summary_children WHERE summary_id IN (SELECT id FROM summaries WHERE conversation_id = ?1)",
             params![conversation_id],
         )
         .map_err(|e| LcmError::Store(format!("Failed to delete summary children: {e}")))?;
+
+        tx.execute(
+            "DELETE FROM summary_parents WHERE summary_id IN (SELECT id FROM summaries WHERE conversation_id = ?1)",
+            params![conversation_id],
+        )
+        .map_err(|e| LcmError::Store(format!("Failed to delete summary parents: {e}")))?;
 
         tx.execute(
             "DELETE FROM summaries WHERE conversation_id = ?1",
@@ -791,6 +1105,12 @@ impl LcmStore {
             params![conversation_id],
         )
         .map_err(|e| LcmError::Store(format!("Failed to delete file refs: {e}")))?;
+
+        tx.execute(
+            "DELETE FROM conversation_meta WHERE conversation_id = ?1",
+            params![conversation_id],
+        )
+        .map_err(|e| LcmError::Store(format!("Failed to delete conversation meta: {e}")))?;
 
         tx.commit()
             .map_err(|e| LcmError::Store(format!("Failed to commit deletion: {e}")))?;
@@ -827,6 +1147,8 @@ CREATE TABLE IF NOT EXISTS messages (
     timestamp_unix_ms INTEGER NOT NULL,
     covered_by TEXT,
     search_text TEXT NOT NULL DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    file_refs_json TEXT NOT NULL DEFAULT '[]',
     FOREIGN KEY (covered_by) REFERENCES summaries(id) ON DELETE SET NULL
 );
 
@@ -860,6 +1182,18 @@ CREATE TABLE IF NOT EXISTS summary_children (
 CREATE INDEX IF NOT EXISTS idx_summary_children_child
     ON summary_children(child_type, child_id);
 
+-- Parent back-references for upward DAG traversal.
+CREATE TABLE IF NOT EXISTS summary_parents (
+    summary_id TEXT NOT NULL,
+    parent_id TEXT NOT NULL,
+    PRIMARY KEY (summary_id, parent_id),
+    FOREIGN KEY (summary_id) REFERENCES summaries(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_id) REFERENCES summaries(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_summary_parents_parent
+    ON summary_parents(parent_id);
+
 CREATE TABLE IF NOT EXISTS file_refs (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
@@ -872,6 +1206,21 @@ CREATE TABLE IF NOT EXISTS file_refs (
 
 CREATE INDEX IF NOT EXISTS idx_file_refs_conv
     ON file_refs(conversation_id);
+
+-- Conversation metadata — replaces the legacy metadata.json approach.
+CREATE TABLE IF NOT EXISTS conversation_meta (
+    conversation_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT '',
+    title_source TEXT NOT NULL DEFAULT 'pending',
+    created_at_unix_ms INTEGER NOT NULL,
+    updated_at_unix_ms INTEGER NOT NULL,
+    message_count INTEGER NOT NULL DEFAULT 0,
+    conversation_type TEXT NOT NULL DEFAULT 'standard',
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_conv_meta_updated
+    ON conversation_meta(updated_at_unix_ms);
 
 -- FTS5 virtual table for full-text search.
 -- Uses content= to keep FTS in sync with the messages table.

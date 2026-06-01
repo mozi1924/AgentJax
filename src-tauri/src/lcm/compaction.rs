@@ -15,8 +15,11 @@
 //! its input**. If a level fails to reduce token count, the system escalates.
 //! Level 3 guarantees convergence by using a non-LLM deterministic truncation.
 
-use crate::lcm::types::{LcmError, MessageRole, StoredMessage, SummaryKind, SummaryNode, SummaryId, estimate_tokens};
+use crate::lcm::types::{LcmError, MessageRole, StoredMessage, SummaryKind, SummaryNode, SummaryId};
 use std::sync::Arc;
+
+/// A token-counting function: takes text, returns an estimated token count.
+pub type TokenCounter = Arc<dyn Fn(&str) -> u32 + Send + Sync>;
 
 // ── Summarization Provider Trait ────────────────────────────────────────────
 
@@ -67,21 +70,32 @@ impl Summarizer for NoopSummarizer {
 // ── Compaction Engine ───────────────────────────────────────────────────────
 
 /// The compaction engine that drives the Three-Level Escalation protocol.
-#[derive(Clone)]
 pub struct CompactionEngine {
     /// The summarizer used for Level 1 and Level 2.
     summarizer: Arc<dyn Summarizer>,
-    /// Maximum characters for Level 3 truncation.
-    truncation_max_chars: usize,
+    /// Maximum tokens for Level 3 truncation (head + tail).
+    truncation_max_tokens: u32,
+    /// Token counting function — uses real tokenizer when available.
+    count_tokens: TokenCounter,
 }
 
 impl CompactionEngine {
     /// Create a new compaction engine.
-    pub fn new(summarizer: Arc<dyn Summarizer>, truncation_max_chars: usize) -> Self {
+    pub fn new(
+        summarizer: Arc<dyn Summarizer>,
+        truncation_max_tokens: u32,
+        count_tokens: TokenCounter,
+    ) -> Self {
         Self {
             summarizer,
-            truncation_max_chars,
+            truncation_max_tokens,
+            count_tokens,
         }
+    }
+
+    /// Returns a reference to the token counter.
+    pub fn token_counter(&self) -> &TokenCounter {
+        &self.count_tokens
     }
 
     /// Execute the Three-Level Escalation protocol.
@@ -106,7 +120,7 @@ impl CompactionEngine {
             .await
         {
             Ok(summary) => {
-                let summary_tokens = estimate_tokens(&summary);
+                let summary_tokens = (self.count_tokens)(&summary);
                 if summary_tokens < input_tokens {
                     return Ok((summary, 1));
                 }
@@ -128,7 +142,7 @@ impl CompactionEngine {
             .await
         {
             Ok(summary) => {
-                let summary_tokens = estimate_tokens(&summary);
+                let summary_tokens = (self.count_tokens)(&summary);
                 if summary_tokens < input_tokens {
                     return Ok((summary, 2));
                 }
@@ -144,7 +158,7 @@ impl CompactionEngine {
         }
 
         // ── Level 3: Deterministic Truncation — guaranteed convergence ──
-        let truncated = Self::deterministic_truncate(&input_text, self.truncation_max_chars);
+        let truncated = Self::deterministic_truncate(&input_text, self.truncation_max_tokens);
         Ok((truncated, 3))
     }
 
@@ -164,13 +178,16 @@ impl CompactionEngine {
 
     /// Level 3: Deterministic truncation.
     ///
-    /// Takes the first `max_chars` characters and the last `max_chars/2`
-    /// characters, joined with an ellipsis marker. This preserves context
-    /// from both the beginning and end of the conversation.
+    /// Takes the first ~67% and last ~33% of tokens, converted from
+    /// `max_tokens` to characters via the 4:1 heuristic. This preserves
+    /// context from both the beginning and end of the conversation.
     ///
     /// No LLM is involved — this is a pure string operation that
     /// **always converges**.
-    pub fn deterministic_truncate(text: &str, max_chars: usize) -> String {
+    pub fn deterministic_truncate(text: &str, max_tokens: u32) -> String {
+        // Convert token budget to character budget using the 4:1 heuristic.
+        let max_chars = (max_tokens as usize).saturating_mul(4);
+
         if text.chars().count() <= max_chars {
             return text.to_string();
         }
@@ -183,7 +200,7 @@ impl CompactionEngine {
             .chars().rev().collect();
 
         format!(
-            "{head}\n\n[... {omitted} messages truncated by LCM Level 3 compaction ...]\n\n{tail}",
+            "{head}\n\n[... {omitted} chars truncated by LCM Level 3 compaction ...]\n\n{tail}",
             omitted = {
                 let total = text.chars().count();
                 let kept = head_chars + tail_chars;
@@ -200,13 +217,14 @@ impl CompactionEngine {
         compaction_level: u8,
         kind: SummaryKind,
         timestamp_unix_ms: i64,
+        count_tokens: &TokenCounter,
     ) -> SummaryNode {
         SummaryNode {
             id,
             conversation_id: conversation_id.to_string(),
             kind,
             text: text.to_string(),
-            token_count: estimate_tokens(text),
+            token_count: count_tokens(text),
             created_at_unix_ms: timestamp_unix_ms,
             compaction_level,
             parents: Vec::new(),
@@ -221,6 +239,12 @@ impl CompactionEngine {
 mod tests {
     use super::*;
     use crate::lcm::types::MessageId;
+    use crate::lcm::types::estimate_tokens;
+
+    /// Helper: create a token counter using the 4:1 char heuristic for tests.
+    fn test_token_counter() -> TokenCounter {
+        Arc::new(|text: &str| crate::lcm::types::estimate_tokens(text))
+    }
 
     /// A mock summarizer that simulates successful Level 1 summarization.
     struct MockSummarizer {
@@ -270,7 +294,7 @@ mod tests {
         let summarizer = Arc::new(MockSummarizer {
             response: "Short summary".to_string(),
         });
-        let engine = CompactionEngine::new(summarizer, 512);
+        let engine = CompactionEngine::new(summarizer, 512, test_token_counter());
 
         let messages = vec![
             make_msg("1", "This is a very long message with many tokens indeed yes absolutely"),
@@ -288,7 +312,7 @@ mod tests {
         let summarizer = Arc::new(MockSummarizer {
             response: "A".repeat(500), // Longer than our short messages
         });
-        let engine = CompactionEngine::new(summarizer, 100);
+        let engine = CompactionEngine::new(summarizer, 100, test_token_counter());
 
         let messages = vec![
             make_msg("1", "hi"), // very short
@@ -302,7 +326,7 @@ mod tests {
     #[tokio::test]
     async fn test_failing_summarizer_escalates() {
         let summarizer = Arc::new(FailingSummarizer);
-        let engine = CompactionEngine::new(summarizer, 100);
+        let engine = CompactionEngine::new(summarizer, 100, test_token_counter());
 
         let messages = vec![
             make_msg("1", "Some message that needs summarizing"),
@@ -316,15 +340,17 @@ mod tests {
     #[test]
     fn test_deterministic_truncate_short_text() {
         let text = "Short text";
-        let result = CompactionEngine::deterministic_truncate(text, 100);
+        // 50 tokens * 4 = 200 char budget, "Short text" is 10 chars → no truncation
+        let result = CompactionEngine::deterministic_truncate(text, 50);
         assert_eq!(result, text); // No truncation needed.
     }
 
     #[test]
     fn test_deterministic_truncate_long_text() {
         let text = "A".repeat(500);
-        let result = CompactionEngine::deterministic_truncate(&text, 100);
-        // The result includes marker text, so it can exceed max_chars.
+        // 25 tokens * 4 chars/token = 100 char budget
+        let result = CompactionEngine::deterministic_truncate(&text, 25);
+        // The result includes marker text, so it can exceed the char budget.
         // But it should be much shorter than the original 500 chars.
         assert!(result.chars().count() < 200, "Truncated text should be significantly shorter than original");
         assert!(result.contains("truncated by LCM"));

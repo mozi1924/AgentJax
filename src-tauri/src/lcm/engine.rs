@@ -58,8 +58,10 @@ pub struct LcmEngine {
     file_handler: FileHandler,
     /// LCM configuration.
     config: LcmConfig,
-    /// A background compaction signal channel.
+    /// Background compaction signal sender.
     compaction_tx: mpsc::UnboundedSender<()>,
+    /// Background compaction signal receiver (taken by spawn_compaction_task).
+    compaction_rx: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
     /// The current active context — the window sent to the LLM.
     active_context: Mutex<ActiveContextState>,
 }
@@ -102,11 +104,28 @@ impl LcmEngine {
         config: LcmConfig,
     ) -> Self {
         let dag = SummaryDag::new(store.clone());
-        let truncation_chars = 512; // Level 3 fallback.
-        let compaction = CompactionEngine::new(summarizer, truncation_chars);
+        let truncation_max_tokens = if config.truncation_max_tokens > 0 {
+            config.truncation_max_tokens
+        } else {
+            128 // sensible default
+        };
+
+        // Build a token counter that uses the real tokenizer when available.
+        let tokenizer_model_id = config.tokenizer_model_id.clone();
+        let count_tokens: crate::lcm::compaction::TokenCounter = Arc::new(move |text: &str| {
+            if let Some(ref model_id) = tokenizer_model_id {
+                match crate::conversation_store::count_text_tokens(model_id, text) {
+                    Ok(count) => return count as u32,
+                    Err(_) => { /* fall through to heuristic */ }
+                }
+            }
+            crate::lcm::types::estimate_tokens(text)
+        });
+
+        let compaction = CompactionEngine::new(summarizer, truncation_max_tokens, count_tokens);
         let file_handler = FileHandler::new(&config);
 
-        let (compaction_tx, _) = mpsc::unbounded_channel();
+        let (compaction_tx, compaction_rx) = mpsc::unbounded_channel();
 
         Self {
             store,
@@ -115,6 +134,7 @@ impl LcmEngine {
             file_handler,
             config,
             compaction_tx,
+            compaction_rx: Mutex::new(Some(compaction_rx)),
             active_context: Mutex::new(ActiveContextState::new()),
         }
     }
@@ -130,28 +150,83 @@ impl LcmEngine {
     /// This should be called once right after construction. It spawns a
     /// tokio task that listens on the compaction channel and runs
     /// `compact_oldest_block` when signalled.
+    ///
+    /// The task holds a `Weak` reference to the engine, so it will
+    /// automatically terminate when the engine is dropped.
     pub fn spawn_compaction_task(self: &Arc<Self>) {
-        let engine = Arc::downgrade(self);
-        let config = self.config.clone();
+        let engine_weak = Arc::downgrade(self);
+        let timeout_secs = self.config.compaction_timeout_secs;
 
-        // Note: In the current architecture, trigger_async_compaction
-        // sends on the channel but the receiver is dropped by new().
-        // To enable true background compaction, we need to restructure
-        // the channel setup. For now, this method is a placeholder.
-        //
-        // Full implementation requires:
-        // 1. Store receiver in a Mutex<Option<mpsc::UnboundedReceiver<()>>>
-        // 2. Spawn tokio::spawn that loops on rx.recv()
-        // 3. On signal: compact_oldest_block with timeout
-        // 4. On success: clear compaction_running flag
+        // Take the receiver out of the mutex.
+        let rx_opt = match self.compaction_rx.lock() {
+            Ok(mut guard) => guard.take(),
+            Err(_) => {
+                log::error!("LCM: Failed to acquire compaction_rx lock for spawning task");
+                return;
+            }
+        };
 
-        let _ = engine;
-        let _ = config;
+        let Some(mut rx) = rx_opt else {
+            log::error!("LCM: Compaction receiver already taken (spawn_compaction_task called twice?)");
+            return;
+        };
 
-        log::info!(
-            "LCM background compaction task placeholder (channel-based \
-             async compaction requires Mutex-wrapped receiver)"
-        );
+        tokio::spawn(async move {
+            log::info!(
+                "LCM background compaction task started (timeout: {}s)",
+                timeout_secs
+            );
+
+            loop {
+                match rx.recv().await {
+                    Some(()) => {
+                        // Upgrade weak ref — if engine is dropped, terminate.
+                        let Some(engine) = engine_weak.upgrade() else {
+                            log::debug!("LCM compaction task: engine dropped, exiting");
+                            break;
+                        };
+
+                        log::debug!("LCM async compaction: received signal, compacting...");
+
+                        // Run compaction with timeout.
+                        let result = tokio::time::timeout(
+                            std::time::Duration::from_secs(timeout_secs as u64),
+                            engine.compact_oldest_block(),
+                        )
+                        .await;
+
+                        match result {
+                            Ok(Ok(_)) => {
+                                log::debug!("LCM async compaction: completed successfully");
+                            }
+                            Ok(Err(e)) => {
+                                log::warn!("LCM async compaction failed: {e}");
+                            }
+                            Err(_elapsed) => {
+                                log::warn!(
+                                    "LCM async compaction timed out after {}s",
+                                    timeout_secs
+                                );
+                            }
+                        }
+
+                        // Clear the running flag so next trigger can fire.
+                        if let Ok(mut ctx) = engine.active_context.lock() {
+                            ctx.compaction_running = false;
+                        }
+                    }
+                    None => {
+                        // Channel closed — engine was dropped.
+                        log::debug!("LCM compaction task: channel closed, exiting");
+                        break;
+                    }
+                }
+            }
+
+            log::debug!("LCM background compaction task exited");
+        });
+
+        log::info!("LCM background compaction task spawned");
     }
 
     /// Returns a reference to the underlying store.
@@ -259,6 +334,25 @@ impl LcmEngine {
             LcmError::Concurrency(format!("Failed to acquire context lock: {e}"))
         })?;
         Ok(ctx.token_count)
+    }
+
+    /// Count tokens for a text string using the real tokenizer when available,
+    /// falling back to the 4:1 character heuristic.
+    ///
+    /// This bridges the LCM layer with the globally-cached HuggingFace tokenizer
+    /// managed by `conversation_store::count_text_tokens`.
+    pub fn count_tokens(&self, text: &str) -> u32 {
+        if let Some(ref model_id) = self.config.tokenizer_model_id {
+            match crate::conversation_store::count_text_tokens(model_id, text) {
+                Ok(count) => count as u32,
+                Err(_) => {
+                    // Fall back to heuristic on tokenizer error.
+                    crate::lcm::types::estimate_tokens(text)
+                }
+            }
+        } else {
+            crate::lcm::types::estimate_tokens(text)
+        }
     }
 
     /// Check if the active context is currently above the hard threshold.
@@ -389,6 +483,7 @@ impl LcmEngine {
                 compaction_level,
                 SummaryKind::Leaf,
                 now_ms,
+                self.compaction.token_counter(),
             );
 
             let message_ids: Vec<MessageId> = messages.iter().map(|m| m.id.clone()).collect();
@@ -430,6 +525,7 @@ impl LcmEngine {
                         timestamp_unix_ms: summary.created_at_unix_ms,
                         covered_by: None,
                         metadata: std::collections::BTreeMap::new(),
+                        file_refs: Vec::new(),
                     };
                     summary_messages.push(tmp_msg);
                 }
@@ -460,6 +556,7 @@ impl LcmEngine {
                 compaction_level,
                 SummaryKind::Condensed,
                 now_ms,
+                self.compaction.token_counter(),
             );
 
             self.dag

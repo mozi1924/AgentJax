@@ -18,7 +18,6 @@ pub use chat_types::{
 
 use crate::config;
 use crate::conversation_store;
-use crate::lcm::sync_conversation_to_lcm;
 use crate::provider_api::{build_user_input_item, get_tool_schema_format};
 use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
 use crate::tools::ToolCatalog;
@@ -109,6 +108,19 @@ pub async fn chat_stream(
     let lcm_engine =
         crate::lcm::open_lcm_engine_with_summarizer(&conversation_id, &config.lcm, &config)?;
     tools_catalog.set_context_tools(lcm_engine.store().clone());
+
+    // Ensure LCM conversation metadata exists.
+    let _ = lcm_engine
+        .store()
+        .ensure_conversation_meta(&conversation_id)
+        .map_err(|e| {
+            log::warn!(
+                "Failed to ensure LCM conversation meta for '{}': {}",
+                conversation_id,
+                e
+            )
+        });
+
     log::info!(
         "LCM initialized for conversation '{}' (db: {:?})",
         conversation_id,
@@ -249,15 +261,6 @@ pub async fn chat_stream(
     let _ = registry.remove_chat_request(&request_id)?;
     let (response, _timeline_events) = result?;
     let final_token_count = stream_observer.persist_final_token_usage(&response);
-
-    // ── LCM: Sync remaining messages (already persisted inline during run_turn) ──
-    if let Err(e) = sync_conversation_to_lcm(&conversation_id, lcm_engine.store()).await {
-        log::warn!(
-            "Failed to sync conversation '{}' to LCM: {}",
-            conversation_id,
-            e
-        );
-    }
 
     log::info!(
         "chat_stream turn complete: conv={} req={} text_len={} resp_id={} output_items={}",

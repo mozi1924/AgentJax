@@ -99,6 +99,9 @@ pub fn open_lcm_engine(
         lcm_config.clone(),
     ));
 
+    // Spawn background compaction task (async, non-blocking).
+    engine.spawn_compaction_task();
+
     Ok(engine)
 }
 
@@ -116,6 +119,22 @@ pub fn open_lcm_engine_with_summarizer(
         LcmStore::open(&db_path, lcm_config.clone())
             .map_err(|e| AgentJaxError::internal(format!("Failed to open LCM store: {e}")))?,
     );
+
+    // Resolve the tokenizer model ID for accurate LCM token counting.
+    let mut resolved_lcm_config = lcm_config.clone();
+    if resolved_lcm_config.tokenizer_model_id.is_none() {
+        // Use the summarization model for token counting, falling back to
+        // the utility small model, then to the first configured model.
+        let tokenizer_model: Option<String> = if !lcm_config.summarization_model.is_empty()
+            && lcm_config.summarization_model != "default"
+        {
+            Some(lcm_config.summarization_model.clone())
+        } else {
+            let model = &app_config.utility_small_model;
+            if model.is_empty() { None } else { Some(model.clone()) }
+        };
+        resolved_lcm_config.tokenizer_model_id = tokenizer_model;
+    }
 
     // Try to create a ProviderSummarizer; fall back to NoopSummarizer
     // if model resolution fails.
@@ -136,7 +155,10 @@ pub fn open_lcm_engine_with_summarizer(
         }
     };
 
-    let engine = Arc::new(LcmEngine::new(store, summarizer, lcm_config.clone()));
+    let engine = Arc::new(LcmEngine::new(store, summarizer, resolved_lcm_config));
+
+    // Spawn background compaction task (async, non-blocking).
+    engine.spawn_compaction_task();
 
     Ok(engine)
 }
@@ -235,6 +257,7 @@ pub async fn sync_conversation_to_lcm(
                     timestamp_unix_ms: tool.ts,
                     covered_by: None,
                     metadata: fc_meta,
+                    file_refs: Vec::new(),
                 };
                 messages.push(fc_msg);
 
@@ -269,6 +292,7 @@ pub async fn sync_conversation_to_lcm(
                             .unwrap_or(tool.ts),
                         covered_by: None,
                         metadata: fco_meta,
+                        file_refs: Vec::new(),
                     };
                     messages.push(fco_msg);
                 }
