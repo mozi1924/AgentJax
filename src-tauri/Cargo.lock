@@ -6,6 +6,7 @@ version = 4
 name = "AgentJax"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "deno_core",
  "dirs 6.0.0",

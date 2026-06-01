@@ -32,6 +32,7 @@ use std::sync::Arc;
 /// Provides operations for creating, linking, and traversing summary nodes.
 /// All persistent state is stored in the LcmStore; this struct provides
 /// the in-memory view and algorithms.
+#[derive(Clone)]
 pub struct SummaryDag {
     store: Arc<LcmStore>,
 }

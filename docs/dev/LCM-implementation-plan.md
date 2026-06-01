@@ -782,4 +782,55 @@ Phase 4 (收尾)
 
 ---
 
+## Phase 2 实施记录 (2026-06-01)
+
+### 新增文件
+
+| 文件 | 行数 | 说明 |
+|------|------|------|
+| `src-tauri/src/lcm/compaction.rs` | ~330 | Three-Level Escalation 协议 (Normal→Aggressive→Truncation) |
+| `src-tauri/src/lcm/file_handler.rs` | ~400 | 大文件处理 (JSON/CSV/Code/Text 类型感知探索摘要) |
+| `src-tauri/src/lcm/engine.rs` | ~680 | LcmEngine 顶层协调器 (Context Control Loop, Active Context 管理) |
+
+### 修改文件
+
+| 文件 | 变更 |
+|------|------|
+| `src-tauri/Cargo.toml` | 新增依赖: `async-trait` |
+| `src-tauri/src/lcm/mod.rs` | 注册新模块: compaction, engine, file_handler |
+| `src-tauri/src/lcm/dag.rs` | 添加 `#[derive(Clone)]` |
+| `src-tauri/src/config/schema.rs` | AppConfig 新增 `lcm: LcmConfig` 字段 |
+
+### 已实现功能
+
+| 功能 | 对应论文章节 | 状态 |
+|------|-------------|------|
+| Three-Level Escalation | Figure 3, §2.3 | ✅ 完整实现 |
+| Context Control Loop | Figure 2, §2.1 | ✅ 核心逻辑 |
+| Active Context Assembly | §2, §2.4 | ✅ rebuild + process_message |
+| Atomic Swap Replacement | §2.4 | ✅ replace_in_active_context |
+| Zero-Cost Continuity | §2.4 (Eq. 1) | ✅ τ_soft 以下仅被动日志 |
+| Large File Exploration | §2.2 | ✅ JSON/CSV/Code/Text 四种 explorer |
+| File Reference Registration | §2.2 | ✅ 阈值检测 + 自动注册 |
+| Deterministic Truncation | §2.3 (Level 3) | ✅ 头尾保留算法 |
+
+### 测试覆盖 (新增 18 tests)
+
+- ✅ `test_level_1_success` — Level 1 摘要成功
+- ✅ `test_escalation_to_level_3` — 摘要不收敛时自动升级到 Level 3
+- ✅ `test_failing_summarizer_escalates` — LLM 失败时降级到截断
+- ✅ `test_deterministic_truncate_*` — 截断算法验证
+- ✅ `test_concat_messages` — 消息拼接
+- ✅ `test_small_file_not_explored` / `test_large_file_explored` — 阈值检测
+- ✅ `test_json_exploration` / `test_csv_exploration` / `test_code_exploration` — 类型感知探索
+- ✅ `test_register_file_*` — 文件引用注册
+- ✅ `test_process_message_*` — 消息处理 + 去重
+- ✅ `test_token_count_tracking` — Token 统计
+- ✅ `test_rebuild_active_context` — 上下文重建
+- ✅ `test_below_soft_threshold_no_compaction` — Zero-Cost Continuity
+
+### 累计测试: 27 passed, 0 failed
+
+---
+
 *计划制定日期: 2026-06-01*

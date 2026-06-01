@@ -34,6 +34,8 @@ pub struct AppConfig {
     pub plugin_manager: PluginManagerConfig,
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default)]
+    pub lcm: crate::lcm::LcmConfig,
 }
 
 /// User-facing tool exposure policy.
@@ -394,6 +396,7 @@ impl Default for AppConfig {
             tool_manager: ToolManagerConfig::default(),
             plugin_manager: PluginManagerConfig::default(),
             language: default_language(),
+            lcm: crate::lcm::LcmConfig::default(),
         }
     }
 }

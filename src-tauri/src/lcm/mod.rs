@@ -31,10 +31,16 @@
 //! 4. **DAG-structured summaries**: Summary nodes form a directed acyclic
 //!    graph, allowing multi-resolution traversal of conversation history.
 
+pub mod compaction;
 pub mod dag;
+pub mod engine;
+pub mod file_handler;
 pub mod store;
 pub mod types;
 
+pub use compaction::{CompactionEngine, NoopSummarizer, Summarizer};
 pub use dag::SummaryDag;
+pub use engine::LcmEngine;
+pub use file_handler::FileHandler;
 pub use store::LcmStore;
 pub use types::*;
