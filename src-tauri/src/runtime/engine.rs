@@ -401,6 +401,48 @@ impl AgentRuntime {
                     }
                 }
 
+                // ── Lossless invariant guard ─────────────────────────────────
+                // If any assistant text from this hop appeared only in output_text
+                // (not as a structured message in output_items), it would be
+                // missing from hop_messages_for_lcm. Persist it now so every
+                // model-generated message is preserved in the immutable store.
+                let assistant_text_for_lcm: String = if hop_messages_for_lcm.is_empty()
+                    && !collected.response_result.output_text.trim().is_empty()
+                {
+                    // Text only in output_text — must persist manually.
+                    collected.response_result.output_text.trim().to_string()
+                } else if is_final_hop && !final_output_text.trim().is_empty() {
+                    // Final answer: ensure it's captured even if already in hop messages.
+                    let already_captured = hop_messages_for_lcm.iter().any(|(text, _)| {
+                        text.trim() == final_output_text.trim()
+                    });
+                    if !already_captured {
+                        final_output_text.trim().to_string()
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
+
+                if !assistant_text_for_lcm.is_empty() {
+                    let mut final_msg = crate::lcm::types::StoredMessage::new(
+                        crate::lcm::types::MessageId::new(),
+                        &lcm_conv_id,
+                        crate::lcm::types::MessageRole::Assistant,
+                        &assistant_text_for_lcm,
+                        crate::lcm::types::estimate_tokens(&assistant_text_for_lcm),
+                        now_ms,
+                    );
+                    final_msg.metadata.insert(
+                        "phase".to_string(),
+                        serde_json::Value::String(
+                            if is_final_hop { "final" } else { "assistant" }.to_string(),
+                        ),
+                    );
+                    batch_messages.push(final_msg);
+                }
+
                 // Persist all messages in a single batch (one SQLite transaction, one threshold check).
                 if !batch_messages.is_empty() {
                     if let Err(e) = engine.process_messages_batch(&batch_messages).await {
