@@ -125,7 +125,8 @@ const geminiProvider = {
     const model = resolved.modelId.replace(/^models\//, "");
     const useKeyQuery = base.includes("generativelanguage.googleapis.com");
     const query = { ...(resolved.provider.queryParams || {}), alt: "sse" };
-    if (useKeyQuery && resolved.credential) query.key = query.key || resolved.credential;
+    // ⚠️  Credential is NOT added here — Rust injects it server-side
+    // after the plugin returns, based on authStrategy.
     const body = { contents: geminiContents(request.inputItems) };
     const instructions = (request.instructionsOverride || "").trim() || resolved.systemPrompt;
     if (instructions.trim()) body.systemInstruction = { parts: [{ text: instructions }] };
@@ -142,8 +143,9 @@ const geminiProvider = {
       method: "POST",
       url: withQuery(`${base}/models/${model}:streamGenerateContent`, query),
       streamProtocol: "sse",
-      headers: headerMap({ "Content-Type": "application/json", Accept: "text/event-stream" }, resolved, useKeyQuery ? "key-query" : "bearer"),
+      headers: headerMap({ "Content-Type": "application/json", Accept: "text/event-stream" }, resolved),
       body,
+      authStrategy: useKeyQuery ? "key-query" : "bearer",
     };
   },
   parseStreamEvent({ state, eventBlock }) {
@@ -189,12 +191,13 @@ const geminiProvider = {
     const base = resolved.provider.apiEndpoint.replace(/\/+$/, "");
     const useKeyQuery = base.includes("generativelanguage.googleapis.com");
     const query = { ...(resolved.provider.queryParams || {}) };
-    if (useKeyQuery && resolved.credential) query.key = query.key || resolved.credential;
+    // ⚠️  Credential is NOT added here — Rust injects it server-side.
     const candidates = resolved.provider.modelsEndpointCandidates || [];
     return {
       method: "GET",
       url: withQuery(candidates[0] || `${base}/models`, query),
-      headers: headerMap({}, resolved, useKeyQuery ? "key-query" : "bearer"),
+      headers: headerMap({}, resolved),
+      authStrategy: useKeyQuery ? "key-query" : "bearer",
     };
   },
   parseModelsResponse({ response }) {

@@ -1,4 +1,4 @@
-use crate::error::AgentJaxResult;
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::provider_api::types::{ProviderPendingToolCall, ProviderStreamEvent};
 use crate::tools::ToolCatalogSnapshot;
 use futures_util::FutureExt;
@@ -19,6 +19,9 @@ use types::{ActiveToolExecution, ExecutedToolBatch, ExecutedToolRecord};
 
 const MAX_PARALLEL_TOOL_EXECUTIONS: usize = 4;
 pub(super) const TOOL_PROGRESS_HEARTBEAT_SECS: u64 = 5;
+/// Hard ceiling for all tool executions within a single hop.
+/// Prevents `finish()` from hanging forever when a tool is unresponsive.
+const TOOL_EXECUTION_HARD_TIMEOUT_SECS: u64 = 300;
 
 type ToolCompletionMessage = (String, Option<ExecutedToolRecord>);
 type ToolExecutionJoinHandle = JoinHandle<()>;
@@ -166,20 +169,50 @@ impl ToolExecutionScheduler {
             tokio::time::interval(Duration::from_secs(TOOL_PROGRESS_HEARTBEAT_SECS));
         progress_interval.tick().await;
 
-        while !self.active_tools.is_empty() {
-            tokio::select! {
-                maybe_message = self.completed_rx.recv() => {
-                    let Some(message) = maybe_message else {
-                        break;
-                    };
-                    self.record_completion_message(message, on_event)?;
+        // Clone of the cancel receiver so `changed()` starts watching from now
+        // (the original was used during provider streaming).
+        let mut cancel_changed = self.cancel_rx.clone();
+
+        let inner_result = tokio::time::timeout(
+            Duration::from_secs(TOOL_EXECUTION_HARD_TIMEOUT_SECS),
+            async {
+                while !self.active_tools.is_empty() {
+                    tokio::select! {
+                        maybe_message = self.completed_rx.recv() => {
+                            let Some(message) = maybe_message else {
+                                break;
+                            };
+                            self.record_completion_message(message, on_event)?;
+                        }
+                        _ = progress_interval.tick() => {
+                            self.try_emit_completed_tools(on_event)?;
+                            self.emit_progress_events(on_event)?;
+                        }
+                        _ = cancel_changed.changed() => {
+                            if *cancel_changed.borrow() {
+                                for handle in &self.handles {
+                                    handle.abort();
+                                }
+                                return Err(AgentJaxError::internal(
+                                    "Tool execution cancelled",
+                                ));
+                            }
+                        }
+                    }
                 }
-                _ = progress_interval.tick() => {
-                    self.try_emit_completed_tools(on_event)?;
-                    self.emit_progress_events(on_event)?;
-                }
+                Ok::<_, AgentJaxError>(())
+            },
+        )
+        .await;
+
+        let () = inner_result.map_err(|_elapsed| {
+            for handle in &self.handles {
+                handle.abort();
             }
-        }
+            AgentJaxError::internal(format!(
+                "Tool execution timed out after {TOOL_EXECUTION_HARD_TIMEOUT_SECS}s"
+            ))
+        })??;
 
         let executed_records = std::mem::take(&mut self.executed_records);
         finalize_executed_records(

@@ -164,6 +164,7 @@ const openAIResponsesProvider = {
       streamProtocol: "sse",
       headers: headerMap({ "Content-Type": "application/json", Accept: "text/event-stream" }, context.resolved),
       body: buildResponsePayload(context),
+      authStrategy: "bearer",
     };
   },
   parseStreamEvent({ state, eventBlock }) {
@@ -257,6 +258,7 @@ const openAIResponsesProvider = {
       method: "GET",
       url: withQuery(url, resolved.provider.queryParams),
       headers: headerMap({}, resolved),
+      authStrategy: "bearer",
     };
   },
   parseModelsResponse({ response }) {

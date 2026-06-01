@@ -148,8 +148,9 @@ const anthropicProvider = {
       method: "POST",
       url: withQuery(`${resolved.provider.apiEndpoint.replace(/\/+$/, "")}/messages`, resolved.provider.queryParams),
       streamProtocol: "sse",
-      headers: headerMap({ "Content-Type": "application/json", Accept: "text/event-stream", "anthropic-version": "2023-06-01" }, resolved, "x-api-key"),
+      headers: headerMap({ "Content-Type": "application/json", Accept: "text/event-stream", "anthropic-version": "2023-06-01" }, resolved),
       body,
+      authStrategy: "x-api-key",
     };
   },
   parseStreamEvent({ state, eventBlock }) {
@@ -205,7 +206,8 @@ const anthropicProvider = {
     return {
       method: "GET",
       url: withQuery(candidates[0] || `${resolved.provider.apiEndpoint.replace(/\/+$/, "")}/models`, resolved.provider.queryParams),
-      headers: headerMap({ "anthropic-version": "2023-06-01" }, resolved, "x-api-key"),
+      headers: headerMap({ "anthropic-version": "2023-06-01" }, resolved),
+      authStrategy: "x-api-key",
     };
   },
   parseModelsResponse({ response }) {

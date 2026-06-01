@@ -194,6 +194,7 @@ const chatCompletionsProvider = {
       streamProtocol: "sse",
       headers: headerMap({ "Content-Type": "application/json", Accept: "text/event-stream" }, context.resolved),
       body,
+      authStrategy: "bearer",
     };
   },
   parseStreamEvent({ state, eventBlock }) {
@@ -257,7 +258,7 @@ const chatCompletionsProvider = {
   buildModelsRequest({ resolved }) {
     const candidates = resolved.provider.modelsEndpointCandidates || [];
     const url = candidates[0] || `${resolved.provider.apiEndpoint.replace(/\/+$/, "")}/models`;
-    return { method: "GET", url: withQuery(url, resolved.provider.queryParams), headers: headerMap({}, resolved) };
+    return { method: "GET", url: withQuery(url, resolved.provider.queryParams), headers: headerMap({}, resolved), authStrategy: "bearer" };
   },
   parseModelsResponse({ response }) {
     return (response.data || response.models || []).map((model) => ({

@@ -39,9 +39,17 @@ impl TurnAccumulator {
         }
     }
 
-    /// Append all continuation items so the final result contains the complete
-    /// tool-call timeline, not just assistant text.
+    /// Append only tool-result items from the continuation batch.
+    /// Function-call and reasoning items are already recorded by `record_hop`;
+    /// re-appending them here would produce duplicates in the final output items.
     pub(super) fn absorb_continuation_batch(&mut self, items: &[Value]) {
-        self.output_items.extend(items.iter().cloned());
+        for item in items {
+            if matches!(
+                item.get("type").and_then(Value::as_str),
+                Some("function_call_output") | Some("custom_tool_call_output")
+            ) {
+                self.output_items.push(item.clone());
+            }
+        }
     }
 }

@@ -18,7 +18,7 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use crate::error::{AgentJaxError, AgentJaxResult};
-use crate::error_classifier::classify_http_error;
+use crate::error_classifier::{classify_http_error, classify_reqwest_error};
 use crate::provider_api::circuit_breaker::CircuitBreakerRegistry;
 use futures_util::StreamExt;
 use reqwest::Method;
@@ -50,6 +50,11 @@ struct PluginHttpRequest {
     body: Option<Value>,
     #[serde(default = "default_stream_protocol")]
     stream_protocol: String,
+    /// Auth strategy to apply after JS returns the request.
+    /// Set by the plugin to "bearer", "x-api-key", "key-query", or absent.
+    /// Rust injects the credential server-side; the JS plugin never sees it.
+    #[serde(default)]
+    auth_strategy: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -94,6 +99,57 @@ fn default_stream_protocol() -> String {
     "sse".to_string()
 }
 
+/// Inject the resolved credential into an HTTP request returned by a JS plugin.
+///
+/// The credential is applied server-side in Rust so that the raw API key never
+/// enters the plugin JS runtime.  The plugin signals its auth strategy via the
+/// `authStrategy` field on the returned request object.
+fn inject_credential(request: &mut PluginHttpRequest, credential: &str) {
+    let strategy = request.auth_strategy.as_deref().unwrap_or("bearer");
+
+    // Skip injection when the user-configured `resolvedHttpHeaders` already
+    // carries an auth header (e.g. per-provider static tokens).
+    let has_auth = request.headers.keys().any(|k| {
+        matches!(k.to_lowercase().as_str(), "authorization" | "x-api-key")
+    });
+    if has_auth {
+        return;
+    }
+
+    match strategy {
+        "x-api-key" => {
+            request
+                .headers
+                .insert("x-api-key".to_string(), credential.to_string());
+        }
+        "key-query" => {
+            // URL-encode the credential for safe query-parameter placement
+            // without pulling in a separate `url` dep — API keys are typically
+            // alphanumeric, so a simple encode covers edge cases.
+            let encoded: String = credential
+                .bytes()
+                .flat_map(|b| match b {
+                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                        vec![b as char]
+                    }
+                    b' ' => vec!['+'],
+                    other => format!("%{:02X}", other).chars().collect(),
+                })
+                .collect();
+            let sep = if request.url.contains('?') { '&' } else { '?' };
+            request.url.push(sep);
+            request.url.push_str("key=");
+            request.url.push_str(&encoded);
+        }
+        _ => {
+            // Default: bearer token
+            request
+                .headers
+                .insert("authorization".to_string(), format!("Bearer {credential}"));
+        }
+    }
+}
+
 /// Global circuit breaker registry for all provider calls.
 static CIRCUIT_BREAKERS: LazyLock<CircuitBreakerRegistry> =
     LazyLock::new(CircuitBreakerRegistry::new);
@@ -127,8 +183,12 @@ where
         ))
     })?;
     let context = plugin_context(&resolved, req);
-    let request: PluginHttpRequest =
+    let mut request: PluginHttpRequest =
         call_provider_function(&package, &resolved.provider.kind, "buildStreamRequest", context)?;
+    // Credential is injected server-side — it never enters the JS plugin runtime.
+    if let Some(credential) = &resolved.provider.resolved_credential() {
+        inject_credential(&mut request, credential);
+    }
 
     let result = match request.stream_protocol.trim().to_ascii_lowercase().as_str() {
         "sse" => {
@@ -142,7 +202,6 @@ where
                 definition.capabilities,
             )
             .await
-            .map_err(Into::into)
         }
         "websocket" => {
             stream_websocket_request(
@@ -155,7 +214,6 @@ where
                 definition.capabilities,
             )
             .await
-            .map_err(Into::into)
         }
         other => Err(AgentJaxError::config(format!(
             "Provider plugin '{}' requested unsupported stream protocol '{}'. The host currently supports SSE and WebSocket for provider streams.",
@@ -196,19 +254,22 @@ pub async fn fetch_remote_models(
         request: Default::default(),
     };
     let package = registry::provider_plugin_package(&resolved.provider.kind).ok_or_else(|| {
-        format!(
+        AgentJaxError::config(format!(
             "Provider kind '{}' is registered without an executable plugin package.",
             resolved.provider.kind
-        )
+        ))
     })?;
     let empty_request = ResponseStreamRequest::default();
-    let request: PluginHttpRequest =
+    let mut request: PluginHttpRequest =
         call_provider_function(
             &package,
             &resolved.provider.kind,
             "buildModelsRequest",
             plugin_context(&resolved, &empty_request),
         )?;
+    if let Some(credential) = &resolved.provider.resolved_credential() {
+        inject_credential(&mut request, credential);
+    }
     let response_json = send_json_request(&request, resolved.timeout_seconds).await?;
     call_provider_function(
         &package,
@@ -227,10 +288,10 @@ pub fn get_reasoning_capability(
     cached_levels: Option<&[String]>,
 ) -> AgentJaxResult<ModelReasoningCapability> {
     let package = registry::provider_plugin_package(provider_kind).ok_or_else(|| {
-        format!(
+        AgentJaxError::config(format!(
             "Provider kind '{}' is registered without an executable plugin package.",
             provider_kind
-        )
+        ))
     })?;
     call_provider_function(
         &package,
@@ -248,10 +309,10 @@ pub fn get_model_metadata(
     model_id: &str,
 ) -> AgentJaxResult<ProviderModelMetadata> {
     let package = registry::provider_plugin_package(provider_kind).ok_or_else(|| {
-        format!(
+        AgentJaxError::config(format!(
             "Provider kind '{}' is registered without an executable plugin package.",
             provider_kind
-        )
+        ))
     })?;
     call_provider_function(
         &package,
@@ -272,13 +333,13 @@ async fn stream_sse_request(
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut ProviderEventSink<'_>,
     capabilities: super::ProviderCapabilities,
-) -> Result<ResponseStreamResult, String> {
+) -> AgentJaxResult<ResponseStreamResult> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(resolved.timeout_seconds))
         .build()
-        .map_err(|err| format!("Failed to initialize provider HTTP client: {err}"))?;
+        .map_err(|err| AgentJaxError::network(format!("Failed to initialize provider HTTP client: {err}")))?;
     let method = Method::from_str(request.method.trim())
-        .map_err(|err| format!("Invalid provider plugin HTTP method '{}': {err}", request.method))?;
+        .map_err(|err| AgentJaxError::config(format!("Invalid provider plugin HTTP method '{}': {err}", request.method)))?;
     let mut builder = client.request(method, request.url.clone());
     if let Some(body) = &request.body {
         builder = builder.json(body);
@@ -286,15 +347,26 @@ async fn stream_sse_request(
     let response = apply_headers_to_reqwest(builder, &request.headers)?
         .send()
         .await
-        .map_err(|err| format!("Failed to reach provider stream endpoint: {err}"))?;
+        .map_err(|err| classify_reqwest_error(&err, Some(provider_kind)))?;
 
     if !response.status().is_success() {
         let status = response.status();
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(Duration::from_secs);
         let text = response
             .text()
             .await
             .unwrap_or_else(|_| "<unable to read error body>".to_string());
-        return Err(format!("Provider stream endpoint error ({status}): {text}"));
+        return Err(classify_http_error(
+            status.as_u16(),
+            &text,
+            Some(provider_kind),
+            retry_after,
+        ));
     }
 
     let mut state = json!({});
@@ -318,7 +390,7 @@ async fn stream_sse_request(
                     break;
                 };
                 let bytes = next_chunk
-                    .map_err(|err| format!("Failed to read provider stream: {err}"))?;
+                    .map_err(|err| AgentJaxError::network(format!("Failed to read provider stream: {err}")))?;
                 buffer.push_str(&String::from_utf8_lossy(&bytes));
                 while let Some((event_block, rest)) = split_sse_event_block(&buffer) {
                     buffer = rest;
@@ -414,14 +486,14 @@ async fn stream_websocket_request(
     cancel_rx: &mut watch::Receiver<bool>,
     on_delta: &mut ProviderEventSink<'_>,
     capabilities: super::ProviderCapabilities,
-) -> Result<ResponseStreamResult, String> {
+) -> AgentJaxResult<ResponseStreamResult> {
     use futures_util::SinkExt;
     use tokio_tungstenite::connect_async;
     use tokio_tungstenite::tungstenite::Message;
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
     let mut ws_req = request.url.clone().into_client_request()
-        .map_err(|err| format!("Invalid provider websocket URL '{}': {err}", request.url))?;
+        .map_err(|err| AgentJaxError::config(format!("Invalid provider websocket URL '{}': {err}", request.url)))?;
 
     // Apply headers from request
     for (key, value) in &request.headers {
@@ -438,17 +510,17 @@ async fn stream_websocket_request(
 
     let (ws_stream, _) = connect_async(ws_req)
         .await
-        .map_err(|err| format!("Failed to connect to provider websocket: {err}"))?;
+        .map_err(|err| AgentJaxError::network(format!("Failed to connect to provider websocket: {err}")))?;
 
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
     // Send initial request body if present
     if let Some(body) = &request.body {
         let body_str = serde_json::to_string(body)
-            .map_err(|err| format!("Failed to serialize websocket request body: {err}"))?;
+            .map_err(|err| AgentJaxError::internal(format!("Failed to serialize websocket request body: {err}")))?;
         ws_tx.send(Message::text(body_str))
             .await
-            .map_err(|err| format!("Failed to send websocket initial message: {err}"))?;
+            .map_err(|err| AgentJaxError::network(format!("Failed to send websocket initial message: {err}")))?;
     }
 
     let mut state = json!({});
@@ -468,7 +540,7 @@ async fn stream_websocket_request(
                 let Some(msg) = msg else {
                     break;
                 };
-                let msg = msg.map_err(|err| format!("Failed to read websocket message: {err}"))?;
+                let msg = msg.map_err(|err| AgentJaxError::network(format!("Failed to read websocket message: {err}")))?;
                 match msg {
                     Message::Text(text) => {
                         let done = apply_stream_step(
@@ -556,7 +628,7 @@ fn apply_stream_step(
     output_items: &mut Vec<Value>,
     usage: &mut Option<ProviderUsage>,
     on_delta: &mut ProviderEventSink<'_>,
-    ) -> Result<bool, String> {
+    ) -> AgentJaxResult<bool> {
     let step: PluginStreamStep = call_provider_function(
         package,
         provider_kind,
@@ -633,8 +705,13 @@ fn plugin_context(resolved: &ResolvedModelConfig, req: &ResponseStreamRequest) -
     })
 }
 
+/// Build the resolved-context object that is passed to the plugin JS runtime.
+///
+/// ⚠️  The credential (API key) is deliberately excluded so the raw secret never
+/// enters the Deno/JS runtime. Instead, `inject_credential` applies it on the Rust
+/// side to the HTTP request returned by the plugin.
 fn resolved_context(resolved: &ResolvedModelConfig) -> Value {
-    json!({
+    let mut obj = json!({
         "providerKey": resolved.provider_key,
         "profileKey": resolved.profile_key,
         "modelId": resolved.model_id,
@@ -643,10 +720,17 @@ fn resolved_context(resolved: &ResolvedModelConfig) -> Value {
         "requestConfig": resolved.request,
         "timeoutSeconds": resolved.timeout_seconds,
         "provider": resolved.provider,
-        "credential": resolved.provider.resolved_credential(),
         "resolvedHttpHeaders": resolved.provider.resolved_http_headers(),
         "realtimeEndpoint": resolved.provider.resolved_realtime_endpoint(),
-    })
+    });
+
+    // Remove credential from the top-level and from provider.customSettings
+    // so the raw API key never enters the JS plugin runtime.
+    if let Some(ref mut m) = obj.pointer_mut("/provider/customSettings").and_then(Value::as_object_mut) {
+        m.remove("credential");
+    }
+
+    obj
 }
 
 /// Call a function on a provider plugin, creating a temporary runtime.
