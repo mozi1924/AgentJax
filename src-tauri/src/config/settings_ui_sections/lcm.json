@@ -122,8 +122,8 @@
           "description": "settings.lcm.summarization_model.description",
           "path": "lcm.summarization_model",
           "valueType": "string",
-          "control": "text",
-          "placeholder": "settings.lcm.summarization_model.placeholder"
+          "control": "select",
+          "optionSourceKey": "summarization_model_refs"
         },
         {
           "kind": "field",

@@ -105,6 +105,22 @@ pub fn build_dynamic_options(
         .collect::<Vec<_>>();
     dynamic_options.insert("model_refs".to_string(), model_options);
 
+    // Summarization model options: all model_refs + a "default" entry.
+    let mut summarization_model_options: Vec<SettingsOption> = vec![SettingsOption {
+        label: "settings.lcm.summarization_model.default".to_string(),
+        value: String::new(), // empty = use utility_small_model
+    }];
+    summarization_model_options.extend(config.configured_models().into_iter().map(|model_ref| {
+        SettingsOption {
+            label: model_ref.clone(),
+            value: model_ref,
+        }
+    }));
+    dynamic_options.insert(
+        "summarization_model_refs".to_string(),
+        summarization_model_options,
+    );
+
     dynamic_options.insert(
         "provider_kind".to_string(),
         registry::provider_kind_options()
