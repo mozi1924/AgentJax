@@ -301,9 +301,9 @@ impl AgentRuntime {
                         .collect();
 
                 // Persist assistant text from this hop.
-                for (text, _phase) in &hop_messages_for_lcm {
+                for (text, phase) in &hop_messages_for_lcm {
                     if !text.trim().is_empty() {
-                        let msg = crate::lcm::types::StoredMessage::new(
+                        let mut msg = crate::lcm::types::StoredMessage::new(
                             crate::lcm::types::MessageId::new(),
                             &lcm_conv_id,
                             crate::lcm::types::MessageRole::Assistant,
@@ -311,6 +311,12 @@ impl AgentRuntime {
                             crate::lcm::types::estimate_tokens(text),
                             now_ms,
                         );
+                        if let Some(p) = phase {
+                            msg.metadata.insert(
+                                "phase".to_string(),
+                                serde_json::Value::String(p.as_str().to_string()),
+                            );
+                        }
                         if let Err(e) = engine.process_message(&msg).await {
                             log::warn!("LCM: failed to persist assistant message: {e}");
                         }

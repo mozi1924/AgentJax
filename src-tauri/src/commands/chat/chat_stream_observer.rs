@@ -123,16 +123,14 @@ impl ChatStreamObserver {
                 phase,
                 response_id,
             } => {
-                if *phase != Some(crate::message_phase::AssistantPhase::Commentary) {
-                    let _ = persist_assistant_line(
-                        &self.conversation_id,
-                        &self.request_id,
-                        response_id,
-                        *phase,
-                        text,
-                    );
-                    self.add_text_tokens(text);
-                }
+                let _ = persist_assistant_line(
+                    &self.conversation_id,
+                    &self.request_id,
+                    response_id,
+                    *phase,
+                    text,
+                );
+                self.add_text_tokens(text);
             }
             ProviderStreamEvent::UsageUpdated { usage, .. } => {
                 self.visible_token_count

@@ -834,13 +834,18 @@ impl LcmEngine {
                         crate::lcm::types::MessageRole::Assistant => "output_text",
                         _ => "input_text",
                     };
-                    items.push(serde_json::json!({
+                    let mut item = serde_json::json!({
                         "role": provider_role,
                         "content": [{
                             "type": text_type,
                             "text": content
                         }]
-                    }));
+                    });
+                    // Preserve phase (commentary / final_answer) if present in metadata.
+                    if let Some(phase) = metadata.get("phase").and_then(|v| v.as_str()) {
+                        item["phase"] = serde_json::Value::String(phase.to_string());
+                    }
+                    items.push(item);
                 }
                 ContextEntry::SummaryPointer { text, child_ids, .. } => {
                     // Render summary as a developer/assistant note with

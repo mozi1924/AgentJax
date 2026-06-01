@@ -186,7 +186,7 @@ pub async fn sync_conversation_to_lcm(
                 if asst.text.trim().is_empty() {
                     continue;
                 }
-                let msg = types::StoredMessage::new(
+                let mut msg = types::StoredMessage::new(
                     types::MessageId::from(asst.id.as_str()),
                     conversation_id,
                     types::MessageRole::Assistant,
@@ -194,6 +194,12 @@ pub async fn sync_conversation_to_lcm(
                     types::estimate_tokens(&asst.text),
                     asst.ts,
                 );
+                if let Some(ref phase) = asst.phase {
+                    msg.metadata.insert(
+                        "phase".to_string(),
+                        serde_json::Value::String(phase.as_str().to_string()),
+                    );
+                }
                 messages.push(msg);
             }
             ConversationLine::Tool(tool) => {
