@@ -1,7 +1,7 @@
 import { escapePathSegment } from '../../../../features/settings/utils';
 
-export type ToolSourceType = 'native' | 'mcp' | 'plugin' | 'dynamic' | 'control';
-export type ToolCategory = 'native' | 'mcp' | 'plugin' | 'session';
+export type ToolSourceType = 'native' | 'mcp' | 'plugin' | 'dynamic' | 'control' | 'context';
+export type ToolCategory = 'native' | 'mcp' | 'plugin' | 'session' | 'context';
 export type McpExposureMode = 'collapsed' | 'unfolded';
 
 export interface ToolSchemaSummary {
@@ -43,12 +43,19 @@ export interface ToolManagerSourceSnapshot {
   error?: string | null;
 }
 
-export interface ToolManagerSnapshot {
-  sources: ToolManagerSourceSnapshot[];
+export interface ToolCategoryItem {
+  id: ToolCategory;
+  labelKey: string;
 }
 
-export const TOOL_MANAGER_CATEGORIES: Array<{ id: ToolCategory; labelKey: string }> = [
+export interface ToolManagerSnapshot {
+  sources: ToolManagerSourceSnapshot[];
+  categories?: ToolCategoryItem[];
+}
+
+export const TOOL_MANAGER_CATEGORIES: ToolCategoryItem[] = [
   { id: 'native', labelKey: 'settings.tools.category.native' },
+  { id: 'context', labelKey: 'settings.tools.category.context' },
   { id: 'mcp', labelKey: 'settings.tools.category.mcp' },
   { id: 'plugin', labelKey: 'settings.tools.category.plugin' },
   { id: 'session', labelKey: 'settings.tools.category.session' },
@@ -59,6 +66,7 @@ export const TOOL_MANAGER_CATEGORIES: Array<{ id: ToolCategory; labelKey: string
 export const categoryForSource = (sourceType: ToolSourceType): ToolCategory => {
   if (sourceType === 'dynamic') return 'session';
   if (sourceType === 'control') return 'mcp';
+  if (sourceType === 'context') return 'context';
   return sourceType;
 };
 
@@ -145,6 +153,9 @@ export const toolPolicyEnabledPath = (
   if (source.sourceType === 'native') {
     return `tool_manager.native_tools.${escapePathSegment(tool.id)}.enabled`;
   }
+  if (source.sourceType === 'context') {
+    return `tool_manager.context_tools.${escapePathSegment(tool.id)}.enabled`;
+  }
   if (source.sourceType === 'plugin') {
     return `tool_manager.plugin_tools.${escapePathSegment(source.sourceId)}.tools.${escapePathSegment(
       tool.id
@@ -168,7 +179,7 @@ export const isSourcePolicyEditable = (source: ToolManagerSourceSnapshot) =>
   source.sourceType === 'plugin' || source.sourceType === 'mcp';
 
 export const isToolPolicyEditable = (source: ToolManagerSourceSnapshot) =>
-  source.sourceType === 'native' || source.sourceType === 'plugin' || source.sourceType === 'mcp';
+  source.sourceType === 'native' || source.sourceType === 'plugin' || source.sourceType === 'mcp' || source.sourceType === 'context';
 
 export const isMcpExposureEditable = (source: ToolManagerSourceSnapshot) =>
   source.sourceType === 'mcp';

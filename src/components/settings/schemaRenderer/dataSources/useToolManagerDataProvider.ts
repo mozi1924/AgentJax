@@ -243,7 +243,7 @@ export function useToolManagerDataProvider({
         return snapshot;
       }
       if (dataSource === 'toolManager.categories') {
-        return TOOL_MANAGER_CATEGORIES;
+        return snapshot?.categories || TOOL_MANAGER_CATEGORIES;
       }
       if (dataSource === 'toolManager.sources') {
         return sources;
@@ -289,7 +289,8 @@ export function useToolManagerDataProvider({
       const record = asRecord(payload);
       const item = asRecord(record.item);
       if (action === 'selectCategory') {
-        setActiveCategory(String(record.value || item.id || 'native') as ToolCategory);
+        const defaultCategory = snapshot?.categories?.[0]?.id || 'native';
+        setActiveCategory(String(record.value || item.id || defaultCategory) as ToolCategory);
         setSelectedSourceKey('');
         setSelectedToolId('');
         return;

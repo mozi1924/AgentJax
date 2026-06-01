@@ -242,9 +242,12 @@ export function DataSourceRenderer({
 
   if (node.kind === 'toolbar') {
     const record = asRecord(data);
-    const title = textItemValue(record, bindings.title);
-    const description = textItemValue(record, bindings.description);
-    const actionError = textItemValue(record, bindings.error);
+    const rawTitle = textItemValue(record, bindings.title);
+    const title = rawTitle ? t(rawTitle) : '';
+    const rawDescription = textItemValue(record, bindings.description);
+    const description = rawDescription ? t(rawDescription) : '';
+    const rawActionError = textItemValue(record, bindings.error);
+    const actionError = rawActionError ? t(rawActionError) : '';
     const properties = (
       <DataSourceProperties item={record} properties={node.properties} translate={translate} />
     );

@@ -209,11 +209,11 @@ fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
     .expect("apply patch with escaped model profile key");
 
     assert_eq!(
-        updated.values["providers"]["openai-responses"]["models"]["GPT-5.4-Mini"]["model"],
+        updated.values["providers"]["openai-responses"]["models"]["GPT-5.4-mini"]["model"],
         Value::from("gpt-5.4-mini")
     );
     let raw = fs::read_to_string(&path).expect("read config");
-    assert!(raw.contains("GPT-5.4-Mini:"));
+    assert!(raw.contains("GPT-5.4-mini:"));
 
     unsafe {
         std::env::remove_var(AGENTJAX_HOME_ENV);

@@ -86,6 +86,7 @@ const SourceList = ({ sources, category }) => {
 test('groups dynamic and control sources into the expected visible categories', () => {
   const sources = [
     source({ sourceType: 'native', sourceId: 'native' }),
+    source({ sourceType: 'context', sourceId: 'context' }),
     source({ sourceType: 'mcp', sourceId: 'docs' }),
     source({ sourceType: 'control', sourceId: 'mcp_controls' }),
     source({ sourceType: 'dynamic', sourceId: 'session' }),
@@ -99,6 +100,10 @@ test('groups dynamic and control sources into the expected visible categories', 
   assert.deepEqual(
     view.sourcesForCategory(sources, 'session').map((item) => item.sourceId),
     ['session']
+  );
+  assert.deepEqual(
+    view.sourcesForCategory(sources, 'context').map((item) => item.sourceId),
+    ['context']
   );
   assert.deepEqual(view.sourcesForCategory(sources, 'plugin'), []);
 });
@@ -244,5 +249,6 @@ test('marks only global policy surfaces editable', () => {
   assert.equal(view.isSourcePolicyEditable(source({ sourceType: 'native' })), false);
   assert.equal(view.isSourcePolicyEditable(source({ sourceType: 'dynamic' })), false);
   assert.equal(view.isToolPolicyEditable(source({ sourceType: 'native' })), true);
+  assert.equal(view.isToolPolicyEditable(source({ sourceType: 'context' })), true);
   assert.equal(view.isToolPolicyEditable(source({ sourceType: 'background' })), false);
 });

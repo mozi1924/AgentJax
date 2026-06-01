@@ -188,6 +188,7 @@ fn validate_tool_manager_path(segments: &[String]) -> Result<(), String> {
     if segments.len() >= 3 {
         match segments[1].as_str() {
             "native_tools" => validate_key(&segments[2], "native tool key")?,
+            "context_tools" => validate_key(&segments[2], "context tool key")?,
             "plugin_tools" => validate_key(&segments[2], "plugin id")?,
             "mcp_tools" => validate_key(&segments[2], "MCP server key")?,
             _ => {}
@@ -202,6 +203,7 @@ fn validate_tool_manager_path(segments: &[String]) -> Result<(), String> {
 fn validate_tool_manager_keys(tool_manager: &Map<String, Value>) -> Result<(), String> {
     for (section, label) in [
         ("native_tools", "native tool key"),
+        ("context_tools", "context tool key"),
         ("plugin_tools", "plugin id"),
         ("mcp_tools", "MCP server key"),
     ] {

@@ -61,6 +61,17 @@ impl ToolCatalog {
         mcp_manager: Arc<crate::mcp::McpManager>,
         config: &crate::config::AppConfig,
     ) -> Self {
+        use crate::lcm::{LcmStore, LcmGrepTool, LcmDescribeTool, LcmExpandTool};
+        let mut context_tools: Vec<Arc<dyn Tool>> = Vec::new();
+        if let Ok(dummy_store) = LcmStore::open(":memory:", config.lcm.clone()) {
+            let store = Arc::new(dummy_store);
+            context_tools = vec![
+                Arc::new(LcmGrepTool::new(store.clone())),
+                Arc::new(LcmDescribeTool::new(store.clone())),
+                Arc::new(LcmExpandTool::new(store)),
+            ];
+        }
+
         Self {
             native_tools: vec![
                 Arc::new(CalculatorTool),
@@ -71,7 +82,7 @@ impl ToolCatalog {
                 Arc::new(MkdirTool),
                 Arc::new(EditFileTool),
             ],
-            context_tools: Vec::new(),
+            context_tools,
             mcp_manager,
             mcp_runtime: config.mcp_runtime.clone(),
             mcp_config: config.mcp_servers.clone(),

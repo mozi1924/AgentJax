@@ -2,6 +2,7 @@ use super::ToolCatalog;
 use super::names::{mount_tool_name_for_server, prefixed_mcp_tool_name};
 use super::schemas::{
     build_manage_mcp_server_tool_schema, normalize_mcp_tool_definitions,
+    BACKGROUND_TASK_NAME, build_background_task_schema,
 };
 use crate::plugin_runtime::{prefixed_plugin_tool_name, registered_tools_for_manifest};
 use crate::tools::{ToolExecutionContext, ToolSchemaFormat, humanize_tool_name};
@@ -23,8 +24,16 @@ pub struct ToolManagerSnapshotRequest {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct ToolManagerCategory {
+    pub id: String,
+    pub label_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolManagerSnapshot {
     pub sources: Vec<ToolManagerSourceSnapshot>,
+    pub categories: Vec<ToolManagerCategory>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -122,6 +131,7 @@ impl ToolCatalog {
 
         let mut sources = Vec::new();
         sources.push(self.native_tools_snapshot());
+        sources.push(self.context_tools_snapshot());
         sources.extend(
             self.mcp_sources_snapshot(&context, &mounted_servers, discover_source_id.as_deref())
                 .await,
@@ -129,11 +139,20 @@ impl ToolCatalog {
         sources.extend(self.plugin_sources_snapshot());
         sources.push(self.dynamic_tools_snapshot(&context));
         sources.push(self.control_tools_snapshot(&mounted_servers));
-        ToolManagerSnapshot { sources }
+
+        let categories = vec![
+            ToolManagerCategory { id: "native".to_string(), label_key: "settings.tools.category.native".to_string() },
+            ToolManagerCategory { id: "context".to_string(), label_key: "settings.tools.category.context".to_string() },
+            ToolManagerCategory { id: "mcp".to_string(), label_key: "settings.tools.category.mcp".to_string() },
+            ToolManagerCategory { id: "plugin".to_string(), label_key: "settings.tools.category.plugin".to_string() },
+            ToolManagerCategory { id: "session".to_string(), label_key: "settings.tools.category.session".to_string() },
+        ];
+
+        ToolManagerSnapshot { sources, categories }
     }
 
     fn native_tools_snapshot(&self) -> ToolManagerSourceSnapshot {
-        let tools = self
+        let mut tools: Vec<ToolManagerToolSnapshot> = self
             .native_tools
             .iter()
             .map(|tool| {
@@ -158,10 +177,67 @@ impl ToolCatalog {
             })
             .collect();
 
+        let bg_schema = build_background_task_schema(ToolSchemaFormat::Responses);
+        let bg_input_schema = schema_parameters(&bg_schema).clone();
+        tools.push(ToolManagerToolSnapshot {
+            id: BACKGROUND_TASK_NAME.to_string(),
+            friendly_name: "Background Task".to_string(),
+            model_name: BACKGROUND_TASK_NAME.to_string(),
+            description: "Manages background tool jobs — start, wait, cancel, or list.".to_string(),
+            icon: Some("Rocket".to_string()),
+            enabled: true,
+            availability: "available".to_string(),
+            schema_summary: schema_summary(&bg_input_schema),
+            input_schema: Some(bg_input_schema),
+            schema_format: ToolManagerSchemaFormat::JsonSchema,
+            source_capabilities: vec![],
+            policy_paths: ToolManagerToolPolicyPaths::default(),
+        });
+
         ToolManagerSourceSnapshot {
             source_type: ToolManagerSourceType::Native,
             source_id: "native".to_string(),
             source_name: "Native Tools".to_string(),
+            enabled: true,
+            status: "ready".to_string(),
+            exposure_mode: "always".to_string(),
+            source_capabilities: vec!["policy:tool_enabled".to_string()],
+            policy_paths: ToolManagerSourcePolicyPaths::default(),
+            tools,
+            error: None,
+        }
+    }
+
+    fn context_tools_snapshot(&self) -> ToolManagerSourceSnapshot {
+        let tools = self
+            .context_tools
+            .iter()
+            .map(|tool| {
+                let enabled = self.context_tool_enabled(tool.name());
+                let input_schema = tool.parameters_schema();
+                ToolManagerToolSnapshot {
+                    id: tool.name().to_string(),
+                    friendly_name: tool.display_name().to_string(),
+                    model_name: tool.name().to_string(),
+                    description: tool.description().to_string(),
+                    icon: tool.icon().map(ToOwned::to_owned),
+                    enabled,
+                    availability: if enabled { "available" } else { "disabled" }.to_string(),
+                    schema_summary: schema_summary(&input_schema),
+                    input_schema: Some(input_schema),
+                    schema_format: ToolManagerSchemaFormat::JsonSchema,
+                    source_capabilities: vec!["policy:tool_enabled".to_string()],
+                    policy_paths: ToolManagerToolPolicyPaths {
+                        tool_enabled_path: Some(context_tool_enabled_path(tool.name())),
+                    },
+                }
+            })
+            .collect();
+
+        ToolManagerSourceSnapshot {
+            source_type: ToolManagerSourceType::Context,
+            source_id: "context".to_string(),
+            source_name: "Context Tools".to_string(),
             enabled: true,
             status: "ready".to_string(),
             exposure_mode: "always".to_string(),
@@ -518,6 +594,13 @@ fn escape_policy_path_segment(segment: &str) -> String {
 fn native_tool_enabled_path(tool_id: &str) -> String {
     format!(
         "tool_manager.native_tools.{}.enabled",
+        escape_policy_path_segment(tool_id)
+    )
+}
+
+fn context_tool_enabled_path(tool_id: &str) -> String {
+    format!(
+        "tool_manager.context_tools.{}.enabled",
         escape_policy_path_segment(tool_id)
     )
 }
