@@ -200,6 +200,7 @@ fn patch_operation_name(edit: &TextPatchEdit) -> &'static str {
 
 pub struct EditFileTool;
 
+#[async_trait::async_trait]
 impl Tool for EditFileTool {
     fn name(&self) -> &'static str {
         "edit_file"
@@ -248,7 +249,7 @@ impl Tool for EditFileTool {
         })
     }
 
-    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
+    async fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
         let args = super::common::parse_tool_args::<EditFileArgs>(arguments, self.name())?;
         let resolved = resolve_workspace_path(&args.path, context, false)?;
         let original = read_text_file(&resolved.absolute_path, MAX_READ_MAX_BYTES, "edit")?;

@@ -5,9 +5,11 @@ mod files;
 mod native;
 mod registry;
 
+use crate::config::AppConfig;
 use crate::error::AgentJaxResult;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::sync::Arc;
 
 pub(crate) use catalog::ToolCatalogExecution;
 pub use catalog::{
@@ -102,11 +104,12 @@ pub fn humanize_tool_name(name: &str) -> String {
         .join(" ")
 }
 
+#[async_trait::async_trait]
 pub trait Tool: Send + Sync {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn parameters_schema(&self) -> Value;
-    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value>;
+    async fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value>;
     fn display_name(&self) -> &'static str {
         self.name()
     }
@@ -148,6 +151,9 @@ pub struct ToolExecutionContext {
 
     /// Current hop index in the tool-call loop.
     pub hop_index: Option<u32>,
+
+    /// Application configuration (for tools that need provider access).
+    pub app_config: Option<Arc<AppConfig>>,
 }
 
 impl ToolExecutionContext {
@@ -158,6 +164,7 @@ impl ToolExecutionContext {
             model_id: None,
             turn_id: None,
             hop_index: None,
+            app_config: None,
         }
     }
 }

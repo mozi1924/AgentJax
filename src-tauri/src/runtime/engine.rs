@@ -274,13 +274,14 @@ impl AgentRuntime {
                 )
                 .await?;
 
-            // ── LCM: Persist hop messages to immutable store (before values are moved) ──
+            // ── LCM: Persist hop messages in batch (single SQLite transaction) ──
             {
                 let engine = lcm_engine;
                 let now_ms = crate::conversation_store_utils::now_unix_ms();
                 let lcm_conv_id = conversation_id.to_string();
                 let lcm_tool_results = executed_batch.tool_results_items.clone();
                 let lcm_tool_calls = executed_batch.executed_tool_call_items.clone();
+                let mut batch_messages: Vec<crate::lcm::types::StoredMessage> = Vec::new();
 
                 // Build call_id → name lookup for annotating results.
                 let tool_name_by_call_id: std::collections::HashMap<String, String> =
@@ -300,7 +301,7 @@ impl AgentRuntime {
                         })
                         .collect();
 
-                // Persist assistant text from this hop.
+                // Collect assistant text messages.
                 for (text, phase) in &hop_messages_for_lcm {
                     if !text.trim().is_empty() {
                         let mut msg = crate::lcm::types::StoredMessage::new(
@@ -317,13 +318,11 @@ impl AgentRuntime {
                                 serde_json::Value::String(p.as_str().to_string()),
                             );
                         }
-                        if let Err(e) = engine.process_message(&msg).await {
-                            log::warn!("LCM: failed to persist assistant message: {e}");
-                        }
+                        batch_messages.push(msg);
                     }
                 }
 
-                // Persist function_call items with structured metadata.
+                // Collect function_call messages.
                 for item in &lcm_tool_calls {
                     let call_id = item
                         .get("call_id")
@@ -339,22 +338,10 @@ impl AgentRuntime {
                         .unwrap_or("{}");
 
                     let mut metadata = std::collections::BTreeMap::new();
-                    metadata.insert(
-                        "message_type".to_string(),
-                        serde_json::Value::String("function_call".to_string()),
-                    );
-                    metadata.insert(
-                        "call_id".to_string(),
-                        serde_json::Value::String(call_id.to_string()),
-                    );
-                    metadata.insert(
-                        "tool_name".to_string(),
-                        serde_json::Value::String(name.to_string()),
-                    );
-                    metadata.insert(
-                        "arguments".to_string(),
-                        serde_json::Value::String(arguments.to_string()),
-                    );
+                    metadata.insert("message_type".to_string(), serde_json::Value::String("function_call".to_string()));
+                    metadata.insert("call_id".to_string(), serde_json::Value::String(call_id.to_string()));
+                    metadata.insert("tool_name".to_string(), serde_json::Value::String(name.to_string()));
+                    metadata.insert("arguments".to_string(), serde_json::Value::String(arguments.to_string()));
 
                     let mut msg = crate::lcm::types::StoredMessage::new(
                         crate::lcm::types::MessageId::new(),
@@ -365,12 +352,10 @@ impl AgentRuntime {
                         now_ms,
                     );
                     msg.metadata = metadata;
-                    if let Err(e) = engine.process_message(&msg).await {
-                        log::warn!("LCM: failed to persist function_call: {e}");
-                    }
+                    batch_messages.push(msg);
                 }
 
-                // Persist tool call results with structured metadata.
+                // Collect tool result messages.
                 for item in &lcm_tool_results {
                     if let Some(output_str) = item.get("output").and_then(|v| v.as_str()) {
                         let call_id = item
@@ -383,18 +368,9 @@ impl AgentRuntime {
                             .unwrap_or("unknown");
 
                         let mut metadata = std::collections::BTreeMap::new();
-                        metadata.insert(
-                            "message_type".to_string(),
-                            serde_json::Value::String("function_call_output".to_string()),
-                        );
-                        metadata.insert(
-                            "call_id".to_string(),
-                            serde_json::Value::String(call_id.to_string()),
-                        );
-                        metadata.insert(
-                            "tool_name".to_string(),
-                            serde_json::Value::String(tool_name.to_string()),
-                        );
+                        metadata.insert("message_type".to_string(), serde_json::Value::String("function_call_output".to_string()));
+                        metadata.insert("call_id".to_string(), serde_json::Value::String(call_id.to_string()));
+                        metadata.insert("tool_name".to_string(), serde_json::Value::String(tool_name.to_string()));
 
                         let mut msg = crate::lcm::types::StoredMessage::new(
                             crate::lcm::types::MessageId::new(),
@@ -405,9 +381,14 @@ impl AgentRuntime {
                             now_ms,
                         );
                         msg.metadata = metadata;
-                        if let Err(e) = engine.process_message(&msg).await {
-                            log::warn!("LCM: failed to persist tool result: {e}");
-                        }
+                        batch_messages.push(msg);
+                    }
+                }
+
+                // Persist all messages in a single batch (one SQLite transaction, one threshold check).
+                if !batch_messages.is_empty() {
+                    if let Err(e) = engine.process_messages_batch(&batch_messages).await {
+                        log::warn!("LCM: failed to persist batch of {} messages: {}", batch_messages.len(), e);
                     }
                 }
             }

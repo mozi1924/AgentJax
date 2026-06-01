@@ -49,6 +49,7 @@ impl ListCollectionState {
 
 pub struct ListFilesTool;
 
+#[async_trait::async_trait]
 impl Tool for ListFilesTool {
     fn name(&self) -> &'static str {
         "list_files"
@@ -90,7 +91,7 @@ impl Tool for ListFilesTool {
         })
     }
 
-    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
+    async fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
         let args = super::common::parse_tool_args::<ListFilesArgs>(arguments, self.name())?;
         let target = args.path.unwrap_or_else(|| ".".to_string());
         let resolved = resolve_workspace_path(&target, context, true)?;

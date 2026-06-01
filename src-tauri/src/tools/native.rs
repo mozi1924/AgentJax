@@ -8,6 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct CalculatorTool;
 
+#[async_trait::async_trait]
 impl Tool for CalculatorTool {
     fn name(&self) -> &'static str {
         "calculator"
@@ -53,7 +54,7 @@ impl Tool for CalculatorTool {
         })
     }
 
-    fn execute(&self, arguments: &Value, _context: &ToolExecutionContext) -> AgentJaxResult<Value> {
+    async fn execute(&self, arguments: &Value, _context: &ToolExecutionContext) -> AgentJaxResult<Value> {
         let request = calculator::parse_request(arguments)?;
         calculator::execute(request).map_err(Into::into)
     }
@@ -61,6 +62,7 @@ impl Tool for CalculatorTool {
 
 pub struct SystemTimeTool;
 
+#[async_trait::async_trait]
 impl Tool for SystemTimeTool {
     fn name(&self) -> &'static str {
         "get_system_time"
@@ -85,7 +87,7 @@ impl Tool for SystemTimeTool {
         })
     }
 
-    fn execute(
+    async fn execute(
         &self,
         _arguments: &Value,
         _context: &ToolExecutionContext,

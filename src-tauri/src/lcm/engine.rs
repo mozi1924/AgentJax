@@ -308,16 +308,76 @@ impl LcmEngine {
         Ok(ctx.entries.clone())
     }
 
-    /// Process multiple messages in batch (e.g., after a multi-tool-call turn).
+    /// Process multiple messages in a single batch.
+    ///
+    /// Persists all messages in one SQLite transaction, then appends them
+    /// all to the active context, and runs a single threshold check at the end.
+    /// This is significantly more efficient than calling `process_message`
+    /// individually for each message.
+    pub async fn process_messages_batch(
+        &self,
+        messages: &[StoredMessage],
+    ) -> Result<Vec<ContextEntry>, LcmError> {
+        if messages.is_empty() {
+            let entries = {
+                let ctx = self.active_context.lock().map_err(|e| {
+                    LcmError::Concurrency(format!("Failed to acquire context lock: {e}"))
+                })?;
+                ctx.entries.clone()
+            };
+            return Ok(entries);
+        }
+
+        // Step 1: Persist all messages in a single transaction.
+        self.store.persist_messages(messages)?;
+
+        // Step 2: Append to active context (guard released before any await).
+        let (should_compact_async, token_count_exceeded) = {
+            let mut ctx = self.active_context.lock().map_err(|e| {
+                LcmError::Concurrency(format!("Failed to acquire context lock: {e}"))
+            })?;
+
+            for msg in messages {
+                if ctx.active_message_ids.insert(msg.id.to_string()) {
+                    let entry = ContextEntry::RawMessage {
+                        id: msg.id.clone(),
+                        role: msg.role,
+                        content: msg.content.clone(),
+                        metadata: msg.metadata.clone(),
+                    };
+                    ctx.token_count += msg.token_count;
+                    ctx.entries.push(entry);
+                }
+            }
+
+            let soft = ctx.token_count > self.config.soft_token_threshold && !ctx.compaction_running;
+            let hard = ctx.token_count > self.config.hard_token_threshold;
+            (soft, hard)
+        }; // MutexGuard dropped here
+
+        // Step 3: Trigger async compaction if above soft threshold.
+        if should_compact_async {
+            self.trigger_async_compaction();
+        }
+
+        // Step 4: Blocking compaction if above hard threshold (await-safe: no guard held).
+        if token_count_exceeded {
+            self.ensure_below_hard_threshold().await?;
+        }
+
+        // Return final active context snapshot.
+        let ctx = self.active_context.lock().map_err(|e| {
+            LcmError::Concurrency(format!("Failed to acquire context lock: {e}"))
+        })?;
+        Ok(ctx.entries.clone())
+    }
+
+    /// Process multiple messages in batch (legacy — delegates to process_messages_batch).
     pub async fn process_messages(
         &self,
         messages: &[StoredMessage],
     ) -> Result<Vec<ContextEntry>, LcmError> {
-        let mut last_entries = Vec::new();
-        for msg in messages {
-            last_entries = self.process_message(msg).await?;
-        }
-        Ok(last_entries)
+        self.process_messages_batch(messages).await
     }
 
     /// Get the current active context snapshot without modifying anything.

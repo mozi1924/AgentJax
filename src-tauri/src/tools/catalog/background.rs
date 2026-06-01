@@ -57,7 +57,7 @@ pub(super) async fn execute_backgroundable_entry(
     mcp_runtime: crate::config::McpRuntimeConfig,
 ) -> crate::error::AgentJaxResult<Value> {
     match entry {
-        ToolSnapshotEntry::Native(tool) => tool.execute(&arguments, &context),
+        ToolSnapshotEntry::Native(tool) => tool.execute(&arguments, &context).await,
         ToolSnapshotEntry::Mcp {
             server_id,
             tool_name,

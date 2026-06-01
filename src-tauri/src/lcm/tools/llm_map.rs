@@ -62,6 +62,7 @@ fn default_max_retries() -> u32 {
 
 pub struct LlmMapTool;
 
+#[async_trait::async_trait]
 impl Tool for LlmMapTool {
     fn name(&self) -> &'static str {
         "llm_map"
@@ -121,7 +122,7 @@ impl Tool for LlmMapTool {
         })
     }
 
-    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
+    async fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
         let args: LlmMapArgs = serde_json::from_value(arguments.clone())
             .map_err(|e| AgentJaxError::tool(format!("Invalid arguments for llm_map: {e}")))?;
 
@@ -244,8 +245,8 @@ impl Tool for LlmMapTool {
             })
         };
 
-        // Block until the task completes.
-        rt.block_on(task)
+        // Await the task directly (execute is now async).
+        task.await
             .map_err(|e| AgentJaxError::internal(format!("llm_map task failed: {e}")))?;
 
         // Sort results by index and write output.

@@ -32,6 +32,7 @@ struct LcmDescribeArgs {
     id: String,
 }
 
+#[async_trait::async_trait]
 impl Tool for LcmDescribeTool {
     fn name(&self) -> &'static str {
         "lcm_describe"
@@ -66,7 +67,7 @@ impl Tool for LcmDescribeTool {
         })
     }
 
-    fn execute(
+    async fn execute(
         &self,
         arguments: &Value,
         _context: &ToolExecutionContext,

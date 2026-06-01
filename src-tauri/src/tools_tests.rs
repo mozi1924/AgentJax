@@ -51,48 +51,48 @@ mod tests {
         TestHomeGuard { home }
     }
 
-    #[test]
-    fn test_calculator_success() {
+    #[tokio::test]
+    async fn test_calculator_success() {
         let calc = CalculatorTool;
         let ctx = ToolExecutionContext::default();
 
         // Basic arithmetic
         let args = json!({ "expression": "2 + 3 * 4" });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 14.0);
         assert_eq!(res["mode"], "evaluate");
         assert_eq!(res["exactValue"], "14");
 
         // Exponentiation
         let args = json!({ "expression": "2^3" });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 8.0);
 
         // Complex expressions with parentheses and sqrt
         let args = json!({ "expression": "2 * (3.5 + 4.5) / sqrt(16)" });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 4.0);
 
         // Negative numbers
         let args = json!({ "expression": "-3 + 5" });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 2.0);
 
         // Built-in constants and trigonometric functions
         let args = json!({ "expression": "sin(pi / 2) + cos(0)" });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_approx_eq(res["result"].as_f64().unwrap(), 2.0, 1e-12);
 
         // Natural trigonometric syntax is now parsed directly by fend-core.
         let args = json!({ "expression": "sin pi/2" });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["mode"], "evaluate");
         assert_approx_eq(res["result"].as_f64().unwrap(), 0.0, 1e-12);
         assert_eq!(res["exactValue"], "0");
 
         // Unit-aware arithmetic
         let args = json!({ "expression": "3 km + 500 m" });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["mode"], "evaluate");
         assert_eq!(res["result"], "3.5 km");
         assert!(res["exactValue"].as_str().unwrap().contains("km"));
@@ -101,12 +101,12 @@ mod tests {
         }
 
         let args = json!({ "expression": "3km + 500m" });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["result"], "3.5 km");
 
         // Variable bindings should compile into native fend assignments.
         let args = json!({ "expression": "x + y", "variables": { "x": 2, "y": 5 } });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 7.0);
         assert!(res["warnings"].as_array().unwrap().iter().any(|warning| {
             warning
@@ -117,7 +117,7 @@ mod tests {
 
         // Native assignment semantics should preserve precedence.
         let args = json!({ "expression": "x^2", "variables": { "x": -2 } });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 4.0);
 
         // Variable bindings can also carry richer fend expressions with units.
@@ -126,12 +126,12 @@ mod tests {
             "duration": "2 h",
             "offset": "4 km"
         }});
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["result"], "124 km");
 
         // Complex outputs should not leak into the unit field.
         let args = json!({ "expression": "exp(i*pi)" });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         if let Some(value) = res["result"].as_f64() {
             assert_approx_eq(value, -1.0, 1e-12);
         } else {
@@ -141,7 +141,7 @@ mod tests {
 
         // Capability discovery
         let args = json!({ "mode": "capabilities" });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["mode"], "capabilities");
         assert!(
             !res["capabilities"]["supports"]["symbolicMath"]
@@ -161,29 +161,29 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_calculator_legacy_modes_are_rejected() {
+    #[tokio::test]
+    async fn test_calculator_legacy_modes_are_rejected() {
         let calc = CalculatorTool;
         let ctx = ToolExecutionContext::default();
 
         let args = json!({ "mode": "simplify", "expression": "2x + 3x" });
-        let err = calc.execute(&args, &ctx).unwrap_err();
+        let err = calc.execute(&args, &ctx).await.unwrap_err();
         assert!(err.contains("Unsupported calculator mode"));
     }
 
-    #[test]
-    fn test_calculator_errors() {
+    #[tokio::test]
+    async fn test_calculator_errors() {
         let calc = CalculatorTool;
         let ctx = ToolExecutionContext::default();
 
         // Division by zero
         let args = json!({ "expression": "5 / 0" });
-        let err = calc.execute(&args, &ctx).unwrap_err();
+        let err = calc.execute(&args, &ctx).await.unwrap_err();
         assert!(err.contains("could not evaluate") || err.contains("failed"));
 
         // Sqrt of negative
         let args = json!({ "expression": "sqrt(-4)" });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["result"], "2i");
         assert!(
             res["warnings"]
@@ -195,52 +195,52 @@ mod tests {
 
         // fend-core should own parse behavior for malformed grouping.
         let args = json!({ "expression": "(2 + 3" });
-        let res = calc.execute(&args, &ctx).unwrap();
+        let res = calc.execute(&args, &ctx).await.unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 5.0);
 
         // Legacy symbolic calls are explicitly rejected.
         let args = json!({ "expression": "factor(x^2 - 1)" });
-        let err = calc.execute(&args, &ctx).unwrap_err();
+        let err = calc.execute(&args, &ctx).await.unwrap_err();
         assert!(err.contains("no longer supported"));
         assert!(err.contains("legacy symbolic engine was removed"));
 
         // Missing expression should surface a schema-level error.
         let args = json!({});
-        let err = calc.execute(&args, &ctx).unwrap_err();
+        let err = calc.execute(&args, &ctx).await.unwrap_err();
         assert!(err.contains("Missing calculator input"));
     }
 
-    #[test]
-    fn test_system_time() {
+    #[tokio::test]
+    async fn test_system_time() {
         let time_tool = SystemTimeTool;
         let args = json!({});
         let res = time_tool
-            .execute(&args, &ToolExecutionContext::default())
+            .execute(&args, &ToolExecutionContext::default()).await
             .unwrap();
 
         assert!(res.get("localTime").is_some());
         assert!(res["unixTimestampMs"].as_i64().unwrap() > 0);
     }
 
-    #[test]
-    fn test_file_tools_require_conversation_context() {
+    #[tokio::test]
+    async fn test_file_tools_require_conversation_context() {
         let reader = FileReaderTool;
         let writer = FileWriterTool;
         let ctx = ToolExecutionContext::default();
 
         let write_err = writer
-            .execute(&json!({"filename": "x.txt", "content": "x"}), &ctx)
+            .execute(&json!({"filename": "x.txt", "content": "x"}), &ctx).await
             .unwrap_err();
         assert!(write_err.contains("Missing conversation context"));
 
         let read_err = reader
-            .execute(&json!({"filename": "x.txt"}), &ctx)
+            .execute(&json!({"filename": "x.txt"}), &ctx).await
             .unwrap_err();
         assert!(read_err.contains("Missing conversation context"));
     }
 
-    #[test]
-    fn test_file_tools_workspace_isolated_by_conversation() {
+    #[tokio::test]
+    async fn test_file_tools_workspace_isolated_by_conversation() {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -258,14 +258,14 @@ mod tests {
 
         let filename = "nested/same_name.txt";
         writer
-            .execute(&json!({"path": filename, "content": "from-a"}), &ctx_a)
+            .execute(&json!({"path": filename, "content": "from-a"}), &ctx_a).await
             .unwrap();
         writer
-            .execute(&json!({"path": filename, "content": "from-b"}), &ctx_b)
+            .execute(&json!({"path": filename, "content": "from-b"}), &ctx_b).await
             .unwrap();
 
-        let read_a = reader.execute(&json!({"path": filename}), &ctx_a).unwrap();
-        let read_b = reader.execute(&json!({"path": filename}), &ctx_b).unwrap();
+        let read_a = reader.execute(&json!({"path": filename}), &ctx_a).await.unwrap();
+        let read_b = reader.execute(&json!({"path": filename}), &ctx_b).await.unwrap();
         assert_eq!(read_a["content"], "from-a");
         assert_eq!(read_b["content"], "from-b");
 
@@ -273,8 +273,8 @@ mod tests {
         conversation_store::delete_conversation(&conversation_b).unwrap();
     }
 
-    #[test]
-    fn test_file_tools_support_nested_paths_and_reject_workspace_escape() {
+    #[tokio::test]
+    async fn test_file_tools_support_nested_paths_and_reject_workspace_escape() {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -289,7 +289,7 @@ mod tests {
                 "write_file",
                 &json!({"path": "src/components/Sidebar.tsx", "content": "export const sidebar = true;\n"}),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
         let read_res = registry
@@ -297,20 +297,20 @@ mod tests {
                 "read_file",
                 &json!({"path": "src/components/Sidebar.tsx"}),
                 &ctx,
-            )
+            ).await
             .unwrap();
         assert_eq!(read_res["content"], "export const sidebar = true;\n");
 
         let err = registry
-            .execute("read_file", &json!({"path": "../outside.txt"}), &ctx)
+            .execute("read_file", &json!({"path": "../outside.txt"}), &ctx).await
             .unwrap_err();
         assert!(err.contains("escapes the conversation workspace"));
 
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
 
-    #[test]
-    fn test_directory_tools_list_stat_and_mkdir() {
+    #[tokio::test]
+    async fn test_directory_tools_list_stat_and_mkdir() {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -321,24 +321,24 @@ mod tests {
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         registry
-            .execute("mkdir", &json!({"path": "src/components"}), &ctx)
+            .execute("mkdir", &json!({"path": "src/components"}), &ctx).await
             .unwrap();
         registry
             .execute(
                 "write_file",
                 &json!({"path": "src/components/Button.tsx", "content": "export const Button = () => null;\n"}),
                 &ctx,
-            )
+            ).await
             .unwrap();
         registry
             .execute(
                 "write_file",
                 &json!({"path": "README.md", "content": "# Demo\n"}),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
-        let root_listing = registry.execute("list_files", &json!({}), &ctx).unwrap();
+        let root_listing = registry.execute("list_files", &json!({}), &ctx).await.unwrap();
         let root_entries = root_listing["entries"].as_array().unwrap();
         assert!(
             root_entries
@@ -352,7 +352,7 @@ mod tests {
                 "list_files",
                 &json!({"path": "src", "recursive": true}),
                 &ctx,
-            )
+            ).await
             .unwrap();
         let recursive_entries = recursive_listing["entries"].as_array().unwrap();
         assert!(
@@ -364,8 +364,8 @@ mod tests {
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
 
-    #[test]
-    fn test_read_file_truncates_large_text_preview() {
+    #[tokio::test]
+    async fn test_read_file_truncates_large_text_preview() {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -381,7 +381,7 @@ mod tests {
                 "write_file",
                 &json!({"path": "logs/large.txt", "content": content}),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
         let preview = registry
@@ -389,7 +389,7 @@ mod tests {
                 "read_file",
                 &json!({"path": "logs/large.txt", "max_bytes": 1024}),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
         assert_eq!(preview["truncated"], true);
@@ -403,8 +403,8 @@ mod tests {
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
 
-    #[test]
-    fn test_content_sniffing_detects_extensionless_text_files() {
+    #[tokio::test]
+    async fn test_content_sniffing_detects_extensionless_text_files() {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -419,11 +419,11 @@ mod tests {
                 "write_file",
                 &json!({"path": "notes/README", "content": "hello from a file without an extension\n"}),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
         let read = registry
-            .execute("read_file", &json!({"path": "notes/README"}), &ctx)
+            .execute("read_file", &json!({"path": "notes/README"}), &ctx).await
             .unwrap();
         assert_eq!(read["contentKind"], "text");
         assert_eq!(read["mediaType"], "text/plain");
@@ -431,8 +431,8 @@ mod tests {
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
 
-    #[test]
-    fn test_list_files_truncates_by_output_size() {
+    #[tokio::test]
+    async fn test_list_files_truncates_by_output_size() {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -451,7 +451,7 @@ mod tests {
                         "content": format!("file-{index}\n"),
                     }),
                     &ctx,
-                )
+                ).await
                 .unwrap();
         }
 
@@ -460,7 +460,7 @@ mod tests {
                 "list_files",
                 &json!({"path": "many", "recursive": true, "max_entries": 1000}),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
         assert_eq!(listing["truncated"], true);
@@ -472,8 +472,8 @@ mod tests {
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
 
-    #[test]
-    fn test_content_sniffing_rejects_binary_files_disguised_as_text() {
+    #[tokio::test]
+    async fn test_content_sniffing_rejects_binary_files_disguised_as_text() {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -493,15 +493,15 @@ mod tests {
         .unwrap();
 
         let read_err = registry
-            .execute("read_file", &json!({"path": "assets/fake-notes.txt"}), &ctx)
+            .execute("read_file", &json!({"path": "assets/fake-notes.txt"}), &ctx).await
             .unwrap_err();
         assert!(read_err.contains("Portable Network Graphics"));
 
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
 
-    #[test]
-    fn test_binary_files_are_rejected_by_text_tools() {
+    #[tokio::test]
+    async fn test_binary_files_are_rejected_by_text_tools() {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -517,7 +517,7 @@ mod tests {
         std::fs::write(&binary_path, [0_u8, 159, 146, 150, 0]).unwrap();
 
         let read_err = registry
-            .execute("read_file", &json!({"path": "assets/image.bin"}), &ctx)
+            .execute("read_file", &json!({"path": "assets/image.bin"}), &ctx).await
             .unwrap_err();
         assert!(read_err.contains("non-text/binary"));
 
@@ -535,7 +535,7 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            )
+            ).await
             .unwrap_err();
         assert!(replace_err.contains("Refusing to edit"));
 
@@ -544,15 +544,15 @@ mod tests {
                 "write_file",
                 &json!({"path": "assets/image.bin", "content": "hello"}),
                 &ctx,
-            )
+            ).await
             .unwrap_err();
         assert!(write_err.contains("Refusing to write"));
 
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
 
-    #[test]
-    fn test_text_edit_tools_and_structured_patch_are_deterministic() {
+    #[tokio::test]
+    async fn test_text_edit_tools_and_structured_patch_are_deterministic() {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -570,7 +570,7 @@ mod tests {
                     "content": "fn main() {\n    println!(\"hello\");\n}\n"
                 }),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
         registry
@@ -587,7 +587,7 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
         registry
@@ -604,7 +604,7 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
         registry
@@ -621,7 +621,7 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
         registry
@@ -638,7 +638,7 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
         registry
@@ -660,11 +660,11 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
         let final_file = registry
-            .execute("read_file", &json!({"path": "src/main.rs"}), &ctx)
+            .execute("read_file", &json!({"path": "src/main.rs"}), &ctx).await
             .unwrap();
         assert_eq!(
             final_file["content"],
@@ -674,8 +674,8 @@ mod tests {
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
 
-    #[test]
-    fn test_apply_patch_is_atomic_when_a_later_edit_fails() {
+    #[tokio::test]
+    async fn test_apply_patch_is_atomic_when_a_later_edit_fails() {
         let _guard = crate::config::test_env_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -693,7 +693,7 @@ mod tests {
                     "content": "alpha\nbeta\ngamma\n"
                 }),
                 &ctx,
-            )
+            ).await
             .unwrap();
 
         let err = registry
@@ -715,20 +715,20 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            )
+            ).await
             .unwrap_err();
         assert!(err.contains("Patch edit 2 failed"));
 
         let final_file = registry
-            .execute("read_file", &json!({"path": "notes/example.txt"}), &ctx)
+            .execute("read_file", &json!({"path": "notes/example.txt"}), &ctx).await
             .unwrap();
         assert_eq!(final_file["content"], "alpha\nbeta\ngamma\n");
 
         conversation_store::delete_conversation(&conversation_id).unwrap();
     }
 
-    #[test]
-    fn test_tool_registry() {
+    #[tokio::test]
+    async fn test_tool_registry() {
         let registry = ToolRegistry::new_with_defaults();
         let schemas = registry.list_schemas();
         assert_eq!(schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
@@ -736,7 +736,7 @@ mod tests {
         // Execute via registry
         let args = json!({ "expression": "100 * 2.5" });
         let res = registry
-            .execute("calculator", &args, &ToolExecutionContext::default())
+            .execute("calculator", &args, &ToolExecutionContext::default()).await
             .unwrap();
         assert_eq!(res["result"].as_f64().unwrap(), 250.0);
     }
@@ -1854,7 +1854,7 @@ rl.on('line', (line) => {
             "outputSchema": {"type": "object"},
             "outputPath": "/tmp/out.jsonl"
         });
-        let result = tool.execute(&args, &ctx);
+        let result = tool.execute(&args, &ctx).await;
         assert!(result.is_err(), "llm_map should fail without conversation context");
     }
 
@@ -1867,7 +1867,7 @@ rl.on('line', (line) => {
             "prompt": "Analyze: {input}",
             "outputPath": "/tmp/out.jsonl"
         });
-        let result = tool.execute(&args, &ctx);
+        let result = tool.execute(&args, &ctx).await;
         assert!(result.is_err(), "agentic_map should fail without conversation context");
     }
 }

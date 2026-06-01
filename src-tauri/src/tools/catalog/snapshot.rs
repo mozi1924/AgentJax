@@ -116,7 +116,7 @@ impl ToolCatalogSnapshot {
 
         match entry {
             ToolSnapshotEntry::Native(tool) => Ok(ToolCatalogExecution {
-                output: tool.execute(arguments, context)?,
+                output: tool.execute(arguments, context).await?,
                 state_changes: Vec::new(),
             }),
             ToolSnapshotEntry::Mcp {

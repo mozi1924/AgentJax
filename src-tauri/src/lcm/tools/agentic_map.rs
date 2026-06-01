@@ -59,6 +59,7 @@ fn default_max_retries() -> u32 {
 
 pub struct AgenticMapTool;
 
+#[async_trait::async_trait]
 impl Tool for AgenticMapTool {
     fn name(&self) -> &'static str {
         "agentic_map"
@@ -116,7 +117,7 @@ impl Tool for AgenticMapTool {
         })
     }
 
-    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
+    async fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
         let args: AgenticMapArgs = serde_json::from_value(arguments.clone())
             .map_err(|e| AgentJaxError::tool(format!("Invalid arguments for agentic_map: {e}")))?;
 

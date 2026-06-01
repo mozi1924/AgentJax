@@ -18,6 +18,7 @@ pub struct ReadFileArgs {
 
 pub struct FileReaderTool;
 
+#[async_trait::async_trait]
 impl Tool for FileReaderTool {
     fn name(&self) -> &'static str {
         "read_file"
@@ -56,7 +57,7 @@ impl Tool for FileReaderTool {
         })
     }
 
-    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
+    async fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
         let args = super::common::parse_tool_args::<ReadFileArgs>(arguments, self.name())?;
         let resolved = resolve_workspace_path(&args.path, context, false)?;
         if !resolved.absolute_path.exists() {

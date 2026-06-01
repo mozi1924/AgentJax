@@ -35,6 +35,7 @@ struct LcmGrepArgs {
     cursor: Option<String>,
 }
 
+#[async_trait::async_trait]
 impl Tool for LcmGrepTool {
     fn name(&self) -> &'static str {
         "lcm_grep"
@@ -77,7 +78,7 @@ impl Tool for LcmGrepTool {
         })
     }
 
-    fn execute(
+    async fn execute(
         &self,
         arguments: &Value,
         context: &ToolExecutionContext,

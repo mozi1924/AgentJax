@@ -42,6 +42,7 @@ fn default_max_messages() -> usize {
     50
 }
 
+#[async_trait::async_trait]
 impl Tool for LcmExpandTool {
     fn name(&self) -> &'static str {
         "lcm_expand"
@@ -82,7 +83,7 @@ impl Tool for LcmExpandTool {
         })
     }
 
-    fn execute(
+    async fn execute(
         &self,
         arguments: &Value,
         context: &ToolExecutionContext,

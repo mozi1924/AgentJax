@@ -34,7 +34,7 @@ impl ToolRegistry {
             .collect()
     }
 
-    pub fn execute(
+    pub async fn execute(
         &self,
         name: &str,
         arguments: &Value,
@@ -46,6 +46,6 @@ impl ToolRegistry {
             .find(|tool| tool.name() == name)
             .ok_or_else(|| crate::error::AgentJaxError::not_found(format!("Tool '{}' not found in registry", name)))?;
 
-        tool.execute(arguments, context)
+        tool.execute(arguments, context).await
     }
 }
