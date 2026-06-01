@@ -5,6 +5,8 @@ use crate::config::constants::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+// ── Enums ──────────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PromptBlockRole {
@@ -41,6 +43,8 @@ impl PromptBlockSource {
     }
 }
 
+// ── Structs ────────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct PromptBlock {
@@ -54,6 +58,13 @@ pub struct PromptBlock {
     pub locked: bool,
 }
 
+/// User-facing prompt composer configuration.
+///
+/// Internally stores the **fully resolved** block list (both user-defined and
+/// built-in blocks merged).  When serialized to YAML, built-in/plugin blocks
+/// are abbreviated to only `{id, enabled}` — see
+/// [`Self::abbreviated_for_yaml`].  The abbreviated form is transparently
+/// expanded back during [`normalize_prompt_composer`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct PromptComposerConfig {
@@ -66,6 +77,8 @@ pub struct CompiledPromptAssembly {
     pub developer_items: Vec<Value>,
     pub preview_markdown: String,
 }
+
+// ── Defaults ───────────────────────────────────────────────────────────────
 
 impl Default for PromptBlock {
     fn default() -> Self {
@@ -90,6 +103,11 @@ impl Default for PromptComposerConfig {
     }
 }
 
+/// Return the canonical list of built-in (framework-provided) prompt blocks.
+///
+/// Each built-in block carries the full `title`, `content`, `role`, `source`,
+/// `source_id` and `locked` flag.  These properties are **not** stored in the
+/// user's config YAML — only the `id` and `enabled` state are persisted.
 pub fn default_builtin_blocks() -> Vec<PromptBlock> {
     vec![PromptBlock {
         id: BUILTIN_CORE_SYSTEM_BLOCK_ID.to_string(),
@@ -103,43 +121,72 @@ pub fn default_builtin_blocks() -> Vec<PromptBlock> {
     }]
 }
 
-pub fn normalize_prompt_composer(mut composer: PromptComposerConfig) -> PromptComposerConfig {
-    if composer.blocks.is_empty() {
-        composer.blocks = default_builtin_blocks();
+/// Build a lookup map from built-in block ID → PromptBlock.
+fn builtin_block_map() -> std::collections::BTreeMap<String, PromptBlock> {
+    let mut map = std::collections::BTreeMap::new();
+    for block in default_builtin_blocks() {
+        map.insert(block.id.clone(), block);
     }
+    map
+}
 
-    let defaults = default_builtin_blocks();
-    let mut normalized = composer
-        .blocks
-        .into_iter()
-        .enumerate()
-        .map(|(index, block)| normalize_block(block, index))
-        .collect::<Vec<_>>();
+// ── Normalization ──────────────────────────────────────────────────────────
 
-    for default_block in defaults {
-        match normalized
-            .iter_mut()
-            .find(|block| block.id == default_block.id)
-        {
-            Some(existing) => {
-                existing.title = default_block.title.clone();
-                existing.role = default_block.role;
-                existing.content = default_block.content.clone();
-                existing.source = default_block.source;
-                existing.source_id = default_block.source_id.clone();
-                existing.locked = default_block.locked;
-            }
-            None => normalized.push(default_block),
+/// Normalize the prompt composer after deserialization from YAML.
+///
+/// 1. Detects abbreviated built-in/plugin blocks (only `id` + `enabled` in
+///    the config) and fills in their full properties from the canonical
+///    definitions.
+/// 2. Auto-restores any built-in blocks that are missing from the config.
+/// 3. Sorts the final list so that all **system** blocks appear before
+///    **developer** blocks.
+pub fn normalize_prompt_composer(composer: PromptComposerConfig) -> PromptComposerConfig {
+    let builtins = builtin_block_map();
+
+    // Separate user blocks from builtin/plugin references.
+    let mut user_blocks: Vec<PromptBlock> = Vec::new();
+    let mut builtin_order: Vec<(String, bool)> = Vec::new(); // (id, enabled)
+
+    for block in composer.blocks {
+        let normalized = normalize_block(block);
+        if builtins.contains_key(&normalized.id) {
+            // Even if deserialized as `source: User` (because the YAML was
+            // abbreviated and serde filled defaults), treat it as builtin.
+            builtin_order.push((normalized.id, normalized.enabled));
+        } else {
+            user_blocks.push(normalized);
         }
     }
 
-    let mut system_blocks = Vec::new();
-    let mut developer_blocks = Vec::new();
-    for block in normalized {
-        if block.role == PromptBlockRole::System {
-            system_blocks.push(block);
-        } else {
-            developer_blocks.push(block);
+    // Resolve builtin blocks: merge with canonical definitions.
+    let mut resolved_builtins: Vec<PromptBlock> = Vec::new();
+    for (builtin_id, canonical) in &builtins {
+        let enabled = builtin_order
+            .iter()
+            .find(|(id, _)| id == builtin_id)
+            .map(|(_, e)| *e)
+            .unwrap_or(true); // default to enabled
+        let mut block = canonical.clone();
+        block.enabled = enabled;
+        resolved_builtins.push(block);
+    }
+
+    // Merge: system blocks first, then developer blocks.
+    // Within each role: user blocks first (preserving config order), then
+    // builtin blocks (in canonical order).
+    let mut system_blocks: Vec<PromptBlock> = Vec::new();
+    let mut developer_blocks: Vec<PromptBlock> = Vec::new();
+
+    for block in user_blocks {
+        match block.role {
+            PromptBlockRole::System => system_blocks.push(block),
+            PromptBlockRole::Developer => developer_blocks.push(block),
+        }
+    }
+    for block in resolved_builtins {
+        match block.role {
+            PromptBlockRole::System => system_blocks.push(block),
+            PromptBlockRole::Developer => developer_blocks.push(block),
         }
     }
 
@@ -148,6 +195,32 @@ pub fn normalize_prompt_composer(mut composer: PromptComposerConfig) -> PromptCo
         blocks: system_blocks,
     }
 }
+
+/// Return a JSON value suitable for YAML serialization.
+///
+/// Built-in and plugin blocks are abbreviated to only `{id, enabled}` so the
+/// user's config file is clean and does not expose framework-internal content.
+pub fn abbreviate_prompt_composer_for_yaml(config: &PromptComposerConfig) -> Value {
+    let blocks: Vec<Value> = config
+        .blocks
+        .iter()
+        .map(|block| {
+            if block.source == PromptBlockSource::User {
+                // User blocks are serialized in full.
+                serde_json::to_value(block).unwrap_or_default()
+            } else {
+                // Built-in / plugin blocks: only id + enabled.
+                json!({
+                    "id": block.id,
+                    "enabled": block.enabled
+                })
+            }
+        })
+        .collect();
+    json!({ "blocks": blocks })
+}
+
+// ── Compilation ────────────────────────────────────────────────────────────
 
 pub fn compile_prompt_composer(composer: &PromptComposerConfig) -> CompiledPromptAssembly {
     let active_system_blocks = composer
@@ -223,17 +296,19 @@ pub fn compile_prompt_composer(composer: &PromptComposerConfig) -> CompiledPromp
     }
 }
 
-fn normalize_block(mut block: PromptBlock, index: usize) -> PromptBlock {
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+fn normalize_block(mut block: PromptBlock) -> PromptBlock {
     block.id = sanitize_block_id(&block.id);
     if block.id.is_empty() {
-        block.id = format!("prompt-block-{}", index + 1);
+        block.id = format!("prompt-block-{}", rand_id());
     }
 
     block.title = block.title.trim().to_string();
     if block.title.is_empty() {
         block.title = match block.role {
-            PromptBlockRole::System => format!("System block {}", index + 1),
-            PromptBlockRole::Developer => format!("Developer block {}", index + 1),
+            PromptBlockRole::System => format!("System block {}", rand_id()),
+            PromptBlockRole::Developer => format!("Developer block {}", rand_id()),
         };
     }
 
@@ -265,4 +340,13 @@ fn sanitize_block_id(raw: &str) -> String {
         .collect::<String>()
         .trim_matches('-')
         .to_string()
+}
+
+fn rand_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos();
+    format!("{:08x}", nanos)
 }

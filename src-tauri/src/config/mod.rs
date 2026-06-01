@@ -181,6 +181,8 @@ mod tests {
             "request_timeout_seconds: 77",
             "prompt_composer:",
             "  blocks:",
+            "    - id: builtin-core-system",
+            "      enabled: true",
             "    - id: \"user-system\"",
             "      title: \"User system\"",
             "      role: \"system\"",
