@@ -1,7 +1,7 @@
 pub mod capabilities;
 pub mod core;
 pub mod network;
-mod plugin_host;
+mod streaming;
 pub mod registry;
 pub mod types;
 
@@ -63,14 +63,14 @@ pub async fn stream_response<F>(
 where
     F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
 {
-    plugin_host::stream_response(config, req, cancel_rx, on_delta).await
+    streaming::stream_response(config, req, cancel_rx, on_delta).await
 }
 
 pub async fn fetch_remote_models(
     config: &crate::config::AppConfig,
     provider_key: &str,
 ) -> AgentJaxResult<Vec<ProviderModelDescriptor>> {
-    plugin_host::fetch_remote_models(config, provider_key).await
+    streaming::fetch_remote_models(config, provider_key).await
 }
 
 pub fn get_reasoning_capability(
@@ -78,5 +78,5 @@ pub fn get_reasoning_capability(
     model_id: &str,
     cached_levels: Option<&[String]>,
 ) -> AgentJaxResult<ModelReasoningCapability> {
-    plugin_host::get_reasoning_capability(provider_kind, model_id, cached_levels)
+    streaming::get_reasoning_capability(provider_kind, model_id, cached_levels)
 }

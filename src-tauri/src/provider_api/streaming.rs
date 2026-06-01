@@ -1,4 +1,4 @@
-//! Provider plugin execution host.
+//! Provider plugin streaming host.
 //!
 //! The host keeps only transport-neutral responsibilities: resolving the active
 //! model profile, executing plugin callbacks, sending HTTP/SSE requests, and
@@ -6,10 +6,11 @@
 //! headers, model catalog parsing, reasoning metadata, and stream event parsing
 //! are supplied by the provider plugin itself.
 //!
-//! NOTE: This module is being phased out. New code should use the unified
-//! `plugin_runtime::DenoCorePluginRuntime` which provides persistent JsRuntime
-//! instances per plugin. For async contexts (streaming), this module still
-//! creates temporary runtimes via `PluginInstance` from `runtime.rs`.
+//! For async contexts (streaming), this module creates temporary runtimes via
+//! `PluginInstance` from `runtime.rs` because `JsRuntime` is not `Send`.
+//!
+//! For non-async plugin operations, prefer `DenoCorePluginRuntime` which
+//! provides persistent `JsRuntime` instances per plugin.
 
 use std::collections::BTreeMap;
 use std::str::FromStr;
@@ -591,12 +592,11 @@ fn resolved_context(resolved: &ResolvedModelConfig) -> Value {
 
 /// Call a function on a provider plugin, creating a temporary runtime.
 ///
-/// This is the legacy path used by `stream_response`, `fetch_remote_models`,
-/// and `get_reasoning_capability` where the async HTTP context prevents using
-/// a persistent `DenoCorePluginRuntime` (because `JsRuntime` is not `Send`).
-///
 /// Each call creates a fresh `PluginInstance` which evaluates the SDK bootstrap
 /// and the plugin entrypoint. The JS function call itself is synchronous.
+///
+/// Temporary runtimes are used here because the async HTTP context prevents
+/// using a persistent `DenoCorePluginRuntime` (`JsRuntime` is not `Send`).
 fn call_provider_function<T>(
     package: &PluginPackage,
     provider_kind: &str,

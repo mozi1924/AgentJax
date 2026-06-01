@@ -81,7 +81,7 @@ impl Error for PluginRuntimeError {}
 /// Host-level API for plugin registries.
 ///
 /// This trait unifies the responsibilities that were previously split across
-/// `runtime.rs` (tool plugins) and `plugin_host.rs` (provider plugins):
+/// `runtime.rs` (tool plugins) and `provider_api::streaming` (provider plugins):
 ///
 /// 1. Manifest registration, validation, and discovery
 /// 2. Tool plugin execution (via `AgentJaxPlugin.tools`)
@@ -561,7 +561,7 @@ pub fn provider_definitions_for_package(
 }
 
 /// Create a temporary `PluginInstance` from a `PluginPackage` (no persistent
-/// registration). Used by legacy `plugin_host.rs` and `provider_api::registry`.
+/// registration). Used by `provider_api::streaming` and `provider_api::registry`.
 ///
 /// Unlike `DenoCorePluginRuntime::register_package`, each call creates a fresh
 /// `JsRuntime`. This is safe for async callers that need synchronous JS calls
