@@ -844,7 +844,7 @@ impl LcmEngine {
 mod tests {
     use super::*;
     use crate::lcm::store::LcmStore;
-    use crate::lcm::types::LcmConfig;
+    use crate::lcm::types::{FileRefId, LcmConfig};
 
     fn make_engine() -> LcmEngine {
         let config = LcmConfig {
@@ -935,4 +935,83 @@ mod tests {
         // Should be raw message, not a summary pointer.
         assert!(matches!(entries[0], ContextEntry::RawMessage { .. }));
     }
+
+    // ── Context → Provider Items ──────────────────────────────────────
+
+    #[test]
+    fn test_context_to_provider_items_raw_message() {
+        let engine = make_engine();
+        let entries = vec![ContextEntry::RawMessage {
+            id: MessageId::from("msg-1"),
+            role: MessageRole::User,
+            content: "Hello".to_string(),
+        }];
+
+        let items = engine.context_to_provider_items(&entries);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["role"], "user");
+        assert_eq!(items[0]["content"][0]["text"], "Hello");
+    }
+
+    #[test]
+    fn test_context_to_provider_items_summary_pointer() {
+        let engine = make_engine();
+        let entries = vec![ContextEntry::SummaryPointer {
+            summary_id: SummaryId::from("sum-1"),
+            text: "Key discussion points".to_string(),
+            child_ids: vec![LcmId::from("msg-1"), LcmId::from("msg-2")],
+            file_refs: Vec::new(),
+        }];
+
+        let items = engine.context_to_provider_items(&entries);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["role"], "assistant");
+        let text = items[0]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("covers 2 messages"));
+        assert!(text.contains("Key discussion points"));
+    }
+
+    #[test]
+    fn test_context_to_provider_items_file_pointer() {
+        let engine = make_engine();
+        let entries = vec![ContextEntry::FilePointer {
+            file_id: FileRefId::from("file-1"),
+            path: "/tmp/data.csv".to_string(),
+            exploration_summary: "CSV with 100 rows, 5 columns".to_string(),
+        }];
+
+        let items = engine.context_to_provider_items(&entries);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["role"], "user");
+        let text = items[0]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("/tmp/data.csv"));
+        assert!(text.contains("CSV with 100 rows"));
+    }
+
+    #[test]
+    fn test_context_to_provider_items_mixed() {
+        let engine = make_engine();
+        let entries = vec![
+            ContextEntry::RawMessage {
+                id: MessageId::from("msg-1"),
+                role: MessageRole::User,
+                content: "First".to_string(),
+            },
+            ContextEntry::SummaryPointer {
+                summary_id: SummaryId::from("sum-1"),
+                text: "Summary".to_string(),
+                child_ids: vec![],
+                file_refs: vec![],
+            },
+            ContextEntry::FilePointer {
+                file_id: FileRefId::from("file-1"),
+                path: "data.json".to_string(),
+                exploration_summary: "JSON data".to_string(),
+            },
+        ];
+
+        let items = engine.context_to_provider_items(&entries);
+        assert_eq!(items.len(), 3);
+    }
+
 }

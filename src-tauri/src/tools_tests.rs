@@ -1805,4 +1805,69 @@ rl.on('line', (line) => {
                 .contains("mcp__openai_docs__search_docs")
         );
     }
+
+    // ── LCM operator-level recursion tools ────────────────────────────
+
+    #[tokio::test]
+    async fn test_catalog_includes_llm_map() {
+        let config = crate::config::AppConfig::default();
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+
+        assert!(
+            snapshot.active_tool_names().contains("llm_map"),
+            "llm_map should be in the tool catalog"
+        );
+        let schema = snapshot
+            .schemas()
+            .iter()
+            .find(|s| s.get("name").and_then(|v| v.as_str()) == Some("llm_map"))
+            .expect("llm_map schema");
+        assert!(schema["description"].as_str().unwrap_or("").contains("JSONL"));
+    }
+
+    #[tokio::test]
+    async fn test_catalog_includes_agentic_map() {
+        let config = crate::config::AppConfig::default();
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+
+        assert!(
+            snapshot.active_tool_names().contains("agentic_map"),
+            "agentic_map should be in the tool catalog"
+        );
+        let schema = snapshot
+            .schemas()
+            .iter()
+            .find(|s| s.get("name").and_then(|v| v.as_str()) == Some("agentic_map"))
+            .expect("agentic_map schema");
+        assert!(schema["description"].as_str().unwrap_or("").contains("sub-agent"));
+    }
+
+    #[tokio::test]
+    async fn test_llm_map_rejects_empty_input() {
+        let tool = crate::lcm::LlmMapTool;
+        let ctx = ToolExecutionContext::default();
+        let args = serde_json::json!({
+            "inputPath": "/nonexistent/file.jsonl",
+            "prompt": "Classify: {input}",
+            "outputSchema": {"type": "object"},
+            "outputPath": "/tmp/out.jsonl"
+        });
+        let result = tool.execute(&args, &ctx);
+        assert!(result.is_err(), "llm_map should fail without conversation context");
+    }
+
+    #[tokio::test]
+    async fn test_agentic_map_rejects_empty_input() {
+        let tool = crate::lcm::AgenticMapTool;
+        let ctx = ToolExecutionContext::default();
+        let args = serde_json::json!({
+            "inputPath": "/nonexistent/file.jsonl",
+            "prompt": "Analyze: {input}",
+            "outputPath": "/tmp/out.jsonl"
+        });
+        let result = tool.execute(&args, &ctx);
+        assert!(result.is_err(), "agentic_map should fail without conversation context");
+    }
 }
