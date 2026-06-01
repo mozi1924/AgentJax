@@ -32,7 +32,6 @@ fn write_test_config(home: &Path) -> std::path::PathBuf {
         "    requestTimeoutSeconds: 120",
         "    models:",
         "      gpt-5-mini:",
-        "        model: \"gpt-5-mini\"",
         "        enabled: true",
         "        request:",
         "          reasoning_effort: null",
@@ -201,16 +200,16 @@ fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
 
     let snapshot = get_settings_snapshot().expect("snapshot");
     let updated = apply_settings_patch(SettingsPatch {
-        path: "providers.openai-responses.models.GPT-5\\.4-mini.model".to_string(),
-        value: Some(Value::from("gpt-5.4-mini")),
+        path: "providers.openai-responses.models.GPT-5\\.4-mini.enabled".to_string(),
+        value: Some(Value::Bool(false)),
         expected_revision: snapshot.revision,
         operation: SettingsPatchOperation::Set,
     })
     .expect("apply patch with escaped model profile key");
 
     assert_eq!(
-        updated.values["providers"]["openai-responses"]["models"]["GPT-5.4-mini"]["model"],
-        Value::from("gpt-5.4-mini")
+        updated.values["providers"]["openai-responses"]["models"]["GPT-5.4-mini"]["enabled"],
+        Value::Bool(false)
     );
     let raw = fs::read_to_string(&path).expect("read config");
     assert!(raw.contains("GPT-5.4-mini:"));

@@ -46,7 +46,6 @@
           "itemLabel": "settings.model_profiles.profiles.item_label",
           "keyPattern": "^[A-Za-z0-9_.-]+$",
           "defaultItem": {
-            "model": "",
             "name": null,
             "enabled": true,
             "request": {
@@ -70,16 +69,6 @@
               "valueType": "string",
               "control": "text",
               "placeholder": "GPT-5.4-Mini"
-            },
-            {
-              "kind": "field",
-              "id": "profile-model-id",
-              "title": "settings.model_profiles.model_id.title",
-              "description": "settings.model_profiles.model_id.description",
-              "path": "model",
-              "valueType": "string",
-              "control": "text",
-              "placeholder": "gpt-5-mini"
             },
             {
               "kind": "field",

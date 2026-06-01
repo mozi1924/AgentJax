@@ -95,30 +95,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn resolves_profile_when_default_uses_provider_model_id_instead_of_profile_key() {
-        let mut cfg = AppConfig::default();
-        cfg.providers
-            .get_mut("openai-responses")
-            .expect("openai-responses provider exists")
-            .models
-            .insert(
-                "custom_key".to_string(),
-                super::schema::ProviderModelConfig {
-                    model: "gpt-5.4-mini".to_string(),
-                    name: None,
-                    enabled: true,
-                    request: ModelRequestConfig::default(),
-                },
-            );
-        cfg.default_model = "openai-responses/gpt-5.4-mini".to_string();
 
-        let normalized = cfg.normalize();
-        let resolved = normalized
-            .resolve_model_profile(None)
-            .expect("resolve by model id");
-        assert_eq!(resolved.model_id, "gpt-5.4-mini");
-    }
 
     #[test]
     fn resolved_profile_uses_built_in_agent_prompt() {

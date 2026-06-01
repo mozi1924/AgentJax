@@ -40,7 +40,6 @@ impl ProviderConfig {
                     self.models.insert(
                         model_id.clone(),
                         ProviderModelConfig {
-                            model: model_id.clone(),
                             name: None,
                             enabled: true,
                             request: ModelRequestConfig::default(),
@@ -118,11 +117,6 @@ impl ProviderConfig {
             let model_key = raw_key.trim().to_string();
             if model_key.is_empty() {
                 continue;
-            }
-            model_cfg.model = model_cfg.model.trim().to_string();
-            if model_cfg.model.is_empty() {
-                // Map key IS the model ID; use it as the API model identifier.
-                model_cfg.model = model_key.clone();
             }
             // Trim the optional friendly name.
             if let Some(ref n) = model_cfg.name {
@@ -461,7 +455,6 @@ impl AppConfig {
                 provider.models.insert(
                     fallback_model_id.to_string(),
                     ProviderModelConfig {
-                        model: fallback_model_id.to_string(),
                         name: None,
                         enabled: true,
                         request: ModelRequestConfig::default(),
@@ -524,7 +517,7 @@ impl AppConfig {
         }
 
         let matched = provider.models.iter().find_map(|(model_key, model_cfg)| {
-            if model_cfg.enabled && model_cfg.model == requested_model {
+            if model_cfg.enabled && model_key == &requested_model {
                 Some((model_key.clone(), model_cfg.clone()))
             } else {
                 None
@@ -568,7 +561,7 @@ impl AppConfig {
             profile_key: resolved_ref.clone(),
             provider_key,
             provider: provider.clone(),
-            model_id: model_cfg.model.clone(),
+            model_id: model_key.clone(),
             model_ref: resolved_ref,
             system_prompt: prompt_assembly.instructions_text.clone(),
             prompt_assembly,

@@ -294,13 +294,13 @@ fn build_model_catalog_entries(
                     provider_cache
                         .models
                         .iter()
-                        .find(|model| model.id == model_cfg.model)
+                        .find(|model| &model.id == model_key)
                         .map(|model| model.supported_reasoning_levels.as_slice())
                 });
 
             let reasoning = provider_api::get_reasoning_capability(
                 &provider.kind,
-                &model_cfg.model,
+                model_key,
                 cached_levels,
             )?;
 
@@ -321,7 +321,7 @@ fn build_model_catalog_entries(
             entries.push(ModelCatalogEntry {
                 profile_key: format!("{}/{}", provider_key, model_key),
                 provider_key: provider_key.clone(),
-                model_id: model_cfg.model.clone(),
+                model_id: model_key.clone(),
                 name: model_cfg.name.clone(),
                 supports_reasoning: reasoning.supports_reasoning,
                 supported_reasoning_levels: reasoning.supported_reasoning_levels,
