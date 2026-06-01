@@ -33,7 +33,7 @@ impl AgentRuntime {
         req: &ChatRequest,
         conversation_id: &str,
         user_message_ts: i64,
-        mut context_items: Vec<Value>,
+        context_items: Vec<Value>,
         recovery_note: Option<Value>,
         tools_catalog: &ToolCatalog,
         lcm_engine: &std::sync::Arc<crate::lcm::LcmEngine>,
@@ -69,8 +69,8 @@ impl AgentRuntime {
                 &mounted_mcp_servers,
             )
             .await;
-        context_items = archive_unavailable_historical_tool_calls(
-            context_items,
+        let _context_items_for_archive = archive_unavailable_historical_tool_calls(
+            context_items.clone(),
             initial_snapshot.active_tool_names(),
         );
 
@@ -85,14 +85,20 @@ impl AgentRuntime {
         let mut turn_idx = 0usize;
         let max_turns = 10usize;
 
-        // ── Build the initial input (history + current user message) ──────
-        // This is the *base* context that every subsequent continuation
-        // will carry forward so the model never loses sight of the original
-        // question or prior conversation.
+        // ── Build the initial input using LCM-compressed history ─────────
+        // Instead of sending raw conversation history, we use the LCM engine's
+        // active context which replaces old messages with summary pointers.
+        // This keeps the context within token thresholds.
+        let lcm_history_items = lcm_engine
+            .rebuild_active_context(conversation_id)
+            .ok()
+            .map(|entries| lcm_engine.context_to_provider_items(&entries))
+            .unwrap_or_default();
+
         let base_context = build_base_context(
             std::mem::take(&mut developer_items),
             recovery_note,
-            std::mem::take(&mut context_items),
+            lcm_history_items,
             crate::provider_api::build_user_input_item(
                 provider_kind,
                 &render_timed_message("Current user message", user_message_ts, req.input.trim()),
@@ -106,12 +112,21 @@ impl AgentRuntime {
             turn_idx += 1;
 
             // ── Determine input for this hop ──────────────────────────────
-            // Hop 1: base context (history + user message).
-            // Hop N: full accumulated context (base + all prior hop deltas).
+            // Hop 1: base context (LCM-compressed history + user message).
+            // Hop N: use LCM's active context snapshot (which includes prior
+            //        tool hops and any async compaction that occurred).
             let input_items = if turn_idx == 1 {
                 base_context.clone()
             } else {
-                accumulated_context.clone()
+                // Use LCM's current active context for continuation.
+                // This naturally stays within token thresholds via compaction.
+                lcm_engine
+                    .active_context_snapshot()
+                    .ok()
+                    .map(|entries| {
+                        lcm_engine.context_to_provider_items(&entries)
+                    })
+                    .unwrap_or_else(|| accumulated_context.clone())
             };
 
             // Freeze tool visibility per hop. A tool execution may mount an MCP
