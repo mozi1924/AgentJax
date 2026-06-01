@@ -199,7 +199,7 @@ function UserMessageBubble({ line }: { line: UserLine }) {
     <div className="flex justify-end">
       <div
         data-native-context-menu="true"
-        className="max-w-[85%] break-words rounded-2xl border border-[#34383e] bg-[#202225] px-4 py-2.5 text-sm leading-6 text-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.1)] select-text"
+        className="max-w-[85%] break-words rounded-2xl border border-[#34383e] bg-[#202225] px-4 py-2.5 text-sm leading-6 text-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.1)] select-text whitespace-pre-wrap"
       >
         {line.text && String(line.text)}
       </div>
