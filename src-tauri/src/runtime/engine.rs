@@ -21,7 +21,7 @@ use output::{
     strip_commentary_prefixes,
 };
 use presentations::enrich_tool_stream_event;
-use request::{build_base_context, build_request, ensure_tool_call_output_pairs};
+use request::{build_request, ensure_tool_call_output_pairs};
 use serde_json::Value;
 use tokio::sync::watch;
 use tool_state::apply_tool_state_changes;
@@ -85,30 +85,12 @@ impl AgentRuntime {
         let mut turn_idx = 0usize;
         let max_turns = 10usize;
 
-        // ── Build the initial input using LCM-compressed history ─────────
-        // Instead of sending raw conversation history, we use the LCM engine's
-        // active context which replaces old messages with summary pointers.
-        // This keeps the context within token thresholds.
-        let lcm_history_items = lcm_engine
+        // ── Seed LCM active context with existing conversation history ──
+        lcm_engine
             .rebuild_active_context(conversation_id)
-            .ok()
-            .map(|entries| lcm_engine.context_to_provider_items(&entries))
-            .unwrap_or_default();
-
-        let base_context = build_base_context(
-            std::mem::take(&mut developer_items),
-            recovery_note,
-            lcm_history_items,
-            crate::provider_api::build_user_input_item(
-                provider_kind,
-                &render_timed_message("Current user message", user_message_ts, req.input.trim()),
-            )?,
-        );
+            .ok();
 
         // ── Persist the current user message to LCM ─────────────────────
-        // The turn loop rebuilds hop 2+ input from the LCM active context
-        // snapshot. Without this, subsequent hops see only assistant text
-        // and tool results — they forget what the user originally asked.
         {
             let user_text = req.input.trim();
             let user_msg = crate::lcm::types::StoredMessage::new(
@@ -124,6 +106,18 @@ impl AgentRuntime {
             }
         }
 
+        // ── Build prefix items sent once per turn (not per hop) ──────────
+        // Developer items (system prompt, temporal context) and recovery note
+        // are included in hop 1. Subsequent hops use only LCM context since
+        // the model already has these instructions from the first hop.
+        let hop_prefix: Vec<Value> = {
+            let mut prefix = std::mem::take(&mut developer_items);
+            if let Some(note) = recovery_note {
+                prefix.push(note);
+            }
+            prefix
+        };
+
         'turn_loop: loop {
             if turn_idx >= max_turns {
                 return Err(crate::error::AgentJaxError::internal("Maximum turn execution limit reached"));
@@ -131,21 +125,43 @@ impl AgentRuntime {
             turn_idx += 1;
 
             // ── Determine input for this hop ──────────────────────────────
-            // Hop 1: base context (LCM-compressed history + user message).
-            // Hop N: use LCM's active context snapshot (which includes prior
-            //        tool hops and any async compaction that occurred).
+            // All hops use the LCM active context as the single source of truth
+            // for conversation history. Hop 1 additionally includes the prefix
+            // (developer items + recovery note) and a formatted user message.
+            let lcm_context = lcm_engine
+                .active_context_snapshot()
+                .ok()
+                .map(|entries| lcm_engine.context_to_provider_items(&entries))
+                .unwrap_or_else(|| accumulated_context.clone());
+
             let input_items = if turn_idx == 1 {
-                base_context.clone()
-            } else {
-                // Use LCM's current active context for continuation.
-                // This naturally stays within token thresholds via compaction.
-                lcm_engine
-                    .active_context_snapshot()
-                    .ok()
-                    .map(|entries| {
-                        lcm_engine.context_to_provider_items(&entries)
+                // Hop 1: prefix + LCM history + rendered user input (with timestamp).
+                let mut items = hop_prefix.clone();
+                // LCM context includes history prior to this turn. We
+                // filter out the raw user message (already rendered below).
+                let history_items: Vec<Value> = lcm_context
+                    .into_iter()
+                    .filter(|item| {
+                        !matches!(
+                            item.get("role").and_then(|v| v.as_str()),
+                            Some("user")
+                        )
                     })
-                    .unwrap_or_else(|| accumulated_context.clone())
+                    .collect();
+                items.extend(history_items);
+                items.push(
+                    crate::provider_api::build_user_input_item(
+                        provider_kind,
+                        &render_timed_message(
+                            "Current user message",
+                            user_message_ts,
+                            req.input.trim(),
+                        ),
+                    )?,
+                );
+                items
+            } else {
+                lcm_context
             };
 
             // Freeze tool visibility per hop. A tool execution may mount an MCP
@@ -172,7 +188,7 @@ impl AgentRuntime {
                 tool_snapshot.active_tool_names(),
             );
 
-            let stream_request = build_request(req, input_items, tool_snapshot.schemas().to_vec());
+            let stream_request = build_request(req, input_items.clone(), tool_snapshot.schemas().to_vec());
             let mut tool_scheduler = ToolExecutionScheduler::new(
                 conversation_id,
                 tool_snapshot.clone(),
@@ -427,13 +443,10 @@ impl AgentRuntime {
 
             // ── Accumulate for the next continuation ──────────────────────
             // Critical fix: the next hop MUST include the FULL accumulated
-            // context (base + all prior deltas), not just this hop's delta.
-            // Without this the model loses all prior context after a tool
-            // call, which was the root cause of "forgetting what it was
-            // doing."
+            // context (hop 1 input + all prior deltas), not just this hop's delta.
             if turn_idx == 1 {
-                // First accumulation: seed with base context.
-                accumulated_context = base_context.clone();
+                // First accumulation: seed with hop 1 input items.
+                accumulated_context = input_items.clone();
             }
             accumulated_context.extend(hop_delta.clone());
 

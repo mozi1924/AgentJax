@@ -63,11 +63,12 @@ impl ToolCatalog {
     ) -> Self {
         use crate::lcm::{
             LcmStore, LcmGrepTool, LcmDescribeTool, LcmExpandTool,
-            LlmMapTool, AgenticMapTool,
+            LlmMapTool, AgenticMapTool, TaskTool,
         };
         let mut context_tools: Vec<Arc<dyn Tool>> = Vec::new();
         context_tools.push(Arc::new(LlmMapTool));
         context_tools.push(Arc::new(AgenticMapTool));
+        context_tools.push(Arc::new(TaskTool));
         if let Ok(dummy_store) = LcmStore::open(":memory:", config.lcm.clone()) {
             let store = Arc::new(dummy_store);
             context_tools.extend_from_slice(&[
@@ -483,10 +484,11 @@ impl ToolCatalog {
     /// Context tools provide the model with access to the immutable
     /// conversation history (lcm_grep, lcm_describe, lcm_expand).
     pub fn set_context_tools(&mut self, lcm_store: Arc<crate::lcm::LcmStore>) {
-        use crate::lcm::{AgenticMapTool, LcmDescribeTool, LcmExpandTool, LcmGrepTool, LlmMapTool};
+        use crate::lcm::{AgenticMapTool, LcmDescribeTool, LcmExpandTool, LcmGrepTool, LlmMapTool, TaskTool};
         self.context_tools = vec![
             Arc::new(LlmMapTool),
             Arc::new(AgenticMapTool),
+            Arc::new(TaskTool),
             Arc::new(LcmGrepTool::new(lcm_store.clone())),
             Arc::new(LcmDescribeTool::new(lcm_store.clone())),
             Arc::new(LcmExpandTool::new(lcm_store)),

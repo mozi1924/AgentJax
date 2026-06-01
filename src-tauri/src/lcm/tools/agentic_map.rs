@@ -2,10 +2,10 @@
 //!
 //! Implements the Agentic-Map operator from LCM §3.1 (Figure 4).
 //!
-//! Spawns a full sub-agent session for each item in a JSONL input file.
-//! Each sub-agent has access to tools such as file I/O and code execution.
-//! Suitable when per-item processing requires multi-step reasoning or
-//! interaction with the environment.
+//! Spawns a sub-agent session for each item in a JSONL input file.
+//! Each sub-agent has access to filesystem tools and can perform
+//! multi-step reasoning. Unlike `llm_map` (stateless LLM calls),
+//! `agentic_map` runs a proper tool-using agent loop per item.
 //!
 //! ## Usage
 //!
@@ -13,13 +13,14 @@
 //! 1. Model writes input data as a JSONL file
 //! 2. Model calls agentic_map with: inputPath, prompt, outputPath
 //! 3. Engine spawns sub-agent sessions in parallel (concurrent workers)
-//! 4. Each session runs autonomously with full tool access
+//! 4. Each sub-agent runs a tool-using agent loop (max 5 turns)
 //! 5. Engine writes results to outputPath as JSONL
 //! 6. Model reads the output file
 //! ```
 
+use crate::config::AppConfig;
 use crate::error::{AgentJaxError, AgentJaxResult};
-use crate::tools::{Tool, ToolExecutionContext};
+use crate::tools::{Tool, ToolExecutionContext, ToolRegistry};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -142,6 +143,7 @@ impl Tool for AgenticMapTool {
 
         let total = input_lines.len();
         let model_ref = context.model_id.clone().unwrap_or_else(|| "default".to_string());
+        let app_config = context.app_config.clone();
         let prompt_template = args.prompt;
         let concurrency = args.concurrency.max(1);
         let max_retries = args.max_retries;
@@ -152,63 +154,49 @@ impl Tool for AgenticMapTool {
         let results: Arc<std::sync::Mutex<Vec<(usize, Result<Value, String>)>>> =
             Arc::new(std::sync::Mutex::new(Vec::with_capacity(total)));
 
-        let rt = tokio::runtime::Handle::current();
+        // Spawn all sub-agent tasks with concurrency control.
+        let mut handles = Vec::with_capacity(total);
 
-        let task = {
-            let completed = completed.clone();
-            let failed = failed.clone();
-            let semaphore = semaphore.clone();
-            let results = results.clone();
-            let prompt_template = prompt_template.clone();
-            let model_ref = model_ref.clone();
+        for (i, line) in input_lines.iter().enumerate() {
+            let permit = semaphore.clone().acquire_owned();
+            let prompt = prompt_template.replace("{input}", line);
+            let model = model_ref.clone();
+            let comp = completed.clone();
+            let fail = failed.clone();
+            let res = results.clone();
+            let retries = max_retries;
+            let cfg = app_config.clone();
 
-            rt.spawn(async move {
-                let mut handles = Vec::with_capacity(total);
+            handles.push(tokio::spawn(async move {
+                let _permit = permit.await.unwrap();
 
-                for (i, line) in input_lines.iter().enumerate() {
-                    let permit = semaphore.clone().acquire_owned();
-                    let prompt = prompt_template.replace("{input}", &line);
-                    let model = model_ref.clone();
-                    let comp = completed.clone();
-                    let fail = failed.clone();
-                    let res = results.clone();
-                    let retries = max_retries;
-
-                    handles.push(tokio::spawn(async move {
-                        let _permit = permit.await.unwrap();
-
-                        // Run the sub-agent task with retry.
-                        let mut last_error: Option<String> = None;
-                        for attempt in 0..retries {
-                            if attempt > 0 {
-                                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                            }
-                            match run_subagent_task(&prompt, &model).await {
-                                Ok(output) => {
-                                    comp.fetch_add(1, Ordering::SeqCst);
-                                    let mut lock = res.lock().unwrap();
-                                    lock.push((i, Ok(output)));
-                                    return;
-                                }
-                                Err(e) => {
-                                    last_error = Some(e);
-                                }
-                            }
+                let mut last_error: Option<String> = None;
+                for attempt in 0..retries {
+                    if attempt > 0 {
+                        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                    }
+                    match run_subagent_task(&prompt, &model, cfg.as_deref()).await {
+                        Ok(output) => {
+                            comp.fetch_add(1, Ordering::SeqCst);
+                            let mut lock = res.lock().unwrap();
+                            lock.push((i, Ok(output)));
+                            return;
                         }
-                        fail.fetch_add(1, Ordering::SeqCst);
-                        let mut lock = res.lock().unwrap();
-                        lock.push((i, Err(last_error.unwrap_or_else(|| "Max retries exceeded".to_string()))));
-                    }));
+                        Err(e) => {
+                            last_error = Some(e);
+                        }
+                    }
                 }
+                fail.fetch_add(1, Ordering::SeqCst);
+                let mut lock = res.lock().unwrap();
+                lock.push((i, Err(last_error.unwrap_or_else(|| "Max retries exceeded".to_string()))));
+            }));
+        }
 
-                for handle in handles {
-                    let _ = handle.await;
-                }
-            })
-        };
-
-        rt.block_on(task)
-            .map_err(|e| AgentJaxError::internal(format!("agentic_map task failed: {e}")))?;
+        // Await all spawned tasks.
+        for handle in handles {
+            let _ = handle.await;
+        }
 
         let final_results = {
             let mut lock = results.lock().unwrap();
@@ -265,63 +253,152 @@ fn get_workspace_dir(context: &ToolExecutionContext) -> AgentJaxResult<PathBuf> 
     Ok(path)
 }
 
-/// Run a single sub-agent task with full tool access.
+/// Run a single sub-agent task with filesystem tool access.
 ///
-/// This makes an LLM call with tool definitions available, simulating
-/// a sub-agent session. In a full implementation, this would spawn an
-/// actual sub-agent with its own conversation context.
-async fn run_subagent_task(prompt: &str, model_ref: &str) -> Result<Value, String> {
-    use crate::provider_api::types::ResponseStreamRequest;
+/// This implements a proper tool-using agent loop: the sub-agent can call
+/// tools to read, write, and list files, and the results are fed back for
+/// further processing. The loop runs for up to `MAX_SUBAGENT_TURNS` iterations.
+async fn run_subagent_task(
+    prompt: &str,
+    model_ref: &str,
+    app_config: Option<&AppConfig>,
+) -> Result<Value, String> {
+    use crate::provider_api::types::{
+        ProviderPendingToolCall, ProviderStreamEvent, ResponseStreamRequest,
+    };
     use tokio::sync::watch;
 
-    let (_cancel_tx, mut cancel_rx) = watch::channel(false);
-
-    let request = ResponseStreamRequest {
-        input_items: vec![json!({
-            "role": "user",
-            "content": [{"type": "input_text", "text": prompt}]
-        })],
-        model: Some(model_ref.to_string()),
-        reasoning_effort: None,
-        instructions_override: Some(
-            "You are a sub-agent processing one item from a batch. \
-             Complete your task and output ONLY the result as a JSON object. \
-             Do not include any other text, explanation, or markdown."
-                .to_string(),
-        ),
-        text: None,
-        include: None,
-        service_tier: None,
-        prompt_cache_key: None,
-        client_metadata: None,
-        generate: None,
-        tools: None, // Sub-agents would have access to tools
-        tool_choice: None,
+    let config = match app_config {
+        Some(c) => c.clone(),
+        None => crate::config::load_config()
+            .map_err(|e| format!("Failed to load config: {e}"))?,
     };
 
-    let config = crate::config::load_config()
-        .map_err(|e| format!("Failed to load config: {e}"))?;
+    let tool_registry = ToolRegistry::new_with_defaults();
+    let tool_schemas = tool_registry.list_schemas();
+    let tool_context = ToolExecutionContext::default();
 
-    let response = crate::provider_api::stream_response(
-        &config,
-        &request,
-        &mut cancel_rx,
-        |_| Ok(()),
-    )
-    .await
-    .map_err(|e| format!("Sub-agent LLM call failed: {e}"))?;
+    let subagent_instructions = "\
+You are a sub-agent processing one item from a batch. \
+You have access to filesystem tools (read, write, list, edit files). \
+Complete your task and output ONLY the final result as a JSON object. \
+Do not include any other text, explanation, or markdown outside the JSON.";
 
-    let text = response.output_text.trim().to_string();
-    if text.is_empty() {
-        return Err("Sub-agent returned empty response".to_string());
+    // Start with the user prompt as the initial input.
+    let mut input_items: Vec<Value> = vec![json!({
+        "role": "user",
+        "content": [{"type": "input_text", "text": prompt}]
+    })];
+
+    const MAX_SUBAGENT_TURNS: usize = 5;
+
+    for _turn in 0..MAX_SUBAGENT_TURNS {
+        let (_cancel_tx, mut cancel_rx) = watch::channel(false);
+
+        let request = ResponseStreamRequest {
+            input_items: input_items.clone(),
+            model: Some(model_ref.to_string()),
+            reasoning_effort: None,
+            instructions_override: Some(subagent_instructions.to_string()),
+            text: None,
+            include: None,
+            service_tier: None,
+            prompt_cache_key: None,
+            client_metadata: None,
+            generate: None,
+            tools: Some(tool_schemas.clone()),
+            tool_choice: Some(json!("auto")),
+        };
+
+        // Collect tool calls from the stream.
+        let mut tool_calls: Vec<ProviderPendingToolCall> = Vec::new();
+        let mut assistant_text = String::new();
+
+        let response = crate::provider_api::stream_response(
+            &config,
+            &request,
+            &mut cancel_rx,
+            |event| {
+                if let ProviderStreamEvent::ToolCallStarted { call_id, name, .. } = &event {
+                    tool_calls.push(ProviderPendingToolCall {
+                        call_id: call_id.clone(),
+                        name: name.clone(),
+                        arguments: Value::Null,
+                    });
+                }
+                if let ProviderStreamEvent::ToolCallCompleted { call_id, arguments, .. } = &event {
+                    if let Some(tc) = tool_calls.iter_mut().find(|t| &t.call_id == call_id) {
+                        tc.arguments = serde_json::from_str(arguments).unwrap_or(Value::Null);
+                    }
+                }
+                if let ProviderStreamEvent::AssistantMessageCompleted { text, .. } = &event {
+                    assistant_text = text.clone();
+                }
+                Ok(())
+            },
+        )
+        .await
+        .map_err(|e| format!("Sub-agent LLM call failed: {e}"))?;
+
+        // If no tool calls, this is the final response.
+        if tool_calls.is_empty() {
+            let text = response.output_text.trim().to_string();
+            if text.is_empty() {
+                return Err("Sub-agent returned empty response".to_string());
+            }
+            if let Ok(parsed) = serde_json::from_str::<Value>(&text) {
+                return Ok(parsed);
+            }
+            return Ok(json!({ "result": text }));
+        }
+
+        // Add assistant message (with tool calls) to the conversation.
+        let assistant_item = json!({
+            "role": "assistant",
+            "content": assistant_text,
+        });
+        // Some providers embed tool calls differently; we add them as
+        // separate function_call items following the assistant message.
+        input_items.push(assistant_item);
+
+        // Execute each tool call and feed results back to the conversation.
+        for tc in &tool_calls {
+            // Add function_call item.
+            input_items.push(json!({
+                "type": "function_call",
+                "call_id": tc.call_id,
+                "name": tc.name,
+                "arguments": serde_json::to_string(&tc.arguments).unwrap_or_default(),
+            }));
+
+            let exec_result = tool_registry
+                .execute(&tc.name, &tc.arguments, &tool_context)
+                .await;
+
+            match exec_result {
+                Ok(output) => {
+                    let output_str = serde_json::to_string(&output).unwrap_or_default();
+                    input_items.push(json!({
+                        "type": "function_call_output",
+                        "call_id": tc.call_id,
+                        "output": output_str,
+                    }));
+                }
+                Err(e) => {
+                    let err_str = format!("Tool execution error: {e}");
+                    input_items.push(json!({
+                        "type": "function_call_output",
+                        "call_id": tc.call_id,
+                        "output": err_str,
+                    }));
+                }
+            }
+        }
     }
 
-    // Try to parse as JSON.
-    if let Ok(parsed) = serde_json::from_str::<Value>(&text) {
-        Ok(parsed)
-    } else {
-        Ok(json!({ "result": text }))
-    }
+    Err(format!(
+        "Sub-agent exceeded maximum turns ({MAX_SUBAGENT_TURNS}) without completing"
+    ))
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
