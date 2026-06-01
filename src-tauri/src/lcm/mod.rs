@@ -73,32 +73,26 @@ pub fn lcm_store_path(conversation_id: &str) -> Result<PathBuf, String> {
 
 /// Open (or create) the LCM store and engine for a conversation.
 ///
-/// Returns `None` if LCM is disabled in the configuration.
-/// Uses `ProviderSummarizer` (real LLM calls) when an `AppConfig` is
-/// provided; falls back to `NoopSummarizer` otherwise.
+/// LCM is the sole context management engine and is always active.
+/// Uses `NoopSummarizer` by default — call `open_lcm_engine_with_summarizer`
+/// when `AppConfig` is available for provider-backed summarization.
 pub fn open_lcm_engine(
     conversation_id: &str,
     lcm_config: &LcmConfig,
-) -> Result<Option<Arc<LcmEngine>>, String> {
-    if !lcm_config.enabled {
-        return Ok(None);
-    }
-
+) -> Result<Arc<LcmEngine>, String> {
     let db_path = lcm_store_path(conversation_id)?;
     let store = Arc::new(
         LcmStore::open(&db_path, lcm_config.clone())
             .map_err(|e| format!("Failed to open LCM store: {e}"))?,
     );
 
-    // Use NoopSummarizer — the caller can replace it with a real
-    // ProviderSummarizer when AppConfig is available.
     let engine = Arc::new(LcmEngine::new(
         store,
         Arc::new(NoopSummarizer),
         lcm_config.clone(),
     ));
 
-    Ok(Some(engine))
+    Ok(engine)
 }
 
 /// Open the LCM engine with a real provider-backed summarizer.
@@ -109,11 +103,7 @@ pub fn open_lcm_engine_with_summarizer(
     conversation_id: &str,
     lcm_config: &LcmConfig,
     app_config: &crate::config::AppConfig,
-) -> Result<Option<Arc<LcmEngine>>, String> {
-    if !lcm_config.enabled {
-        return Ok(None);
-    }
-
+) -> Result<Arc<LcmEngine>, String> {
     let db_path = lcm_store_path(conversation_id)?;
     let store = Arc::new(
         LcmStore::open(&db_path, lcm_config.clone())
@@ -141,7 +131,7 @@ pub fn open_lcm_engine_with_summarizer(
 
     let engine = Arc::new(LcmEngine::new(store, summarizer, lcm_config.clone()));
 
-    Ok(Some(engine))
+    Ok(engine)
 }
 
 /// Sync messages from the legacy ConversationStore to the LCM immutable store.

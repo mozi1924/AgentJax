@@ -105,17 +105,15 @@ pub async fn chat_stream(
     let mut tools_catalog =
         ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config);
 
-    // ── LCM: Initialize context management ─────────────────────────────
+    // ── LCM: Initialize context management (always on) ──────────────────
     let lcm_engine =
         crate::lcm::open_lcm_engine_with_summarizer(&conversation_id, &config.lcm, &config)?;
-    if let Some(ref engine) = lcm_engine {
-        tools_catalog.set_context_tools(engine.store().clone());
-        log::info!(
-            "LCM initialized for conversation '{}' (db: {:?})",
-            conversation_id,
-            engine.store().db_path()
-        );
-    }
+    tools_catalog.set_context_tools(lcm_engine.store().clone());
+    log::info!(
+        "LCM initialized for conversation '{}' (db: {:?})",
+        conversation_id,
+        lcm_engine.store().db_path()
+    );
 
     let user_message_ts = now_unix_ms();
 
@@ -231,7 +229,7 @@ pub async fn chat_stream(
         context.input_items,
         recovery_note,
         &tools_catalog,
-        lcm_engine.as_ref(),
+        &lcm_engine,
         &mut cancel_rx,
         move |event| {
             let event_token_count = stream_observer_for_callback.handle_provider_event(&event);
@@ -252,15 +250,13 @@ pub async fn chat_stream(
     let (response, _timeline_events) = result?;
     let final_token_count = stream_observer.persist_final_token_usage(&response);
 
-    // ── LCM: Sync conversation messages to immutable store ────────────
-    if let Some(ref engine) = lcm_engine {
-        if let Err(e) = sync_conversation_to_lcm(&conversation_id, engine.store()).await {
-            log::warn!(
-                "Failed to sync conversation '{}' to LCM: {}",
-                conversation_id,
-                e
-            );
-        }
+    // ── LCM: Sync remaining messages (already persisted inline during run_turn) ──
+    if let Err(e) = sync_conversation_to_lcm(&conversation_id, lcm_engine.store()).await {
+        log::warn!(
+            "Failed to sync conversation '{}' to LCM: {}",
+            conversation_id,
+            e
+        );
     }
 
     log::info!(

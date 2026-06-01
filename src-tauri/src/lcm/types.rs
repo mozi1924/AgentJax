@@ -383,7 +383,7 @@ pub enum DescribeResult {
 /// The defaults are chosen based on the paper's recommendations and
 /// practical experience with modern LLM context windows.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "snake_case", default)]
 pub struct LcmConfig {
     /// Soft token threshold: when the active context exceeds this count,
     /// asynchronous compaction is triggered (does not block the user).
@@ -399,12 +399,6 @@ pub struct LcmConfig {
     /// with exploration summaries rather than being loaded into context.
     /// Default: 25,600 (25K tokens).
     pub large_file_token_threshold: u32,
-
-    /// Master switch to enable/disable LCM. When disabled, the system
-    /// falls back to the legacy conversation store behavior.
-    /// Default: true.
-    #[serde(default = "default_true")]
-    pub enabled: bool,
 
     /// Maximum time (in seconds) allowed for an asynchronous compaction
     /// before it is considered failed and retried on the next cycle.
@@ -432,17 +426,12 @@ pub struct LcmConfig {
     pub summarization_model: String,
 }
 
-fn default_true() -> bool {
-    true
-}
-
 impl Default for LcmConfig {
     fn default() -> Self {
         Self {
             soft_token_threshold: 65536,       // 64K
             hard_token_threshold: 131072,      // 128K
             large_file_token_threshold: 25600, // 25K
-            enabled: true,
             compaction_timeout_secs: 25,
             max_compact_block_size: 20,
             max_summary_depth: 5,
@@ -568,6 +557,6 @@ mod tests {
         let config = LcmConfig::default();
         assert_eq!(config.soft_token_threshold, 65536);
         assert_eq!(config.hard_token_threshold, 131072);
-        assert!(config.enabled);
+        assert_eq!(config.large_file_token_threshold, 25600);
     }
 }

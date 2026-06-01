@@ -7,22 +7,6 @@
   "children": [
     {
       "kind": "group",
-      "id": "lcm-general",
-      "title": "settings.lcm.general.title",
-      "children": [
-        {
-          "kind": "field",
-          "id": "lcm-enabled",
-          "title": "settings.lcm.enabled.title",
-          "description": "settings.lcm.enabled.description",
-          "path": "lcm.enabled",
-          "valueType": "boolean",
-          "control": "switch"
-        }
-      ]
-    },
-    {
-      "kind": "group",
       "id": "lcm-thresholds",
       "title": "settings.lcm.thresholds.title",
       "description": "settings.lcm.thresholds.description",

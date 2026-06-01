@@ -13,6 +13,12 @@ use std::time::Duration;
 use tokio::sync::watch;
 use uuid::Uuid;
 
+fn lcm_engine_for_test(conversation_id: &str) -> Arc<crate::lcm::LcmEngine> {
+    let config = crate::lcm::LcmConfig::default();
+    crate::lcm::open_lcm_engine(conversation_id, &config)
+        .expect("Failed to open LCM engine for test")
+}
+
 static RUSTLS_CRYPTO_PROVIDER: Once = Once::new();
 
 fn ensure_rustls_crypto_provider() {
@@ -98,7 +104,7 @@ async fn run_real_gateway_turn_with_config(
             Vec::new(),
             None,
             &tools_catalog,
-            None, // lcm_engine
+            &lcm_engine_for_test(&conversation_id),
             &mut cancel_rx,
             move |event| {
                 stream_events_for_closure

@@ -35,7 +35,7 @@ impl AgentRuntime {
         mut context_items: Vec<Value>,
         recovery_note: Option<Value>,
         tools_catalog: &ToolCatalog,
-        lcm_engine: Option<&std::sync::Arc<crate::lcm::LcmEngine>>,
+        lcm_engine: &std::sync::Arc<crate::lcm::LcmEngine>,
         cancel_rx: &mut watch::Receiver<bool>,
         mut on_event: F,
     ) -> Result<(ResponseStreamResult, Vec<Value>), String>
@@ -226,7 +226,8 @@ impl AgentRuntime {
                 .await?;
 
             // ── LCM: Persist hop messages to immutable store (before values are moved) ──
-            if let Some(engine) = lcm_engine {
+            {
+                let engine = lcm_engine;
                 let now_ms = crate::conversation_store_utils::now_unix_ms();
                 let lcm_conv_id = conversation_id.to_string();
                 let lcm_tool_results = executed_batch.tool_results_items.clone();
