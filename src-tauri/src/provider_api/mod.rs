@@ -1,8 +1,10 @@
 pub mod capabilities;
+pub mod circuit_breaker;
 pub mod core;
 pub mod network;
-mod streaming;
 pub mod registry;
+pub mod retry;
+mod streaming;
 pub mod types;
 
 use crate::error::{AgentJaxError, AgentJaxResult};

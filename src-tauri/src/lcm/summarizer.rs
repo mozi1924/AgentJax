@@ -7,6 +7,7 @@
 
 use crate::lcm::compaction::Summarizer;
 use crate::lcm::types::LcmError;
+use crate::provider_api::retry::{RetryStrategy, retry_with_backoff};
 use crate::provider_api::types::ResponseStreamRequest;
 use tokio::sync::watch;
 
@@ -108,8 +109,6 @@ impl Summarizer for ProviderSummarizer {
         mode: &str,
         _target_tokens: u32,
     ) -> Result<String, LcmError> {
-        let (_cancel_tx, mut cancel_rx) = watch::channel(false);
-
         let prompt = Self::build_prompt(content, mode);
 
         let request = ResponseStreamRequest {
@@ -133,20 +132,42 @@ impl Summarizer for ProviderSummarizer {
             tool_choice: None,
         };
 
-        let response = crate::provider_api::stream_response(
-            &self.config,
-            &request,
-            &mut cancel_rx,
-            |_| Ok(()),
+        // ── Retry with backoff on empty/incomplete responses ──
+        let config = &self.config;
+        let response = retry_with_backoff(
+            RetryStrategy::empty_response(),
+            || async {
+                let mut cancel_rx = watch::channel(false).1;
+                let result = crate::provider_api::stream_response(
+                    config,
+                    &request,
+                    &mut cancel_rx,
+                    |_| Ok(()),
+                )
+                .await;
+
+                // If the response is empty or very short, treat as retryable.
+                match &result {
+                    Ok(res) if res.output_text.trim().len() < 10 => {
+                        Err(crate::error::AgentJaxError::internal(
+                            format!("Summarization returned empty/short response ({} chars)", res.output_text.len())
+                        ))
+                    }
+                    _ => result.map_err(|e| crate::error::AgentJaxError::internal(
+                        format!("Summarization API call failed: {e}")
+                    )),
+                }
+            },
         )
         .await
-        .map_err(|e| LcmError::Compaction(format!("Summarization API call failed: {e}")))?;
+        .into_result()
+        .map_err(|e| LcmError::Compaction(format!("Summarization failed after retry: {e}")))?;
 
         let summary = response.output_text.trim().to_string();
 
         if summary.is_empty() {
             return Err(LcmError::Compaction(
-                "Summarization returned empty response".to_string(),
+                "Summarization returned empty response after retry".to_string(),
             ));
         }
 

@@ -14,9 +14,13 @@
 
 use std::collections::BTreeMap;
 use std::str::FromStr;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use crate::error::{AgentJaxError, AgentJaxResult};
+use crate::error_classifier::{NetworkErrorKind, RawProviderError, classify_http_error};
+use crate::provider_api::circuit_breaker::CircuitBreakerRegistry;
+use crate::provider_api::retry::{RetryResult, RetryStrategy, retry_with_backoff};
 use futures_util::StreamExt;
 use reqwest::Method;
 use serde::Deserialize;
@@ -90,6 +94,10 @@ fn default_stream_protocol() -> String {
     "sse".to_string()
 }
 
+/// Global circuit breaker registry for all provider calls.
+static CIRCUIT_BREAKERS: LazyLock<CircuitBreakerRegistry> =
+    LazyLock::new(CircuitBreakerRegistry::new);
+
 pub async fn stream_response<F>(
     config: &AppConfig,
     req: &ResponseStreamRequest,
@@ -101,6 +109,11 @@ where
 {
     use crate::error::AgentJaxError;
     let resolved = config.resolve_model_profile(req.model.as_deref())?;
+    let provider_key = resolved.provider_key.clone();
+
+    // ── Circuit Breaker: check before making the call ──
+    CIRCUIT_BREAKERS.check(&provider_key)?;
+
     let definition = registry::provider_definition(&resolved.provider.kind).ok_or_else(|| {
         AgentJaxError::config(format!(
             "Unsupported provider kind '{}'. Register a provider plugin to enable it.",
@@ -117,7 +130,7 @@ where
     let request: PluginHttpRequest =
         call_provider_function(&package, &resolved.provider.kind, "buildStreamRequest", context)?;
 
-    match request.stream_protocol.trim().to_ascii_lowercase().as_str() {
+    let result = match request.stream_protocol.trim().to_ascii_lowercase().as_str() {
         "sse" => {
             stream_sse_request(
                 &package,
@@ -148,7 +161,21 @@ where
             "Provider plugin '{}' requested unsupported stream protocol '{}'. The host currently supports SSE and WebSocket for provider streams.",
             resolved.provider.kind, other
         ))),
+    };
+
+    // ── Circuit Breaker: record outcome ──
+    match &result {
+        Ok(_) => CIRCUIT_BREAKERS.record_success(&provider_key),
+        Err(err) => {
+            if err.kind.is_retryable() {
+                CIRCUIT_BREAKERS.record_failure(&provider_key);
+            }
+            // Non-retryable errors (auth, config) don't count toward
+            // circuit breaker failures.
+        }
     }
+
+    result
 }
 
 pub async fn fetch_remote_models(
@@ -554,15 +581,26 @@ async fn send_json_request(request: &PluginHttpRequest, timeout_seconds: u64) ->
 
     if !response.status().is_success() {
         let status = response.status();
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(std::time::Duration::from_secs);
         let text = response
             .text()
             .await
             .unwrap_or_else(|_| "<unable to read error body>".to_string());
-        return Err(AgentJaxError::internal(format!("Provider endpoint error ({status}): {text}")));
+        return Err(classify_http_error(
+            status.as_u16(),
+            &text,
+            None,
+            retry_after,
+        ));
     }
 
     response
-        .json()
+        .json::<Value>()
         .await
         .map_err(|err| AgentJaxError::internal(format!("Failed to parse provider endpoint JSON: {err}")))
 }
