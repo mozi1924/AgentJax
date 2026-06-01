@@ -9,7 +9,14 @@ function geminiContents(items) {
       return { role: "model", parts: [{ functionCall: { name: item.name, args: parseArgs(item.arguments) } }] };
     }
     if (item.type === "function_call_output") {
-      return { role: "user", parts: [{ functionResponse: { name: item.name || "tool", response: { result: item.output || "" } } }] };
+      let toolName = item.name;
+      if (!toolName && item.call_id) {
+        const matchingCall = items.find((x) => x.type === "function_call" && x.call_id === item.call_id);
+        if (matchingCall) {
+          toolName = matchingCall.name;
+        }
+      }
+      return { role: "user", parts: [{ functionResponse: { name: toolName || "tool", response: { result: item.output || "" } } }] };
     }
     const role = item.role === "assistant" ? "model" : "user";
     const text = textFromContent(item.content);

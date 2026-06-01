@@ -204,6 +204,7 @@ impl LcmEngine {
                 id: msg.id.clone(),
                 role: msg.role,
                 content: msg.content.clone(),
+                metadata: msg.metadata.clone(),
             };
 
             ctx.token_count += msg.token_count;
@@ -737,6 +738,7 @@ impl LcmEngine {
                         id: msg.id.clone(),
                         role: msg.role,
                         content: msg.content.clone(),
+                        metadata: msg.metadata.clone(),
                     };
 
                     token_count += msg.token_count;
@@ -771,16 +773,71 @@ impl LcmEngine {
 
         for entry in entries {
             match entry {
-                ContextEntry::RawMessage { role, content, .. } => {
+                ContextEntry::RawMessage { role, content, metadata, .. } => {
+                    // ── Structured tool messages (via metadata) ────────────
+                    // When a message carries a `message_type` in its metadata,
+                    // reconstruct the proper Responses-API item shape so that
+                    // function_call / function_call_output pairs are correctly
+                    // linked by call_id. This preserves fidelity that would
+                    // otherwise be lost when the LCM compresses history.
+                    if let Some(msg_type) = metadata.get("message_type").and_then(|v| v.as_str()) {
+                        match msg_type {
+                            "function_call" => {
+                                let call_id = metadata
+                                    .get("call_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let name = metadata
+                                    .get("tool_name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let arguments = metadata
+                                    .get("arguments")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("{}");
+                                items.push(serde_json::json!({
+                                    "type": "function_call",
+                                    "call_id": call_id,
+                                    "name": name,
+                                    "arguments": arguments,
+                                }));
+                                continue;
+                            }
+                            "function_call_output" => {
+                                let call_id = metadata
+                                    .get("call_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                items.push(serde_json::json!({
+                                    "type": "function_call_output",
+                                    "call_id": call_id,
+                                    "output": content,
+                                }));
+                                continue;
+                            }
+                            _ => {
+                                // Unknown message_type — fall through to
+                                // role-based fallback below.
+                            }
+                        }
+                    }
+
+                    // ── Role-based fallback (legacy messages without metadata) ──
                     let provider_role = match role {
                         crate::lcm::types::MessageRole::User => "user",
                         crate::lcm::types::MessageRole::Assistant => "assistant",
-                        crate::lcm::types::MessageRole::Tool => "tool",
+                        // Legacy Tool messages without metadata: map to "user"
+                        // since "tool" is not a valid role in the Responses API.
+                        crate::lcm::types::MessageRole::Tool => "user",
+                    };
+                    let text_type = match role {
+                        crate::lcm::types::MessageRole::Assistant => "output_text",
+                        _ => "input_text",
                     };
                     items.push(serde_json::json!({
                         "role": provider_role,
                         "content": [{
-                            "type": "input_text",
+                            "type": text_type,
                             "text": content
                         }]
                     }));
@@ -800,7 +857,7 @@ impl LcmEngine {
                     items.push(serde_json::json!({
                         "role": "assistant",
                         "content": [{
-                            "type": "input_text",
+                            "type": "output_text",
                             "text": summary_text
                         }]
                     }));
@@ -845,6 +902,7 @@ mod tests {
     use super::*;
     use crate::lcm::store::LcmStore;
     use crate::lcm::types::{FileRefId, LcmConfig};
+    use std::collections::BTreeMap;
 
     fn make_engine() -> LcmEngine {
         let config = LcmConfig {
@@ -945,6 +1003,7 @@ mod tests {
             id: MessageId::from("msg-1"),
             role: MessageRole::User,
             content: "Hello".to_string(),
+            metadata: BTreeMap::new(),
         }];
 
         let items = engine.context_to_provider_items(&entries);
@@ -996,6 +1055,7 @@ mod tests {
                 id: MessageId::from("msg-1"),
                 role: MessageRole::User,
                 content: "First".to_string(),
+                metadata: BTreeMap::new(),
             },
             ContextEntry::SummaryPointer {
                 summary_id: SummaryId::from("sum-1"),

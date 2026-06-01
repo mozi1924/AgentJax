@@ -69,7 +69,7 @@ impl AgentRuntime {
                 &mounted_mcp_servers,
             )
             .await;
-        let _context_items_for_archive = archive_unavailable_historical_tool_calls(
+        let _ = archive_unavailable_historical_tool_calls(
             context_items.clone(),
             initial_snapshot.active_tool_names(),
         );
@@ -105,6 +105,25 @@ impl AgentRuntime {
             )?,
         );
 
+        // ── Persist the current user message to LCM ─────────────────────
+        // The turn loop rebuilds hop 2+ input from the LCM active context
+        // snapshot. Without this, subsequent hops see only assistant text
+        // and tool results — they forget what the user originally asked.
+        {
+            let user_text = req.input.trim();
+            let user_msg = crate::lcm::types::StoredMessage::new(
+                crate::lcm::types::MessageId::new(),
+                conversation_id,
+                crate::lcm::types::MessageRole::User,
+                user_text,
+                crate::lcm::types::estimate_tokens(user_text),
+                user_message_ts,
+            );
+            if let Err(e) = lcm_engine.process_message(&user_msg).await {
+                log::warn!("LCM: failed to persist user message for turn: {e}");
+            }
+        }
+
         'turn_loop: loop {
             if turn_idx >= max_turns {
                 return Err(crate::error::AgentJaxError::internal("Maximum turn execution limit reached"));
@@ -139,6 +158,20 @@ impl AgentRuntime {
                     &mounted_mcp_servers,
                 )
                 .await;
+
+            // ── Archive tool calls for unavailable tools ──────────────────
+            // When an MCP server is unmounted or a plugin is disabled between
+            // turns, historical function_call / function_call_output items
+            // for those tools become orphaned. Replace them with developer
+            // notes so the model knows the tool is gone and doesn't try to
+            // re-call it, while still preserving the historical context.
+            // This also prevents tool-result injection via stale call_id
+            // matching for tools that no longer exist.
+            let input_items = archive_unavailable_historical_tool_calls(
+                input_items,
+                tool_snapshot.active_tool_names(),
+            );
+
             let stream_request = build_request(req, input_items, tool_snapshot.schemas().to_vec());
             let mut tool_scheduler = ToolExecutionScheduler::new(
                 conversation_id,
@@ -247,6 +280,25 @@ impl AgentRuntime {
                 let now_ms = crate::conversation_store_utils::now_unix_ms();
                 let lcm_conv_id = conversation_id.to_string();
                 let lcm_tool_results = executed_batch.tool_results_items.clone();
+                let lcm_tool_calls = executed_batch.executed_tool_call_items.clone();
+
+                // Build call_id → name lookup for annotating results.
+                let tool_name_by_call_id: std::collections::HashMap<String, String> =
+                    lcm_tool_calls
+                        .iter()
+                        .filter_map(|item| {
+                            let call_id = item
+                                .get("call_id")
+                                .and_then(|v| v.as_str())
+                                .map(String::from)?;
+                            let name = item
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            Some((call_id, name))
+                        })
+                        .collect();
 
                 // Persist assistant text from this hop.
                 for (text, _phase) in &hop_messages_for_lcm {
@@ -265,22 +317,88 @@ impl AgentRuntime {
                     }
                 }
 
-                // Persist tool call results.
+                // Persist function_call items with structured metadata.
+                for item in &lcm_tool_calls {
+                    let call_id = item
+                        .get("call_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let name = item
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let arguments = item
+                        .get("arguments")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("{}");
+
+                    let mut metadata = std::collections::BTreeMap::new();
+                    metadata.insert(
+                        "message_type".to_string(),
+                        serde_json::Value::String("function_call".to_string()),
+                    );
+                    metadata.insert(
+                        "call_id".to_string(),
+                        serde_json::Value::String(call_id.to_string()),
+                    );
+                    metadata.insert(
+                        "tool_name".to_string(),
+                        serde_json::Value::String(name.to_string()),
+                    );
+                    metadata.insert(
+                        "arguments".to_string(),
+                        serde_json::Value::String(arguments.to_string()),
+                    );
+
+                    let mut msg = crate::lcm::types::StoredMessage::new(
+                        crate::lcm::types::MessageId::new(),
+                        &lcm_conv_id,
+                        crate::lcm::types::MessageRole::Tool,
+                        arguments,
+                        crate::lcm::types::estimate_tokens(arguments),
+                        now_ms,
+                    );
+                    msg.metadata = metadata;
+                    if let Err(e) = engine.process_message(&msg).await {
+                        log::warn!("LCM: failed to persist function_call: {e}");
+                    }
+                }
+
+                // Persist tool call results with structured metadata.
                 for item in &lcm_tool_results {
                     if let Some(output_str) = item.get("output").and_then(|v| v.as_str()) {
                         let call_id = item
                             .get("call_id")
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown");
-                        let content = format!("[Tool result {}]: {}", call_id, output_str);
-                        let msg = crate::lcm::types::StoredMessage::new(
+                        let tool_name = tool_name_by_call_id
+                            .get(call_id)
+                            .map(String::as_str)
+                            .unwrap_or("unknown");
+
+                        let mut metadata = std::collections::BTreeMap::new();
+                        metadata.insert(
+                            "message_type".to_string(),
+                            serde_json::Value::String("function_call_output".to_string()),
+                        );
+                        metadata.insert(
+                            "call_id".to_string(),
+                            serde_json::Value::String(call_id.to_string()),
+                        );
+                        metadata.insert(
+                            "tool_name".to_string(),
+                            serde_json::Value::String(tool_name.to_string()),
+                        );
+
+                        let mut msg = crate::lcm::types::StoredMessage::new(
                             crate::lcm::types::MessageId::new(),
                             &lcm_conv_id,
                             crate::lcm::types::MessageRole::Tool,
-                            &content,
-                            crate::lcm::types::estimate_tokens(&content),
+                            output_str,
+                            crate::lcm::types::estimate_tokens(output_str),
                             now_ms,
                         );
+                        msg.metadata = metadata;
                         if let Err(e) = engine.process_message(&msg).await {
                             log::warn!("LCM: failed to persist tool result: {e}");
                         }

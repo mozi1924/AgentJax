@@ -24,10 +24,14 @@ function applyRequestConfig(payload, requestConfig, request) {
 function normalizeInputItems(items) {
   return (items || []).map((item) => {
     const cloned = JSON.parse(JSON.stringify(item));
-    if (cloned && typeof cloned === "object") delete cloned.id;
+    if (cloned && typeof cloned === "object") {
+      if (cloned.type !== "function_call" && cloned.type !== "function_call_output") {
+        delete cloned.id;
+      }
+    }
     if (Array.isArray(cloned.content)) {
       cloned.content = cloned.content.map((part) => {
-        if (part && part.type === "text") {
+        if (part && (part.type === "text" || part.type === "input_text" || part.type === "output_text")) {
           return { ...part, type: cloned.role === "assistant" ? "output_text" : "input_text" };
         }
         return part;

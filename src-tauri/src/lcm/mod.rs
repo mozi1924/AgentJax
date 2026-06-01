@@ -154,6 +154,7 @@ pub async fn sync_conversation_to_lcm(
     lcm_store: &Arc<LcmStore>,
 ) -> AgentJaxResult<()> {
     use crate::conversation_store::ConversationLine;
+    use std::collections::BTreeMap;
 
     let detail = crate::conversation_store::load_conversation(conversation_id)
         .map_err(|e| AgentJaxError::internal(format!("Failed to load conversation for LCM sync: {e}")))?;
@@ -163,66 +164,128 @@ pub async fn sync_conversation_to_lcm(
     };
 
     let now_ms = crate::conversation_store_utils::now_unix_ms();
+    let mut persisted_count = 0u32;
 
     for line in &detail.lines {
-        let (lcm_id, role, content, ts) = match line {
-            ConversationLine::User(user) => (
-                types::MessageId::from(user.id.as_str()),
-                types::MessageRole::User,
-                user.text.clone(),
-                user.ts,
-            ),
-            ConversationLine::Assistant(asst) => (
-                types::MessageId::from(asst.id.as_str()),
-                types::MessageRole::Assistant,
-                asst.text.clone(),
-                asst.ts,
-            ),
-            ConversationLine::Tool(tool) => (
-                types::MessageId::from(tool.id.as_str()),
-                types::MessageRole::Tool,
-                format_tool_line_content(tool),
-                tool.ts,
-            ),
-        };
+        // Collect messages for this line (ToolLine produces two).
+        let mut messages: Vec<types::StoredMessage> = Vec::with_capacity(2);
 
-        let token_count = types::estimate_tokens(&content);
-        let msg = types::StoredMessage::new(
-            lcm_id,
-            conversation_id,
-            role,
-            content,
-            token_count,
-            ts,
-        );
+        match line {
+            ConversationLine::User(user) => {
+                let msg = types::StoredMessage::new(
+                    types::MessageId::from(user.id.as_str()),
+                    conversation_id,
+                    types::MessageRole::User,
+                    &user.text,
+                    types::estimate_tokens(&user.text),
+                    user.ts,
+                );
+                messages.push(msg);
+            }
+            ConversationLine::Assistant(asst) => {
+                if asst.text.trim().is_empty() {
+                    continue;
+                }
+                let msg = types::StoredMessage::new(
+                    types::MessageId::from(asst.id.as_str()),
+                    conversation_id,
+                    types::MessageRole::Assistant,
+                    &asst.text,
+                    types::estimate_tokens(&asst.text),
+                    asst.ts,
+                );
+                messages.push(msg);
+            }
+            ConversationLine::Tool(tool) => {
+                let args_str =
+                    serde_json::to_string(&tool.args).unwrap_or_else(|_| "{}".to_string());
 
-        // Use INSERT OR IGNORE to skip already-persisted messages.
-        lcm_store
-            .persist_message(&msg)
-            .map_err(|e| AgentJaxError::internal(format!("Failed to persist message to LCM: {e}")))?;
+                // ── function_call message ────────────────────────────
+                let mut fc_meta = BTreeMap::new();
+                fc_meta.insert(
+                    "message_type".to_string(),
+                    serde_json::Value::String("function_call".to_string()),
+                );
+                fc_meta.insert(
+                    "call_id".to_string(),
+                    serde_json::Value::String(tool.call_id.clone()),
+                );
+                fc_meta.insert(
+                    "tool_name".to_string(),
+                    serde_json::Value::String(tool.name.clone()),
+                );
+                fc_meta.insert(
+                    "arguments".to_string(),
+                    serde_json::Value::String(args_str.clone()),
+                );
+
+                let fc_token_count = types::estimate_tokens(&args_str);
+                let fc_msg = types::StoredMessage {
+                    id: types::MessageId::from(format!("{}-call", tool.id).as_str()),
+                    conversation_id: conversation_id.to_string(),
+                    role: types::MessageRole::Tool,
+                    content: args_str,
+                    token_count: fc_token_count,
+                    timestamp_unix_ms: tool.ts,
+                    covered_by: None,
+                    metadata: fc_meta,
+                };
+                messages.push(fc_msg);
+
+                // ── function_call_output message ─────────────────────
+                if let Some(output) = &tool.output {
+                    let output_str = serde_json::to_string(output)
+                        .unwrap_or_else(|_| "{}".to_string());
+
+                    let mut fco_meta = BTreeMap::new();
+                    fco_meta.insert(
+                        "message_type".to_string(),
+                        serde_json::Value::String("function_call_output".to_string()),
+                    );
+                    fco_meta.insert(
+                        "call_id".to_string(),
+                        serde_json::Value::String(tool.call_id.clone()),
+                    );
+                    fco_meta.insert(
+                        "tool_name".to_string(),
+                        serde_json::Value::String(tool.name.clone()),
+                    );
+
+                    let fco_token_count = types::estimate_tokens(&output_str);
+                    let fco_msg = types::StoredMessage {
+                        id: types::MessageId::from(tool.id.as_str()),
+                        conversation_id: conversation_id.to_string(),
+                        role: types::MessageRole::Tool,
+                        content: output_str,
+                        token_count: fco_token_count,
+                        timestamp_unix_ms: tool
+                            .completed_at_unix_ms()
+                            .unwrap_or(tool.ts),
+                        covered_by: None,
+                        metadata: fco_meta,
+                    };
+                    messages.push(fco_msg);
+                }
+            }
+        }
+
+        for msg in &messages {
+            // Use INSERT OR IGNORE to skip already-persisted messages.
+            lcm_store
+                .persist_message(msg)
+                .map_err(|e| AgentJaxError::internal(format!("Failed to persist message to LCM: {e}")))?;
+            persisted_count += 1;
+        }
     }
 
     let _ = now_ms; // silence unused warning
 
     log::debug!(
-        "LCM sync complete for conversation '{}': {} messages",
+        "LCM sync complete for conversation '{}': {} lines → {} messages persisted",
         conversation_id,
-        detail.lines.len()
+        detail.lines.len(),
+        persisted_count
     );
 
     Ok(())
-}
-
-fn format_tool_line_content(tool: &crate::conversation_store::ToolLine) -> String {
-    let args_str = serde_json::to_string(&tool.args).unwrap_or_else(|_| "{}".to_string());
-
-    let output_str = match &tool.output {
-        Some(output) => format!(" → {}", output),
-        None => String::from(" (pending)"),
-    };
-
-    format!(
-        "[Tool: {}] args={}{}",
-        tool.name, args_str, output_str
-    )
 }

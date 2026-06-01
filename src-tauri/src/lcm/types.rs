@@ -285,6 +285,12 @@ pub enum ContextEntry {
         role: MessageRole,
         /// The full message content.
         content: String,
+        /// Opaque metadata carried from the StoredMessage (e.g. call_id, tool name).
+        /// When present, `context_to_provider_items` uses this to reconstruct
+        /// structured `function_call` / `function_call_output` items instead of
+        /// emitting a plain `role`-based message.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        metadata: BTreeMap<String, Value>,
     },
     /// A pointer to a summary node, with the summary text inlined.
     SummaryPointer {
@@ -541,6 +547,7 @@ mod tests {
                 id: LcmId::new(),
                 role: MessageRole::User,
                 content: "Hello world!".to_string(), // 12 chars ≈ 3 tokens
+                metadata: BTreeMap::new(),
             },
             ContextEntry::SummaryPointer {
                 summary_id: LcmId::new(),
