@@ -51,6 +51,7 @@ pub enum ToolManagerSourceType {
     Plugin,
     Dynamic,
     Control,
+    Context,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]

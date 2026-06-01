@@ -52,6 +52,8 @@ pub struct ToolManagerConfig {
     pub plugin_tools: BTreeMap<String, ToolSourcePolicyConfig>,
     #[serde(default)]
     pub mcp_tools: BTreeMap<String, McpToolSourcePolicyConfig>,
+    #[serde(default)]
+    pub context_tools: BTreeMap<String, ToolEnabledConfig>,
 }
 
 /// Plugin lifecycle and permission configuration.

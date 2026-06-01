@@ -1676,6 +1676,7 @@ globalThis.AgentJaxPlugin = {
             .into_iter()
             .collect(),
             mcp_tools: Default::default(),
+            context_tools: Default::default(),
         };
 
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config)

@@ -36,6 +36,7 @@ pub mod dag;
 pub mod engine;
 pub mod file_handler;
 pub mod store;
+pub mod tools;
 pub mod types;
 
 pub use compaction::{CompactionEngine, NoopSummarizer, Summarizer};
@@ -43,4 +44,5 @@ pub use dag::SummaryDag;
 pub use engine::LcmEngine;
 pub use file_handler::FileHandler;
 pub use store::LcmStore;
+pub use tools::{LcmGrepTool, LcmDescribeTool, LcmExpandTool};
 pub use types::*;

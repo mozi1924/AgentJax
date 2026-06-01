@@ -46,6 +46,7 @@ pub use types::{
 
 pub struct ToolCatalog {
     native_tools: Vec<Arc<dyn Tool>>,
+    context_tools: Vec<Arc<dyn Tool>>,
     mcp_manager: Arc<crate::mcp::McpManager>,
     mcp_runtime: crate::config::McpRuntimeConfig,
     mcp_config: BTreeMap<String, crate::config::McpServerConfig>,
@@ -70,6 +71,7 @@ impl ToolCatalog {
                 Arc::new(MkdirTool),
                 Arc::new(EditFileTool),
             ],
+            context_tools: Vec::new(),
             mcp_manager,
             mcp_runtime: config.mcp_runtime.clone(),
             mcp_config: config.mcp_servers.clone(),
@@ -184,6 +186,24 @@ impl ToolCatalog {
 
         for tool in &self.native_tools {
             if !self.native_tool_enabled(tool.name()) {
+                continue;
+            }
+            let schema = tool.to_schema_with_format(format);
+            let tool_name = tool.name().to_string();
+            presentations.insert(tool_name.clone(), tool.presentation());
+            insert_snapshot_tool(
+                &mut schemas,
+                schema,
+                &mut active_tool_names,
+                &mut entries,
+                tool_name,
+                ToolSnapshotEntry::Native(tool.clone()),
+            );
+        }
+
+        // ── LCM Context Tools ─────────────────────────────────────────
+        for tool in &self.context_tools {
+            if !self.context_tool_enabled(tool.name()) {
                 continue;
             }
             let schema = tool.to_schema_with_format(format);
@@ -434,6 +454,28 @@ impl ToolCatalog {
     pub(crate) fn native_tool_enabled(&self, tool_name: &str) -> bool {
         self.tool_manager
             .native_tools
+            .get(&tool_name.to_ascii_lowercase())
+            .map(|policy| policy.enabled)
+            .unwrap_or(true)
+    }
+
+    /// Register LCM context tools from the given store.
+    ///
+    /// Call this after construction to wire the LCM store into the catalog.
+    /// Context tools provide the model with access to the immutable
+    /// conversation history (lcm_grep, lcm_describe, lcm_expand).
+    pub fn set_context_tools(&mut self, lcm_store: Arc<crate::lcm::LcmStore>) {
+        use crate::lcm::{LcmGrepTool, LcmDescribeTool, LcmExpandTool};
+        self.context_tools = vec![
+            Arc::new(LcmGrepTool::new(lcm_store.clone())),
+            Arc::new(LcmDescribeTool::new(lcm_store.clone())),
+            Arc::new(LcmExpandTool::new(lcm_store)),
+        ];
+    }
+
+    pub(crate) fn context_tool_enabled(&self, tool_name: &str) -> bool {
+        self.tool_manager
+            .context_tools
             .get(&tool_name.to_ascii_lowercase())
             .map(|policy| policy.enabled)
             .unwrap_or(true)

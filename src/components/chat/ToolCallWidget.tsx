@@ -51,6 +51,10 @@ const resolveToolMeta = (name: string) => {
       displayName = toolName;
       originLabel = `MCP: ${serverId}`;
     }
+  } else if (name.startsWith('lcm_')) {
+    originLabel = '上下文工具';
+  } else if (name.startsWith('plugin__')) {
+    originLabel = '插件工具';
   }
 
   return { displayName, originLabel };
