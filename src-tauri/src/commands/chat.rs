@@ -141,7 +141,7 @@ pub async fn chat_stream(
 
     // ── Apply token budget truncation now that we know the model ──────
     if let Some(resolved_model) = resolved_model.as_ref() {
-        let budget = conversation_store::TokenBudget::for_model(&resolved_model.model_id);
+        let budget = conversation_store::TokenBudget::for_model(&resolved_model.provider.kind, &resolved_model.model_id);
         context.input_items = conversation_store::truncate_items_to_budget(
             std::mem::take(&mut context.input_items),
             &budget,

@@ -71,6 +71,48 @@ function initialState(state) {
   };
 }
 
+// ── OpenAI Model Registry ───────────────────────────────────────────
+const OPENAI_MODELS = {
+  // GPT-5.5 / 5.0 series
+  "gpt-5": { contextWindow: 400000 },
+  "gpt-5.5": { contextWindow: 1000000 },
+  "gpt-5-mini": { contextWindow: 400000 },
+  // o3-mini
+  "o3-mini": { contextWindow: 200000 },
+  // o1 series
+  "o1": { contextWindow: 128000 },
+  "o1-mini": { contextWindow: 128000 },
+  "o1-preview": { contextWindow: 128000 },
+  // gpt-4o series
+  "gpt-4o": { contextWindow: 128000 },
+  "gpt-4o-mini": { contextWindow: 128000 },
+  // legacy and special GPT-4 / GPT-3.5
+  "gpt-4-turbo": { contextWindow: 128000 },
+  "gpt-4": { contextWindow: 8192 },
+  "gpt-4-32k": { contextWindow: 32768 },
+  "gpt-4-1106": { contextWindow: 128000 },
+  "gpt-3.5-turbo": { contextWindow: 16384 },
+};
+
+function resolveOpenAIModelMetadata(modelId) {
+  const normalized = (modelId || "").trim().toLowerCase();
+  if (OPENAI_MODELS[normalized]) return OPENAI_MODELS[normalized];
+
+  if (normalized.includes("gpt-5.5")) return OPENAI_MODELS["gpt-5.5"];
+  if (normalized.includes("gpt-5-mini") || normalized.includes("gpt-5.4-mini")) return OPENAI_MODELS["gpt-5-mini"];
+  if (normalized.includes("gpt-5")) return OPENAI_MODELS["gpt-5"];
+  if (normalized.startsWith("o3-mini")) return OPENAI_MODELS["o3-mini"];
+  if (normalized.startsWith("o1")) return OPENAI_MODELS["o1"];
+  if (normalized.includes("gpt-4o-mini")) return OPENAI_MODELS["gpt-4o-mini"];
+  if (normalized.includes("gpt-4o")) return OPENAI_MODELS["gpt-4o"];
+  if (normalized.includes("gpt-4-32k")) return OPENAI_MODELS["gpt-4-32k"];
+  if (normalized.includes("gpt-4-turbo") || normalized.includes("gpt-4-1106")) return OPENAI_MODELS["gpt-4-turbo"];
+  if (normalized.includes("gpt-4")) return OPENAI_MODELS["gpt-4"];
+  if (normalized.includes("gpt-3.5")) return OPENAI_MODELS["gpt-3.5-turbo"];
+
+  return { contextWindow: 128000 };
+}
+
 const openAIResponsesProvider = {
   kind: "openai-responses",
   displayName: "OpenAI Responses",
@@ -224,6 +266,9 @@ const openAIResponsesProvider = {
       ? cachedLevels
       : (/^(gpt-5|o\d|o-|codex)/i.test(modelId) ? ["minimal", "low", "medium", "high"] : []);
     return { supportsReasoning: levels.length > 0, supportedReasoningLevels: levels };
+  },
+  getModelMetadata({ modelId }) {
+    return resolveOpenAIModelMetadata(modelId);
   },
 };
 

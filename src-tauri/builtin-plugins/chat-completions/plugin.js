@@ -40,6 +40,105 @@ function initialState(state) {
   };
 }
 
+// ── Chat Completions Model Registry ─────────────────────────────────
+const CHAT_COMPLETIONS_MODELS = {
+  // OpenAI series
+  "gpt-5": { contextWindow: 400000 },
+  "gpt-5.5": { contextWindow: 1000000 },
+  "gpt-5-mini": { contextWindow: 400000 },
+  "o3-mini": { contextWindow: 200000 },
+  "o1": { contextWindow: 128000 },
+  "o1-mini": { contextWindow: 128000 },
+  "gpt-4o": { contextWindow: 128000 },
+  "gpt-4o-mini": { contextWindow: 128000 },
+  "gpt-4-turbo": { contextWindow: 128000 },
+  "gpt-4": { contextWindow: 8192 },
+  "gpt-3.5-turbo": { contextWindow: 16384 },
+
+  // DeepSeek series
+  "deepseek-chat": { contextWindow: 128000 },
+  "deepseek-reasoner": { contextWindow: 128000 },
+  "deepseek-r1": { contextWindow: 128000 },
+  "deepseek-v3": { contextWindow: 128000 },
+
+  // Mistral series
+  "mistral-large": { contextWindow: 128000 },
+  "codestral": { contextWindow: 32000 },
+
+  // Llama series
+  "llama-4": { contextWindow: 1000000 },
+  "llama-4-scout": { contextWindow: 10000000 }, // 10M Scout
+  "llama-3.3": { contextWindow: 128000 },
+  "llama-3.2": { contextWindow: 128000 },
+  "llama-3.1": { contextWindow: 128000 },
+  "llama-3": { contextWindow: 8192 },
+
+  // Qwen series
+  "qwen-3": { contextWindow: 1000000 }, // 1M Qwen 3
+  "qwen-2.5": { contextWindow: 128000 },
+};
+
+function resolveChatCompletionsModelMetadata(modelId) {
+  const normalized = (modelId || "").trim().toLowerCase();
+  if (CHAT_COMPLETIONS_MODELS[normalized]) return CHAT_COMPLETIONS_MODELS[normalized];
+
+  // OpenAI models
+  if (normalized.includes("gpt") || normalized.startsWith("o1") || normalized.startsWith("o3")) {
+    if (normalized.includes("gpt-5.5")) return CHAT_COMPLETIONS_MODELS["gpt-5.5"];
+    if (normalized.includes("gpt-5-mini")) return CHAT_COMPLETIONS_MODELS["gpt-5-mini"];
+    if (normalized.includes("gpt-5")) return CHAT_COMPLETIONS_MODELS["gpt-5"];
+    if (normalized.startsWith("o3-mini")) return CHAT_COMPLETIONS_MODELS["o3-mini"];
+    if (normalized.startsWith("o1")) return CHAT_COMPLETIONS_MODELS["o1"];
+    if (normalized.includes("gpt-4o-mini")) return CHAT_COMPLETIONS_MODELS["gpt-4o-mini"];
+    if (normalized.includes("gpt-4o")) return CHAT_COMPLETIONS_MODELS["gpt-4o"];
+    if (normalized.includes("gpt-4-32k")) return { contextWindow: 32768 };
+    if (normalized.includes("gpt-4-turbo") || normalized.includes("gpt-4-1106")) return CHAT_COMPLETIONS_MODELS["gpt-4-turbo"];
+    if (normalized.includes("gpt-4")) return CHAT_COMPLETIONS_MODELS["gpt-4"];
+    if (normalized.includes("gpt-3.5")) return CHAT_COMPLETIONS_MODELS["gpt-3.5-turbo"];
+  }
+
+  // DeepSeek
+  if (normalized.includes("deepseek")) {
+    return CHAT_COMPLETIONS_MODELS["deepseek-chat"];
+  }
+
+  // Llama
+  if (normalized.includes("llama")) {
+    if (normalized.includes("llama-4") || normalized.includes("llama-v4")) {
+      if (normalized.includes("scout")) {
+        return CHAT_COMPLETIONS_MODELS["llama-4-scout"];
+      }
+      return CHAT_COMPLETIONS_MODELS["llama-4"];
+    }
+    if (normalized.includes("3.1") || normalized.includes("3.2") || normalized.includes("3.3")) {
+      return CHAT_COMPLETIONS_MODELS["llama-3.3"];
+    }
+    return CHAT_COMPLETIONS_MODELS["llama-3"];
+  }
+
+  // Qwen
+  if (normalized.includes("qwen")) {
+    if (normalized.includes("qwen-3") || normalized.includes("qwen3")) {
+      return CHAT_COMPLETIONS_MODELS["qwen-3"];
+    }
+    return CHAT_COMPLETIONS_MODELS["qwen-2.5"];
+  }
+
+  // Mistral
+  if (normalized.includes("mistral") || normalized.includes("codestral") || normalized.includes("mixtral")) {
+    if (normalized.includes("large")) {
+      return CHAT_COMPLETIONS_MODELS["mistral-large"];
+    }
+    return CHAT_COMPLETIONS_MODELS["codestral"];
+  }
+
+  if (normalized.includes("nova") || normalized.includes("amazon") || normalized.includes("command") || normalized.includes("cohere") || normalized.includes("grok") || normalized.includes("jamba") || normalized.includes("ai21")) {
+    return { contextWindow: 128000 };
+  }
+
+  return { contextWindow: 128000 };
+}
+
 const chatCompletionsProvider = {
   kind: "chat-completions",
   displayName: "Chat Completions",
@@ -171,6 +270,9 @@ const chatCompletionsProvider = {
       ? cachedLevels
       : (/^(gpt-5|o\d|o-|codex)/i.test(modelId) ? ["minimal", "low", "medium", "high"] : []);
     return { supportsReasoning: levels.length > 0, supportedReasoningLevels: levels };
+  },
+  getModelMetadata({ modelId }) {
+    return resolveChatCompletionsModelMetadata(modelId);
   },
 };
 

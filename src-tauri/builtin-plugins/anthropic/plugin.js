@@ -38,6 +38,56 @@ function initialState(state) {
   };
 }
 
+// ── Anthropic Model Registry ─────────────────────────────────────────
+const ANTHROPIC_MODELS = {
+  // Claude 4.8 / 4.7 / 4.6 / 4.5 / 4.0 series
+  "claude-4": { contextWindow: 1000000 },
+  "claude-4.5": { contextWindow: 1000000 },
+  "claude-4-sonnet": { contextWindow: 1000000 },
+  "claude-4-haiku": { contextWindow: 1000000 },
+  "claude-4-opus": { contextWindow: 1000000 },
+  // Claude 3.5 series
+  "claude-3-5-sonnet": { contextWindow: 200000 },
+  "claude-3-5-haiku": { contextWindow: 200000 },
+  "claude-3-5-opus": { contextWindow: 200000 },
+  // Claude 3 series
+  "claude-3-opus": { contextWindow: 200000 },
+  "claude-3-sonnet": { contextWindow: 200000 },
+  "claude-3-haiku": { contextWindow: 32000 },
+  // Claude 2 series
+  "claude-2.1": { contextWindow: 100000 },
+  "claude-2.0": { contextWindow: 100000 },
+  "claude-instant": { contextWindow: 100000 },
+};
+
+function resolveAnthropicModelMetadata(modelId) {
+  const normalized = (modelId || "").trim().toLowerCase();
+  if (ANTHROPIC_MODELS[normalized]) return ANTHROPIC_MODELS[normalized];
+
+  if (normalized.includes("claude-4") || normalized.includes("claude-opus-4")) {
+    return ANTHROPIC_MODELS["claude-4"];
+  }
+  if (normalized.includes("sonnet")) {
+    if (normalized.includes("4.")) return ANTHROPIC_MODELS["claude-4-sonnet"];
+    return ANTHROPIC_MODELS["claude-3-5-sonnet"];
+  }
+  if (normalized.includes("haiku")) {
+    if (normalized.includes("4.")) return ANTHROPIC_MODELS["claude-4-haiku"];
+    if (normalized.includes("3.5")) return ANTHROPIC_MODELS["claude-3-5-haiku"];
+    return ANTHROPIC_MODELS["claude-3-haiku"];
+  }
+  if (normalized.includes("opus")) {
+    if (normalized.includes("4.")) return ANTHROPIC_MODELS["claude-4-opus"];
+    return ANTHROPIC_MODELS["claude-3-5-opus"];
+  }
+  if (normalized.includes("claude-3")) return ANTHROPIC_MODELS["claude-3-5-sonnet"];
+  if (normalized.includes("claude-2") || normalized.includes("claude-instant")) {
+    return ANTHROPIC_MODELS["claude-2.1"];
+  }
+
+  return { contextWindow: 200000 };
+}
+
 const anthropicProvider = {
   kind: "anthropic",
   displayName: "Anthropic",
@@ -167,6 +217,9 @@ const anthropicProvider = {
   getReasoningCapability({ cachedLevels }) {
     const levels = cachedLevels || [];
     return { supportsReasoning: levels.length > 0, supportedReasoningLevels: levels };
+  },
+  getModelMetadata({ modelId }) {
+    return resolveAnthropicModelMetadata(modelId);
   },
 };
 

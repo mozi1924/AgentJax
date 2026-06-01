@@ -21,6 +21,59 @@ function initialState(state) {
   return { responseId: "", outputText: "", outputItems: [], usage: null, emittedOutputStarted: false, nextTool: 0, ...(state || {}) };
 }
 
+// ── Gemini Model Registry ───────────────────────────────────────────
+const GEMINI_MODELS = {
+  // Gemini 3.5 series
+  "gemini-3.5-pro": { contextWindow: 2000000 },
+  "gemini-3.5-flash": { contextWindow: 1000000 },
+  // Gemini 3.0 series
+  "gemini-3.0-pro": { contextWindow: 2000000 },
+  "gemini-3.0-flash": { contextWindow: 1000000 },
+  "gemini-3-pro": { contextWindow: 2000000 },
+  "gemini-3-flash": { contextWindow: 1000000 },
+  // Gemini 2.5 series
+  "gemini-2.5-pro": { contextWindow: 2000000 },
+  "gemini-2.5-flash": { contextWindow: 1000000 },
+  // Gemini 2.0 series
+  "gemini-2.0-pro": { contextWindow: 2000000 },
+  "gemini-2.0-flash": { contextWindow: 1000000 },
+  "gemini-2.0-flash-lite": { contextWindow: 1000000 },
+  // Gemini 1.5 series
+  "gemini-1.5-pro": { contextWindow: 2000000 },
+  "gemini-1.5-flash": { contextWindow: 1000000 },
+};
+
+function resolveGeminiModelMetadata(modelId) {
+  const normalized = (modelId || "").trim().toLowerCase().replace(/^models\//, "");
+  if (GEMINI_MODELS[normalized]) return GEMINI_MODELS[normalized];
+
+  if (normalized.includes("gemini-3.5-pro")) return GEMINI_MODELS["gemini-3.5-pro"];
+  if (normalized.includes("gemini-3.5-flash")) return GEMINI_MODELS["gemini-3.5-flash"];
+  if (normalized.includes("gemini-3.5")) return GEMINI_MODELS["gemini-3.5-pro"];
+
+  if (normalized.includes("gemini-3-pro") || normalized.includes("gemini-3.0-pro") || normalized.includes("gemini-3.1-pro")) return GEMINI_MODELS["gemini-3-pro"];
+  if (normalized.includes("gemini-3-flash") || normalized.includes("gemini-3.0-flash")) return GEMINI_MODELS["gemini-3-flash"];
+  if (normalized.includes("gemini-3")) return GEMINI_MODELS["gemini-3-pro"];
+
+  if (normalized.includes("gemini-2.5-pro")) return GEMINI_MODELS["gemini-2.5-pro"];
+  if (normalized.includes("gemini-2.5-flash")) return GEMINI_MODELS["gemini-2.5-flash"];
+  if (normalized.includes("gemini-2.5")) return GEMINI_MODELS["gemini-2.5-pro"];
+
+  if (normalized.includes("gemini-2.0-pro")) return GEMINI_MODELS["gemini-2.0-pro"];
+  if (normalized.includes("gemini-2.0-flash-lite")) return GEMINI_MODELS["gemini-2.0-flash-lite"];
+  if (normalized.includes("gemini-2.0-flash")) return GEMINI_MODELS["gemini-2.0-flash"];
+  if (normalized.includes("gemini-2.0")) return GEMINI_MODELS["gemini-2.0-flash"];
+
+  if (normalized.includes("gemini-1.5-pro")) return GEMINI_MODELS["gemini-1.5-pro"];
+  if (normalized.includes("gemini-1.5-flash")) return GEMINI_MODELS["gemini-1.5-flash"];
+  if (normalized.includes("gemini-1.5")) return GEMINI_MODELS["gemini-1.5-flash"];
+
+  if (normalized.includes("flash")) return GEMINI_MODELS["gemini-3.5-flash"];
+  if (normalized.includes("pro")) return GEMINI_MODELS["gemini-3.0-pro"];
+
+  return { contextWindow: 1000000 };
+}
+
 const geminiProvider = {
   kind: "gemini",
   displayName: "Gemini",
@@ -146,6 +199,9 @@ const geminiProvider = {
   getReasoningCapability({ cachedLevels }) {
     const levels = cachedLevels || [];
     return { supportsReasoning: levels.length > 0, supportedReasoningLevels: levels };
+  },
+  getModelMetadata({ modelId }) {
+    return resolveGeminiModelMetadata(modelId);
   },
 };
 

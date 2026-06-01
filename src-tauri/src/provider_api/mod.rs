@@ -12,9 +12,10 @@ use serde_json::Value;
 
 pub use capabilities::ProviderCapabilities;
 pub use types::{
-    ModelReasoningCapability, ProviderModelDescriptor, ProviderPendingToolCall,
+    ModelReasoningCapability, ProviderModelDescriptor, ProviderModelMetadata, ProviderPendingToolCall,
     ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult,
 };
+
 
 pub fn get_capabilities(provider_kind: &str) -> AgentJaxResult<ProviderCapabilities> {
     registry::provider_capabilities(provider_kind)
@@ -82,3 +83,11 @@ pub fn get_reasoning_capability(
 ) -> AgentJaxResult<ModelReasoningCapability> {
     streaming::get_reasoning_capability(provider_kind, model_id, cached_levels)
 }
+
+pub fn get_model_metadata(
+    provider_kind: &str,
+    model_id: &str,
+) -> AgentJaxResult<ProviderModelMetadata> {
+    streaming::get_model_metadata(provider_kind, model_id)
+}
+

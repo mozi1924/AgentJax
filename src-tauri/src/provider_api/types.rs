@@ -12,6 +12,12 @@ pub struct ProviderModelDescriptor {
     pub supported_reasoning_levels: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModelMetadata {
+    pub context_window: Option<usize>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelReasoningCapability {

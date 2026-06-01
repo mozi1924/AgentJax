@@ -8,59 +8,6 @@
 //! The budget feeds into [`load_context_for_request`] so the conversation
 //! snapshot stays within the active model's input token limit.
 
-/// Well-known model context window sizes (max input tokens).
-///
-/// These values are extracted from official provider documentation. Unknown
-/// models default to a conservative 128K window.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModelContextWindow {
-    /// 8K window — legacy GPT-4, Claude 3 Haiku small variant.
-    K8 = 8_192,
-    /// 16K window — legacy GPT-3.5, Claude Instant.
-    K16 = 16_384,
-    /// 32K window — Claude 3 Haiku default.
-    K32 = 32_768,
-    /// 64K window — Gemini 1.5 Flash, Claude 3 Sonnet.
-    K64 = 65_536,
-    /// 100K window — Claude 2.1.
-    K100 = 100_000,
-    /// 128K window — GPT-4o, GPT-5-mini, GPT-4.1, Gemini default.
-    K128 = 128_000,
-    /// 200K window — Claude 3 / Claude 3.5 Sonnet.
-    K200 = 200_000,
-    /// 1M window — Gemini 1.5 Pro, Gemini 2.0 Flash.
-    K1M = 1_000_000,
-    /// 2M window — Claude 4, Claude 4.5 Sonnet, Gemini 2.5 Pro.
-    K2M = 2_000_000,
-}
-
-impl ModelContextWindow {
-    /// Return the raw token count for this window size.
-    pub fn tokens(&self) -> usize {
-        *self as usize
-    }
-
-    /// Compute a recommended budget for request input items.
-    ///
-    /// The budget reserves a portion of the window for:
-    /// - System / developer instructions (~4K)
-    /// - Tool schemas (varies, assume ~8K)
-    /// - The current turn's output (~8K)
-    ///
-    /// The remainder is the safe budget for historical context items.
-    pub fn context_budget(&self) -> usize {
-        let total = self.tokens();
-        let reserved = match self {
-            // Large windows reserve a smaller proportion.
-            Self::K1M | Self::K2M => 20_000,
-            Self::K200 | Self::K128 => 16_000,
-            Self::K100 | Self::K64 => 12_000,
-            _ => 8_000,
-        };
-        total.saturating_sub(reserved)
-    }
-}
-
 /// A resolved token budget for the current request.
 #[derive(Debug, Clone)]
 pub struct TokenBudget {
@@ -76,16 +23,39 @@ pub struct TokenBudget {
 }
 
 impl TokenBudget {
-    /// Create a budget for the given model identifier.
+    /// Create a budget for the given provider kind and model identifier.
     ///
-    /// The model string is matched against known patterns to select the
-    /// appropriate window size. Unknown models use a conservative 128K
-    /// default.
-    pub fn for_model(model_id: &str) -> Self {
-        let window = resolve_context_window(model_id);
+    /// The provider plugin is called to retrieve the context window size.
+    /// Unknown models default to a conservative 128K window.
+    pub fn for_model(provider_kind: &str, model_id: &str) -> Self {
+        let window_tokens = match crate::provider_api::get_model_metadata(provider_kind, model_id) {
+            Ok(metadata) => metadata.context_window.unwrap_or(128_000),
+            Err(err) => {
+                log::warn!(
+                    "Failed to query model metadata for model '{}' from provider '{}': {}",
+                    model_id,
+                    provider_kind,
+                    err
+                );
+                128_000
+            }
+        };
+
+        // Compute a recommended budget for request input items.
+        // Large windows reserve a smaller proportion.
+        let reserved = if window_tokens >= 1_000_000 {
+            20_000
+        } else if window_tokens >= 128_000 {
+            16_000
+        } else if window_tokens >= 64_000 {
+            12_000
+        } else {
+            8_000
+        };
+
         Self {
-            context_window: window.tokens(),
-            context_budget: window.context_budget(),
+            context_window: window_tokens,
+            context_budget: window_tokens.saturating_sub(reserved),
             model_id: model_id.to_string(),
         }
     }
@@ -107,142 +77,6 @@ impl TokenBudget {
     pub fn is_unlimited(&self) -> bool {
         self.context_budget == usize::MAX
     }
-}
-
-/// Resolve a model identifier to its context window size.
-///
-/// Matching is case-insensitive and uses substring / prefix patterns so model
-/// aliases and version variants are handled without an exhaustive list.
-fn resolve_context_window(model_id: &str) -> ModelContextWindow {
-    let normalized = model_id.trim().to_ascii_lowercase();
-
-    // ── Anthropic / Claude ─────────────────────────────────────────────
-    if normalized.contains("claude") {
-        // Claude 4 / 4.5, Claude 3.5 Opus
-        if normalized.contains("claude-4")
-            || normalized.contains("claude-3.5-opus")
-            || normalized.contains("claude-opus-4")
-        {
-            return ModelContextWindow::K2M;
-        }
-        // Claude 3.5 Sonnet, Claude 3 Opus — 200K
-        if normalized.contains("sonnet")
-            || normalized.contains("opus")
-            || normalized.contains("claude-3")
-        {
-            return ModelContextWindow::K200;
-        }
-        // Claude 2.x — 100K
-        if normalized.contains("claude-2") || normalized.contains("claude-instant") {
-            return ModelContextWindow::K100;
-        }
-        // Claude Haiku — check for 200K variant
-        if normalized.contains("haiku") {
-            // Claude 3.5 Haiku supports 200K
-            if normalized.contains("3.5") {
-                return ModelContextWindow::K200;
-            }
-            return ModelContextWindow::K32;
-        }
-        // Default Claude fallback
-        return ModelContextWindow::K200;
-    }
-
-    // ── Google / Gemini ────────────────────────────────────────────────
-    if normalized.contains("gemini") {
-        // Gemini 2.5 Pro — 2M
-        if normalized.contains("gemini-2.5") || normalized.contains("gemini-2.5-pro") {
-            return ModelContextWindow::K2M;
-        }
-        // Gemini 1.5 Pro — 1M
-        if normalized.contains("gemini-1.5-pro") || normalized.contains("gemini-1.5-ultra") {
-            return ModelContextWindow::K1M;
-        }
-        // Gemini 1.5 Flash / 2.0 Flash — 1M
-        if normalized.contains("flash") || normalized.contains("gemini-2.0") {
-            return ModelContextWindow::K1M;
-        }
-        // Other Gemini — 128K
-        return ModelContextWindow::K128;
-    }
-
-    // ── OpenAI / GPT ───────────────────────────────────────────────────
-    if normalized.contains("gpt") || normalized.contains("o1") || normalized.contains("o3") {
-        // GPT-5 and o-series reasoning models — 200K
-        if normalized.contains("gpt-5") || normalized.starts_with("o1") || normalized.starts_with("o3") {
-            return ModelContextWindow::K200;
-        }
-        // GPT-4.1 / GPT-4.5 — 128K (or 1M for GPT-4.1 family)
-        if normalized.contains("gpt-4.1") {
-            return ModelContextWindow::K1M;
-        }
-        if normalized.contains("gpt-4.5") || normalized.contains("gpt-4o") || normalized.contains("gpt-4o") {
-            return ModelContextWindow::K128;
-        }
-        // GPT-4 — 8K or 32K variant
-        if normalized.contains("gpt-4-32k") || normalized.contains("gpt-4-1106") {
-            return ModelContextWindow::K32;
-        }
-        if normalized.contains("gpt-4") {
-            return ModelContextWindow::K8;
-        }
-        // GPT-3.5 — 16K
-        if normalized.contains("gpt-3.5") {
-            return ModelContextWindow::K16;
-        }
-        // Default GPT fallback
-        return ModelContextWindow::K128;
-    }
-
-    // ── Meta / Llama ───────────────────────────────────────────────────
-    if normalized.contains("llama") || normalized.contains("meta") {
-        if normalized.contains("llama-4") || normalized.contains("llama-3.1-405b") {
-            return ModelContextWindow::K128;
-        }
-        if normalized.contains("llama-3.1-70b") || normalized.contains("llama-3.1-8b") {
-            return ModelContextWindow::K128;
-        }
-        return ModelContextWindow::K128;
-    }
-
-    // ── Mistral / Codestral ────────────────────────────────────────────
-    if normalized.contains("mistral") || normalized.contains("codestral") || normalized.contains("mixtral") {
-        if normalized.contains("large") || normalized.contains("mistral-large") {
-            return ModelContextWindow::K128;
-        }
-        return ModelContextWindow::K32;
-    }
-
-    // ── DeepSeek ────────────────────────────────────────────────────────
-    if normalized.contains("deepseek") {
-        if normalized.contains("deepseek-r1") || normalized.contains("deepseek-v3") {
-            return ModelContextWindow::K128;
-        }
-        return ModelContextWindow::K64;
-    }
-
-    // ── Amazon / AWS ────────────────────────────────────────────────────
-    if normalized.contains("nova") || normalized.contains("amazon") {
-        return ModelContextWindow::K128;
-    }
-
-    // ── Cohere ──────────────────────────────────────────────────────────
-    if normalized.contains("command") || normalized.contains("cohere") {
-        return ModelContextWindow::K128;
-    }
-
-    // ── xAI / Grok ─────────────────────────────────────────────────────
-    if normalized.contains("grok") {
-        return ModelContextWindow::K128;
-    }
-
-    // ── AI21 / Jamba ───────────────────────────────────────────────────
-    if normalized.contains("jamba") || normalized.contains("ai21") {
-        return ModelContextWindow::K128;
-    }
-
-    // ── Default: 128K conservative ─────────────────────────────────────
-    ModelContextWindow::K128
 }
 
 /// Compute the approximate token count for a slice of input items.
@@ -393,27 +227,29 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn claude_4_maps_to_2m_window() {
-        let budget = TokenBudget::for_model("claude-4-sonnet-20260501");
-        assert_eq!(budget.context_window, 2_000_000);
+    fn claude_4_maps_to_1m_window() {
+        let budget = TokenBudget::for_model("anthropic", "claude-4-sonnet-20260501");
+        assert_eq!(budget.context_window, 1_000_000);
     }
 
     #[test]
-    fn gpt_5_maps_to_200k_window() {
-        let budget = TokenBudget::for_model("gpt-5-20260501");
-        assert_eq!(budget.context_window, 200_000);
+    fn gpt_5_maps_to_400k_window() {
+        let budget = TokenBudget::for_model("chat-completions", "gpt-5-20260501");
+        assert_eq!(budget.context_window, 400_000);
     }
 
     #[test]
     fn gemini_2_5_pro_maps_to_2m_window() {
-        let budget = TokenBudget::for_model("gemini-2.5-pro-001");
+        let budget = TokenBudget::for_model("gemini", "gemini-2.5-pro-001");
         assert_eq!(budget.context_window, 2_000_000);
     }
 
     #[test]
     fn unknown_model_defaults_to_128k() {
-        let budget = TokenBudget::for_model("some-future-model-v3");
-        assert_eq!(budget.context_window, 128_000);
+        let budget = TokenBudget::for_model("anthropic", "some-future-model-v3");
+        assert_eq!(budget.context_window, 200_000); // Anthropic's fallback is 200k
+        let budget2 = TokenBudget::for_model("unknown-provider", "some-model");
+        assert_eq!(budget2.context_window, 128_000);
     }
 
     #[test]
@@ -427,14 +263,14 @@ mod tests {
     #[test]
     fn empty_items_with_budget_returns_empty() {
         let items = vec![];
-        let budget = TokenBudget::for_model("gpt-4o");
+        let budget = TokenBudget::for_model("chat-completions", "gpt-4o");
         let result = truncate_items_to_budget(items, &budget);
         assert_eq!(result.len(), 0);
     }
 
     #[test]
     fn budget_allows_known_model_context_reservation() {
-        let budget = TokenBudget::for_model("gpt-4o");
+        let budget = TokenBudget::for_model("chat-completions", "gpt-4o");
         // 128K window - 16K reserved = 112K budget
         assert_eq!(budget.context_budget, 112_000);
         assert!(budget.context_budget < budget.context_window);
@@ -442,19 +278,19 @@ mod tests {
 
     #[test]
     fn resolve_claude_variants() {
-        assert_eq!(resolve_context_window("claude-3-opus-20240229"), ModelContextWindow::K200);
-        assert_eq!(resolve_context_window("claude-3-5-sonnet-20241022"), ModelContextWindow::K200);
-        assert_eq!(resolve_context_window("claude-2.1"), ModelContextWindow::K100);
-        assert_eq!(resolve_context_window("claude-instant-1.2"), ModelContextWindow::K100);
+        assert_eq!(TokenBudget::for_model("anthropic", "claude-3-opus-20240229").context_window, 200_000);
+        assert_eq!(TokenBudget::for_model("anthropic", "claude-3-5-sonnet-20241022").context_window, 200_000);
+        assert_eq!(TokenBudget::for_model("anthropic", "claude-2.1").context_window, 100_000);
+        assert_eq!(TokenBudget::for_model("anthropic", "claude-instant-1.2").context_window, 100_000);
     }
 
     #[test]
     fn resolve_gpt_variants() {
-        assert_eq!(resolve_context_window("gpt-4-turbo"), ModelContextWindow::K8);
-        assert_eq!(resolve_context_window("gpt-4-32k"), ModelContextWindow::K32);
-        assert_eq!(resolve_context_window("gpt-4o-20240806"), ModelContextWindow::K128);
-        assert_eq!(resolve_context_window("gpt-5-mini-20260501"), ModelContextWindow::K200);
-        assert_eq!(resolve_context_window("gpt-3.5-turbo"), ModelContextWindow::K16);
+        assert_eq!(TokenBudget::for_model("chat-completions", "gpt-4-turbo").context_window, 128_000);
+        assert_eq!(TokenBudget::for_model("chat-completions", "gpt-4-32k").context_window, 32_768);
+        assert_eq!(TokenBudget::for_model("chat-completions", "gpt-4o-20240806").context_window, 128_000);
+        assert_eq!(TokenBudget::for_model("chat-completions", "gpt-5-mini-20260501").context_window, 400_000);
+        assert_eq!(TokenBudget::for_model("chat-completions", "gpt-3.5-turbo").context_window, 16_384);
     }
 
     #[test]
@@ -469,8 +305,8 @@ mod tests {
 
     #[test]
     fn deepseek_resolution() {
-        assert_eq!(resolve_context_window("deepseek-r1"), ModelContextWindow::K128);
-        assert_eq!(resolve_context_window("deepseek-v3"), ModelContextWindow::K128);
+        assert_eq!(TokenBudget::for_model("chat-completions", "deepseek-r1").context_window, 128_000);
+        assert_eq!(TokenBudget::for_model("chat-completions", "deepseek-v3").context_window, 128_000);
     }
 
     #[test]

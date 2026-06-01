@@ -33,8 +33,9 @@ use super::core::ProviderIdFactory;
 use super::network::{apply_headers_to_reqwest, split_sse_event_block};
 use super::registry;
 use super::types::{
-    ModelReasoningCapability, ProviderEventSink, ProviderModelDescriptor, ProviderStreamEvent,
-    ProviderUsage, ProviderUsageRecord, ResponseStreamRequest, ResponseStreamResult,
+    ModelReasoningCapability, ProviderEventSink, ProviderModelDescriptor, ProviderModelMetadata,
+    ProviderStreamEvent, ProviderUsage, ProviderUsageRecord, ResponseStreamRequest,
+    ResponseStreamResult,
 };
 
 #[derive(Debug, Deserialize)]
@@ -241,6 +242,27 @@ pub fn get_reasoning_capability(
         }),
     )
 }
+
+pub fn get_model_metadata(
+    provider_kind: &str,
+    model_id: &str,
+) -> AgentJaxResult<ProviderModelMetadata> {
+    let package = registry::provider_plugin_package(provider_kind).ok_or_else(|| {
+        format!(
+            "Provider kind '{}' is registered without an executable plugin package.",
+            provider_kind
+        )
+    })?;
+    call_provider_function(
+        &package,
+        provider_kind,
+        "getModelMetadata",
+        json!({
+            "modelId": model_id
+        }),
+    )
+}
+
 
 async fn stream_sse_request(
     package: &PluginPackage,
