@@ -33,13 +33,12 @@ use crate::lcm::types::{
     ContextEntry, FileReference, LcmConfig, LcmError, LcmId, MessageId,
     StoredMessage, SummaryChild, SummaryId, SummaryKind, estimate_tokens,
 };
+use crate::lcm::types::MessageRole;
 #[cfg(test)]
 use crate::lcm::compaction::NoopSummarizer;
-#[cfg(test)]
-use crate::lcm::types::MessageRole;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
 // ── LcmEngine ───────────────────────────────────────────────────────────────
@@ -415,12 +414,79 @@ impl LcmEngine {
                 compaction_level,
             );
         } else if !summary_ids.is_empty() {
-            // Condensed compaction: multiple summaries → one condensed summary.
-            // For now, skip — this requires reading the summary texts and
-            // re-summarizing, which is a Phase 3+ optimization.
-            log::debug!(
-                "LCM: skipping condensed compaction of {} summaries (not yet implemented)",
-                summary_ids.len()
+            // ── Condensed compaction: multiple summaries → one condensed summary ──
+            // Read the summary texts from the store and create temporary messages
+            // so we can use the existing Three-Level Escalation protocol.
+            let mut summary_messages = Vec::new();
+            for sid in &summary_ids {
+                if let Some(summary) = self.store.get_summary(sid)? {
+                    let tmp_msg = StoredMessage {
+                        id: LcmId::new(),
+                        conversation_id: conversation_id.clone(),
+                        role: MessageRole::Assistant,
+                        content: summary.text.clone(),
+                        token_count: summary.token_count,
+                        timestamp_unix_ms: summary.created_at_unix_ms,
+                        covered_by: None,
+                        metadata: std::collections::BTreeMap::new(),
+                    };
+                    summary_messages.push(tmp_msg);
+                }
+            }
+
+            if summary_messages.len() < 2 {
+                // Need at least 2 summaries to condense.
+                // Reset compaction_running so we can try again later.
+                if let Ok(mut ctx) = self.active_context.lock() {
+                    ctx.compaction_running = false;
+                }
+                return Ok(());
+            }
+
+            let input_tokens: u32 = summary_messages.iter().map(|m| m.token_count).sum();
+            let target_tokens = (input_tokens / 3).max(256); // Aim for ~1/3 compression.
+
+            let (condensed_text, compaction_level) = self
+                .compaction
+                .escalate_summarize(&summary_messages, target_tokens)
+                .await?;
+
+            let condensed_id = SummaryId::new();
+            let condensed_node = CompactionEngine::build_summary_node(
+                condensed_id.clone(),
+                &conversation_id,
+                &condensed_text,
+                compaction_level,
+                SummaryKind::Condensed,
+                now_ms,
+            );
+
+            self.dag
+                .create_condensed_summary(&condensed_node, &summary_ids)?;
+
+            // Collect all child IDs from the original summaries for the pointer.
+            let all_child_ids: Vec<LcmId> = summary_ids
+                .iter()
+                .map(|sid| LcmId::from(sid.as_str()))
+                .collect();
+
+            // Atomically replace summaries with condensed pointer.
+            self.replace_in_active_context(
+                &block,
+                ContextEntry::SummaryPointer {
+                    summary_id: condensed_node.id.clone(),
+                    text: condensed_text,
+                    child_ids: all_child_ids,
+                    file_refs: Vec::new(),
+                },
+            )?;
+
+            log::info!(
+                "LCM condensed {} summaries ({} tokens → {} tokens, level {})",
+                summary_ids.len(),
+                input_tokens,
+                estimate_tokens(&condensed_node.text),
+                compaction_level,
             );
         }
 

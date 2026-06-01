@@ -18,9 +18,8 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use crate::error::{AgentJaxError, AgentJaxResult};
-use crate::error_classifier::{NetworkErrorKind, RawProviderError, classify_http_error};
+use crate::error_classifier::classify_http_error;
 use crate::provider_api::circuit_breaker::CircuitBreakerRegistry;
-use crate::provider_api::retry::{RetryResult, RetryStrategy, retry_with_backoff};
 use futures_util::StreamExt;
 use reqwest::Method;
 use serde::Deserialize;
