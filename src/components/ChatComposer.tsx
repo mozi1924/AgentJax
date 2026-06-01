@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Image, Mic, Paperclip, Send, SlidersHorizontal, Square, X } from 'lucide-react';
+import { AlertCircle, Image, Maximize2, Mic, Paperclip, Send, SlidersHorizontal, Square, X } from 'lucide-react';
 import { useI18n } from '../features/i18n';
 import { OverlayTextarea } from './OverlayScrollArea';
+import FullscreenEditorModal from './chat/FullscreenEditorModal';
 
 interface ComposerAttachment {
   name: string;
@@ -20,7 +21,7 @@ interface ChatComposerProps {
   onAttachFile: () => void;
   isGenerating: boolean;
   isStopping: boolean;
-  onSend: () => void;
+  onSend: (text?: string) => void;
   onStop: () => void;
 }
 
@@ -43,6 +44,7 @@ export default function ChatComposer({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const advancedTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [advancedPanelOpen, setAdvancedPanelOpen] = useState(false);
+  const [fullscreenEditorOpen, setFullscreenEditorOpen] = useState(false);
 
   useEffect(() => {
     if (showAdvancedRequestOptionsButton) {
@@ -54,13 +56,27 @@ export default function ChatComposer({
   useEffect(() => {
     if (!textareaRef.current) return;
     textareaRef.current.style.height = 'auto';
-    textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
+    if (textareaRef.current.parentElement) {
+      textareaRef.current.parentElement.style.height = 'auto';
+    }
+    const height = Math.min(textareaRef.current.scrollHeight, 360);
+    textareaRef.current.style.height = `${height}px`;
+    if (textareaRef.current.parentElement) {
+      textareaRef.current.parentElement.style.height = `${height}px`;
+    }
   }, [input]);
 
   useEffect(() => {
     if (!advancedTextareaRef.current) return;
     advancedTextareaRef.current.style.height = 'auto';
-    advancedTextareaRef.current.style.height = `${Math.min(advancedTextareaRef.current.scrollHeight, 220)}px`;
+    if (advancedTextareaRef.current.parentElement) {
+      advancedTextareaRef.current.parentElement.style.height = 'auto';
+    }
+    const height = Math.min(advancedTextareaRef.current.scrollHeight, 360);
+    advancedTextareaRef.current.style.height = `${height}px`;
+    if (advancedTextareaRef.current.parentElement) {
+      advancedTextareaRef.current.parentElement.style.height = `${height}px`;
+    }
   }, [advancedRequestOptionsInput, advancedPanelOpen]);
 
   const handleSubmit = () => {
@@ -111,7 +127,7 @@ export default function ChatComposer({
                 data-native-context-menu="true"
                 placeholder='{"serviceTier":"flex","include":["reasoning.encrypted_content"]}'
                 containerClassName="w-full"
-                className="max-h-[220px] w-full resize-none rounded-xl border border-[#25282d] bg-[#0d0e0f] px-2.5 py-2 font-mono text-xs leading-relaxed text-slate-300 placeholder-slate-600 outline-none transition focus:border-[#383d45] focus:bg-[#111214] select-text"
+                className="max-h-[360px] w-full resize-none rounded-xl border border-[#25282d] bg-[#0d0e0f] px-2.5 py-2 font-mono text-xs leading-relaxed text-slate-300 placeholder-slate-600 outline-none transition focus:border-[#383d45] focus:bg-[#111214] select-text"
               />
               {advancedRequestOptionsError && (
                 <div className="mt-2 inline-flex items-start gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-200">
@@ -145,10 +161,18 @@ export default function ChatComposer({
               rows={1}
               data-native-context-menu="true"
               containerClassName="flex-1"
-              className="max-h-[180px] w-full resize-none bg-transparent py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none select-text"
+              className="max-h-[360px] w-full resize-none bg-transparent py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none select-text"
             />
 
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setFullscreenEditorOpen(true)}
+                className="rounded-full p-2 text-slate-400 transition hover:bg-[#222427] hover:text-slate-200"
+                title={t('composer.fullscreen_editor')}
+              >
+                <Maximize2 className="h-4.5 w-4.5" />
+              </button>
+
               {showAdvancedRequestOptionsButton && (
                 <button
                   onClick={() => setAdvancedPanelOpen((open) => !open)}
@@ -192,6 +216,19 @@ export default function ChatComposer({
           </div>
         </div>
       </div>
+
+      <FullscreenEditorModal
+        isOpen={fullscreenEditorOpen}
+        value={input}
+        onClose={() => setFullscreenEditorOpen(false)}
+        onSave={(text) => onInputChange(text)}
+        onSend={(text) => {
+          onInputChange(text);
+          onSend(text);
+        }}
+        isGenerating={isGenerating}
+        isStopping={isStopping}
+      />
     </div>
   );
 }

@@ -212,7 +212,7 @@ export default function App() {
                   onAttachFile={attachPlaceholderFile}
                   isGenerating={activeConversationIsGenerating}
                   isStopping={activeConversationIsStopping}
-                  onSend={() => void sendMessage()}
+                  onSend={(text) => void sendMessage(text)}
                   onStop={stopActiveStream}
                 />
               </div>
