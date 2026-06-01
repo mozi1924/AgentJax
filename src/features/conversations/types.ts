@@ -108,6 +108,8 @@ export interface ModelOption {
   profileKey: string;
   providerKey: string;
   modelId: string;
+  /** Optional user-facing friendly name. When absent, show modelId. */
+  name?: string;
   supportsReasoning: boolean;
   supportedReasoningLevels: string[];
   configuredReasoningEffort: string | null;

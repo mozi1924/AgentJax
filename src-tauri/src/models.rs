@@ -41,6 +41,10 @@ pub struct ModelCatalogEntry {
     pub profile_key: String,
     pub provider_key: String,
     pub model_id: String,
+    /// Optional user-facing friendly name.
+    /// When `None` the front-end should display `model_id` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub supports_reasoning: bool,
     pub supported_reasoning_levels: Vec<String>,
     pub configured_reasoning_effort: Option<String>,
@@ -318,6 +322,7 @@ fn build_model_catalog_entries(
                 profile_key: format!("{}/{}", provider_key, model_key),
                 provider_key: provider_key.clone(),
                 model_id: model_cfg.model.clone(),
+                name: model_cfg.name.clone(),
                 supports_reasoning: reasoning.supports_reasoning,
                 supported_reasoning_levels: reasoning.supported_reasoning_levels,
                 configured_reasoning_effort,

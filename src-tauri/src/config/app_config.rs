@@ -41,6 +41,7 @@ impl ProviderConfig {
                         model_id.clone(),
                         ProviderModelConfig {
                             model: model_id.clone(),
+                            name: None,
                             enabled: true,
                             request: ModelRequestConfig::default(),
                         },
@@ -108,7 +109,10 @@ impl ProviderConfig {
             }
         }
 
-        // Normalize model configuration items
+        // Normalize model configuration items.
+        // The map key is now the model ID (e.g. "gpt-5.4-mini") rather than a
+        // user-defined alias.  An optional `name` field provides the display
+        // label; when absent the model ID is shown directly.
         let mut normalized_models = BTreeMap::new();
         for (raw_key, mut model_cfg) in std::mem::take(&mut self.models) {
             let model_key = raw_key.trim().to_string();
@@ -117,7 +121,17 @@ impl ProviderConfig {
             }
             model_cfg.model = model_cfg.model.trim().to_string();
             if model_cfg.model.is_empty() {
+                // Map key IS the model ID; use it as the API model identifier.
                 model_cfg.model = model_key.clone();
+            }
+            // Trim the optional friendly name.
+            if let Some(ref n) = model_cfg.name {
+                let trimmed = n.trim().to_string();
+                if trimmed.is_empty() {
+                    model_cfg.name = None;
+                } else {
+                    model_cfg.name = Some(trimmed);
+                }
             }
             model_cfg.request.normalize();
             normalized_models.insert(model_key, model_cfg);
@@ -448,6 +462,7 @@ impl AppConfig {
                     fallback_model_id.to_string(),
                     ProviderModelConfig {
                         model: fallback_model_id.to_string(),
+                        name: None,
                         enabled: true,
                         request: ModelRequestConfig::default(),
                     },

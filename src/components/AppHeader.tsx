@@ -19,25 +19,27 @@ const formatReasoningLabel = (value: string, t: (key: string) => string) => {
 };
 
 const formatModelDisplayName = (option: ModelOption | null | undefined) => {
-  const provider = `${option?.providerKey || ''}`.trim();
-  const profile = `${option?.profileKey || ''}`.trim();
-  if (!profile) {
-    return `${option?.modelId || ''}`.trim();
-  }
+  // Show the friendly name if available, otherwise fall back to modelId.
+  const friendly = `${option?.name || ''}`.trim();
+  if (friendly) return friendly;
+  const id = `${option?.modelId || ''}`.trim();
+  if (id) return id;
 
-  // Profile keys are provider-scoped friendly model names; the actual provider
-  // model id is kept separately in option.modelId for request payloads.
-  if (provider && profile.startsWith(`${provider}/`)) {
-    return profile.slice(provider.length + 1);
-  }
+  // Last-resort: extract from profileKey
+  const profile = `${option?.profileKey || ''}`.trim();
+  if (!profile) return '';
   return profile.includes('/') ? profile.split('/').slice(1).join('/') : profile;
 };
 
 const formatProviderModelLabel = (option: ModelOption) => {
   const provider = `${option?.providerKey || ''}`.trim();
   const modelId = `${option?.modelId || ''}`.trim();
+  const friendly = `${option?.name || ''}`.trim();
   if (!provider) {
     return modelId || 'provider';
+  }
+  if (friendly && friendly !== modelId) {
+    return `${provider} / ${friendly} (${modelId})`;
   }
   return `${provider} / ${modelId || 'model'}`;
 };

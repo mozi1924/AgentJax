@@ -343,7 +343,13 @@ impl ProviderConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProviderModelConfig {
+    /// The actual model ID sent to the provider API.
+    /// When empty during normalization, this defaults to the map key.
     pub model: String,
+    /// Optional user-facing friendly name.
+    /// When absent, the model ID (map key) is shown instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
     pub request: ModelRequestConfig,
@@ -483,6 +489,7 @@ impl Default for ProviderModelConfig {
     fn default() -> Self {
         Self {
             model: String::new(),
+            name: None,
             enabled: true,
             request: ModelRequestConfig::default(),
         }

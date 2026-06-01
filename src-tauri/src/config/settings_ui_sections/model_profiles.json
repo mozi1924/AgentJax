@@ -47,6 +47,7 @@
           "keyPattern": "^[A-Za-z0-9_.-]+$",
           "defaultItem": {
             "model": "",
+            "name": null,
             "enabled": true,
             "request": {
               "temperature": null,
@@ -60,6 +61,16 @@
             }
           },
           "children": [
+            {
+              "kind": "field",
+              "id": "profile-name",
+              "title": "settings.model_profiles.name.title",
+              "description": "settings.model_profiles.name.description",
+              "path": "name",
+              "valueType": "string",
+              "control": "text",
+              "placeholder": "GPT-5.4-Mini"
+            },
             {
               "kind": "field",
               "id": "profile-model-id",

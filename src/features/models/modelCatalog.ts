@@ -52,10 +52,12 @@ export const normalizeModelOption = (
   const configuredReasoningEffort = (option?.configuredReasoningEffort || '')
     .trim()
     .toLowerCase();
+  const name = (option?.name || '').trim() || undefined;
   return {
     profileKey: normalizedProfileKey,
     providerKey: normalizedProviderKey,
     modelId: (option?.modelId || modelFromProfile || profileKey).trim(),
+    name,
     supportsReasoning: !!option?.supportsReasoning,
     supportedReasoningLevels: Array.isArray(option?.supportedReasoningLevels)
       ? option.supportedReasoningLevels

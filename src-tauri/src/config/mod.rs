@@ -106,6 +106,7 @@ mod tests {
                 "custom_key".to_string(),
                 super::schema::ProviderModelConfig {
                     model: "gpt-5.4-mini".to_string(),
+                    name: None,
                     enabled: true,
                     request: ModelRequestConfig::default(),
                 },
