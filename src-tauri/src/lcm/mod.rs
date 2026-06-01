@@ -36,6 +36,7 @@ pub mod dag;
 pub mod engine;
 pub mod file_handler;
 pub mod store;
+pub mod summarizer;
 pub mod tools;
 pub mod types;
 
@@ -47,6 +48,7 @@ pub use dag::SummaryDag;
 pub use engine::LcmEngine;
 pub use file_handler::FileHandler;
 pub use store::LcmStore;
+pub use summarizer::ProviderSummarizer;
 pub use tools::{LcmDescribeTool, LcmExpandTool, LcmGrepTool};
 pub use types::*;
 
@@ -72,27 +74,72 @@ pub fn lcm_store_path(conversation_id: &str) -> Result<PathBuf, String> {
 /// Open (or create) the LCM store and engine for a conversation.
 ///
 /// Returns `None` if LCM is disabled in the configuration.
+/// Uses `ProviderSummarizer` (real LLM calls) when an `AppConfig` is
+/// provided; falls back to `NoopSummarizer` otherwise.
 pub fn open_lcm_engine(
     conversation_id: &str,
-    config: &LcmConfig,
+    lcm_config: &LcmConfig,
 ) -> Result<Option<Arc<LcmEngine>>, String> {
-    if !config.enabled {
+    if !lcm_config.enabled {
         return Ok(None);
     }
 
     let db_path = lcm_store_path(conversation_id)?;
     let store = Arc::new(
-        LcmStore::open(&db_path, config.clone())
+        LcmStore::open(&db_path, lcm_config.clone())
             .map_err(|e| format!("Failed to open LCM store: {e}"))?,
     );
 
-    // Use NoopSummarizer for now — LLM-powered summarization will be
-    // wired in a future phase when the provider API is integrated.
+    // Use NoopSummarizer — the caller can replace it with a real
+    // ProviderSummarizer when AppConfig is available.
     let engine = Arc::new(LcmEngine::new(
         store,
         Arc::new(NoopSummarizer),
-        config.clone(),
+        lcm_config.clone(),
     ));
+
+    Ok(Some(engine))
+}
+
+/// Open the LCM engine with a real provider-backed summarizer.
+///
+/// Resolves the summarization model from `LcmConfig.summarization_model`
+/// (or falls back to `AppConfig.utility_small_model`).
+pub fn open_lcm_engine_with_summarizer(
+    conversation_id: &str,
+    lcm_config: &LcmConfig,
+    app_config: &crate::config::AppConfig,
+) -> Result<Option<Arc<LcmEngine>>, String> {
+    if !lcm_config.enabled {
+        return Ok(None);
+    }
+
+    let db_path = lcm_store_path(conversation_id)?;
+    let store = Arc::new(
+        LcmStore::open(&db_path, lcm_config.clone())
+            .map_err(|e| format!("Failed to open LCM store: {e}"))?,
+    );
+
+    // Try to create a ProviderSummarizer; fall back to NoopSummarizer
+    // if model resolution fails.
+    let summarizer: Arc<dyn Summarizer> = match ProviderSummarizer::new(app_config, lcm_config) {
+        Ok(ps) => {
+            log::info!(
+                "LCM using ProviderSummarizer (model: {})",
+                ps.model_ref()
+            );
+            Arc::new(ps)
+        }
+        Err(e) => {
+            log::warn!(
+                "LCM: ProviderSummarizer unavailable ({}), falling back to NoopSummarizer (Level 3 truncation only)",
+                e
+            );
+            Arc::new(NoopSummarizer)
+        }
+    };
+
+    let engine = Arc::new(LcmEngine::new(store, summarizer, lcm_config.clone()));
 
     Ok(Some(engine))
 }

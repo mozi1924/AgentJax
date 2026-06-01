@@ -423,6 +423,13 @@ pub struct LcmConfig {
     /// Page size for paginated grep results.
     /// Default: 20.
     pub grep_page_size: usize,
+
+    /// Model reference for LLM-powered summarization (Level 1 & 2 compaction).
+    /// When empty or "default", uses the app's `utility_small_model`.
+    /// Set to a specific model ref like "openai::gpt-4o-mini" to override.
+    /// Default: "" (uses utility_small_model).
+    #[serde(default)]
+    pub summarization_model: String,
 }
 
 fn default_true() -> bool {
@@ -440,6 +447,7 @@ impl Default for LcmConfig {
             max_compact_block_size: 20,
             max_summary_depth: 5,
             grep_page_size: 20,
+            summarization_model: String::new(),
         }
     }
 }

@@ -35,6 +35,7 @@ impl AgentRuntime {
         mut context_items: Vec<Value>,
         recovery_note: Option<Value>,
         tools_catalog: &ToolCatalog,
+        lcm_engine: Option<&std::sync::Arc<crate::lcm::LcmEngine>>,
         cancel_rx: &mut watch::Receiver<bool>,
         mut on_event: F,
     ) -> Result<(ResponseStreamResult, Vec<Value>), String>
@@ -156,6 +157,8 @@ impl AgentRuntime {
             let is_final_hop = collected.pending_tools.is_empty();
             let hop_messages =
                 extract_assistant_messages_from_items(&collected.response_result.output_items);
+            // Clone for LCM persistence before hop_messages is consumed below.
+            let hop_messages_for_lcm = hop_messages.clone();
             if hop_messages.is_empty() && !collected.response_result.output_text.is_empty() {
                 let phase = resolve_hop_phase(None, is_final_hop);
                 let emitted_text = if phase == Some(AssistantPhase::Commentary) {
@@ -221,6 +224,53 @@ impl AgentRuntime {
                     &mut on_event,
                 )
                 .await?;
+
+            // ── LCM: Persist hop messages to immutable store (before values are moved) ──
+            if let Some(engine) = lcm_engine {
+                let now_ms = crate::conversation_store_utils::now_unix_ms();
+                let lcm_conv_id = conversation_id.to_string();
+                let lcm_tool_results = executed_batch.tool_results_items.clone();
+
+                // Persist assistant text from this hop.
+                for (text, _phase) in &hop_messages_for_lcm {
+                    if !text.trim().is_empty() {
+                        let msg = crate::lcm::types::StoredMessage::new(
+                            crate::lcm::types::MessageId::new(),
+                            &lcm_conv_id,
+                            crate::lcm::types::MessageRole::Assistant,
+                            text,
+                            crate::lcm::types::estimate_tokens(text),
+                            now_ms,
+                        );
+                        if let Err(e) = engine.process_message(&msg).await {
+                            log::warn!("LCM: failed to persist assistant message: {e}");
+                        }
+                    }
+                }
+
+                // Persist tool call results.
+                for item in &lcm_tool_results {
+                    if let Some(output_str) = item.get("output").and_then(|v| v.as_str()) {
+                        let call_id = item
+                            .get("call_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let content = format!("[Tool result {}]: {}", call_id, output_str);
+                        let msg = crate::lcm::types::StoredMessage::new(
+                            crate::lcm::types::MessageId::new(),
+                            &lcm_conv_id,
+                            crate::lcm::types::MessageRole::Tool,
+                            &content,
+                            crate::lcm::types::estimate_tokens(&content),
+                            now_ms,
+                        );
+                        if let Err(e) = engine.process_message(&msg).await {
+                            log::warn!("LCM: failed to persist tool result: {e}");
+                        }
+                    }
+                }
+            }
+
             accumulator
                 .timeline_events
                 .extend(executed_batch.timeline_events);

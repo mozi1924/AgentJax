@@ -106,7 +106,8 @@ pub async fn chat_stream(
         ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config);
 
     // ── LCM: Initialize context management ─────────────────────────────
-    let lcm_engine = crate::lcm::open_lcm_engine(&conversation_id, &config.lcm)?;
+    let lcm_engine =
+        crate::lcm::open_lcm_engine_with_summarizer(&conversation_id, &config.lcm, &config)?;
     if let Some(ref engine) = lcm_engine {
         tools_catalog.set_context_tools(engine.store().clone());
         log::info!(
@@ -230,6 +231,7 @@ pub async fn chat_stream(
         context.input_items,
         recovery_note,
         &tools_catalog,
+        lcm_engine.as_ref(),
         &mut cancel_rx,
         move |event| {
             let event_token_count = stream_observer_for_callback.handle_provider_event(&event);

@@ -98,6 +98,7 @@ async fn run_real_gateway_turn_with_config(
             Vec::new(),
             None,
             &tools_catalog,
+            None, // lcm_engine
             &mut cancel_rx,
             move |event| {
                 stream_events_for_closure
