@@ -30,7 +30,7 @@ use crate::lcm::dag::SummaryDag;
 use crate::lcm::file_handler::FileHandler;
 use crate::lcm::store::LcmStore;
 use crate::lcm::types::{
-    ContextEntry, FileReference, LcmConfig, LcmError, LcmId, MessageId,
+    ContextEntry, FileRefId, FileReference, LcmConfig, LcmError, LcmId, MessageId,
     StoredMessage, SummaryChild, SummaryId, SummaryKind, estimate_tokens,
 };
 use crate::lcm::types::MessageRole;
@@ -535,8 +535,16 @@ impl LcmEngine {
                 .escalate_summarize(&messages, target_tokens)
                 .await?;
 
+            // Collect file refs from messages being compacted for propagation.
+            let propagated_file_refs: Vec<FileRefId> = messages
+                .iter()
+                .flat_map(|m| m.file_refs.iter().cloned())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+
             let summary_id = SummaryId::new();
-            let summary_node = CompactionEngine::build_summary_node(
+            let summary_node = CompactionEngine::build_summary_node_with_refs(
                 summary_id.clone(),
                 &conversation_id,
                 &summary_text,
@@ -544,6 +552,7 @@ impl LcmEngine {
                 SummaryKind::Leaf,
                 now_ms,
                 self.compaction.token_counter(),
+                propagated_file_refs.clone(),
             );
 
             let message_ids: Vec<MessageId> = messages.iter().map(|m| m.id.clone()).collect();
@@ -558,7 +567,7 @@ impl LcmEngine {
                     summary_id: summary_node.id.clone(),
                     text: summary_text,
                     child_ids: message_ids.into_iter().map(|id| LcmId::from(id.as_str())).collect(),
-                    file_refs: Vec::new(),
+                    file_refs: propagated_file_refs,
                 },
             )?;
 
@@ -574,8 +583,14 @@ impl LcmEngine {
             // Read the summary texts from the store and create temporary messages
             // so we can use the existing Three-Level Escalation protocol.
             let mut summary_messages = Vec::new();
+            let mut propagated_file_refs: std::collections::HashSet<FileRefId> =
+                std::collections::HashSet::new();
             for sid in &summary_ids {
                 if let Some(summary) = self.store.get_summary(sid)? {
+                    // Carry over file refs from child summaries.
+                    for fr in &summary.file_refs {
+                        propagated_file_refs.insert(fr.clone());
+                    }
                     let tmp_msg = StoredMessage {
                         id: LcmId::new(),
                         conversation_id: conversation_id.clone(),
@@ -585,7 +600,7 @@ impl LcmEngine {
                         timestamp_unix_ms: summary.created_at_unix_ms,
                         covered_by: None,
                         metadata: std::collections::BTreeMap::new(),
-                        file_refs: Vec::new(),
+                        file_refs: summary.file_refs.clone(),
                     };
                     summary_messages.push(tmp_msg);
                 }
@@ -608,8 +623,10 @@ impl LcmEngine {
                 .escalate_summarize(&summary_messages, target_tokens)
                 .await?;
 
+            let propagated_refs: Vec<FileRefId> = propagated_file_refs.into_iter().collect();
+
             let condensed_id = SummaryId::new();
-            let condensed_node = CompactionEngine::build_summary_node(
+            let condensed_node = CompactionEngine::build_summary_node_with_refs(
                 condensed_id.clone(),
                 &conversation_id,
                 &condensed_text,
@@ -617,6 +634,7 @@ impl LcmEngine {
                 SummaryKind::Condensed,
                 now_ms,
                 self.compaction.token_counter(),
+                propagated_refs.clone(),
             );
 
             self.dag
@@ -635,7 +653,7 @@ impl LcmEngine {
                     summary_id: condensed_node.id.clone(),
                     text: condensed_text,
                     child_ids: all_child_ids,
-                    file_refs: Vec::new(),
+                    file_refs: propagated_refs,
                 },
             )?;
 
@@ -833,8 +851,12 @@ impl LcmEngine {
 
     /// Register a file reference and persist it in the store.
     pub fn register_file_reference(&self, file_ref: &FileReference) -> Result<(), LcmError> {
+        // Persist the file reference in the immutable store.
         self.store.register_file(file_ref)
     }
+    // Note: file_refs propagation to StoredMessage happens in runtime/engine.rs
+    // when the tool result message is persisted — the caller sets
+    // StoredMessage.file_refs before calling process_message.
 
     // ── Rebuild from Store ────────────────────────────────────────────
 

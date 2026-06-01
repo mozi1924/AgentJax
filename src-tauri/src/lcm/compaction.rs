@@ -15,7 +15,7 @@
 //! its input**. If a level fails to reduce token count, the system escalates.
 //! Level 3 guarantees convergence by using a non-LLM deterministic truncation.
 
-use crate::lcm::types::{LcmError, MessageRole, StoredMessage, SummaryKind, SummaryNode, SummaryId};
+use crate::lcm::types::{FileRefId, LcmError, MessageRole, StoredMessage, SummaryKind, SummaryNode, SummaryId};
 use std::sync::Arc;
 
 /// A token-counting function: takes text, returns an estimated token count.
@@ -219,6 +219,23 @@ impl CompactionEngine {
         timestamp_unix_ms: i64,
         count_tokens: &TokenCounter,
     ) -> SummaryNode {
+        Self::build_summary_node_with_refs(
+            id, conversation_id, text, compaction_level, kind,
+            timestamp_unix_ms, count_tokens, Vec::new(),
+        )
+    }
+
+    /// Create a new SummaryNode with propagated file references.
+    pub fn build_summary_node_with_refs(
+        id: SummaryId,
+        conversation_id: &str,
+        text: &str,
+        compaction_level: u8,
+        kind: SummaryKind,
+        timestamp_unix_ms: i64,
+        count_tokens: &TokenCounter,
+        file_refs: Vec<FileRefId>,
+    ) -> SummaryNode {
         SummaryNode {
             id,
             conversation_id: conversation_id.to_string(),
@@ -228,7 +245,7 @@ impl CompactionEngine {
             created_at_unix_ms: timestamp_unix_ms,
             compaction_level,
             parents: Vec::new(),
-            file_refs: Vec::new(),
+            file_refs,
         }
     }
 }

@@ -325,6 +325,73 @@ pub fn get_model_metadata(
 }
 
 
+/// Shared finalization: call the plugin's `finalizeStream`, collect results,
+/// and build the `ResponseStreamResult`. Extracted from the SSE and WebSocket
+/// paths to avoid ~50 lines of duplicated code.
+fn finalize_and_build_result(
+    package: &PluginPackage,
+    provider_kind: &str,
+    resolved: &crate::config::ResolvedModelConfig,
+    state: Value,
+    mut response_id: String,
+    mut output_text: String,
+    mut output_items: Vec<Value>,
+    mut usage: Option<ProviderUsage>,
+    capabilities: crate::provider_api::capabilities::ProviderCapabilities,
+    on_delta: &mut dyn FnMut(ProviderStreamEvent) -> Result<(), String>,
+) -> AgentJaxResult<ResponseStreamResult> {
+    let final_step: PluginStreamFinal = call_provider_function(
+        package,
+        provider_kind,
+        "finalizeStream",
+        json!({
+            "resolved": resolved_context(resolved),
+            "state": state
+        }),
+    )?;
+
+    for event in final_step.events {
+        on_delta(event)?;
+    }
+    if let Some(final_response_id) = final_step.response_id.filter(|v| !v.is_empty()) {
+        response_id = final_response_id;
+    }
+    if let Some(final_text) = final_step.output_text {
+        output_text = final_text;
+    }
+    output_items.extend(final_step.output_items);
+    if final_step.usage.is_some() {
+        usage = final_step.usage;
+    }
+
+    if response_id.is_empty() {
+        response_id = ProviderIdFactory::new(&resolved.provider.kind)
+            .response_id()
+            .to_string();
+    }
+
+    let usage_hops = usage
+        .clone()
+        .map(|u| ProviderUsageRecord {
+            response_id: response_id.clone(),
+            usage: u,
+        })
+        .into_iter()
+        .collect();
+
+    Ok(ResponseStreamResult {
+        response_id,
+        output_text,
+        output_items,
+        usage,
+        usage_hops,
+        provider_key: resolved.provider_key.clone(),
+        model_profile: resolved.profile_key.clone(),
+        model_id: resolved.model_id.clone(),
+        capabilities,
+    })
+}
+
 async fn stream_sse_request(
     package: &PluginPackage,
     provider_kind: &str,
@@ -430,52 +497,10 @@ async fn stream_sse_request(
         )?;
     }
 
-    let final_step: PluginStreamFinal = call_provider_function(
-        package,
-        provider_kind,
-        "finalizeStream",
-        json!({
-            "resolved": resolved_context(resolved),
-            "state": state
-        }),
-    )?;
-    for event in final_step.events {
-        on_delta(event)?;
-    }
-    if let Some(final_response_id) = final_step.response_id.filter(|value| !value.is_empty()) {
-        response_id = final_response_id;
-    }
-    if let Some(final_text) = final_step.output_text {
-        output_text = final_text;
-    }
-    output_items.extend(final_step.output_items);
-    if final_step.usage.is_some() {
-        usage = final_step.usage;
-    }
-
-    if response_id.is_empty() {
-        response_id = ProviderIdFactory::new(&resolved.provider.kind).response_id().to_string();
-    }
-    let usage_hops = usage
-        .clone()
-        .map(|usage| ProviderUsageRecord {
-            response_id: response_id.clone(),
-            usage,
-        })
-        .into_iter()
-        .collect();
-
-    Ok(ResponseStreamResult {
-        response_id,
-        output_text,
-        output_items,
-        usage,
-        usage_hops,
-        provider_key: resolved.provider_key.clone(),
-        model_profile: resolved.profile_key.clone(),
-        model_id: resolved.model_id.clone(),
-        capabilities,
-    })
+    finalize_and_build_result(
+        package, provider_kind, resolved, state, response_id,
+        output_text, output_items, usage, capabilities, on_delta,
+    )
 }
 
 async fn stream_websocket_request(
@@ -568,52 +593,10 @@ async fn stream_websocket_request(
         }
     }
 
-    let final_step: PluginStreamFinal = call_provider_function(
-        package,
-        provider_kind,
-        "finalizeStream",
-        json!({
-            "resolved": resolved_context(resolved),
-            "state": state
-        }),
-    )?;
-    for event in final_step.events {
-        on_delta(event)?;
-    }
-    if let Some(final_response_id) = final_step.response_id.filter(|value| !value.is_empty()) {
-        response_id = final_response_id;
-    }
-    if let Some(final_text) = final_step.output_text {
-        output_text = final_text;
-    }
-    output_items.extend(final_step.output_items);
-    if final_step.usage.is_some() {
-        usage = final_step.usage;
-    }
-
-    if response_id.is_empty() {
-        response_id = ProviderIdFactory::new(provider_kind).response_id().to_string();
-    }
-    let usage_hops = usage
-        .clone()
-        .map(|usage| ProviderUsageRecord {
-            response_id: response_id.clone(),
-            usage,
-        })
-        .into_iter()
-        .collect();
-
-    Ok(ResponseStreamResult {
-        response_id,
-        output_text,
-        output_items,
-        usage,
-        usage_hops,
-        provider_key: resolved.provider_key.clone(),
-        model_profile: resolved.profile_key.clone(),
-        model_id: resolved.model_id.clone(),
-        capabilities,
-    })
+    finalize_and_build_result(
+        package, provider_kind, resolved, state, response_id,
+        output_text, output_items, usage, capabilities, on_delta,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
