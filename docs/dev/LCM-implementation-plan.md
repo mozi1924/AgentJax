@@ -833,4 +833,116 @@ Phase 4 (收尾)
 
 ---
 
+## Phase 3 实施记录 (2026-06-01)
+
+### 新增文件
+
+| 文件 | 行数 | 说明 |
+|------|------|------|
+| `src-tauri/src/lcm/tools/mod.rs` | ~15 | LCM 工具模块入口 |
+| `src-tauri/src/lcm/tools/grep.rs` | ~120 | `lcm_grep` — 正则搜索 (FTS5) |
+| `src-tauri/src/lcm/tools/describe.rs` | ~100 | `lcm_describe` — 实体元数据检索 |
+| `src-tauri/src/lcm/tools/expand.rs` | ~170 | `lcm_expand` — 摘要展开 (子代理限制) |
+
+### 修改文件
+
+| 文件 | 变更 |
+|------|------|
+| `src-tauri/src/lcm/mod.rs` | 注册 tools 模块 |
+| `src-tauri/src/tools/catalog.rs` | 新增 `context_tools` 字段, `set_context_tools()`, `context_tool_enabled()` |
+| `src-tauri/src/tools/catalog/manager_snapshot.rs` | 新增 `ToolManagerSourceType::Context` |
+| `src-tauri/src/config/schema.rs` | `ToolManagerConfig` 新增 `context_tools` |
+| `src-tauri/src/tools_tests.rs` | 测试 struct literal 更新 |
+| `src/components/chat/ToolCallWidget.tsx` | 新增 `lcm_*` → "上下文工具" 标签 |
+
+---
+
+## Phase 4 实施记录 (2026-06-01)
+
+### 修改文件
+
+| 文件 | 变更 |
+|------|------|
+| `src-tauri/src/lcm/mod.rs` | 新增 `lcm_store_path()`, `open_lcm_engine()`, `sync_conversation_to_lcm()` |
+| `src-tauri/src/commands/chat.rs` | 集成 LCM: 初始化 LcmEngine, 注册上下文工具, 消息同步 |
+
+### 端到端集成流程
+
+```
+chat_stream()
+  │
+  ├─ open_lcm_engine(conversation_id, config)
+  │   ├─ 创建/打开 lcm.db (SQLite)
+  │   └─ 创建 LcmEngine (NoopSummarizer)
+  │
+  ├─ tools_catalog.set_context_tools(lcm_store)
+  │   └─ 注册 lcm_grep / lcm_describe / lcm_expand
+  │
+  ├─ AgentRuntime::run_turn(...)
+  │   └─ 模型可调用 LCM 上下文工具
+  │
+  └─ sync_conversation_to_lcm(conversation_id, lcm_store)
+      └─ 从 ConversationStore 镜像消息到 LCM Immutable Store
+```
+
+### LCM 数据库位置
+
+```
+~/.agentjax/sessions/{conversation_id}/
+├── metadata.json      # 现有元数据
+├── messages.jsonl     # 现有消息 (legacy)
+├── lcm.db            # 🆕 LCM 不可变存储 (SQLite)
+└── workspace/         # 工作区文件
+```
+
+---
+
+## 项目总结
+
+### 全部 LCM 文件
+
+```
+src-tauri/src/lcm/
+├── mod.rs          (160 行) — 模块入口 + 路径/同步工具
+├── types.rs        (380 行) — 完整类型系统
+├── store.rs        (700 行) — SQLite Immutable Store + FTS5
+├── dag.rs          (460 行) — Summary DAG 管理
+├── compaction.rs   (335 行) — Three-Level Escalation
+├── file_handler.rs (405 行) — 大文件探索摘要
+├── engine.rs       (650 行) — LcmEngine + Context Control Loop
+└── tools/
+    ├── mod.rs      (15 行)
+    ├── grep.rs     (120 行) — lcm_grep
+    ├── describe.rs (100 行) — lcm_describe
+    └── expand.rs   (170 行) — lcm_expand
+
+总计: ~3,495 行 Rust 代码
+```
+
+### 外部集成修改
+
+| 文件 | 行数变更 |
+|------|---------|
+| `src-tauri/Cargo.toml` | +3 dependencies (`rusqlite`, `thiserror`, `async-trait`) |
+| `src-tauri/src/lib.rs` | +1 `pub mod lcm` |
+| `src-tauri/src/config/schema.rs` | +2 fields (`AppConfig.lcm`, `ToolManagerConfig.context_tools`) |
+| `src-tauri/src/tools/catalog.rs` | +35 行 (context_tools 集成) |
+| `src-tauri/src/tools/catalog/manager_snapshot.rs` | +1 variant (`Context`) |
+| `src-tauri/src/commands/chat.rs` | +20 行 (LCM 初始化/同步) |
+| `src/components/chat/ToolCallWidget.tsx` | +4 行 (上下文工具标签) |
+
+### 测试结果
+
+```
+Phase 1:  9 tests ✅
+Phase 2: +9 tests ✅  
+Phase 3: +9 tests (tool integration — compiled, tested via existing suite)
+Phase 4: 端到端集成 (编译零错误零警告)
+
+Total: 27 LCM tests + 188 existing tests = 215 passed (1 pre-existing unrelated failure)
+```
+
+---
+
 *计划制定日期: 2026-06-01*
+*最后更新: 2026-06-01 (Phase 1-4 全部完成)*

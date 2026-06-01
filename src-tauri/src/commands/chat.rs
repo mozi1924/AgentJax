@@ -18,6 +18,7 @@ pub use chat_types::{
 
 use crate::config;
 use crate::conversation_store;
+use crate::lcm::sync_conversation_to_lcm;
 use crate::provider_api::{build_user_input_item, get_tool_schema_format};
 use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
 use crate::tools::ToolCatalog;
@@ -101,7 +102,19 @@ pub async fn chat_stream(
             .flatten()
     };
 
-    let tools_catalog = ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config);
+    let mut tools_catalog =
+        ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config);
+
+    // ── LCM: Initialize context management ─────────────────────────────
+    let lcm_engine = crate::lcm::open_lcm_engine(&conversation_id, &config.lcm)?;
+    if let Some(ref engine) = lcm_engine {
+        tools_catalog.set_context_tools(engine.store().clone());
+        log::info!(
+            "LCM initialized for conversation '{}' (db: {:?})",
+            conversation_id,
+            engine.store().db_path()
+        );
+    }
 
     let user_message_ts = now_unix_ms();
 
@@ -236,6 +249,17 @@ pub async fn chat_stream(
     let _ = registry.remove_chat_request(&request_id)?;
     let (response, _timeline_events) = result?;
     let final_token_count = stream_observer.persist_final_token_usage(&response);
+
+    // ── LCM: Sync conversation messages to immutable store ────────────
+    if let Some(ref engine) = lcm_engine {
+        if let Err(e) = sync_conversation_to_lcm(&conversation_id, engine.store()).await {
+            log::warn!(
+                "Failed to sync conversation '{}' to LCM: {}",
+                conversation_id,
+                e
+            );
+        }
+    }
 
     log::info!(
         "chat_stream turn complete: conv={} req={} text_len={} resp_id={} output_items={}",
