@@ -15,15 +15,19 @@ fn default_language() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
+    #[serde(default = "default_language")]
+    pub language: String,
     pub active_provider: String,
-    pub providers: BTreeMap<String, ProviderConfig>,
     pub default_model: String,
     pub utility_small_model: String,
-    #[serde(default)]
-    pub prompt_composer: PromptComposerConfig,
     pub request_timeout_seconds: u64,
     pub show_advanced_request_options: bool,
     pub enable_developer_tools: bool,
+    pub providers: BTreeMap<String, ProviderConfig>,
+    #[serde(default)]
+    pub prompt_composer: PromptComposerConfig,
+    #[serde(default)]
+    pub lcm: crate::lcm::LcmConfig,
     #[serde(default)]
     pub mcp_runtime: McpRuntimeConfig,
     #[serde(default)]
@@ -32,10 +36,6 @@ pub struct AppConfig {
     pub tool_manager: ToolManagerConfig,
     #[serde(default)]
     pub plugin_manager: PluginManagerConfig,
-    #[serde(default = "default_language")]
-    pub language: String,
-    #[serde(default)]
-    pub lcm: crate::lcm::LcmConfig,
 }
 
 /// User-facing tool exposure policy.
@@ -148,25 +148,25 @@ pub struct McpToolSourcePolicyConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct McpServerConfig {
+    pub enabled: bool,
     pub transport: McpTransportKind,
     pub command: String,
     pub args: Vec<String>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     pub cwd: Option<String>,
+    pub uri: Option<String>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    pub auth_header: Option<String>,
     #[serde(default = "default_true")]
     pub use_global_stdio_env: bool,
     pub inherit_parent_env: Option<bool>,
-    pub uri: Option<String>,
-    pub auth_header: Option<String>,
-    #[serde(default)]
-    pub headers: BTreeMap<String, String>,
     #[serde(default = "default_true")]
     pub allow_stateless: bool,
     pub channel_buffer_capacity: Option<usize>,
     #[serde(default = "default_true")]
     pub reinit_on_expired_session: bool,
-    pub enabled: bool,
     #[serde(default)]
     pub unfolded: bool,
 }
@@ -343,6 +343,8 @@ impl ProviderConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProviderModelConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     /// The actual model ID sent to the provider API.
     /// When empty during normalization, this defaults to the map key.
     pub model: String,
@@ -350,8 +352,6 @@ pub struct ProviderModelConfig {
     /// When absent, the model ID (map key) is shown instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(default = "default_true")]
-    pub enabled: bool,
     pub request: ModelRequestConfig,
 }
 
@@ -391,20 +391,20 @@ impl Default for AppConfig {
         );
 
         Self {
+            language: default_language(),
             active_provider: default_provider.kind.to_string(),
-            providers,
             default_model: DEFAULT_DEFAULT_MODEL_REF.to_string(),
             utility_small_model: DEFAULT_UTILITY_SMALL_MODEL_REF.to_string(),
-            prompt_composer: PromptComposerConfig::default(),
             request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
             show_advanced_request_options: false,
             enable_developer_tools: false,
+            providers,
+            prompt_composer: PromptComposerConfig::default(),
+            lcm: crate::lcm::LcmConfig::default(),
             mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
             tool_manager: ToolManagerConfig::default(),
             plugin_manager: PluginManagerConfig::default(),
-            language: default_language(),
-            lcm: crate::lcm::LcmConfig::default(),
         }
     }
 }
@@ -437,20 +437,20 @@ impl Default for McpToolSourcePolicyConfig {
 impl Default for McpServerConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             transport: McpTransportKind::Stdio,
             command: String::new(),
             args: Vec::new(),
             env: BTreeMap::new(),
             cwd: None,
+            uri: None,
+            headers: BTreeMap::new(),
+            auth_header: None,
             use_global_stdio_env: true,
             inherit_parent_env: None,
-            uri: None,
-            auth_header: None,
-            headers: BTreeMap::new(),
             allow_stateless: true,
             channel_buffer_capacity: None,
             reinit_on_expired_session: true,
-            enabled: true,
             unfolded: false,
         }
     }
@@ -488,9 +488,9 @@ impl Default for ProviderConfig {
 impl Default for ProviderModelConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             model: String::new(),
             name: None,
-            enabled: true,
             request: ModelRequestConfig::default(),
         }
     }

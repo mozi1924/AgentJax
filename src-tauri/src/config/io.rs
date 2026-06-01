@@ -2,7 +2,6 @@ use crate::config::constants::CONFIG_FILE_NAME;
 use crate::config::prompt_composer::abbreviate_prompt_composer_for_yaml;
 use crate::config::schema::AppConfig;
 use serde::Serialize;
-use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -122,6 +121,32 @@ fn parse_config_yaml(path: &Path, raw: &str) -> Result<AppConfig, String> {
     serde_yaml::from_str(raw).map_err(|e| format!("Invalid YAML in {}: {e}", path.display()))
 }
 
+pub fn serialize_config_to_yaml(normalized: &AppConfig) -> Result<String, String> {
+    // Build a YAML version of the config with the prompt_composer blocks
+    // abbreviated (built-in/plugin blocks → only {id, enabled}) so the YAML
+    // on disk stays clean and does not expose framework-internal content.
+    let mut abbreviated_root: serde_yaml::Value = serde_yaml::to_value(normalized)
+        .map_err(|e| format!("Failed to serialize config for YAML output: {e}"))?;
+
+    if let Some(pc) = abbreviated_root
+        .get_mut("prompt_composer")
+        .and_then(|v| v.as_mapping_mut())
+    {
+        let abbreviated = abbreviate_prompt_composer_for_yaml(&normalized.prompt_composer);
+        let abbreviated_yaml: serde_yaml::Value = serde_yaml::to_value(&abbreviated)
+            .map_err(|e| format!("Failed to convert abbreviated blocks to YAML: {e}"))?;
+        if let Some(blocks) = abbreviated_yaml.get("blocks") {
+            pc.insert(
+                serde_yaml::Value::String("blocks".to_string()),
+                blocks.clone(),
+            );
+        }
+    }
+
+    serde_yaml::to_string(&abbreviated_root)
+        .map_err(|e| format!("Failed to serialize normalized config to YAML: {e}"))
+}
+
 fn persist_config_if_changed(
     path: &Path,
     raw: &str,
@@ -130,21 +155,7 @@ fn persist_config_if_changed(
     let source_value: serde_yaml::Value = serde_yaml::from_str(raw)
         .map_err(|e| format!("Invalid YAML in {}: {e}", path.display()))?;
 
-    // Build a JSON version of the config with the prompt_composer blocks
-    // abbreviated (built-in/plugin blocks → only {id, enabled}) so the YAML
-    // on disk stays clean and does not expose framework-internal content.
-    let mut abbreviated_root: Value = serde_json::to_value(normalized)
-        .map_err(|e| format!("Failed to serialize config for YAML output: {e}"))?;
-    if let Some(pc) = abbreviated_root
-        .get_mut("prompt_composer")
-        .and_then(|v| v.as_object_mut())
-    {
-        let abbreviated = abbreviate_prompt_composer_for_yaml(&normalized.prompt_composer);
-        pc.insert("blocks".to_string(), abbreviated["blocks"].clone());
-    }
-
-    let normalized_yaml = serde_yaml::to_string(&abbreviated_root)
-        .map_err(|e| format!("Failed to serialize normalized config: {e}"))?;
+    let normalized_yaml = serialize_config_to_yaml(normalized)?;
     let normalized_value: serde_yaml::Value = serde_yaml::from_str(&normalized_yaml)
         .map_err(|e| format!("Failed to parse normalized config YAML: {e}"))?;
 

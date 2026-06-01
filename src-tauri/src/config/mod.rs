@@ -9,7 +9,7 @@ mod settings_ui;
 
 pub use io::{
     ConfigInfo, ConfigUpgradeResult, config_dir_path, get_config_info, init_config_if_missing,
-    load_config, upgrade_config_file,
+    load_config, serialize_config_to_yaml, upgrade_config_file,
 };
 #[allow(unused_imports)]
 pub use prompt_composer::{
@@ -574,5 +574,25 @@ mod tests {
 
         // Clean up
         unregister_plugin_provider("custom-oauth-llm");
+    }
+
+    #[test]
+    fn test_config_yaml_serialization_order_and_abbreviation() {
+        let mut cfg = AppConfig::default();
+        cfg.language = "zh-CN".to_string();
+        cfg.active_provider = "custom".to_string();
+        
+        let yaml = serialize_config_to_yaml(&cfg).expect("serialize config");
+        
+        let language_idx = yaml.find("language:").expect("find language");
+        let active_provider_idx = yaml.find("active_provider:").expect("find active_provider");
+        let providers_idx = yaml.find("providers:").expect("find providers");
+        let prompt_composer_idx = yaml.find("prompt_composer:").expect("find prompt_composer");
+        
+        assert!(language_idx < active_provider_idx);
+        assert!(active_provider_idx < providers_idx);
+        assert!(providers_idx < prompt_composer_idx);
+
+        assert!(!yaml.contains("Commentary protocol"));
     }
 }

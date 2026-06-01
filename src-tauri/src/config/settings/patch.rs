@@ -39,8 +39,7 @@ pub fn apply_settings_patch(patch: SettingsPatch) -> Result<SettingsSnapshot, St
     let patched: AppConfig = serde_json::from_value(root)
         .map_err(|e| format!("Patched configuration is invalid: {e}"))?;
     let normalized = patched.normalize();
-    let normalized_yaml = serde_yaml::to_string(&normalized)
-        .map_err(|e| format!("Failed to serialize normalized config: {e}"))?;
+    let normalized_yaml = crate::config::serialize_config_to_yaml(&normalized)?;
 
     atomic_write(&config_path, &normalized_yaml)?;
     snapshot_from_config(&normalized, &config_path, &normalized_yaml)
