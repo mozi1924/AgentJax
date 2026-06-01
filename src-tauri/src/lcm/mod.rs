@@ -52,21 +52,28 @@ pub use summarizer::ProviderSummarizer;
 pub use tools::{LcmDescribeTool, LcmExpandTool, LcmGrepTool};
 pub use types::*;
 
+use crate::error::{AgentJaxError, AgentJaxResult};
+
 /// Return the path to the LCM SQLite database for a conversation.
 ///
 /// The database lives alongside the existing JSONL messages file:
 /// `~/.agentjax/sessions/{conversation_id}/lcm.db`
-pub fn lcm_store_path(conversation_id: &str) -> Result<PathBuf, String> {
-    let dir = crate::conversation_store::conversation_workspace_path(conversation_id)?
+pub fn lcm_store_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
+    let dir = crate::conversation_store::conversation_workspace_path(conversation_id)
+        .map_err(|e| AgentJaxError::internal(format!("Failed to get workspace path: {e}")))?
         .parent()
-        .ok_or_else(|| format!("Invalid conversation workspace path for '{}'", conversation_id))?
+        .ok_or_else(|| {
+            AgentJaxError::not_found(format!(
+                "Invalid conversation workspace path for '{conversation_id}'"
+            ))
+        })?
         .to_path_buf();
     // Ensure the directory exists.
     std::fs::create_dir_all(&dir).map_err(|e| {
-        format!(
+        AgentJaxError::internal(format!(
             "Failed to create LCM store directory {}: {e}",
             dir.display()
-        )
+        ))
     })?;
     Ok(dir.join("lcm.db"))
 }
@@ -79,11 +86,11 @@ pub fn lcm_store_path(conversation_id: &str) -> Result<PathBuf, String> {
 pub fn open_lcm_engine(
     conversation_id: &str,
     lcm_config: &LcmConfig,
-) -> Result<Arc<LcmEngine>, String> {
+) -> AgentJaxResult<Arc<LcmEngine>> {
     let db_path = lcm_store_path(conversation_id)?;
     let store = Arc::new(
         LcmStore::open(&db_path, lcm_config.clone())
-            .map_err(|e| format!("Failed to open LCM store: {e}"))?,
+            .map_err(|e| AgentJaxError::internal(format!("Failed to open LCM store: {e}")))?,
     );
 
     let engine = Arc::new(LcmEngine::new(
@@ -103,11 +110,11 @@ pub fn open_lcm_engine_with_summarizer(
     conversation_id: &str,
     lcm_config: &LcmConfig,
     app_config: &crate::config::AppConfig,
-) -> Result<Arc<LcmEngine>, String> {
+) -> AgentJaxResult<Arc<LcmEngine>> {
     let db_path = lcm_store_path(conversation_id)?;
     let store = Arc::new(
         LcmStore::open(&db_path, lcm_config.clone())
-            .map_err(|e| format!("Failed to open LCM store: {e}"))?,
+            .map_err(|e| AgentJaxError::internal(format!("Failed to open LCM store: {e}")))?,
     );
 
     // Try to create a ProviderSummarizer; fall back to NoopSummarizer
@@ -145,11 +152,11 @@ pub fn open_lcm_engine_with_summarizer(
 pub async fn sync_conversation_to_lcm(
     conversation_id: &str,
     lcm_store: &Arc<LcmStore>,
-) -> Result<(), String> {
+) -> AgentJaxResult<()> {
     use crate::conversation_store::ConversationLine;
 
     let detail = crate::conversation_store::load_conversation(conversation_id)
-        .map_err(|e| format!("Failed to load conversation for LCM sync: {e}"))?;
+        .map_err(|e| AgentJaxError::internal(format!("Failed to load conversation for LCM sync: {e}")))?;
 
     let Some(detail) = detail else {
         return Ok(()); // Conversation doesn't exist yet.
@@ -192,7 +199,7 @@ pub async fn sync_conversation_to_lcm(
         // Use INSERT OR IGNORE to skip already-persisted messages.
         lcm_store
             .persist_message(&msg)
-            .map_err(|e| format!("Failed to persist message to LCM: {e}"))?;
+            .map_err(|e| AgentJaxError::internal(format!("Failed to persist message to LCM: {e}")))?;
     }
 
     let _ = now_ms; // silence unused warning

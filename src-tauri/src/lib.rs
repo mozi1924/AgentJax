@@ -5,6 +5,8 @@ mod commands;
 mod config;
 mod conversation_store;
 mod conversation_store_utils;
+pub mod error;
+mod error_classifier;
 pub mod lcm;
 pub mod mcp;
 mod message_phase;
