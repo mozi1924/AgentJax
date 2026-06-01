@@ -1,3 +1,4 @@
+use crate::error::AgentJaxResult;
 use crate::time_context::TimeSnapshot;
 use crate::tools::calculator;
 use crate::tools::{Tool, ToolExecutionContext};
@@ -52,9 +53,9 @@ impl Tool for CalculatorTool {
         })
     }
 
-    fn execute(&self, arguments: &Value, _context: &ToolExecutionContext) -> Result<Value, String> {
+    fn execute(&self, arguments: &Value, _context: &ToolExecutionContext) -> AgentJaxResult<Value> {
         let request = calculator::parse_request(arguments)?;
-        calculator::execute(request)
+        calculator::execute(request).map_err(Into::into)
     }
 }
 
@@ -88,7 +89,7 @@ impl Tool for SystemTimeTool {
         &self,
         _arguments: &Value,
         _context: &ToolExecutionContext,
-    ) -> Result<Value, String> {
+    ) -> AgentJaxResult<Value> {
         let now = SystemTime::now();
         let duration = now
             .duration_since(UNIX_EPOCH)

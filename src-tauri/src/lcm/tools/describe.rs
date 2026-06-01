@@ -9,6 +9,7 @@
 
 use crate::lcm::store::LcmStore;
 use crate::lcm::types::LcmId;
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -69,7 +70,7 @@ impl Tool for LcmDescribeTool {
         &self,
         arguments: &Value,
         _context: &ToolExecutionContext,
-    ) -> Result<Value, String> {
+    ) -> AgentJaxResult<Value> {
         let args: LcmDescribeArgs = serde_json::from_value(arguments.clone())
             .map_err(|e| format!("Invalid arguments for lcm_describe: {e}"))?;
 
@@ -78,14 +79,14 @@ impl Tool for LcmDescribeTool {
         let result = self
             .store
             .describe(&id)
-            .map_err(|e| format!("lcm_describe failed: {e}"))?;
+            .map_err(|e| AgentJaxError::internal(format!("lcm_describe failed: {e}")))?;
 
         match result {
             Some(desc) => {
                 serde_json::to_value(&desc)
-                    .map_err(|e| format!("Failed to serialize describe result: {e}"))
+                    .map_err(|e| AgentJaxError::internal(format!("Failed to serialize describe result: {e}")))
             }
-            None => Err(format!("No LCM entity found with id: {id}")),
+            None => Err(AgentJaxError::not_found(format!("No LCM entity found with id: {id}"))),
         }
     }
 }

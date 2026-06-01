@@ -8,6 +8,7 @@
 
 use crate::lcm::store::LcmStore;
 use crate::lcm::types::LcmId;
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -80,7 +81,7 @@ impl Tool for LcmGrepTool {
         &self,
         arguments: &Value,
         context: &ToolExecutionContext,
-    ) -> Result<Value, String> {
+    ) -> AgentJaxResult<Value> {
         let args: LcmGrepArgs = serde_json::from_value(arguments.clone())
             .map_err(|e| format!("Invalid arguments for lcm_grep: {e}"))?;
 
@@ -96,9 +97,9 @@ impl Tool for LcmGrepTool {
         let results = self
             .store
             .search_messages(conversation_id, &args.pattern, summary_id.as_ref(), args.cursor.as_deref(), page_size)
-            .map_err(|e| format!("lcm_grep search failed: {e}"))?;
+            .map_err(|e| AgentJaxError::internal(format!("lcm_grep search failed: {e}")))?;
 
         serde_json::to_value(&results)
-            .map_err(|e| format!("Failed to serialize grep results: {e}"))
+            .map_err(|e| AgentJaxError::internal(format!("Failed to serialize grep results: {e}")))
     }
 }

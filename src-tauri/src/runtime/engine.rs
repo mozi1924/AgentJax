@@ -4,6 +4,7 @@ mod request;
 mod tool_state;
 mod turn;
 
+use crate::error::AgentJaxResult;
 use super::AgentRuntime;
 use super::stream_collection::collect_provider_turn;
 use super::tool_archiving::archive_unavailable_historical_tool_calls;
@@ -38,7 +39,7 @@ impl AgentRuntime {
         lcm_engine: &std::sync::Arc<crate::lcm::LcmEngine>,
         cancel_rx: &mut watch::Receiver<bool>,
         mut on_event: F,
-    ) -> Result<(ResponseStreamResult, Vec<Value>), String>
+    ) -> AgentJaxResult<(ResponseStreamResult, Vec<Value>)>
     where
         F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send + 'static,
     {
@@ -100,7 +101,7 @@ impl AgentRuntime {
 
         'turn_loop: loop {
             if turn_idx >= max_turns {
-                return Err("Maximum turn execution limit reached".to_string());
+                return Err(crate::error::AgentJaxError::internal("Maximum turn execution limit reached"));
             }
             turn_idx += 1;
 

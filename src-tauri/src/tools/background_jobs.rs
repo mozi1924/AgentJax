@@ -273,7 +273,7 @@ pub(crate) fn register_job_handle(job: &Arc<BackgroundToolJob>, handle: JoinHand
     *guard = Some(handle);
 }
 
-pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: Result<Value, String>) {
+pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: crate::error::AgentJaxResult<Value>) {
     let completed_at_unix_ms = now_unix_ms();
     let duration_ms = completed_at_unix_ms
         .saturating_sub(job.started_at_unix_ms)
@@ -295,7 +295,7 @@ pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: Result<Value, S
         Err(error) => {
             state.status = BackgroundJobStatus::Failed;
             state.output = None;
-            state.error = Some(error);
+            state.error = Some(error.to_string());
         }
     }
     state.completed_at_unix_ms = Some(completed_at_unix_ms);
@@ -305,7 +305,7 @@ pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: Result<Value, S
     job.notify.notify_waiters();
 }
 
-pub(crate) fn cancel_job(job_id: &str, conversation_id: Option<&str>) -> Result<Value, String> {
+pub(crate) fn cancel_job(job_id: &str, conversation_id: Option<&str>) -> crate::error::AgentJaxResult<Value> {
     let job = resolve_job(job_id, conversation_id)?;
     let should_abort = mark_job_cancelled(&job, "Background tool job was cancelled");
     prune_jobs();
@@ -368,7 +368,7 @@ pub(crate) async fn wait_for_job(
     job_id: &str,
     timeout_ms: Option<u64>,
     conversation_id: Option<&str>,
-) -> Result<Value, String> {
+) -> crate::error::AgentJaxResult<Value> {
     let job = resolve_job(job_id, conversation_id)?;
     let timeout_ms = timeout_ms
         .unwrap_or(DEFAULT_WAIT_TIMEOUT_MS)

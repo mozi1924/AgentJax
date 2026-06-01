@@ -209,6 +209,12 @@ impl AgentJaxError {
         self.source = Some(format!("{err}"));
         self
     }
+
+    /// Check if the error message contains the given pattern.
+    /// Convenience for tests that used `err.contains()` on `String`.
+    pub fn contains(&self, pattern: &str) -> bool {
+        self.message.contains(pattern)
+    }
 }
 
 impl fmt::Display for AgentJaxError {

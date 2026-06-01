@@ -5,6 +5,7 @@ mod files;
 mod native;
 mod registry;
 
+use crate::error::AgentJaxResult;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -105,7 +106,7 @@ pub trait Tool: Send + Sync {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn parameters_schema(&self) -> Value;
-    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> Result<Value, String>;
+    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value>;
     fn display_name(&self) -> &'static str {
         self.name()
     }

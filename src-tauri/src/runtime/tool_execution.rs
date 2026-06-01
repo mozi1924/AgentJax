@@ -1,3 +1,4 @@
+use crate::error::AgentJaxResult;
 use crate::provider_api::types::{ProviderPendingToolCall, ProviderStreamEvent};
 use crate::tools::ToolCatalogSnapshot;
 use futures_util::FutureExt;
@@ -127,7 +128,7 @@ impl ToolExecutionScheduler {
         !self.active_tools.is_empty()
     }
 
-    pub(super) fn try_emit_completed_tools<F>(&mut self, on_event: &mut F) -> Result<(), String>
+    pub(super) fn try_emit_completed_tools<F>(&mut self, on_event: &mut F) -> AgentJaxResult<()>
     where
         F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
     {
@@ -137,7 +138,7 @@ impl ToolExecutionScheduler {
         Ok(())
     }
 
-    pub(super) fn emit_progress_events<F>(&self, on_event: &mut F) -> Result<(), String>
+    pub(super) fn emit_progress_events<F>(&self, on_event: &mut F) -> AgentJaxResult<()>
     where
         F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
     {
@@ -157,7 +158,7 @@ impl ToolExecutionScheduler {
         provider_kind: &str,
         repeated_failed_tool_signatures: &mut HashMap<String, usize>,
         on_event: &mut F,
-    ) -> Result<ExecutedToolBatch, String>
+    ) -> AgentJaxResult<ExecutedToolBatch>
     where
         F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
     {
@@ -192,7 +193,7 @@ impl ToolExecutionScheduler {
         &mut self,
         (call_id, maybe_record): ToolCompletionMessage,
         on_event: &mut F,
-    ) -> Result<(), String>
+    ) -> AgentJaxResult<()>
     where
         F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
     {

@@ -55,7 +55,7 @@ pub(super) async fn execute_backgroundable_entry(
     context: ToolExecutionContext,
     mcp_manager: Arc<crate::mcp::McpManager>,
     mcp_runtime: crate::config::McpRuntimeConfig,
-) -> Result<Value, String> {
+) -> crate::error::AgentJaxResult<Value> {
     match entry {
         ToolSnapshotEntry::Native(tool) => tool.execute(&arguments, &context),
         ToolSnapshotEntry::Mcp {
@@ -72,10 +72,11 @@ pub(super) async fn execute_backgroundable_entry(
                     arguments,
                 )
                 .await
+                .map_err(Into::into)
         }
         ToolSnapshotEntry::Plugin { .. } => {
-            Err("Plugin tools are not supported as background jobs yet".to_string())
+            Err(crate::error::AgentJaxError::tool("Plugin tools are not supported as background jobs yet"))
         }
-        _ => Err("Only native and MCP tools can run as background jobs".to_string()),
+        _ => Err(crate::error::AgentJaxError::tool("Only native and MCP tools can run as background jobs")),
     }
 }

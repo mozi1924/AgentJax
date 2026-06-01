@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use std::str::FromStr;
 use std::time::Duration;
 
+use crate::error::{AgentJaxError, AgentJaxResult};
 use futures_util::StreamExt;
 use reqwest::Method;
 use serde::Deserialize;
@@ -93,22 +94,23 @@ pub async fn stream_response<F>(
     req: &ResponseStreamRequest,
     cancel_rx: &mut watch::Receiver<bool>,
     mut on_delta: F,
-) -> Result<ResponseStreamResult, String>
+) -> AgentJaxResult<ResponseStreamResult>
 where
     F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
 {
+    use crate::error::AgentJaxError;
     let resolved = config.resolve_model_profile(req.model.as_deref())?;
     let definition = registry::provider_definition(&resolved.provider.kind).ok_or_else(|| {
-        format!(
+        AgentJaxError::config(format!(
             "Unsupported provider kind '{}'. Register a provider plugin to enable it.",
             resolved.provider.kind
-        )
+        ))
     })?;
     let package = definition.plugin_package.clone().ok_or_else(|| {
-        format!(
+        AgentJaxError::config(format!(
             "Provider kind '{}' is registered without an executable plugin package.",
             resolved.provider.kind
-        )
+        ))
     })?;
     let context = plugin_context(&resolved, req);
     let request: PluginHttpRequest =
@@ -126,6 +128,7 @@ where
                 definition.capabilities,
             )
             .await
+            .map_err(Into::into)
         }
         "websocket" => {
             stream_websocket_request(
@@ -138,18 +141,19 @@ where
                 definition.capabilities,
             )
             .await
+            .map_err(Into::into)
         }
-        other => Err(format!(
+        other => Err(AgentJaxError::config(format!(
             "Provider plugin '{}' requested unsupported stream protocol '{}'. The host currently supports SSE and WebSocket for provider streams.",
             resolved.provider.kind, other
-        )),
+        ))),
     }
 }
 
 pub async fn fetch_remote_models(
     config: &AppConfig,
     provider_key: &str,
-) -> Result<Vec<ProviderModelDescriptor>, String> {
+) -> AgentJaxResult<Vec<ProviderModelDescriptor>> {
     let provider = config.resolved_provider(provider_key)?;
     let prompt_assembly = config.compile_prompt_assembly();
     let resolved = ResolvedModelConfig {
@@ -193,7 +197,7 @@ pub fn get_reasoning_capability(
     provider_kind: &str,
     model_id: &str,
     cached_levels: Option<&[String]>,
-) -> Result<ModelReasoningCapability, String> {
+) -> AgentJaxResult<ModelReasoningCapability> {
     let package = registry::provider_plugin_package(provider_kind).ok_or_else(|| {
         format!(
             "Provider kind '{}' is registered without an executable plugin package.",
@@ -531,13 +535,13 @@ fn apply_stream_step(
     Ok(step.done)
 }
 
-async fn send_json_request(request: &PluginHttpRequest, timeout_seconds: u64) -> Result<Value, String> {
+async fn send_json_request(request: &PluginHttpRequest, timeout_seconds: u64) -> AgentJaxResult<Value> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_seconds))
         .build()
-        .map_err(|err| format!("Failed to initialize provider HTTP client: {err}"))?;
+        .map_err(|err| AgentJaxError::network(format!("Failed to initialize provider HTTP client: {err}")))?;
     let method = Method::from_str(request.method.trim())
-        .map_err(|err| format!("Invalid provider plugin HTTP method '{}': {err}", request.method))?;
+        .map_err(|err| AgentJaxError::config(format!("Invalid provider plugin HTTP method '{}': {err}", request.method)))?;
     let mut builder = client.request(method, request.url.clone());
     if let Some(body) = &request.body {
         builder = builder.json(body);
@@ -545,7 +549,7 @@ async fn send_json_request(request: &PluginHttpRequest, timeout_seconds: u64) ->
     let response = apply_headers_to_reqwest(builder, &request.headers)?
         .send()
         .await
-        .map_err(|err| format!("Failed to reach provider endpoint: {err}"))?;
+        .map_err(|err| AgentJaxError::network(format!("Failed to reach provider endpoint: {err}")))?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -553,13 +557,13 @@ async fn send_json_request(request: &PluginHttpRequest, timeout_seconds: u64) ->
             .text()
             .await
             .unwrap_or_else(|_| "<unable to read error body>".to_string());
-        return Err(format!("Provider endpoint error ({status}): {text}"));
+        return Err(AgentJaxError::internal(format!("Provider endpoint error ({status}): {text}")));
     }
 
     response
         .json()
         .await
-        .map_err(|err| format!("Failed to parse provider endpoint JSON: {err}"))
+        .map_err(|err| AgentJaxError::internal(format!("Failed to parse provider endpoint JSON: {err}")))
 }
 
 fn plugin_context(resolved: &ResolvedModelConfig, req: &ResponseStreamRequest) -> Value {
@@ -598,13 +602,14 @@ fn call_provider_function<T>(
     provider_kind: &str,
     function_name: &str,
     argument: Value,
-) -> Result<T, String>
+) -> AgentJaxResult<T>
 where
     T: for<'de> Deserialize<'de>,
 {
+    use crate::error::AgentJaxError;
     let mut instance = create_temp_plugin_instance(package)
-        .map_err(|err| format!("Failed to create plugin instance: {err}"))?;
+        .map_err(|err| AgentJaxError::internal(format!("Failed to create plugin instance: {err}")))?;
     instance
         .call_provider_function::<T>(provider_kind, function_name, argument)
-        .map_err(|err| err.to_string())
+        .map_err(|err| AgentJaxError::tool(err.to_string()))
 }

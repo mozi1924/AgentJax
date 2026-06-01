@@ -6,7 +6,7 @@ pub(super) fn finalize_executed_records(
     provider_kind: &str,
     mut executed_records: Vec<ExecutedToolRecord>,
     repeated_failed_tool_signatures: &mut HashMap<String, usize>,
-) -> Result<ExecutedToolBatch, String> {
+) -> crate::error::AgentJaxResult<ExecutedToolBatch> {
     let mut tool_results_items = Vec::new();
     let mut executed_tool_call_items = Vec::new();
     let mut timeline_events = Vec::new();

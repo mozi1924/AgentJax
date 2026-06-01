@@ -111,7 +111,7 @@ async fn execute_prepared_tool(
                         break;
                     }
                     Err(err) => {
-                        last_error = Some(err);
+                        last_error = Some(err.to_string());
                     }
                 }
             }

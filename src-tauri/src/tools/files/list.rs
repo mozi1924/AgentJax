@@ -1,3 +1,4 @@
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -89,24 +90,24 @@ impl Tool for ListFilesTool {
         })
     }
 
-    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> Result<Value, String> {
+    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
         let args = super::common::parse_tool_args::<ListFilesArgs>(arguments, self.name())?;
         let target = args.path.unwrap_or_else(|| ".".to_string());
         let resolved = resolve_workspace_path(&target, context, true)?;
         if !resolved.absolute_path.exists() {
-            return Err(format!(
+            return Err(AgentJaxError::not_found(format!(
                 "Directory '{}' not found in current conversation workspace",
                 relative_path_display(&resolved.relative_path)
-            ));
+            )));
         }
 
         let metadata = fs::metadata(&resolved.absolute_path)
             .map_err(|err| format!("Failed to stat {}: {err}", resolved.absolute_path.display()))?;
         if !metadata.is_dir() {
-            return Err(format!(
+            return Err(AgentJaxError::tool(format!(
                 "Path '{}' is not a directory",
                 relative_path_display(&resolved.relative_path)
-            ));
+            )));
         }
 
         let max_entries = args

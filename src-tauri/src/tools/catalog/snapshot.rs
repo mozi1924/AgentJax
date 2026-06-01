@@ -96,7 +96,7 @@ impl ToolCatalogSnapshot {
         tool_name: &str,
         arguments: &Value,
         context: &ToolExecutionContext,
-    ) -> Result<Value, String> {
+    ) -> crate::error::AgentJaxResult<Value> {
         Ok(self
             .execute_with_effects(tool_name, arguments, context)
             .await?
@@ -108,7 +108,7 @@ impl ToolCatalogSnapshot {
         tool_name: &str,
         arguments: &Value,
         context: &ToolExecutionContext,
-    ) -> Result<ToolCatalogExecution, String> {
+    ) -> crate::error::AgentJaxResult<ToolCatalogExecution> {
         let entry = self
             .entries
             .get(tool_name)
@@ -148,6 +148,7 @@ impl ToolCatalogSnapshot {
                     )
                 })?;
                 execute_plugin_package_tool(package, plugin_id, tool_name, arguments, context)
+                    .map_err(Into::into)
             }
             ToolSnapshotEntry::BackgroundTask => {
                 use super::schemas::BACKGROUND_TASK_NAME;
@@ -171,10 +172,10 @@ impl ToolCatalogSnapshot {
                                 )
                             })?;
                         if !is_backgroundable_entry(&target_entry) {
-                            return Err(format!(
+                            return Err(crate::error::AgentJaxError::tool(format!(
                                 "Tool '{}' cannot run in the background. Only native and MCP tools are supported.",
                                 target_tool_name
-                            ));
+                            )));
                         }
 
                         let job = background_jobs::start_job_for_conversation(
@@ -200,7 +201,7 @@ impl ToolCatalogSnapshot {
                             ))
                             .catch_unwind()
                             .await
-                            .unwrap_or_else(|_| Err("Background tool task panicked".to_string()));
+                            .unwrap_or_else(|_| Err::<Value, _>(crate::error::AgentJaxError::internal("Background tool task panicked")));
                             background_jobs::complete_job(&job_for_task, result);
                         });
                         background_jobs::register_job_handle(&job, handle);
@@ -263,10 +264,10 @@ impl ToolCatalogSnapshot {
                         output: background_jobs::list_jobs(context.conversation_id.as_deref()),
                         state_changes: Vec::new(),
                     }),
-                    _ => Err(format!(
+                    _ => Err(crate::error::AgentJaxError::tool(format!(
                         "background_task: unknown action '{}'. Valid actions: start, wait, cancel, list",
                         action
-                    )),
+                    ))),
                 }
             },
             ToolSnapshotEntry::ManageMcpServer {
@@ -283,6 +284,7 @@ impl ToolCatalogSnapshot {
                     arguments,
                 )
                 .await
+                .map_err(Into::into)
             }
         }
     }

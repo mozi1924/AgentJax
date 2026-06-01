@@ -1,3 +1,4 @@
+use crate::error::AgentJaxResult;
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -63,7 +64,7 @@ impl Tool for FileWriterTool {
         })
     }
 
-    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> Result<Value, String> {
+    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
         let args = super::common::parse_tool_args::<WriteFileArgs>(arguments, self.name())?;
         let resolved = resolve_workspace_path(&args.path, context, false)?;
         write_text_file(&resolved.absolute_path, &args.content)?;
@@ -113,7 +114,7 @@ impl Tool for MkdirTool {
         })
     }
 
-    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> Result<Value, String> {
+    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
         let args = super::common::parse_tool_args::<MkdirArgs>(arguments, self.name())?;
         let resolved = resolve_workspace_path(&args.path, context, false)?;
         let existed_before = resolved.absolute_path.exists();

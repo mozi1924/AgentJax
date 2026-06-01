@@ -457,7 +457,7 @@ impl ToolCatalog {
         prefixed_name: &str,
         arguments: &Value,
         context: &ToolExecutionContext,
-    ) -> Result<Value, String> {
+    ) -> crate::error::AgentJaxResult<Value> {
         self.snapshot(context)
             .await
             .execute(prefixed_name, arguments, context)

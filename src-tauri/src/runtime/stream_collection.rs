@@ -3,6 +3,7 @@ use super::tool_parsing::{
     is_valid_pending_tool_call, parse_tool_arguments, push_or_update_pending_tool_call,
 };
 use crate::config::AppConfig;
+use crate::error::AgentJaxResult;
 use crate::provider_api::types::{
     ProviderPendingToolCall, ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult,
 };
@@ -25,7 +26,7 @@ pub(super) async fn collect_provider_turn<F>(
     on_event: &mut F,
     tool_scheduler: Option<&mut ToolExecutionScheduler>,
     repeated_failed_tool_signatures: &HashMap<String, usize>,
-) -> Result<CollectedProviderTurn, String>
+) -> AgentJaxResult<CollectedProviderTurn>
 where
     F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
 {

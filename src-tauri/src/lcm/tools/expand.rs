@@ -12,6 +12,7 @@
 
 use crate::lcm::store::LcmStore;
 use crate::lcm::types::LcmId;
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -85,7 +86,7 @@ impl Tool for LcmExpandTool {
         &self,
         arguments: &Value,
         context: &ToolExecutionContext,
-    ) -> Result<Value, String> {
+    ) -> AgentJaxResult<Value> {
         let args: LcmExpandArgs = serde_json::from_value(arguments.clone())
             .map_err(|e| format!("Invalid arguments for lcm_expand: {e}"))?;
 
@@ -102,7 +103,7 @@ impl Tool for LcmExpandTool {
         // In the full implementation, this check should use the actual
         // sub-agent context from the Task tool infrastructure.
         if !Self::is_sub_agent_context(context) {
-            return Err(
+            return Err(AgentJaxError::tool(
                 "lcm_expand is restricted to sub-agents only. \
                  The main agent should delegate expansion work to a sub-agent \
                  using the Task tool:\n\n\
@@ -110,8 +111,7 @@ impl Tool for LcmExpandTool {
                  subagent_type=\"explore\", ...)\n\n\
                  This restriction prevents uncontrolled context growth in \
                  the primary conversation loop. See LCM §2.4 for details."
-                    .to_string(),
-            );
+            ));
         }
 
         let summary_id = LcmId::from(args.summary_id);

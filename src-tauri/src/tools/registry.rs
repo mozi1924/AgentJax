@@ -39,12 +39,12 @@ impl ToolRegistry {
         name: &str,
         arguments: &Value,
         context: &ToolExecutionContext,
-    ) -> Result<Value, String> {
+    ) -> crate::error::AgentJaxResult<Value> {
         let tool = self
             .tools
             .iter()
             .find(|tool| tool.name() == name)
-            .ok_or_else(|| format!("Tool '{}' not found in registry", name))?;
+            .ok_or_else(|| crate::error::AgentJaxError::not_found(format!("Tool '{}' not found in registry", name)))?;
 
         tool.execute(arguments, context)
     }

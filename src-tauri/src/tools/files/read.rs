@@ -1,3 +1,4 @@
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -55,14 +56,14 @@ impl Tool for FileReaderTool {
         })
     }
 
-    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> Result<Value, String> {
+    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
         let args = super::common::parse_tool_args::<ReadFileArgs>(arguments, self.name())?;
         let resolved = resolve_workspace_path(&args.path, context, false)?;
         if !resolved.absolute_path.exists() {
-            return Err(format!(
+            return Err(AgentJaxError::not_found(format!(
                 "File '{}' not found in current conversation workspace",
                 relative_path_display(&resolved.relative_path)
-            ));
+            )));
         }
 
         let max_bytes = args

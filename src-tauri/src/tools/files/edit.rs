@@ -1,3 +1,4 @@
+use crate::error::AgentJaxResult;
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -247,7 +248,7 @@ impl Tool for EditFileTool {
         })
     }
 
-    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> Result<Value, String> {
+    fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
         let args = super::common::parse_tool_args::<EditFileArgs>(arguments, self.name())?;
         let resolved = resolve_workspace_path(&args.path, context, false)?;
         let original = read_text_file(&resolved.absolute_path, MAX_READ_MAX_BYTES, "edit")?;
