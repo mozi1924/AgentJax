@@ -845,7 +845,7 @@ mod tests {
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
-        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT + 3);
+        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT + 5);
         assert!(snapshot.active_tool_names().contains("calculator"));
         assert!(snapshot.active_tool_names().contains("get_system_time"));
         assert!(snapshot.active_tool_names().contains("list_files"));

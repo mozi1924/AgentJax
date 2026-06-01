@@ -49,7 +49,7 @@ pub use engine::LcmEngine;
 pub use file_handler::FileHandler;
 pub use store::LcmStore;
 pub use summarizer::ProviderSummarizer;
-pub use tools::{LcmDescribeTool, LcmExpandTool, LcmGrepTool};
+pub use tools::{AgenticMapTool, LcmDescribeTool, LcmExpandTool, LcmGrepTool, LlmMapTool};
 pub use types::*;
 
 use crate::error::{AgentJaxError, AgentJaxResult};
