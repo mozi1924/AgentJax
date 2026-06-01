@@ -55,7 +55,7 @@ export function SchemaRenderer(props: SchemaRendererProps) {
 
         if (renderKind === 'field' && node.kind === 'field') {
           return (
-            <div key={key} className="flex min-h-0 flex-1 flex-col">
+            <div key={key} className="flex flex-col">
               <FieldRenderer
                 field={node}
                 snapshot={props.snapshot}

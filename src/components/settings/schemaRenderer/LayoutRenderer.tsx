@@ -28,7 +28,7 @@ export function GroupRenderer({
   const { t } = useI18n();
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col space-y-2.5 pt-2">
+    <section className="flex flex-col space-y-2.5 pt-2">
       <div className="mb-1 mt-3 shrink-0 first:mt-0">
         <h5 className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
           {t(node.title)}
@@ -37,7 +37,7 @@ export function GroupRenderer({
           <p className="mt-0.5 text-[11px] text-neutral-400/70">{t(node.description)}</p>
         )}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col border-t border-[#242426]/30 pt-1">
+      <div className="flex flex-col border-t border-[#242426]/30 pt-1">
         {renderChildren(node.children, contextPath)}
       </div>
     </section>
