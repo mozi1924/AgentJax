@@ -36,6 +36,12 @@ pub fn build_settings_sections() -> Result<Vec<Value>, String> {
         }
     }
 
+    sections.sort_by_key(|v| {
+        v.get("order")
+            .and_then(Value::as_i64)
+            .unwrap_or(1000)
+    });
+
     validate_unique_schema_ids(&sections)?;
     Ok(sections)
 }

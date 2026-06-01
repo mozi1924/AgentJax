@@ -2,7 +2,7 @@
   "id": "lcm",
   "title": "settings.lcm.title",
   "icon": "MemoryStick",
-  "order": 45,
+  "order": 90,
   "description": "settings.lcm.description",
   "children": [
     {

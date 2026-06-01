@@ -2,7 +2,7 @@
   "id": "plugin_manager",
   "title": "settings.plugins.title",
   "icon": "Puzzle",
-  "order": 60,
+  "order": 50,
   "description": "settings.plugins.description",
   "children": [
     {

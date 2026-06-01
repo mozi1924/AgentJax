@@ -2,7 +2,7 @@
   "id": "prompt-composer",
   "title": "settings.prompt_composer.title",
   "icon": "Blocks",
-  "order": 15,
+  "order": 80,
   "description": "settings.prompt_composer.description",
   "children": [
     {

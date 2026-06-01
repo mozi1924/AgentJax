@@ -2,7 +2,7 @@
   "id": "tools",
   "title": "settings.tools.title",
   "icon": "Wrench",
-  "order": 65,
+  "order": 40,
   "description": "settings.tools.description",
   "children": [
     {

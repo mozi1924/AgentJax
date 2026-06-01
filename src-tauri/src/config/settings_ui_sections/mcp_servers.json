@@ -2,7 +2,7 @@
   "id": "mcp-servers",
   "title": "settings.mcp_servers.title",
   "icon": "ServerCog",
-  "order": 50,
+  "order": 60,
   "description": "settings.mcp_servers.description",
   "children": [
     {

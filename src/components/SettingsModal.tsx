@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { AlertTriangle, CheckCircle, LoaderCircle, Search, Settings2, X } from 'lucide-react';
 import { useI18n } from '../features/i18n';
@@ -79,6 +79,11 @@ function SaveStatusBanner({
   const intervalRef = useRef<any>(null);
   const exitTimeoutRef = useRef<any>(null);
 
+  const onDismissRef = useRef(onDismiss);
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
+
   useEffect(() => {
     if (!message) {
       setVisible(false);
@@ -130,7 +135,7 @@ function SaveStatusBanner({
       if (intervalRef.current) clearInterval(intervalRef.current);
       
       exitTimeoutRef.current = setTimeout(() => {
-        onDismiss();
+        onDismissRef.current();
         setRenderMessage('');
       }, 300);
     }, duration);
@@ -139,7 +144,7 @@ function SaveStatusBanner({
       if (timerRef.current) clearTimeout(timerRef.current);
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [message, isSaving, persistent, onDismiss]);
+  }, [message, isSaving, persistent]);
 
   if (!renderMessage) return null;
 
@@ -147,16 +152,16 @@ function SaveStatusBanner({
   
   return (
     <div
-      className={`relative mt-2.5 overflow-hidden rounded-xl border text-xs transition-all duration-300 ease-out px-3 py-2.5 flex items-center justify-between gap-3 ${
+      className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-50 overflow-hidden rounded-xl border text-xs transition-all duration-300 ease-out px-4 py-2.5 flex items-center justify-between gap-3 shadow-xl shadow-black/60 backdrop-blur-md min-w-[320px] max-w-[90%] ${
         visible
-          ? 'opacity-100 translate-y-0 max-h-16'
-          : 'opacity-0 -translate-y-2 max-h-0 py-0 border-transparent overflow-hidden'
+          ? 'opacity-100 translate-y-0 scale-100'
+          : 'opacity-0 translate-y-4 scale-95 pointer-events-none'
       } ${
         isError
-          ? 'border-rose-500/20 bg-rose-500/10 text-rose-200'
+          ? 'border-rose-500/30 bg-rose-950/85 text-rose-200'
           : isSavingState
-          ? 'border-indigo-500/15 bg-indigo-500/10 text-indigo-200'
-          : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
+          ? 'border-indigo-500/30 bg-indigo-950/85 text-indigo-200'
+          : 'border-emerald-500/30 bg-emerald-950/85 text-emerald-200'
       }`}
     >
       <div className="flex items-center gap-2 min-w-0">
@@ -171,7 +176,7 @@ function SaveStatusBanner({
       </div>
 
       {!isSavingState && !persistent && (
-        <span className="shrink-0 font-mono text-[10px] text-neutral-500 bg-neutral-900/40 rounded px-1 py-0.5">
+        <span className="shrink-0 font-mono text-[10px] text-neutral-400 bg-neutral-950/40 rounded px-1 py-0.5">
           {secondsLeft}s
         </span>
       )}
@@ -357,6 +362,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   };
 
+  const handleDismissStatus = useCallback(() => {
+    setStatusMessage('');
+    setStatusType('idle');
+  }, []);
+
   if (!isOpen) {
     return null;
   }
@@ -408,7 +418,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </OverlayScrollArea>
         </aside>
 
-        <section className="flex min-w-0 flex-1 flex-col bg-[#171717]">
+        <section className="flex min-w-0 flex-1 flex-col bg-[#171717] relative">
           <div className="border-b border-[#242426]/50 px-6 pt-5 pb-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className="font-sans text-[17px] font-bold text-white">
@@ -432,25 +442,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 )}
               </div>
             </div>
-            {(() => {
-              const hasError = !!loadingError || Object.keys(fieldErrors).length > 0 || statusType === 'error';
-              const activeMessage = loadingError || statusMessage;
-              const isSaving = !!savingPath || statusType === 'saving';
-              const persistent = !!loadingError;
- 
-              return (
-                <SaveStatusBanner
-                  message={activeMessage}
-                  isError={hasError}
-                  isSaving={isSaving}
-                  persistent={persistent}
-                  onDismiss={() => {
-                    setStatusMessage('');
-                    setStatusType('idle');
-                  }}
-                />
-              );
-            })()}
           </div>
 
           <OverlayScrollArea
@@ -482,6 +473,23 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               />
             )}
           </OverlayScrollArea>
+
+          {(() => {
+            const hasError = !!loadingError || Object.keys(fieldErrors).length > 0 || statusType === 'error';
+            const activeMessage = loadingError || statusMessage;
+            const isSaving = !!savingPath || statusType === 'saving';
+            const persistent = !!loadingError;
+
+            return (
+              <SaveStatusBanner
+                message={activeMessage}
+                isError={hasError}
+                isSaving={isSaving}
+                persistent={persistent}
+                onDismiss={handleDismissStatus}
+              />
+            );
+          })()}
         </section>
       </div>
     </div>
