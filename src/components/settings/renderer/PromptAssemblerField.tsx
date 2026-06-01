@@ -173,7 +173,7 @@ function PromptPreviewModal({
           className="h-full bg-[#0c0d0e]/30 px-6 py-5 select-text"
         >
           <div className="prose prose-invert prose-sm max-w-none text-slate-350">
-            {renderMarkdown(markdown)}
+            {renderMarkdown(markdown, undefined, t)}
           </div>
         </OverlayScrollArea>
       </div>

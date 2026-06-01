@@ -102,17 +102,31 @@ function getFirstUserMessageText(conversation: Conversation | null | undefined):
 }
 
 export function getConversationDisplayTitle(
-  conversation: Conversation | null | undefined
+  conversation: Conversation | null | undefined,
+  t?: (key: string) => string
 ): string {
   const explicitTitle = (conversation?.title || '').trim();
+  const defaultTitle = t ? t('sidebar.default_chat_title') : DEFAULT_CONVERSATION_TITLE;
+
   if (
     explicitTitle &&
-    (conversation?.titleSource === 'manual' || explicitTitle !== DEFAULT_CONVERSATION_TITLE)
+    conversation?.titleSource === 'manual'
   ) {
     return explicitTitle;
   }
+
+  const isDefault =
+    !explicitTitle ||
+    explicitTitle === DEFAULT_CONVERSATION_TITLE ||
+    explicitTitle === 'sidebar.default_chat_title' ||
+    (t && explicitTitle === t('sidebar.default_chat_title'));
+
+  if (!isDefault) {
+    return explicitTitle;
+  }
+
   const fallback = getFirstUserMessageText(conversation) || conversation?.lastMessagePreview || '';
-  return compactText(fallback, 30) || DEFAULT_CONVERSATION_TITLE;
+  return compactText(fallback, 30) || defaultTitle;
 }
 
 export function countUserAndDoneAssistant(lines: ConversationLine[]): number {

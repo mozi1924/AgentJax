@@ -58,7 +58,7 @@ const resolveToolDisplayName = (toolLine: ToolLine) => {
   return humanizeToolName(toolLine.name || 'tool');
 };
 
-const resolveToolOriginLabel = (toolLine: ToolLine) => {
+const resolveToolOriginLabel = (toolLine: ToolLine, t: (key: string) => string) => {
   if (toolLine.name.startsWith('mcp__')) {
     const parts = toolLine.name.split('__');
     return parts.length >= 2 ? `MCP: ${parts[1]}` : 'MCP';
@@ -66,7 +66,7 @@ const resolveToolOriginLabel = (toolLine: ToolLine) => {
   if (toolLine.name.startsWith('mcp_server__')) {
     return 'MCP';
   }
-  return 'Built-in';
+  return t('settings.tools.category.native');
 };
 
 const resolveToolAccent = (toolLine: ToolLine) => {
@@ -232,10 +232,11 @@ export default function WorkLogPanel({
                         {text ? (
                           <div className="prose prose-invert prose-sm max-w-none [&_code]:!rounded-md [&_code]:!bg-[#1b1c1d] [&_code]:!px-1.5 [&_code]:!py-0.5 [&_code]:!text-[11px] [&_code]:!text-slate-200 [&_p]:!my-1 [&_pre]:!rounded-xl [&_pre]:!border [&_pre]:!border-zinc-800 [&_pre]:!bg-[#0c0d0e]">
                             {renderMarkdown(
-                              text,
+                              text === 'chat.stopped' ? t('chat.stopped') : text,
                               isDraft ? (
                                 <span className="ml-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-white align-middle" />
-                              ) : undefined
+                              ) : undefined,
+                              t
                             )}
                           </div>
                         ) : (
@@ -251,7 +252,7 @@ export default function WorkLogPanel({
 
                 const toolLine = item.line;
                 const toolDisplayName = resolveToolDisplayName(toolLine);
-                const toolOrigin = resolveToolOriginLabel(toolLine);
+                const toolOrigin = resolveToolOriginLabel(toolLine, t);
                 const accent = resolveToolAccent(toolLine);
                 const expanded = expandedTools.has(toolLine.callId);
                 const AccentIcon = accent.icon;

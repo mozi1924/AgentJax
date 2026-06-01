@@ -89,7 +89,7 @@ export function FieldRenderer({
   }
 
   const commit = async (nextValue: unknown) => {
-    const validationError = validateFieldValue(field, nextValue);
+    const validationError = validateFieldValue(field, nextValue, t);
     if (validationError) {
       setLocalError(validationError);
       return;

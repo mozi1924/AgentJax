@@ -133,7 +133,7 @@ export default function Sidebar({
   const beginRename = (conversation: Conversation) => {
     setMenuState(null);
     setEditingConversationId(conversation.conversationId);
-    setDraftTitle(getConversationDisplayTitle(conversation));
+    setDraftTitle(getConversationDisplayTitle(conversation, t));
   };
 
   const submitRename = async (conversationId: string) => {

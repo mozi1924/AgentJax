@@ -90,7 +90,7 @@ export default function SidebarConversationRow({
         className={`flex w-full items-center gap-3 whitespace-nowrap rounded-full py-2.5 pl-[18px] pr-11 text-left text-sm transition ${
           isActive ? 'font-medium text-slate-100' : 'text-slate-400 hover:text-slate-200'
         }`}
-        title={getConversationDisplayTitle(conversation)}
+        title={getConversationDisplayTitle(conversation, t)}
       >
         {isBusy ? (
           <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin text-indigo-400" />
@@ -98,7 +98,7 @@ export default function SidebarConversationRow({
           <MessageSquare className="h-5 w-5 flex-shrink-0" />
         )}
         <span className="min-w-0 flex-1 truncate">
-          {getConversationDisplayTitle(conversation)}
+          {getConversationDisplayTitle(conversation, t)}
         </span>
       </button>
 

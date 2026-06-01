@@ -249,10 +249,11 @@ function AssistantFinalCard({
                     </span>
                   ) : (
                     renderMarkdown(
-                      String(line.text),
+                      line.text === 'chat.stopped' ? t('chat.stopped') : String(line.text),
                       isDraft && !isEmpty ? (
                         <span className="ml-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-white align-middle" />
-                      ) : undefined
+                      ) : undefined,
+                      t
                     )
                   )}
                 </div>

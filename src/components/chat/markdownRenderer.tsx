@@ -27,7 +27,7 @@ const parseInlineElements = (text: string): ReactNode[] => {
   });
 };
 
-const parseParagraphs = (rawText: string) => {
+const parseParagraphs = (rawText: string, t?: (key: string, replacements?: Record<string, string>) => string) => {
   const lines = rawText.split('\n');
   const elements: ReactNode[] = [];
   let listItems: ReactNode[] = [];
@@ -175,11 +175,11 @@ const parseParagraphs = (rawText: string) => {
       };
 
       const titles: Record<string, string> = {
-        NOTE: '提示',
-        TIP: '建议',
-        IMPORTANT: '重要',
-        WARNING: '警告',
-        CAUTION: '注意',
+        NOTE: t ? t('markdown.alert.note') : '提示',
+        TIP: t ? t('markdown.alert.tip') : '建议',
+        IMPORTANT: t ? t('markdown.alert.important') : '重要',
+        WARNING: t ? t('markdown.alert.warning') : '警告',
+        CAUTION: t ? t('markdown.alert.caution') : '注意',
       };
 
       elements.push(
@@ -278,7 +278,11 @@ const injectSuffixIntoLastElement = (elements: ReactNode[], suffix: ReactNode): 
   return [...elements, suffix];
 };
 
-export const renderMarkdown = (text: string, inlineSuffix?: ReactNode) => {
+export const renderMarkdown = (
+  text: string,
+  inlineSuffix?: ReactNode,
+  t?: (key: string, replacements?: Record<string, string>) => string
+) => {
   const parts = text.split(/(```[\s\S]*?```)/g);
   const elements = parts.map((part, index) => {
     if (part.startsWith('```')) {
@@ -290,7 +294,7 @@ export const renderMarkdown = (text: string, inlineSuffix?: ReactNode) => {
 
     return (
       <div key={index} className="my-1.5">
-        {parseParagraphs(part)}
+        {parseParagraphs(part, t)}
       </div>
     );
   });

@@ -143,7 +143,7 @@ function SaveStatusBanner({
 
   if (!renderMessage) return null;
 
-  const isSavingState = isSaving || renderMessage.includes('中') || renderMessage.includes('正在');
+  const isSavingState = isSaving;
   
   return (
     <div
@@ -205,6 +205,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [savingPath, setSavingPath] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [statusMessage, setStatusMessage] = useState('');
+  const [statusType, setStatusType] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [settingsSearch, setSettingsSearch] = useState('');
 
   useEffect(() => {
@@ -240,7 +241,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setLoading(true);
     setLoadingError('');
     setStatusMessage('');
-
+    setStatusType('idle');
+ 
     invoke<SettingsUiSnapshot>('get_settings_ui_snapshot')
       .then((payload) => {
         if (disposed) return;
@@ -251,16 +253,17 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       .catch((error) => {
         if (disposed) return;
         setLoadingError(typeof error === 'string' ? error : t('settings.modal.load_error'));
+        setStatusType('error');
       })
       .finally(() => {
         if (!disposed) {
           setLoading(false);
         }
       });
-
+ 
     const currentWindow = tryGetCurrentWindow();
     let unlisten: (() => void) | null = null;
-
+ 
     if (currentWindow) {
       void currentWindow
         .listen<SettingsSnapshotEvent>('config_snapshot_changed', (event) => {
@@ -274,6 +277,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               ? t('settings.modal.reloaded_external')
               : t('settings.modal.saved')
           );
+          setStatusType('success');
         })
         .then((dispose) => {
           unlisten = dispose;
@@ -325,8 +329,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       return next;
     });
     setStatusMessage(operation === 'delete' ? t('settings.modal.removing_item') : t('settings.modal.saving'));
+    setStatusType('saving');
     setSnapshot(buildOptimisticSnapshot(snapshot, path, value, operation));
-
+ 
     try {
       const nextSnapshot = await invoke<SettingsSnapshot>('apply_settings_patch', {
         patch: {
@@ -338,6 +343,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       });
       setSnapshot(nextSnapshot);
       setStatusMessage(operation === 'delete' ? t('settings.modal.item_removed') : t('settings.modal.saved'));
+      setStatusType('success');
     } catch (error) {
       setSnapshot(previousSnapshot);
       setFieldErrors((current) => ({
@@ -345,6 +351,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         [path]: typeof error === 'string' ? error : t('settings.modal.save_failed'),
       }));
       setStatusMessage(t('settings.modal.save_failed'));
+      setStatusType('error');
     } finally {
       setSavingPath(null);
     }
@@ -426,18 +433,21 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               </div>
             </div>
             {(() => {
-              const hasError = !!loadingError || Object.keys(fieldErrors).length > 0 || statusMessage.includes('失败');
+              const hasError = !!loadingError || Object.keys(fieldErrors).length > 0 || statusType === 'error';
               const activeMessage = loadingError || statusMessage;
-              const isSaving = !!savingPath || statusMessage === t('settings.modal.saving') || statusMessage === t('settings.modal.removing_item');
+              const isSaving = !!savingPath || statusType === 'saving';
               const persistent = !!loadingError;
-
+ 
               return (
                 <SaveStatusBanner
                   message={activeMessage}
                   isError={hasError}
                   isSaving={isSaving}
                   persistent={persistent}
-                  onDismiss={() => setStatusMessage('')}
+                  onDismiss={() => {
+                    setStatusMessage('');
+                    setStatusType('idle');
+                  }}
                 />
               );
             })()}

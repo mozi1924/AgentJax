@@ -116,7 +116,7 @@ export default function ChatComposer({
               {advancedRequestOptionsError && (
                 <div className="mt-2 inline-flex items-start gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-200">
                   <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>{advancedRequestOptionsError}</span>
+                  <span>{t(advancedRequestOptionsError)}</span>
                 </div>
               )}
             </div>

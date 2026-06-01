@@ -210,19 +210,27 @@ export const getCollectionItems = (
   return Object.entries(objectValue).sort(([left], [right]) => left.localeCompare(right));
 };
 
-export const validateFieldValue = (field: SettingsFieldSchema, value: unknown) => {
+export const validateFieldValue = (
+  field: SettingsFieldSchema,
+  value: unknown,
+  t?: (key: string, replacements?: Record<string, string>) => string
+) => {
   if (field.control === 'text' || field.control === 'textarea' || field.control === 'secret') {
     const text = `${value ?? ''}`;
     if (typeof field.minLength === 'number' && text.length < field.minLength) {
-      return `至少输入 ${field.minLength} 个字符`;
+      return t
+        ? t('settings.validation.min_length', { count: String(field.minLength) })
+        : `至少输入 ${field.minLength} 个字符`;
     }
     if (typeof field.maxLength === 'number' && text.length > field.maxLength) {
-      return `最多输入 ${field.maxLength} 个字符`;
+      return t
+        ? t('settings.validation.max_length', { count: String(field.maxLength) })
+        : `最多输入 ${field.maxLength} 个字符`;
     }
     if (field.pattern) {
       const regex = new RegExp(field.pattern);
       if (text && !regex.test(text)) {
-        return '输入格式不符合要求';
+        return t ? t('settings.validation.pattern') : '输入格式不符合要求';
       }
     }
   }
@@ -230,13 +238,17 @@ export const validateFieldValue = (field: SettingsFieldSchema, value: unknown) =
   if (field.control === 'number' && value !== null && value !== '' && value !== undefined) {
     const numericValue = Number(value);
     if (!Number.isFinite(numericValue)) {
-      return '请输入合法数字';
+      return t ? t('settings.validation.number') : '请输入合法数字';
     }
     if (typeof field.min === 'number' && numericValue < field.min) {
-      return `最小值为 ${field.min}`;
+      return t
+        ? t('settings.validation.min', { count: String(field.min) })
+        : `最小值为 ${field.min}`;
     }
     if (typeof field.max === 'number' && numericValue > field.max) {
-      return `最大值为 ${field.max}`;
+      return t
+        ? t('settings.validation.max', { count: String(field.max) })
+        : `最大值为 ${field.max}`;
     }
   }
 

@@ -10,23 +10,18 @@ import {
 } from 'lucide-react';
 import type { ToolCall } from '../../features/conversations/types';
 import { OverlayScrollArea } from '../OverlayScrollArea';
+import { useI18n } from '../../features/i18n';
 
 interface ToolCallWidgetProps {
   toolCall: ToolCall;
 }
 
+// Status styles are kept for class assignment
 const statusStyles: Record<string, string> = {
   started: 'text-amber-400 border-amber-500/20 bg-amber-500/5',
   arguments_done: 'text-cyan-400 border-cyan-500/20 bg-cyan-500/5',
   executed: 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5',
   failed: 'text-rose-400 border-rose-500/20 bg-rose-500/5',
-};
-
-const statusText: Record<string, string> = {
-  started: '正在构建参数...',
-  arguments_done: '正在执行中...',
-  executed: '执行成功',
-  failed: '执行失败',
 };
 
 const formatValue = (val: unknown): string => {
@@ -39,9 +34,9 @@ const formatValue = (val: unknown): string => {
   }
 };
 
-const resolveToolMeta = (name: string) => {
+const resolveToolMeta = (name: string, t: (key: string, replacements?: Record<string, string>) => string) => {
   let displayName = name;
-  let originLabel = '内置工具';
+  let originLabel = t('tool_call.origin.native');
 
   if (name.startsWith('mcp__')) {
     const parts = name.split('__');
@@ -49,12 +44,12 @@ const resolveToolMeta = (name: string) => {
       const serverId = parts[1];
       const toolName = parts.slice(2).join('__');
       displayName = toolName;
-      originLabel = `MCP: ${serverId}`;
+      originLabel = t('tool_call.origin.mcp', { serverId });
     }
   } else if (name.startsWith('lcm_')) {
-    originLabel = '上下文工具';
+    originLabel = t('tool_call.origin.context');
   } else if (name.startsWith('plugin__')) {
-    originLabel = '插件工具';
+    originLabel = t('tool_call.origin.plugin');
   }
 
   return { displayName, originLabel };
@@ -75,11 +70,12 @@ const isToolCallFailed = (toolCall: ToolCall) => {
 };
 
 export default function ToolCallWidget({ toolCall }: ToolCallWidgetProps) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [copiedArgs, setCopiedArgs] = useState(false);
   const [copiedOutput, setCopiedOutput] = useState(false);
 
-  const { displayName, originLabel } = resolveToolMeta(toolCall.name || '');
+  const { displayName, originLabel } = resolveToolMeta(toolCall.name || '', t);
   const failed = isToolCallFailed(toolCall);
 
   const handleCopyArgs = async (event: MouseEvent<HTMLButtonElement>) => {
@@ -122,14 +118,14 @@ export default function ToolCallWidget({ toolCall }: ToolCallWidgetProps) {
           </span>
           <span className="font-semibold text-slate-200">{displayName}</span>
           <span className="opacity-75">
-            ({statusText[toolCall.status] || '等待中'})
+            ({t('tool_call.status.' + toolCall.status) || t('tool_call.status.waiting')})
           </span>
           {toolCall.durationMs !== undefined && toolCall.durationMs !== null && (
             <span className="ml-1 text-[10px] opacity-50">[{toolCall.durationMs}ms]</span>
           )}
         </div>
         <div className="flex items-center gap-1.5 opacity-70 transition hover:opacity-100">
-          <span className="text-[10px]">详情</span>
+          <span className="text-[10px]">{t('tool_call.details')}</span>
           {expanded ? (
             <ChevronUp className="h-3.5 w-3.5" />
           ) : (
@@ -142,21 +138,21 @@ export default function ToolCallWidget({ toolCall }: ToolCallWidgetProps) {
         <div className="mt-2.5 space-y-2 border-t border-slate-500/10 pt-2.5 transition-all">
           <div>
             <div className="mb-1 flex items-center justify-between select-none">
-              <span className="font-semibold opacity-70">输入参数：</span>
+              <span className="font-semibold opacity-70">{t('tool_call.input_params')}</span>
               <button
                 onClick={handleCopyArgs}
                 className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-cyan-300 opacity-60 transition hover:bg-slate-500/10 hover:opacity-100"
-                title="复制输入参数"
+                title={t('tool_call.copy_input')}
               >
                 {copiedArgs ? (
                   <>
                     <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                    <span className="text-emerald-400">已复制</span>
+                    <span className="text-emerald-400">{t('tool_call.copied')}</span>
                   </>
                 ) : (
                   <>
                     <Copy className="h-3 w-3" />
-                    <span>复制</span>
+                    <span>{t('tool_call.copy')}</span>
                   </>
                 )}
               </button>
@@ -171,21 +167,21 @@ export default function ToolCallWidget({ toolCall }: ToolCallWidgetProps) {
           {toolCall.output && (
             <div>
               <div className="mb-1 flex items-center justify-between select-none">
-                <span className="font-semibold opacity-70">输出结果：</span>
+                <span className="font-semibold opacity-70">{t('tool_call.output_result')}</span>
                 <button
                   onClick={handleCopyOutput}
                   className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-emerald-300 opacity-60 transition hover:bg-slate-500/10 hover:opacity-100"
-                  title="复制输出结果"
+                  title={t('tool_call.copy_output')}
                 >
                   {copiedOutput ? (
                     <>
                       <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                      <span className="text-emerald-400">已复制</span>
+                      <span className="text-emerald-400">{t('tool_call.copied')}</span>
                     </>
                   ) : (
                     <>
                       <Copy className="h-3 w-3" />
-                      <span>复制</span>
+                      <span>{t('tool_call.copy')}</span>
                     </>
                   )}
                 </button>

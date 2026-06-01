@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Check, Copy, Download } from 'lucide-react';
 import { OverlayScrollArea } from './OverlayScrollArea';
+import { useI18n } from '../features/i18n';
 
 interface CodeBlockProps {
   code: string;
@@ -19,6 +20,7 @@ const extensionMap: Record<string, string> = {
 };
 
 export default function CodeBlock({ code, language }: CodeBlockProps) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -46,25 +48,25 @@ export default function CodeBlock({ code, language }: CodeBlockProps) {
           <button
             onClick={handleDownload}
             className="flex items-center gap-1 transition hover:text-slate-200"
-            title="下载代码"
+            title={t('codeblock.download')}
           >
             <Download className="h-4 w-4" />
-            <span>下载</span>
+            <span>{t('codeblock.download_btn')}</span>
           </button>
           <button
             onClick={handleCopy}
             className="flex items-center gap-1 transition hover:text-slate-200"
-            title="复制代码"
+            title={t('codeblock.copy')}
           >
             {copied ? (
               <>
                 <Check className="h-4 w-4 text-emerald-400" />
-                <span className="text-emerald-400">已复制!</span>
+                <span className="text-emerald-400">{t('codeblock.copied')}</span>
               </>
             ) : (
               <>
                 <Copy className="h-4 w-4" />
-                <span>复制</span>
+                <span>{t('codeblock.copy_btn')}</span>
               </>
             )}
           </button>

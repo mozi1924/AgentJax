@@ -39,7 +39,7 @@ export function useChatComposerState() {
         return parsedOptions;
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : '高级请求参数解析失败，请检查 JSON 格式。';
+          error instanceof Error ? error.message : 'composer.error.parse_failed';
         setAdvancedRequestOptionsError(message);
         return null;
       }

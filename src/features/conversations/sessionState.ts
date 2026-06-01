@@ -58,11 +58,11 @@ export const parseAdvancedRequestOptions = (raw: string): ChatRequestOptions => 
   try {
     parsed = JSON.parse(trimmed);
   } catch {
-    throw new Error('高级请求参数不是合法 JSON。');
+    throw new Error('composer.error.invalid_json');
   }
 
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('高级请求参数必须是 JSON 对象。');
+    throw new Error('composer.error.must_be_object');
   }
 
   const source = parsed as Record<string, unknown>;
@@ -74,7 +74,7 @@ export const parseAdvancedRequestOptions = (raw: string): ChatRequestOptions => 
 
   if (source.include !== undefined) {
     if (!Array.isArray(source.include)) {
-      throw new Error('`include` 必须是字符串数组。');
+      throw new Error('composer.error.include_must_be_array');
     }
     out.include = source.include
       .map((item) => `${item ?? ''}`.trim())
@@ -101,14 +101,14 @@ export const parseAdvancedRequestOptions = (raw: string): ChatRequestOptions => 
       typeof source.clientMetadata !== 'object' ||
       Array.isArray(source.clientMetadata)
     ) {
-      throw new Error('`clientMetadata` 必须是 JSON 对象。');
+      throw new Error('composer.error.client_metadata_must_be_object');
     }
     out.clientMetadata = source.clientMetadata as Record<string, unknown>;
   }
 
   if (source.generate !== undefined) {
     if (typeof source.generate !== 'boolean') {
-      throw new Error('`generate` 必须是布尔值。');
+      throw new Error('composer.error.generate_must_be_boolean');
     }
     out.generate = source.generate;
   }
@@ -209,7 +209,7 @@ const finalizeLingeringAssistantDrafts = (
     if (index === finalCandidateIndex) {
       return {
         ...line,
-        text: outputText || line.text || (wasStopped ? '已停止' : ''),
+        text: outputText || line.text || (wasStopped ? 'chat.stopped' : ''),
         responseId: responseId || line.responseId,
         phase: line.phase ?? 'final_answer',
         status: 'done' as const,

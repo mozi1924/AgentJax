@@ -14,6 +14,7 @@ import {
 import { useChatComposerState } from './useChatComposerState';
 import { useConversationRegistry } from './useConversationRegistry';
 import { useConversationStreaming } from './useConversationStreaming';
+import { useI18n } from '../features/i18n';
 
 interface SendMessageOptions {
   appendUserMessage?: boolean;
@@ -34,6 +35,7 @@ export function useChatSessions({
   selectedReasoningMode,
   showAdvancedRequestOptionsButton,
 }: UseChatSessionsOptions) {
+  const { t } = useI18n();
   const {
     advancedRequestOptionsError,
     advancedRequestOptionsInput,
@@ -171,7 +173,7 @@ export function useChatSessions({
         const errorText =
           typeof error === 'string'
             ? error
-            : '请求失败，请检查配置文件中的 credential / api_endpoint 和网络连接。';
+            : t('chat.error.request_failed');
         setConversations((prevConversations) =>
           applySendFailure(prevConversations, currentConversationId, requestId, errorText || text)
         );
