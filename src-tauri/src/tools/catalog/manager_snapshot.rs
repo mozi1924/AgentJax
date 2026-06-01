@@ -190,8 +190,10 @@ impl ToolCatalog {
             schema_summary: schema_summary(&bg_input_schema),
             input_schema: Some(bg_input_schema),
             schema_format: ToolManagerSchemaFormat::JsonSchema,
-            source_capabilities: vec![],
-            policy_paths: ToolManagerToolPolicyPaths::default(),
+            source_capabilities: vec!["policy:tool_enabled".to_string()],
+            policy_paths: ToolManagerToolPolicyPaths {
+                tool_enabled_path: Some(native_tool_enabled_path(BACKGROUND_TASK_NAME)),
+            },
         });
 
         ToolManagerSourceSnapshot {
@@ -213,7 +215,8 @@ impl ToolCatalog {
             .context_tools
             .iter()
             .map(|tool| {
-                let enabled = self.context_tool_enabled(tool.name());
+                // Context tools are always enabled — the agent depends on them
+                // to read conversation history. User configuration is ignored.
                 let input_schema = tool.parameters_schema();
                 ToolManagerToolSnapshot {
                     id: tool.name().to_string(),
@@ -221,15 +224,13 @@ impl ToolCatalog {
                     model_name: tool.name().to_string(),
                     description: tool.description().to_string(),
                     icon: tool.icon().map(ToOwned::to_owned),
-                    enabled,
-                    availability: if enabled { "available" } else { "disabled" }.to_string(),
+                    enabled: true,
+                    availability: "available".to_string(),
                     schema_summary: schema_summary(&input_schema),
                     input_schema: Some(input_schema),
                     schema_format: ToolManagerSchemaFormat::JsonSchema,
-                    source_capabilities: vec!["policy:tool_enabled".to_string()],
-                    policy_paths: ToolManagerToolPolicyPaths {
-                        tool_enabled_path: Some(context_tool_enabled_path(tool.name())),
-                    },
+                    source_capabilities: vec![],
+                    policy_paths: ToolManagerToolPolicyPaths::default(),
                 }
             })
             .collect();
@@ -241,7 +242,7 @@ impl ToolCatalog {
             enabled: true,
             status: "ready".to_string(),
             exposure_mode: "always".to_string(),
-            source_capabilities: vec!["policy:tool_enabled".to_string()],
+            source_capabilities: vec![],
             policy_paths: ToolManagerSourcePolicyPaths::default(),
             tools,
             error: None,
@@ -594,13 +595,6 @@ fn escape_policy_path_segment(segment: &str) -> String {
 fn native_tool_enabled_path(tool_id: &str) -> String {
     format!(
         "tool_manager.native_tools.{}.enabled",
-        escape_policy_path_segment(tool_id)
-    )
-}
-
-fn context_tool_enabled_path(tool_id: &str) -> String {
-    format!(
-        "tool_manager.context_tools.{}.enabled",
         escape_policy_path_segment(tool_id)
     )
 }

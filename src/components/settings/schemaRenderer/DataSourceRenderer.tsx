@@ -124,7 +124,7 @@ export function DataSourceRenderer({
     if (node.id === 'tool-manager-layout') {
       const queryState = asRecord(dataContext.getDataSource('toolManager.query'));
       const activeTab = queryState.activeTab;
-      if (activeTab === 'native' || activeTab === 'session') {
+      if (activeTab === 'native' || activeTab === 'session' || activeTab === 'context') {
         layout = 'two-pane';
         children = children?.filter((child) => child.id !== 'tool-source-list');
       }

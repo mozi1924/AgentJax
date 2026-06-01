@@ -410,23 +410,25 @@ impl ToolCatalog {
             );
         }
 
-        let bg_name = BACKGROUND_TASK_NAME.to_string();
-        presentations.insert(
-            bg_name.clone(),
-            ToolPresentation::new(
-                "Background Task",
-                "Manages background tool jobs — start, wait, cancel, or list.",
-                Some("Rocket"),
-            ),
-        );
-        insert_snapshot_tool(
-            &mut schemas,
-            build_background_task_schema(format),
-            &mut active_tool_names,
-            &mut entries,
-            bg_name,
-            ToolSnapshotEntry::BackgroundTask,
-        );
+        if self.native_tool_enabled(BACKGROUND_TASK_NAME) {
+            let bg_name = BACKGROUND_TASK_NAME.to_string();
+            presentations.insert(
+                bg_name.clone(),
+                ToolPresentation::new(
+                    "Background Task",
+                    "Manages background tool jobs — start, wait, cancel, or list.",
+                    Some("Rocket"),
+                ),
+            );
+            insert_snapshot_tool(
+                &mut schemas,
+                build_background_task_schema(format),
+                &mut active_tool_names,
+                &mut entries,
+                bg_name,
+                ToolSnapshotEntry::BackgroundTask,
+            );
+        }
 
         ToolCatalogSnapshot {
             schemas,
@@ -484,12 +486,11 @@ impl ToolCatalog {
         ];
     }
 
-    pub(crate) fn context_tool_enabled(&self, tool_name: &str) -> bool {
-        self.tool_manager
-            .context_tools
-            .get(&tool_name.to_ascii_lowercase())
-            .map(|policy| policy.enabled)
-            .unwrap_or(true)
+    pub(crate) fn context_tool_enabled(&self, _tool_name: &str) -> bool {
+        // Context tools are forced enabled — the agent depends on them to
+        // read conversation history. Even if the user config file contains
+        // a disable entry, it is ignored.
+        true
     }
 
     /// Check if the plugin is enabled at the plugin-manager level.
