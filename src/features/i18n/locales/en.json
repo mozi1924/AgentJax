@@ -360,6 +360,16 @@
   "chat.stopped": "Stopped",
   "chat.error.request_failed": "Request failed, please check the credentials/api_endpoint in the config file and your network connection.",
 
+  "settings.memory.title": "Memory",
+  "settings.memory.description": "Persistent cross-conversation memory storage managed by a background memory sub-agent.",
+  "settings.memory.general.title": "Memory Settings",
+  "settings.memory.enabled.title": "Enable Memory",
+  "settings.memory.enabled.description": "When enabled, the background memory sub-agent automatically extracts and persists memorable information across conversations.",
+  "settings.memory.auto_inject.title": "Auto-Inject Memory Index",
+  "settings.memory.auto_inject.description": "At the start of each conversation, inject the memory index. Use memory_search / memory_recall to retrieve contents.",
+  "settings.memory.max_index_tokens.title": "Max Index Tokens",
+  "settings.memory.max_index_tokens.description": "Maximum token budget used by the auto-injected MEMORY.md index.",
+
   "settings.lcm.title": "LCM (Context Management)",
   "settings.lcm.description": "Lossless Context Management — deterministic, engine-driven context compression with lossless retrievability.",
   "settings.lcm.general.title": "General",

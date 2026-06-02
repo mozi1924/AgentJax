@@ -1,5 +1,5 @@
 mod chat_client_metadata;
-mod chat_events;
+pub(crate) mod chat_events;
 mod chat_persistence;
 mod chat_prompt_tokens;
 mod chat_registry;
@@ -23,6 +23,7 @@ use crate::time_context::{build_temporal_context_developer_item, render_timed_me
 use crate::tools::ToolCatalog;
 use crate::tools::ToolExecutionContext;
 use chat_client_metadata::{split_local_client_metadata, validate_conversation_dynamic_tools};
+use std::sync::Arc;
 use chat_events::{ChatStreamEvent, emit_mapped_stream_event, next_event_index};
 use chat_prompt_tokens::{load_conversation_prompt_token_count, resolve_prompt_counting_model};
 use chat_stream_observer::ChatStreamObserver;
@@ -279,6 +280,64 @@ pub async fn chat_stream(
     let stream_observer_for_callback = stream_observer.clone();
     let mut runtime_req = req.clone();
     runtime_req.client_metadata = sanitized_client_metadata;
+    // Create sub-agent event channel: event_tx goes to tool execution,
+    // event_rx is consumed by a forwarding task that emits to the frontend.
+    let (sub_event_tx, mut sub_event_rx) = tokio::sync::mpsc::unbounded_channel::<crate::sub_agents::SubAgentEvent>();
+    // Spawn forwarding task so sub-agent events reach the frontend.
+    let forward_window = closure_window.clone();
+    let forward_request_id = closure_request_id.clone();
+    tokio::spawn(async move {
+        let mut index = 0u64;
+        while let Some(sub_event) = sub_event_rx.recv().await {
+            let chat_event = crate::sub_agents::events::sub_agent_event_to_chat_stream_event(
+                &sub_event,
+                &forward_request_id,
+                &mut index,
+            );
+            let _ = forward_window.emit("chat_stream_event", chat_event);
+        }
+    });
+
+    // ── Memory Agent Lifecycle ──────────────────────────────────────────
+    // If memory is enabled and no memory agent exists for this conversation,
+    // spawn a persistent background memory observer.
+    if config.memory.enabled {
+        use crate::sub_agents::manager::SubAgentManager;
+        use crate::sub_agents::types::SubAgentType;
+        if SubAgentManager::get_memory_agent_for_conversation(&conversation_id).is_none() {
+            let mem_agent_id = format!("mem_{}", uuid::Uuid::new_v4().simple());
+            let (mem_signal_tx, mem_signal_rx) = tokio::sync::watch::channel(None);
+            let mem_spec = crate::sub_agents::types::SubAgentSpec {
+                agent_id: mem_agent_id.clone(),
+                parent_conversation_id: conversation_id.clone(),
+                subagent_type: SubAgentType::Memory,
+                prompt: "Background memory observer".to_string(),
+                delegated_scope: vec!["lcm".to_string(), "memory".to_string()],
+                kept_work: vec!["memory_update".to_string()],
+                max_turns: 3,
+                use_worktree: false,
+                model_id: None,
+                parent_request_id: request_id.clone(),
+                persistent: true,
+            };
+            let mem_task = SubAgentManager::register(mem_spec.clone());
+            // Store the signal sender in the task for signal dispatch.
+            if let Ok(mut tx_guard) = mem_task.memory_signal_tx.lock() {
+                *tx_guard = Some(mem_signal_tx);
+            }
+            let mem_config = Arc::new(config.clone());
+            tokio::spawn(async move {
+                crate::sub_agents::runner::run_memory_agent(
+                    mem_spec,
+                    mem_config,
+                    mem_signal_rx,
+                )
+                .await;
+            });
+            log::info!("Memory agent spawned for conv={}", conversation_id);
+        }
+    }
+
     let result = crate::runtime::AgentRuntime::run_turn(
         &config,
         &runtime_req,
@@ -289,6 +348,7 @@ pub async fn chat_stream(
         &tools_catalog,
         &lcm_engine,
         &mut cancel_rx,
+        Some(sub_event_tx.clone()),
         move |event| {
             let event_token_count = stream_observer_for_callback.handle_provider_event(&event);
 
@@ -306,7 +366,42 @@ pub async fn chat_stream(
 
     let _ = registry.remove_chat_request(&request_id)?;
     let (response, _timeline_events) = result?;
+
+    // ── Spawn registered sub-agents ───────────────────────────────────────
+    // Sub-agent tasks registered during tool execution are still Pending.
+    // We now spawn their runners so they execute concurrently after the
+    // main turn completes.
+    {
+        use crate::sub_agents::runner::run_sub_agent;
+        let pending = crate::sub_agents::manager::SubAgentManager::collect_pending(&conversation_id);
+        if !pending.is_empty() {
+            let tools_catalog_arc = Arc::new(tools_catalog);
+            for (task, spec) in pending {
+                let agent_id = spec.agent_id.clone();
+                let spawn_config = Arc::new(config.clone());
+                let spawn_catalog = Arc::clone(&tools_catalog_arc);
+                let spawn_event_tx = sub_event_tx.clone();
+                let _handle = tokio::spawn(async move {
+                    run_sub_agent(task, spec, spawn_config, spawn_catalog, spawn_event_tx).await;
+                });
+                log::info!("Sub-agent {} spawned for conv={}", agent_id, conversation_id);
+            }
+        }
+    }
+
     let final_token_count = stream_observer.persist_final_token_usage(&response);
+
+    // ── Signal the memory agent ───────────────────────────────────────────
+    // After the main turn completes, notify the memory agent so it can
+    // evaluate the conversation and write/update memories.
+    if config.memory.enabled {
+        crate::sub_agents::manager::SubAgentManager::signal_memory_agent(
+            &conversation_id,
+            crate::sub_agents::types::MemoryAgentSignal::TurnCompleted {
+                turn_id: request_id.clone(),
+            },
+        );
+    }
 
     log::info!(
         "chat_stream turn complete: conv={} req={} text_len={} resp_id={} output_items={}",

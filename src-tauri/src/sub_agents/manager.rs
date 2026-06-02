@@ -10,7 +10,7 @@
 use crate::conversation_store_utils::now_unix_ms;
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::sub_agents::types::{
-    ProgressMessage, SubAgentSnapshot, SubAgentSpec, SubAgentState, SubAgentStatus,
+    ProgressMessage, SubAgentSnapshot, SubAgentSpec, SubAgentState, SubAgentStatus, SubAgentType,
 };
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -30,7 +30,6 @@ pub(crate) const HARD_MAX_TURNS: usize = 10;
 // ── SubAgentTask ──────────────────────────────────────────────────────────────
 
 /// A single sub-agent task tracked in the process-wide registry.
-#[derive(Debug)]
 pub(crate) struct SubAgentTask {
     pub state: Mutex<SubAgentState>,
     /// Handle to the spawned tokio task. `None` if not yet spawned or already joined.
@@ -39,6 +38,9 @@ pub(crate) struct SubAgentTask {
     pub cancel_tx: tokio::sync::watch::Sender<bool>,
     /// Notified when the task reaches a terminal state.
     pub notify: Notify,
+    /// Signal sender for the memory sub-agent (Only populated for Memory type).
+    /// The chat handler uses this to send TurnCompleted/Terminate signals.
+    pub memory_signal_tx: Mutex<Option<tokio::sync::watch::Sender<Option<crate::sub_agents::types::MemoryAgentSignal>>>>,
 }
 
 // ── Global Registry ───────────────────────────────────────────────────────────
@@ -230,6 +232,7 @@ impl SubAgentManager {
             handle: Mutex::new(None),
             cancel_tx,
             notify: Notify::new(),
+            memory_signal_tx: Mutex::new(None),
         });
 
         let mut guard = registry()
@@ -368,7 +371,84 @@ impl SubAgentManager {
         }))
     }
 
+    /// Collect and atomically mark as Running all Pending sub-agent specs
+    /// for a given conversation. Returns (Arc<SubAgentTask>, SubAgentSpec)
+    /// pairs so the caller can spawn runners via tokio::spawn.
+    ///
+    /// This separates registration (tool execution) from spawning (chat handler)
+    /// to avoid circular dependencies between the tool layer and the catalog.
+    pub fn collect_pending(conversation_id: &str) -> Vec<(Arc<SubAgentTask>, SubAgentSpec)> {
+        let guard = registry()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard
+            .values()
+            .filter(|task| {
+                task.state
+                    .lock()
+                    .ok()
+                    .map(|s| {
+                        s.status == SubAgentStatus::Pending
+                            && s.spec.parent_conversation_id == conversation_id
+                    })
+                    .unwrap_or(false)
+            })
+            .map(|task| {
+                // Atomically transition to Running under the registry lock.
+                let spec = {
+                    let mut state = task.state
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    state.status = SubAgentStatus::Running;
+                    state.spec.clone()
+                };
+                (task.clone(), spec)
+            })
+            .collect()
+    }
+
+    /// Find the memory sub-agent for a given conversation, if one exists.
+    pub fn get_memory_agent_for_conversation(
+        conversation_id: &str,
+    ) -> Option<Arc<SubAgentTask>> {
+        let guard = registry()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard
+            .values()
+            .find(|task| {
+                task.state
+                    .lock()
+                    .ok()
+                    .map(|s| {
+                        s.spec.subagent_type == SubAgentType::Memory
+                            && s.spec.parent_conversation_id == conversation_id
+                    })
+                    .unwrap_or(false)
+            })
+            .cloned()
+    }
+
+    /// Send a signal to the memory agent for a given conversation.
+    /// Returns true if the signal was sent successfully.
+    pub fn signal_memory_agent(
+        conversation_id: &str,
+        signal: crate::sub_agents::types::MemoryAgentSignal,
+    ) -> bool {
+        if let Some(task) = Self::get_memory_agent_for_conversation(conversation_id) {
+            if let Ok(tx_guard) = task.memory_signal_tx.lock() {
+                if let Some(tx) = tx_guard.as_ref() {
+                    let _ = tx.send(Some(signal));
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Cancel all sub-agents belonging to a conversation.
+    /// Memory agents are skipped — they are persistent and should
+    /// complete gracefully via Terminate signal.
     pub fn cancel_conversation_agents(conversation_id: &str) -> usize {
         let agents_to_cancel: Vec<Arc<SubAgentTask>> = {
             let guard = registry()
@@ -380,7 +460,10 @@ impl SubAgentManager {
                     task.state
                         .lock()
                         .ok()
-                        .map(|s| s.spec.parent_conversation_id == conversation_id)
+                        .map(|s| {
+                            s.spec.parent_conversation_id == conversation_id
+                                && s.spec.subagent_type != SubAgentType::Memory
+                        })
                         .unwrap_or(false)
                 })
                 .cloned()
@@ -557,6 +640,7 @@ mod tests {
             use_worktree: false,
             model_id: None,
             parent_request_id: "req_test".to_string(),
+            persistent: false,
         }
     }
 

@@ -30,14 +30,15 @@
 //!   must declare `delegated_scope` and `kept_work` to prevent infinite delegation
 //!   chains.
 
-mod events;
+pub(crate) mod events;
 mod lcm_context;
 pub(crate) mod manager;
-mod runner;
+pub(crate) mod runner;
 pub(crate) mod types;
 mod worktree;
 
 pub use events::SubAgentEvent;
+pub(crate) use events::sub_agent_event_to_chat_stream_event;
 pub use lcm_context::SubAgentLcmContext;
 pub(crate) use manager::SubAgentManager;
 pub(crate) use manager::SubAgentTask;

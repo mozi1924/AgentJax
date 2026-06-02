@@ -3,7 +3,7 @@
 export interface SubAgentState {
   agentId: string;
   parentConversationId: string;
-  subagentType: string;
+  subagentType: 'explore' | 'codeReview' | 'implement' | 'analyze' | 'general' | 'memory';
   prompt: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   startedAtUnixMs: number;

@@ -77,6 +77,85 @@ pub enum SubAgentEvent {
     },
 }
 
+/// Map a `SubAgentEvent` to the corresponding `ChatStreamEvent` payload.
+///
+/// This is called by the chat stream handler's forwarding task so sub-agent
+/// lifecycle events reach the frontend as standard stream events with an
+/// `agentId` field set.
+pub fn sub_agent_event_to_chat_stream_event(
+    event: &SubAgentEvent,
+    request_id: &str,
+    event_index: &mut u64,
+) -> crate::commands::chat::chat_events::ChatStreamEvent {
+    let mut chat_event = crate::commands::chat::chat_events::ChatStreamEvent {
+        request_id: request_id.to_string(),
+        event_index: *event_index,
+        kind: event.kind().to_string(),
+        delta: None,
+        response_id: None,
+        conversation_id: None,
+        conversation_title: None,
+        error: None,
+        tool_call_id: None,
+        tool_name: None,
+        tool_display_name: None,
+        tool_description: None,
+        tool_icon: None,
+        tool_arguments: None,
+        tool_output: None,
+        tool_status: None,
+        tool_started_ts: None,
+        tool_completed_ts: None,
+        tool_duration_ms: None,
+        context_token_count: None,
+        phase: None,
+        agent_id: Some(event.agent_id().to_string()),
+    };
+
+    *event_index += 1;
+
+    match event {
+        SubAgentEvent::Spawned { subagent_type, .. } => {
+            chat_event.tool_name = Some(format!("sub_agent ({})", subagent_type));
+        }
+        SubAgentEvent::Progress { text, turns_completed, turns_remaining, .. } => {
+            chat_event.delta = Some(format!(
+                "[turns {}/{} remaining] {}",
+                turns_completed, turns_remaining, text
+            ));
+        }
+        SubAgentEvent::ToolCallStarted { call_id, tool_name, .. } => {
+            chat_event.tool_call_id = Some(call_id.clone());
+            chat_event.tool_name = Some(tool_name.clone());
+        }
+        SubAgentEvent::ToolCallCompleted { call_id, tool_name, tool_status, .. } => {
+            chat_event.tool_call_id = Some(call_id.clone());
+            chat_event.tool_name = Some(tool_name.clone());
+            chat_event.tool_status = Some(tool_status.clone());
+        }
+        SubAgentEvent::HopCompleted { hop_index, text, .. } => {
+            chat_event.delta = text.clone();
+            chat_event.tool_name = Some(format!("hop_{}", hop_index));
+        }
+        SubAgentEvent::Completed { result, duration_ms, .. } => {
+            chat_event.delta = serde_json::to_string(result)
+                .ok()
+                .or_else(|| Some("completed".to_string()));
+            chat_event.tool_duration_ms = Some(*duration_ms);
+        }
+        SubAgentEvent::Failed { error, duration_ms, .. } => {
+            chat_event.error = Some(error.clone());
+            chat_event.tool_duration_ms = Some(*duration_ms);
+        }
+        SubAgentEvent::Cancelled { reason, .. } => {
+            chat_event.error = Some(reason.clone());
+        }
+        _ => {}
+    }
+
+    chat_event
+}
+
 impl SubAgentEvent {
     /// Returns the agent_id for this event.
     pub fn agent_id(&self) -> &str {

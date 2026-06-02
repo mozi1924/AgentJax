@@ -23,6 +23,7 @@ use output::{
 use presentations::enrich_tool_stream_event;
 use request::{build_request, ensure_tool_call_output_pairs};
 use serde_json::Value;
+use std::sync::Arc;
 use tokio::sync::watch;
 use tool_state::apply_tool_state_changes;
 use turn::TurnAccumulator;
@@ -38,6 +39,7 @@ impl AgentRuntime {
         tools_catalog: &ToolCatalog,
         lcm_engine: &std::sync::Arc<crate::lcm::LcmEngine>,
         cancel_rx: &mut watch::Receiver<bool>,
+        sub_agent_event_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::sub_agents::SubAgentEvent>>,
         mut on_event: F,
     ) -> AgentJaxResult<(ResponseStreamResult, Vec<Value>)>
     where
@@ -64,6 +66,7 @@ impl AgentRuntime {
         let tool_context = ToolExecutionContext {
             conversation_id: Some(conversation_id.to_string()),
             model_id: Some(resolved_model.model_id.clone()),
+            app_config: Some(Arc::new(config.clone())),
             sub_agent_id: if is_sub_agent {
                 // Extract agent_id from the conversation_id path.
                 conversation_id
@@ -78,6 +81,7 @@ impl AgentRuntime {
             } else {
                 None
             },
+            sub_agent_event_tx: sub_agent_event_tx.clone(),
             ..Default::default()
         };
         let mut mounted_mcp_servers = tools_catalog.load_persisted_mounted_servers(&tool_context);

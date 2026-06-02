@@ -843,9 +843,21 @@ mod tests {
     async fn test_tool_catalog_snapshot_freezes_native_tool_view() {
         let config = crate::config::AppConfig::default();
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
-        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
+        let ctx = ToolExecutionContext {
+            app_config: Some(std::sync::Arc::new(config.clone())),
+            ..Default::default()
+        };
+        let snapshot = catalog.snapshot(&ctx).await;
 
-        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT + 12);
+        // Native: 7 default + SubAgentTool + background_task = 9
+        // Context: 3 LCM operator + 2 memory (search, recall; write gated) + 3 LCM history = 8
+        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT + 9);
+        // Verify sub_agent is a native tool (not context).
+        assert!(snapshot.active_tool_names().contains("sub_agent"));
+        // Verify memory tools: search and recall are available, write is gated.
+        assert!(snapshot.active_tool_names().contains("memory_search"));
+        assert!(snapshot.active_tool_names().contains("memory_recall"));
+        assert!(!snapshot.active_tool_names().contains("memory_write"));
         assert!(snapshot.active_tool_names().contains("calculator"));
         assert!(snapshot.active_tool_names().contains("get_system_time"));
         assert!(snapshot.active_tool_names().contains("list_files"));

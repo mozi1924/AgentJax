@@ -1,0 +1,48 @@
+{
+  "id": "memory",
+  "title": "settings.memory.title",
+  "icon": "Brain",
+  "order": 85,
+  "description": "settings.memory.description",
+  "children": [
+    {
+      "kind": "group",
+      "id": "memory-general",
+      "title": "settings.memory.general.title",
+      "children": [
+        {
+          "kind": "field",
+          "id": "memory-enabled",
+          "title": "settings.memory.enabled.title",
+          "description": "settings.memory.enabled.description",
+          "path": "memory.enabled",
+          "valueType": "boolean",
+          "control": "switch"
+        },
+        {
+          "kind": "field",
+          "id": "memory-auto-inject",
+          "title": "settings.memory.auto_inject.title",
+          "description": "settings.memory.auto_inject.description",
+          "path": "memory.auto_inject",
+          "valueType": "boolean",
+          "control": "switch",
+          "visibleWhen": [{ "path": "memory.enabled", "truthy": true }]
+        },
+        {
+          "kind": "field",
+          "id": "memory-max-index-tokens",
+          "title": "settings.memory.max_index_tokens.title",
+          "description": "settings.memory.max_index_tokens.description",
+          "path": "memory.max_index_tokens",
+          "valueType": "integer",
+          "control": "number",
+          "min": 100,
+          "max": 10000,
+          "step": 100,
+          "visibleWhen": [{ "path": "memory.enabled", "truthy": true }]
+        }
+      ]
+    }
+  ]
+}

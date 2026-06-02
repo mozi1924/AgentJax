@@ -148,6 +148,7 @@ pub async fn run_sub_agent(
     // Clone values that need to be used both inside and outside the closure.
     let closure_event_tx = event_tx.clone();
     let closure_agent_id = agent_id.clone();
+    let run_event_tx = event_tx.clone(); // For the tool execution context
     let result = crate::runtime::AgentRuntime::run_turn(
         &app_config,
         &sub_req,
@@ -158,6 +159,7 @@ pub async fn run_sub_agent(
         &tools_catalog,
         &sub_lcm.engine,
         &mut merged_cancel_rx,
+        Some(run_event_tx),
         move |event| {
             // Map provider events to sub-agent events for progress tracking.
             match &event {
@@ -246,6 +248,266 @@ pub async fn run_sub_agent(
     log::info!("Sub-agent {}: finished", agent_id);
 }
 
+// ── Memory Agent Runner ───────────────────────────────────────────────────────
+
+/// Run the persistent background memory sub-agent.
+///
+/// Unlike `run_sub_agent`, this is event-driven: it waits for signals
+/// (TurnCompleted, Terminate) on a watch channel, evaluates conversation
+/// context, and writes memories directly via MemoryStore.
+pub async fn run_memory_agent(
+    spec: SubAgentSpec,
+    app_config: Arc<AppConfig>,
+    mut signal_rx: tokio::sync::watch::Receiver<Option<crate::sub_agents::types::MemoryAgentSignal>>,
+) {
+    let agent_id = &spec.agent_id;
+    log::info!("Memory agent {}: started", agent_id);
+
+    // Open memory store.
+    let memory_store = match crate::memory::store::MemoryStore::open(
+        crate::agentjax_home::agentjax_home_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join("memory"),
+    ) {
+        Ok(store) => store,
+        Err(e) => {
+            log::error!("Memory agent {}: failed to open memory store: {e}", agent_id);
+            return;
+        }
+    };
+
+    loop {
+        // Wait for a signal.
+        let signal = {
+            let changed = signal_rx.changed().await;
+            if changed.is_err() {
+                log::info!("Memory agent {}: signal channel closed, exiting", agent_id);
+                break;
+            }
+            signal_rx.borrow().clone()
+        };
+
+        match signal {
+            Some(crate::sub_agents::types::MemoryAgentSignal::Terminate) | None => {
+                log::info!("Memory agent {}: received Terminate, exiting", agent_id);
+                break;
+            }
+            Some(crate::sub_agents::types::MemoryAgentSignal::TurnCompleted { .. }) => {
+                log::info!("Memory agent {}: evaluating turn for memories", agent_id);
+
+                // Build the memory index as context.
+                let index_content = match crate::memory::index::MemoryIndex::rebuild(&memory_store)
+                {
+                    Ok(idx) => idx,
+                    Err(e) => {
+                        log::warn!("Memory agent {}: failed to rebuild index: {e}", agent_id);
+                        continue;
+                    }
+                };
+
+                // Build the prompt instructing the LLM to classify and act.
+                let prompt = build_memory_agent_prompt(&index_content);
+
+                // Resolve the model (use utility_small_model or default).
+                let model_id = if app_config.utility_small_model.is_empty() {
+                    app_config.default_model.clone()
+                } else {
+                    app_config.utility_small_model.clone()
+                };
+
+                // Call the provider.
+                let request = crate::provider_api::types::ResponseStreamRequest {
+                    input_items: vec![serde_json::json!({
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": prompt}]
+                    })],
+                    model: Some(model_id),
+                    reasoning_effort: None,
+                    instructions_override: None,
+                    text: None,
+                    include: None,
+                    service_tier: None,
+                    prompt_cache_key: None,
+                    client_metadata: None,
+                    generate: None,
+                    tools: None,
+                    tool_choice: None,
+                };
+
+                let (_cancel_tx, mut cancel_rx) = tokio::sync::watch::channel(false);
+                match crate::provider_api::stream_response(
+                    &app_config,
+                    &request,
+                    &mut cancel_rx,
+                    |_event| Ok(()),
+                )
+                .await
+                {
+                    Ok(response) => {
+                        let text = response.output_text.trim().to_string();
+                        if text.is_empty() {
+                            continue;
+                        }
+                        // Parse the LLM output for memory operations.
+                        execute_memory_operations(&memory_store, &text, agent_id);
+                    }
+                    Err(e) => {
+                        log::warn!("Memory agent {}: LLM call failed: {e}", agent_id);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Build the classification prompt for the memory agent.
+fn build_memory_agent_prompt(index_content: &str) -> String {
+    let has_memories = index_content.contains("\n## ");
+    let memory_context = if has_memories {
+        format!(
+            "## Existing Memory Index\n\n{}\n\n---\n",
+            index_content
+        )
+    } else {
+        "No existing memories found.\n\n".to_string()
+    };
+
+    format!(
+        "You are a background memory observer agent. Your role is to review the \
+         conversation and manage persistent memories across sessions.\n\n\
+         {memory_context}\
+         ## Instructions\n\n\
+         Review the conversation context above and decide if there is any new, \
+         corrected, or updated information worth remembering across sessions.\n\n\
+         Classify each insight into ONE of:\n\
+         - CREATE: Entirely new topic → write a new memory with a kebab-case name, \
+           a one-line description, a type (user/feedback/project/reference), and the body.\n\
+         - APPEND: Existing memory about the same topic, new developments → append new \
+           info to the existing body. Include the full updated content.\n\
+         - UPDATE: Existing memory needs correction (user corrected previous info) → \
+           replace the content.\n\
+         - IGNORE: No new memory-worthy content in this conversation.\n\n\
+         ## Rules\n\
+         1. ALWAYS check existing memories before CREATE to avoid duplicates.\n\
+         2. When APPENDing, include the original content + new info together.\n\
+         3. User corrections are high-priority UPDATE signals.\n\
+         4. Casual conversation, small talk → IGNORE.\n\
+         5. Technical preferences, project conventions, architectural decisions → CREATE.\n\n\
+         ## Output Format\n\n\
+         If IGNORE, output exactly: {{\"action\": \"ignore\"}}\n\n\
+         Otherwise, output a JSON object with the memory operation:\n\
+         {{\"action\": \"create\", \"name\": \"kebab-case-name\", \"description\": \"...\", \
+         \"type\": \"project\", \"tags\": [\"tag1\"], \"body\": \"markdown body\"}}\n\n\
+         For APPEND: {{\"action\": \"append\", \"name\": \"existing-name\", \"body\": \"full updated body\"}}\n\
+         For UPDATE: {{\"action\": \"update\", \"name\": \"existing-name\", \"body\": \"corrected body\"}}\n\n\
+         Output ONLY valid JSON. No markdown fences, no commentary."
+    )
+}
+
+/// Parse the LLM output and execute memory operations via MemoryStore.
+fn execute_memory_operations(
+    store: &crate::memory::store::MemoryStore,
+    llm_output: &str,
+    agent_id: &str,
+) {
+    // Try to extract JSON from the output.
+    let json_str = llm_output
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+
+    let parsed: serde_json::Value = match serde_json::from_str(json_str) {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("Memory agent {}: failed to parse LLM output as JSON: {e}", agent_id);
+            return;
+        }
+    };
+
+    let action = parsed.get("action").and_then(|v| v.as_str()).unwrap_or("ignore");
+
+    match action {
+        "ignore" => {
+            log::info!("Memory agent {}: IGNORE — no memories written", agent_id);
+        }
+        "create" | "append" | "update" => {
+            let name = parsed.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let description = parsed.get("description").and_then(|v| v.as_str()).unwrap_or("");
+            let body = parsed.get("body").and_then(|v| v.as_str()).unwrap_or("");
+            let memory_type_str = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("project");
+            let tags: Vec<String> = parsed
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+
+            if name.is_empty() || body.is_empty() {
+                log::warn!("Memory agent {}: {action} missing name or body", agent_id);
+                return;
+            }
+
+            let memory_type = crate::memory::types::MemoryType::from_str(memory_type_str)
+                .unwrap_or(crate::memory::types::MemoryType::Project);
+
+            // For append/update, read existing memory first.
+            let final_body = if action == "append" {
+                match store.read_memory(name) {
+                    Ok(existing) => format!("{}\n\n{}", existing.body, body),
+                    Err(_) => body.to_string(),
+                }
+            } else {
+                body.to_string()
+            };
+
+            let links = extract_wikilinks_from_body(&final_body);
+
+            let memory = crate::memory::types::ParsedMemory {
+                frontmatter: crate::memory::types::MemoryFrontmatter {
+                    name: name.to_string(),
+                    description: description.to_string(),
+                    memory_type,
+                    tags,
+                    links,
+                },
+                body: final_body,
+            };
+
+            match store.write_memory(&memory) {
+                Ok(()) => {
+                    log::info!("Memory agent {}: {action}d memory '{}'", agent_id, name);
+                }
+                Err(e) => {
+                    log::warn!("Memory agent {}: failed to {action} memory '{}': {e}", agent_id, name);
+                }
+            }
+        }
+        other => {
+            log::warn!("Memory agent {}: unknown action '{}'", agent_id, other);
+        }
+    }
+}
+
+/// Extract `[[wikilinks]]` from the body text.
+fn extract_wikilinks_from_body(body: &str) -> Vec<String> {
+    let mut links = Vec::new();
+    let mut remaining = body;
+    while let Some(start) = remaining.find("[[") {
+        let after_open = &remaining[start + 2..];
+        if let Some(end) = after_open.find("]]") {
+            let link = after_open[..end].trim();
+            if !link.is_empty() {
+                links.push(link.to_string());
+            }
+            remaining = &after_open[end + 2..];
+        } else {
+            break;
+        }
+    }
+    links
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Build the system instructions and user prompt for a sub-agent.
@@ -299,6 +561,7 @@ mod tests {
             use_worktree: false,
             model_id: None,
             parent_request_id: "req".to_string(),
+            persistent: false,
         };
 
         let instructions = build_sub_agent_instructions(&spec);
@@ -321,6 +584,7 @@ mod tests {
             use_worktree: false,
             model_id: None,
             parent_request_id: "req".to_string(),
+            persistent: false,
         };
 
         let instructions = build_sub_agent_instructions(&spec);

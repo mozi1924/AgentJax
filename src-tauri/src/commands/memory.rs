@@ -67,3 +67,64 @@ pub fn search_memories(req: SearchMemoriesRequest) -> Result<serde_json::Value, 
         "results": results,
     }))
 }
+
+/// Delete a memory by name.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteMemoryRequest {
+    pub name: String,
+}
+
+#[tauri::command]
+pub fn delete_memory(req: DeleteMemoryRequest) -> Result<serde_json::Value, String> {
+    let store = open_memory_store()?;
+    let existed = store.delete_memory(&req.name).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "ok": true,
+        "name": req.name,
+        "existed": existed,
+    }))
+}
+
+/// Open a memory file in the system default editor.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenMemoryFileRequest {
+    pub name: String,
+}
+
+#[tauri::command]
+pub fn open_memory_file(req: OpenMemoryFileRequest) -> Result<serde_json::Value, String> {
+    let base_dir = crate::agentjax_home::agentjax_home_dir()
+        .map_err(|e| AgentJaxError::memory(e).to_string())?
+        .join("memory");
+    let file_path = base_dir.join(format!("{}.md", req.name));
+    if !file_path.exists() {
+        return Err(format!("Memory file not found: {}", file_path.display()));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {e}"))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", file_path.to_str().unwrap_or("")])
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {e}"))?;
+    }
+    Ok(serde_json::json!({
+        "ok": true,
+        "name": req.name,
+    }))
+}

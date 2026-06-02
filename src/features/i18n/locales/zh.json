@@ -356,6 +356,16 @@
   "chat.stopped": "已停止",
   "chat.error.request_failed": "请求失败，请检查配置文件中的 credential / api_endpoint 和网络连接。",
 
+  "settings.memory.title": "记忆",
+  "settings.memory.description": "由后台记忆子代理管理的跨对话持久记忆存储。",
+  "settings.memory.general.title": "记忆设置",
+  "settings.memory.enabled.title": "启用记忆",
+  "settings.memory.enabled.description": "启用后，后台记忆子代理会自动提取并持久化对话中值得记忆的信息。",
+  "settings.memory.auto_inject.title": "自动注入记忆索引",
+  "settings.memory.auto_inject.description": "每次对话开始时，注入记忆索引。使用 memory_search / memory_recall 获取完整内容。",
+  "settings.memory.max_index_tokens.title": "最大索引 Token 数",
+  "settings.memory.max_index_tokens.description": "自动注入的 MEMORY.md 索引的最大 token 预算。",
+
   "settings.lcm.title": "LCM（上下文管理）",
   "settings.lcm.description": "无损上下文管理 — 确定性的引擎驱动上下文压缩，支持无损追溯。",
   "settings.lcm.general.title": "基本设置",

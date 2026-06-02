@@ -48,7 +48,7 @@ pub fn build_memory_context(
                 "## Agent Memory Index\n\n{}\n\n---\n\
                  Use memory_search(query) to search across all memories.\n\
                  Use memory_recall(name) to retrieve the full content of a specific memory.\n\
-                 Use memory_write(name, description, type, body) to create or update a memory.",
+                 Memories are automatically written by the background memory sub-agent.",
                 truncated
             )
         }]

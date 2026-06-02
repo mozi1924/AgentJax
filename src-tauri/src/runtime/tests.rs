@@ -106,6 +106,7 @@ async fn run_real_gateway_turn_with_config(
             &tools_catalog,
             &lcm_engine_for_test(&conversation_id),
             &mut cancel_rx,
+            None, // sub_agent_event_tx
             move |event| {
                 stream_events_for_closure
                     .lock()
@@ -507,6 +508,7 @@ async fn run_real_gateway_turn_with_full_catalog(
             &tools_catalog,
             &lcm_engine,
             &mut cancel_rx,
+            None, // sub_agent_event_tx
             move |event| {
                 stream_events_for_closure
                     .lock()

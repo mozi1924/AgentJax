@@ -19,7 +19,7 @@ use crate::tools::{
     format_tool_schema, humanize_tool_name,
 };
 use crate::tools::memory_tools::{MemoryRecallTool, MemorySearchTool, MemoryWriteTool};
-use crate::tools::sub_agent_tools::{CancelSubAgentTool, SpawnSubAgentTool, SubAgentStatusTool};
+use crate::tools::sub_agent_tools::SubAgentTool;
 pub use manager_snapshot::{
     ToolManagerSchemaFormat, ToolManagerSnapshot, ToolManagerSnapshotRequest,
     ToolManagerSourceSnapshot, ToolManagerSourceType, ToolManagerToolSnapshot,
@@ -71,10 +71,6 @@ impl ToolCatalog {
         context_tools.push(Arc::new(LlmMapTool));
         context_tools.push(Arc::new(AgenticMapTool));
         context_tools.push(Arc::new(TaskTool));
-        // Sub-agent tools
-        context_tools.push(Arc::new(SpawnSubAgentTool));
-        context_tools.push(Arc::new(SubAgentStatusTool));
-        context_tools.push(Arc::new(CancelSubAgentTool));
         // Memory tools
         context_tools.push(Arc::new(MemoryWriteTool));
         context_tools.push(Arc::new(MemorySearchTool));
@@ -97,6 +93,7 @@ impl ToolCatalog {
                 Arc::new(ListFilesTool),
                 Arc::new(MkdirTool),
                 Arc::new(EditFileTool),
+                Arc::new(SubAgentTool),
             ],
             context_tools,
             mcp_manager,
@@ -229,12 +226,28 @@ impl ToolCatalog {
         }
 
         // ── LCM Context Tools ─────────────────────────────────────────
+        let memory_enabled = context
+            .app_config
+            .as_ref()
+            .map(|c| c.memory.enabled)
+            .unwrap_or(false);
+
         for tool in &self.context_tools {
             if !self.context_tool_enabled(tool.name()) {
                 continue;
             }
-            let schema = tool.to_schema_with_format(format);
             let tool_name = tool.name().to_string();
+
+            // Gate memory_write: only available to the Memory sub-agent.
+            if tool_name == "memory_write" && !context.is_memory_sub_agent {
+                continue;
+            }
+            // Gate all memory tools: hidden when memory system is disabled.
+            if tool_name.starts_with("memory_") && !memory_enabled {
+                continue;
+            }
+
+            let schema = tool.to_schema_with_format(format);
             presentations.insert(tool_name.clone(), tool.presentation());
             insert_snapshot_tool(
                 &mut schemas,
@@ -453,6 +466,7 @@ impl ToolCatalog {
             presentations,
             mcp_manager: self.mcp_manager.clone(),
             mcp_runtime: self.mcp_runtime.clone(),
+            app_config: context.app_config.clone(),
         }
     }
 
@@ -499,9 +513,6 @@ impl ToolCatalog {
             Arc::new(LlmMapTool),
             Arc::new(AgenticMapTool),
             Arc::new(TaskTool),
-            Arc::new(SpawnSubAgentTool),
-            Arc::new(SubAgentStatusTool),
-            Arc::new(CancelSubAgentTool),
             Arc::new(MemoryWriteTool),
             Arc::new(MemorySearchTool),
             Arc::new(MemoryRecallTool),

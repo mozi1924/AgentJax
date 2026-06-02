@@ -151,7 +151,9 @@ pub fn run() {
             commands::sub_agents::list_sub_agents,
             commands::memory::list_memories,
             commands::memory::get_memory,
-            commands::memory::search_memories
+            commands::memory::search_memories,
+            commands::memory::delete_memory,
+            commands::memory::open_memory_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -22,6 +22,10 @@ pub enum SubAgentType {
     Analyze,
     /// Full tool access within delegated scope.
     GeneralPurpose,
+    /// Background memory observer: read-only context access,
+    /// exclusive memory_write permission. Runs persistently
+    /// (event-driven) and is exempt from scope-narrowing.
+    Memory,
 }
 
 impl SubAgentType {
@@ -32,6 +36,7 @@ impl SubAgentType {
             SubAgentType::Implement => "implement",
             SubAgentType::Analyze => "analyze",
             SubAgentType::GeneralPurpose => "general",
+            SubAgentType::Memory => "memory",
         }
     }
 
@@ -42,6 +47,7 @@ impl SubAgentType {
             "implement" => Some(SubAgentType::Implement),
             "analyze" => Some(SubAgentType::Analyze),
             "general" => Some(SubAgentType::GeneralPurpose),
+            "memory" => Some(SubAgentType::Memory),
             _ => None,
         }
     }
@@ -114,6 +120,11 @@ pub struct SubAgentSpec {
     pub model_id: Option<String>,
     /// Links back to the spawning request.
     pub parent_request_id: String,
+    /// Whether this sub-agent is persistent (survives TTL pruning,
+    /// not force-cancelled on conversation end). Memory agents
+    /// set this to true.
+    #[serde(default)]
+    pub persistent: bool,
 }
 
 // ── Progress Message ──────────────────────────────────────────────────────────
@@ -164,6 +175,19 @@ pub struct SubAgentSnapshot {
     pub turns_completed: usize,
     pub max_turns: usize,
     pub error: Option<String>,
+}
+
+// ── Memory Agent Signal ───────────────────────────────────────────────────────
+
+/// Signals sent to the persistent background memory sub-agent.
+#[derive(Debug, Clone)]
+pub enum MemoryAgentSignal {
+    /// A main-agent turn has completed. The memory agent should evaluate
+    /// the conversation context and decide whether to write/update memories.
+    TurnCompleted { turn_id: String },
+    /// The conversation has ended. The memory agent should perform a final
+    /// evaluation and then exit.
+    Terminate,
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -221,6 +245,7 @@ mod tests {
             use_worktree: false,
             model_id: None,
             parent_request_id: "req_001".to_string(),
+            persistent: false,
         };
         let json = serde_json::to_string(&spec).unwrap();
         let parsed: SubAgentSpec = serde_json::from_str(&json).unwrap();

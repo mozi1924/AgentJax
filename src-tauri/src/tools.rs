@@ -168,6 +168,20 @@ pub struct ToolExecutionContext {
     /// on their own isolated conversation history.
     #[allow(dead_code)]
     pub lcm_store_override: Option<Arc<crate::lcm::LcmStore>>,
+
+    /// The sub-agent type when executing in a sub-agent context.
+    /// Used to gate tools that are exclusive to specific sub-agent types
+    /// (e.g., memory_write is only available to the Memory sub-agent).
+    pub sub_agent_type: Option<String>,
+
+    /// Whether this execution context belongs to the background memory sub-agent.
+    /// When true, the memory_write tool is available.
+    pub is_memory_sub_agent: bool,
+
+    /// Channel sender for sub-agent lifecycle events.
+    /// Populated in the chat stream handler so the sub-agent runner can push
+    /// progress/completion events to the frontend.
+    pub sub_agent_event_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::sub_agents::SubAgentEvent>>,
 }
 
 // Manual Debug impl that skips lcm_store_override (LcmStore doesn't impl Debug).
@@ -181,6 +195,9 @@ impl std::fmt::Debug for ToolExecutionContext {
             .field("app_config", &self.app_config)
             .field("sub_agent_id", &self.sub_agent_id)
             .field("lcm_store_override", &self.lcm_store_override.as_ref().map(|_| "Arc<LcmStore>"))
+            .field("sub_agent_type", &self.sub_agent_type)
+            .field("is_memory_sub_agent", &self.is_memory_sub_agent)
+            .field("sub_agent_event_tx", &self.sub_agent_event_tx.as_ref().map(|_| "mpsc::UnboundedSender"))
             .finish()
     }
 }
@@ -196,6 +213,9 @@ impl ToolExecutionContext {
             app_config: None,
             sub_agent_id: None,
             lcm_store_override: None,
+            sub_agent_type: None,
+            is_memory_sub_agent: false,
+            sub_agent_event_tx: None,
         }
     }
 }
@@ -228,11 +248,16 @@ pub fn check_scope_narrowing_invariant(
         .as_deref()
         .map(|t| t == "explore")
         .unwrap_or(false);
+    let is_memory = subagent_type
+        .as_deref()
+        .map(|t| t == "memory")
+        .unwrap_or(false);
     let is_root = context.hop_index.unwrap_or(0) == 0;
     let is_sub_agent = context.sub_agent_id.is_some();
 
-    // Root agents and explore sub-agents are exempt.
-    if is_root || is_explore || is_sub_agent {
+    // Root agents, explore sub-agents, and memory sub-agents are exempt.
+    // Memory sub-agents have a fixed, well-known scope (memory write only).
+    if is_root || is_explore || is_memory || is_sub_agent {
         return Ok(());
     }
 

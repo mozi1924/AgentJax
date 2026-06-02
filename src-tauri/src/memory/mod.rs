@@ -18,8 +18,8 @@
 //! Content body with **markdown**. Wiki-style [[links]] to other memories.
 //! ```
 
-mod context;
-mod index;
+pub(crate) mod context;
+pub(crate) mod index;
 pub(crate) mod search;
 pub(crate) mod store;
 pub(crate) mod types;

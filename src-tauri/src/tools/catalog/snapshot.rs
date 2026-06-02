@@ -5,6 +5,7 @@ use super::background::{
 use super::names::{mount_tool_name_for_server, prefixed_mcp_tool_name};
 use super::plugin_execution::execute_plugin_package_tool;
 use super::types::{MountedToolSourceSession, ToolCatalogExecution, ToolCatalogStateChange};
+use crate::config::AppConfig;
 use crate::plugin_runtime::PluginPackage;
 use crate::tools::{Tool, ToolExecutionContext, ToolPresentation, background_jobs};
 use futures_util::FutureExt;
@@ -76,6 +77,9 @@ pub struct ToolCatalogSnapshot {
     pub(super) presentations: HashMap<String, ToolPresentation>,
     pub(super) mcp_manager: Arc<crate::mcp::McpManager>,
     pub(super) mcp_runtime: crate::config::McpRuntimeConfig,
+    /// Application config carried through from the tool execution context.
+    /// Available to tools that need to read global configuration at runtime.
+    pub(super) app_config: Option<Arc<AppConfig>>,
 }
 
 impl ToolCatalogSnapshot {
