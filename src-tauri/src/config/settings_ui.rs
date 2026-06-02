@@ -28,6 +28,7 @@ const PLUGIN_MANAGER_SECTION_JSON: &str =
 const LCM_SECTION_JSON: &str = include_str!("settings_ui_sections/lcm.json");
 const MEMORY_SECTION_JSON: &str = include_str!("settings_ui_sections/memory.json");
 const STREET_SECTION_JSON: &str = include_str!("settings_ui_sections/street.json");
+const CONVERSATION_SECTION_JSON: &str = include_str!("settings_ui_sections/conversation.json");
 
 pub fn build_settings_sections() -> Result<Vec<Value>, String> {
     let mut sections = build_builtin_settings_sections()?;
@@ -61,6 +62,7 @@ fn build_builtin_settings_sections() -> Result<Vec<Value>, String> {
         LCM_SECTION_JSON,
         MEMORY_SECTION_JSON,
         STREET_SECTION_JSON,
+        CONVERSATION_SECTION_JSON,
     ];
 
     let mut sections = Vec::with_capacity(section_sources.len());

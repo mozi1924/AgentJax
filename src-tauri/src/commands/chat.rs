@@ -41,6 +41,7 @@ pub async fn chat_stream(
     req: ChatRequest,
 ) -> Result<ChatResponse, String> {
     let config = config::load_config()?;
+    let jsonl_backup_enabled = config.conversation.jsonl_backup_enabled;
     let (sanitized_client_metadata, local_dynamic_tools) =
         split_local_client_metadata(req.client_metadata.clone())?;
     let request_id = req
@@ -164,7 +165,7 @@ pub async fn chat_stream(
 
     let user_message_ts = now_unix_ms();
 
-    {
+    if jsonl_backup_enabled {
         let conversation_id = conversation_id.clone();
         let request_id = request_id.clone();
         let input_text = input_text.clone();
@@ -277,6 +278,7 @@ pub async fn chat_stream(
         request_id.clone(),
         model_id,
         context_token_count,
+        jsonl_backup_enabled,
     );
     let stream_observer_for_callback = stream_observer.clone();
     let mut runtime_req = req.clone();

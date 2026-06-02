@@ -41,7 +41,10 @@ fn is_successful_tool_output(output: &Value) -> bool {
     }
 }
 
-pub fn persist_tool_progress_event(input: ToolProgressPersistInput<'_>) -> Result<(), String> {
+pub fn persist_tool_progress_event(
+    input: ToolProgressPersistInput<'_>,
+    jsonl_backup_enabled: bool,
+) -> Result<(), String> {
     let ToolProgressPersistInput {
         conversation_id,
         request_id,
@@ -57,6 +60,9 @@ pub fn persist_tool_progress_event(input: ToolProgressPersistInput<'_>) -> Resul
     } = input;
 
     if tool_call_id.trim().is_empty() {
+        return Ok(());
+    }
+    if !jsonl_backup_enabled {
         return Ok(());
     }
 
@@ -169,7 +175,11 @@ pub fn persist_assistant_line(
     response_id: &str,
     phase: Option<AssistantPhase>,
     text: &str,
+    jsonl_backup_enabled: bool,
 ) -> Result<(), String> {
+    if !jsonl_backup_enabled {
+        return Ok(());
+    }
     let text = text.trim().to_string();
     if text.is_empty() {
         return Ok(());

@@ -1,0 +1,25 @@
+{
+  "id": "conversation",
+  "title": "settings.conversation.title",
+  "icon": "MessageSquare",
+  "order": 91,
+  "description": "settings.conversation.description",
+  "children": [
+    {
+      "kind": "group",
+      "id": "conversation-storage",
+      "title": "settings.conversation.storage.title",
+      "children": [
+        {
+          "kind": "field",
+          "id": "conversation-jsonl-backup",
+          "title": "settings.conversation.jsonl_backup.title",
+          "description": "settings.conversation.jsonl_backup.description",
+          "path": "conversation.jsonl_backup_enabled",
+          "valueType": "boolean",
+          "control": "switch"
+        }
+      ]
+    }
+  ]
+}

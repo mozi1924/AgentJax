@@ -90,6 +90,26 @@ impl Default for StreetConfig {
     }
 }
 
+// ── Conversation Config ────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ConversationConfig {
+    /// Whether to write a JSONL backup alongside the LCM SQLite store.
+    /// JSONL is a plain-text fallback — more resilient to corruption than
+    /// binary SQLite, but adds I/O overhead. Disable for better performance
+    /// when LCM is the sole source of truth.
+    pub jsonl_backup_enabled: bool,
+}
+
+impl Default for ConversationConfig {
+    fn default() -> Self {
+        Self {
+            jsonl_backup_enabled: true,
+        }
+    }
+}
+
 // ── AppConfig ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +134,8 @@ pub struct AppConfig {
     pub memory: MemoryConfig,
     #[serde(default)]
     pub street: StreetConfig,
+    #[serde(default)]
+    pub conversation: ConversationConfig,
     #[serde(default)]
     pub mcp_runtime: McpRuntimeConfig,
     #[serde(default)]
@@ -493,6 +515,7 @@ impl Default for AppConfig {
             sub_agent: SubAgentConfig::default(),
             memory: MemoryConfig::default(),
             street: StreetConfig::default(),
+            conversation: ConversationConfig::default(),
             mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
             tool_manager: ToolManagerConfig::default(),

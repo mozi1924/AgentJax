@@ -12,6 +12,7 @@ pub(super) struct ChatStreamObserver {
     conversation_id: String,
     request_id: String,
     model_id: Option<String>,
+    jsonl_backup_enabled: bool,
     fallback_token_count: Arc<AtomicUsize>,
     visible_token_count: Arc<AtomicUsize>,
 }
@@ -22,11 +23,13 @@ impl ChatStreamObserver {
         request_id: String,
         model_id: Option<String>,
         initial_token_count: usize,
+        jsonl_backup_enabled: bool,
     ) -> Self {
         Self {
             conversation_id,
             request_id,
             model_id,
+            jsonl_backup_enabled,
             fallback_token_count: Arc::new(AtomicUsize::new(initial_token_count)),
             visible_token_count: Arc::new(AtomicUsize::new(initial_token_count)),
         }
@@ -54,7 +57,7 @@ impl ChatStreamObserver {
                     payload: None,
                     started_at_unix_ms: None,
                     completed_at_unix_ms: None,
-                });
+                }, self.jsonl_backup_enabled);
             }
             ProviderStreamEvent::ToolCallCompleted {
                 call_id,
@@ -75,7 +78,7 @@ impl ChatStreamObserver {
                     payload: Some(arguments),
                     started_at_unix_ms: None,
                     completed_at_unix_ms: None,
-                });
+                }, self.jsonl_backup_enabled);
                 self.add_tool_call_argument_tokens(name, presentation.as_ref(), arguments);
             }
             ProviderStreamEvent::ToolCallExecuted {
@@ -99,7 +102,7 @@ impl ChatStreamObserver {
                     payload: Some(output),
                     started_at_unix_ms: Some(*started_at_unix_ms),
                     completed_at_unix_ms: Some(*completed_at_unix_ms),
-                });
+                }, self.jsonl_backup_enabled);
                 self.add_text_tokens(output);
             }
             ProviderStreamEvent::AssistantMessageCompleted {
@@ -114,6 +117,7 @@ impl ChatStreamObserver {
                         response_id,
                         *phase,
                         text,
+                        self.jsonl_backup_enabled,
                     );
                     self.add_text_tokens(text);
                 }
@@ -129,6 +133,7 @@ impl ChatStreamObserver {
                     response_id,
                     *phase,
                     text,
+                    self.jsonl_backup_enabled,
                 );
                 self.add_text_tokens(text);
             }
@@ -147,21 +152,23 @@ impl ChatStreamObserver {
         if let Some(latest_usage_record) = response.usage_hops.last() {
             self.visible_token_count
                 .store(latest_usage_record.usage.total_tokens, Ordering::Relaxed);
-            if let Err(err) = conversation_store::update_conversation_token_usage(
-                &self.conversation_id,
-                &self.request_id,
-                &latest_usage_record.response_id,
-                "provider",
-                "latest_response",
-                &latest_usage_record.usage,
-                response.usage.as_ref(),
-                &response.usage_hops,
-            ) {
+            if self.jsonl_backup_enabled {
+                if let Err(err) = conversation_store::update_conversation_token_usage(
+                    &self.conversation_id,
+                    &self.request_id,
+                    &latest_usage_record.response_id,
+                    "provider",
+                    "latest_response",
+                    &latest_usage_record.usage,
+                    response.usage.as_ref(),
+                    &response.usage_hops,
+                ) {
                 log::warn!(
                     "Failed to persist provider token usage for conversation '{}': {}",
                     self.conversation_id,
                     err
                 );
+                }
             }
         } else {
             let fallback_total = self.fallback_token_count.load(Ordering::Relaxed);
@@ -172,21 +179,23 @@ impl ChatStreamObserver {
                 completion_tokens: 0,
                 total_tokens: fallback_total,
             };
-            if let Err(err) = conversation_store::update_conversation_token_usage(
-                &self.conversation_id,
-                &self.request_id,
-                &response.response_id,
-                "local_estimate",
-                "turn_estimate",
-                &fallback_usage,
-                None,
-                &[],
-            ) {
-                log::warn!(
-                    "Failed to persist estimated token usage for conversation '{}': {}",
-                    self.conversation_id,
-                    err
-                );
+            if self.jsonl_backup_enabled {
+                if let Err(err) = conversation_store::update_conversation_token_usage(
+                    &self.conversation_id,
+                    &self.request_id,
+                    &response.response_id,
+                    "local_estimate",
+                    "turn_estimate",
+                    &fallback_usage,
+                    None,
+                    &[],
+                ) {
+                    log::warn!(
+                        "Failed to persist estimated token usage for conversation '{}': {}",
+                        self.conversation_id,
+                        err
+                    );
+                }
             }
         }
 

@@ -135,10 +135,31 @@
 | 2025-06-02 | 1 | 1.3 模块可见性 (street: pub→pub(crate)) | ✅ |
 | 2025-06-02 | 2 | 2.1 Deprecate TaskTool | ✅ |
 | 2025-06-02 | 2 | 2.4 合并 now_unix_ms() 重复定义 | ✅ |
+| 2025-06-02 | 2 | 2.3 JSONL 双写 → 可选备份 (默认开启) | ✅ |
 | | | | |
 
 ## 当前状态摘要
 
 - **编译**: 零警告，零错误
 - **测试**: 325 passed, 0 failed
-- **待处理**: 第一阶段 1.4 (90+ dead code 需要先改 pub→pub(crate) 暴露), 第二阶段 2.3 (JSONL 双写移除), 2.4 (ConversationMeta 合并), 第三阶段 (架构加固)
+- **完成**: 1.1-1.4 (前端+后端死代码), 2.1 (TaskTool deprecation), 2.3 (JSONL 可选备份), 2.4 (now_unix_ms 合并)
+- **待处理**: 2.4 (ConversationMeta 合并), 2.2 (background_jobs 合并), 第三阶段 (架构加固)
+
+## 2.3 JSONL 备份详情
+
+### 新增配置
+- `AppConfig.conversation.jsonl_backup_enabled: bool` (默认 `true`)
+- 设置 UI: "对话" → "存储" → "JSONL 备份" 开关
+
+### 写入路径（已条件化）
+- `chat_persistence::persist_tool_progress_event` — 当 `false` 时立即返回
+- `chat_persistence::persist_assistant_line` — 当 `false` 时立即返回
+- `chat_stream_observer` — 透传 backup flag
+- `chat::chat_stream` — 用户消息 `append_line` 条件化
+- `update_conversation_token_usage` — 条件化
+
+### 保持不变
+- `ensure_conversation` — 总是运行（创建 metadata.json + LCM 元数据）
+- `update_auto_title` — 总是运行（元数据，非消息日志）
+- `update_conversation_dynamic_tools` 等 — 总是运行（元数据）
+- JSONL 读取路径 — 保持作为 fallback（现有对话兼容）

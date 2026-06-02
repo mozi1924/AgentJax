@@ -378,6 +378,12 @@
   "settings.street.auto_trigger.title": "Auto-Trigger Priority",
   "settings.street.auto_trigger.description": "Minimum priority level required to automatically start a new agent turn when a Street notification arrives.",
 
+  "settings.conversation.title": "Conversation",
+  "settings.conversation.description": "Conversation storage and data retention settings.",
+  "settings.conversation.storage.title": "Storage",
+  "settings.conversation.jsonl_backup.title": "JSONL Backup",
+  "settings.conversation.jsonl_backup.description": "Write a plain-text JSONL backup alongside the primary SQLite (LCM) store. JSONL is more resilient to corruption but adds I/O overhead. Disable for better performance when LCM is the sole source of truth.",
+
   "settings.lcm.title": "LCM (Context Management)",
   "settings.lcm.description": "Lossless Context Management — deterministic, engine-driven context compression with lossless retrievability.",
   "settings.lcm.general.title": "General",

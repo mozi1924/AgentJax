@@ -376,6 +376,12 @@
   "settings.street.auto_trigger.title": "自动触发优先级",
   "settings.street.auto_trigger.description": "Street 通知到达时，自动启动新 agent turn 所需的最低优先级。",
 
+  "settings.conversation.title": "对话",
+  "settings.conversation.description": "对话存储和数据保留设置。",
+  "settings.conversation.storage.title": "存储",
+  "settings.conversation.jsonl_backup.title": "JSONL 备份",
+  "settings.conversation.jsonl_backup.description": "在主 SQLite (LCM) 存储之外同时写入纯文本 JSONL 备份。JSONL 更抗损坏但会增加 I/O 开销。关闭以获得更好性能，LCM 作为唯一数据源。",
+
   "settings.lcm.title": "LCM（上下文管理）",
   "settings.lcm.description": "无损上下文管理 — 确定性的引擎驱动上下文压缩，支持无损追溯。",
   "settings.lcm.general.title": "基本设置",
