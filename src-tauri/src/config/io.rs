@@ -1,6 +1,7 @@
 use crate::config::constants::CONFIG_FILE_NAME;
 use crate::config::prompt_composer::abbreviate_prompt_composer_for_yaml;
 use crate::config::schema::AppConfig;
+use crate::error::{AgentJaxError, AgentJaxResult};
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,28 +27,28 @@ pub struct ConfigUpgradeResult {
     pub upgraded: bool,
 }
 
-pub fn config_dir_path() -> Result<PathBuf, String> {
-    crate::agentjax_home::agentjax_home_dir()
+pub fn config_dir_path() -> AgentJaxResult<PathBuf> {
+    crate::agentjax_home::agentjax_home_dir().map_err(Into::into)
 }
 
-pub fn init_config_if_missing() -> Result<PathBuf, String> {
+pub fn init_config_if_missing() -> AgentJaxResult<PathBuf> {
     let dir = config_dir_path()?;
     if !dir.exists() {
         fs::create_dir_all(&dir)
-            .map_err(|e| format!("Failed to create config directory {}: {e}", dir.display()))?;
+            .map_err(|e| AgentJaxError::config(format!("Failed to create config directory {}: {e}", dir.display())).with_error_source(&e))?;
     }
 
     let path = dir.join(CONFIG_FILE_NAME);
     if !path.exists() {
         let template = default_config_yaml();
         fs::write(&path, template)
-            .map_err(|e| format!("Failed to create config file {}: {e}", path.display()))?;
+            .map_err(|e| AgentJaxError::config(format!("Failed to create config file {}: {e}", path.display())).with_error_source(&e))?;
     }
 
     Ok(path)
 }
 
-pub fn load_config() -> Result<AppConfig, String> {
+pub fn load_config() -> AgentJaxResult<AppConfig> {
     register_home_provider_plugins();
     let path = init_config_if_missing()?;
     let raw = read_config_file(&path)?;
@@ -55,7 +56,7 @@ pub fn load_config() -> Result<AppConfig, String> {
     Ok(parsed.normalize())
 }
 
-pub fn upgrade_config_file() -> Result<ConfigUpgradeResult, String> {
+pub fn upgrade_config_file() -> AgentJaxResult<ConfigUpgradeResult> {
     register_home_provider_plugins();
     let path = init_config_if_missing()?;
     let raw = read_config_file(&path)?;
@@ -78,7 +79,7 @@ fn register_home_provider_plugins() {
     }
 }
 
-pub fn get_config_info() -> Result<ConfigInfo, String> {
+pub fn get_config_info() -> AgentJaxResult<ConfigInfo> {
     let path = init_config_if_missing()?;
     let config = load_config()?;
     let active_provider = config.active_provider.clone();
@@ -116,21 +117,21 @@ fn default_config_yaml() -> String {
     lines.join("\n")
 }
 
-fn read_config_file(path: &Path) -> Result<String, String> {
+fn read_config_file(path: &Path) -> AgentJaxResult<String> {
     fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read config file {}: {e}", path.display()))
+        .map_err(|e| AgentJaxError::config(format!("Failed to read config file {}: {e}", path.display())).with_error_source(&e))
 }
 
-fn parse_config_yaml(path: &Path, raw: &str) -> Result<AppConfig, String> {
-    serde_yaml::from_str(raw).map_err(|e| format!("Invalid YAML in {}: {e}", path.display()))
+fn parse_config_yaml(path: &Path, raw: &str) -> AgentJaxResult<AppConfig> {
+    serde_yaml::from_str(raw).map_err(|e| AgentJaxError::config(format!("Invalid YAML in {}: {e}", path.display())).with_error_source(&e))
 }
 
-pub fn serialize_config_to_yaml(normalized: &AppConfig) -> Result<String, String> {
+pub fn serialize_config_to_yaml(normalized: &AppConfig) -> AgentJaxResult<String> {
     // Build a YAML version of the config with the prompt_composer blocks
     // abbreviated (built-in/plugin blocks → only {id, enabled}) so the YAML
     // on disk stays clean and does not expose framework-internal content.
     let mut abbreviated_root: serde_yaml::Value = serde_yaml::to_value(normalized)
-        .map_err(|e| format!("Failed to serialize config for YAML output: {e}"))?;
+        .map_err(|e| AgentJaxError::config(format!("Failed to serialize config for YAML output: {e}")).with_error_source(&e))?;
 
     if let Some(pc) = abbreviated_root
         .get_mut("prompt_composer")
@@ -138,7 +139,7 @@ pub fn serialize_config_to_yaml(normalized: &AppConfig) -> Result<String, String
     {
         let abbreviated = abbreviate_prompt_composer_for_yaml(&normalized.prompt_composer);
         let abbreviated_yaml: serde_yaml::Value = serde_yaml::to_value(&abbreviated)
-            .map_err(|e| format!("Failed to convert abbreviated blocks to YAML: {e}"))?;
+            .map_err(|e| AgentJaxError::config(format!("Failed to convert abbreviated blocks to YAML: {e}")).with_error_source(&e))?;
         if let Some(blocks) = abbreviated_yaml.get("blocks") {
             pc.insert(
                 serde_yaml::Value::String("blocks".to_string()),
@@ -148,30 +149,31 @@ pub fn serialize_config_to_yaml(normalized: &AppConfig) -> Result<String, String
     }
 
     serde_yaml::to_string(&abbreviated_root)
-        .map_err(|e| format!("Failed to serialize normalized config to YAML: {e}"))
+        .map_err(|e| AgentJaxError::config(format!("Failed to serialize normalized config to YAML: {e}")).with_error_source(&e))
 }
 
 fn persist_config_if_changed(
     path: &Path,
     raw: &str,
     normalized: &AppConfig,
-) -> Result<bool, String> {
+) -> AgentJaxResult<bool> {
     let source_value: serde_yaml::Value = serde_yaml::from_str(raw)
-        .map_err(|e| format!("Invalid YAML in {}: {e}", path.display()))?;
+        .map_err(|e| AgentJaxError::config(format!("Invalid YAML in {}: {e}", path.display())).with_error_source(&e))?;
 
     let normalized_yaml = serialize_config_to_yaml(normalized)?;
     let normalized_value: serde_yaml::Value = serde_yaml::from_str(&normalized_yaml)
-        .map_err(|e| format!("Failed to parse normalized config YAML: {e}"))?;
+        .map_err(|e| AgentJaxError::config(format!("Failed to parse normalized config YAML: {e}")).with_error_source(&e))?;
 
     if source_value == normalized_value {
         return Ok(false);
     }
 
     fs::write(path, normalized_yaml).map_err(|e| {
-        format!(
+        AgentJaxError::config(format!(
             "Failed to write upgraded config file {}: {e}",
             path.display()
-        )
+        ))
+        .with_error_source(&e)
     })?;
     log::info!("Config file upgraded at {}", path.display());
 

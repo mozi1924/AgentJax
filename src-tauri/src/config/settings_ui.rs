@@ -1,4 +1,6 @@
 use super::{AppConfig, SettingsOption};
+use crate::agentjax_err;
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::models;
 use crate::plugin_runtime::{PluginPackage, discover_all_plugin_packages};
 use crate::provider_api::registry;
@@ -30,7 +32,7 @@ const MEMORY_SECTION_JSON: &str = include_str!("settings_ui_sections/memory.json
 const STREET_SECTION_JSON: &str = include_str!("settings_ui_sections/street.json");
 const CONVERSATION_SECTION_JSON: &str = include_str!("settings_ui_sections/conversation.json");
 
-pub fn build_settings_sections() -> Result<Vec<Value>, String> {
+pub fn build_settings_sections() -> AgentJaxResult<Vec<Value>> {
     let mut sections = build_builtin_settings_sections()?;
     match discover_all_plugin_packages() {
         Ok(packages) => sections.extend(plugin_settings_sections_from_packages(packages)),
@@ -49,7 +51,7 @@ pub fn build_settings_sections() -> Result<Vec<Value>, String> {
     Ok(sections)
 }
 
-fn build_builtin_settings_sections() -> Result<Vec<Value>, String> {
+fn build_builtin_settings_sections() -> AgentJaxResult<Vec<Value>> {
     let section_sources = [
         GENERAL_SECTION_JSON,
         PROMPT_COMPOSER_SECTION_JSON,
@@ -68,7 +70,7 @@ fn build_builtin_settings_sections() -> Result<Vec<Value>, String> {
     let mut sections = Vec::with_capacity(section_sources.len());
     for source in section_sources {
         let section: Value = serde_json::from_str(source)
-            .map_err(|error| format!("Failed to parse settings section JSON: {error}"))?;
+            .map_err(|error| AgentJaxError::config(format!("Failed to parse settings section JSON: {error}")).with_error_source(&error))?;
         sections.push(section);
     }
 
@@ -94,7 +96,7 @@ fn escape_path_segment(segment: &str) -> String {
 
 pub fn build_dynamic_options(
     config: &AppConfig,
-) -> Result<BTreeMap<String, Vec<SettingsOption>>, String> {
+) -> AgentJaxResult<BTreeMap<String, Vec<SettingsOption>>> {
     let mut dynamic_options = BTreeMap::new();
 
     let provider_options = config
@@ -241,7 +243,7 @@ fn profile_key_from_ref(profile_ref: &str) -> String {
         .unwrap_or_else(|| profile_ref.to_string())
 }
 
-fn validate_unique_schema_ids(sections: &[Value]) -> Result<(), String> {
+fn validate_unique_schema_ids(sections: &[Value]) -> AgentJaxResult<()> {
     let mut ids = std::collections::BTreeSet::new();
     for section in sections {
         walk_node_ids(section, &mut ids)?;
@@ -249,26 +251,26 @@ fn validate_unique_schema_ids(sections: &[Value]) -> Result<(), String> {
     Ok(())
 }
 
-fn walk_node_ids(node: &Value, ids: &mut std::collections::BTreeSet<String>) -> Result<(), String> {
+fn walk_node_ids(node: &Value, ids: &mut std::collections::BTreeSet<String>) -> AgentJaxResult<()> {
     let object = node
         .as_object()
-        .ok_or_else(|| "Settings schema node must be an object".to_string())?;
+        .ok_or_else(|| agentjax_err!("Settings schema node must be an object", Config))?;
 
     let id = object
         .get("id")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "Settings schema node is missing non-empty id".to_string())?;
+        .ok_or_else(|| agentjax_err!("Settings schema node is missing non-empty id", Config))?;
 
     if !ids.insert(id.to_string()) {
-        return Err(format!("Duplicate settings schema node id: {id}"));
+        return Err(agentjax_err!(format!("Duplicate settings schema node id: {id}"), Config));
     }
 
     if let Some(children) = object.get("children") {
         let array = children
             .as_array()
-            .ok_or_else(|| format!("Settings schema node '{id}' children must be an array"))?;
+            .ok_or_else(|| agentjax_err!(format!("Settings schema node '{id}' children must be an array"), Config))?;
         for child in array {
             walk_node_ids(child, ids)?;
         }
@@ -277,11 +279,11 @@ fn walk_node_ids(node: &Value, ids: &mut std::collections::BTreeSet<String>) -> 
     if let Some(tabs) = object.get("tabs") {
         let array = tabs
             .as_array()
-            .ok_or_else(|| format!("Settings schema node '{id}' tabs must be an array"))?;
+            .ok_or_else(|| agentjax_err!(format!("Settings schema node '{id}' tabs must be an array"), Config))?;
         for tab in array {
             if let Some(children) = tab.get("children") {
                 let children = children.as_array().ok_or_else(|| {
-                    format!("Settings schema tab in node '{id}' children must be an array")
+                    agentjax_err!(format!("Settings schema tab in node '{id}' children must be an array"), Config)
                 })?;
                 for child in children {
                     walk_node_ids(child, ids)?;

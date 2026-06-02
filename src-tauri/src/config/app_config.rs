@@ -1,3 +1,4 @@
+use crate::agentjax_err;
 use crate::config::constants::{DEFAULT_DEFAULT_MODEL_REF, DEFAULT_TIMEOUT_SECONDS};
 use crate::config::model_ref::{model_ref, parse_model_ref};
 use crate::config::prompt_composer::{compile_prompt_composer, normalize_prompt_composer};
@@ -6,6 +7,7 @@ use crate::config::schema::{
     ModelRequestConfig, PluginManagerConfig, ProviderConfig, ProviderModelConfig,
     ResolvedModelConfig, ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
 };
+use crate::error::AgentJaxResult;
 use crate::provider_api::registry;
 use std::collections::BTreeMap;
 
@@ -537,7 +539,7 @@ impl AppConfig {
     pub fn resolve_model_profile(
         &self,
         requested: Option<&str>,
-    ) -> Result<ResolvedModelConfig, String> {
+    ) -> AgentJaxResult<ResolvedModelConfig> {
         let requested_ref = requested.map(str::trim).filter(|s| !s.is_empty());
         let chosen_ref = requested_ref.unwrap_or(&self.default_model).to_string();
 
@@ -547,9 +549,9 @@ impl AppConfig {
             .or_else(|| self.resolve_model_ref(&self.utility_small_model))
             .or_else(|| self.first_enabled_model_ref())
             .ok_or_else(|| {
-                format!(
-                    "Model '{}' not found or disabled. Expected format: {{provider}}/{{model_id}}",
-                    chosen_ref
+                agentjax_err!(
+                    format!("Model '{}' not found or disabled. Expected format: {{provider}}/{{model_id}}", chosen_ref),
+                    Config
                 )
             })?;
 
@@ -580,11 +582,11 @@ impl AppConfig {
         keys
     }
 
-    pub fn resolved_provider(&self, provider_key: &str) -> Result<ProviderConfig, String> {
+    pub fn resolved_provider(&self, provider_key: &str) -> AgentJaxResult<ProviderConfig> {
         let key = provider_key.trim().to_lowercase();
         self.providers
             .get(&key)
             .cloned()
-            .ok_or_else(|| format!("Provider '{}' not found in config", provider_key))
+            .ok_or_else(|| agentjax_err!(format!("Provider '{}' not found in config", provider_key), Config))
     }
 }

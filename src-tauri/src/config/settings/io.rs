@@ -1,20 +1,23 @@
+use crate::error::{AgentJaxError, AgentJaxResult};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub(super) fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
+pub(super) fn atomic_write(path: &Path, content: &str) -> AgentJaxResult<()> {
     let temp_path = temp_config_path(path);
     fs::write(&temp_path, content).map_err(|e| {
-        format!(
+        AgentJaxError::config(format!(
             "Failed to write temporary config file {}: {e}",
             temp_path.display()
-        )
+        ))
+        .with_error_source(&e)
     })?;
     fs::rename(&temp_path, path).map_err(|e| {
-        format!(
+        AgentJaxError::config(format!(
             "Failed to replace config file {} with {}: {e}",
             path.display(),
             temp_path.display()
-        )
+        ))
+        .with_error_source(&e)
     })?;
     Ok(())
 }

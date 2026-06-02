@@ -29,7 +29,7 @@ pub struct ConfigSnapshotEvent {
 
 #[tauri::command]
 pub fn get_runtime_config() -> Result<ConfigInfo, String> {
-    config::get_config_info()
+    config::get_config_info().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -40,7 +40,7 @@ pub fn get_config_file_path() -> Result<String, String> {
 
 #[tauri::command]
 pub fn upgrade_config_file() -> Result<ConfigUpgradeResult, String> {
-    config::upgrade_config_file()
+    config::upgrade_config_file().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
