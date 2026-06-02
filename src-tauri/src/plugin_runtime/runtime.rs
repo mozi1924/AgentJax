@@ -89,6 +89,7 @@ impl Error for PluginRuntimeError {}
 ///
 /// Each plugin gets its own persistent `JsRuntime` instance on registration,
 /// avoiding repeated V8 isolate creation overhead.
+#[allow(dead_code)] // Reserved for future use — integration point being designed
 pub trait PluginRuntime: Send {
     fn backend_name(&self) -> &'static str;
     fn register_package(&mut self, package: PluginPackage) -> PluginRuntimeResult<()>;
@@ -148,12 +149,14 @@ pub trait PluginRuntime: Send {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub struct PluginInstance {
+    #[allow(dead_code)] // Reserved for future use
     manifest: PluginManifest,
     pub(crate) runtime: JsRuntime,
 }
 
 // Legacy trait methods kept as direct impl methods for backward compatibility.
 // TODO(codex): migrate callers and remove these wrappers.
+#[allow(dead_code)] // Reserved for future use
 impl DenoCorePluginRuntime {
     /// Register a manifest directly (creates a temp JsRuntime).
     /// Prefer `register_package` instead.
@@ -399,6 +402,7 @@ impl PluginInstance {
 
 /// deno_core-backed plugin runtime that holds one persistent `JsRuntime` per
 /// registered plugin and exposes a unified API for both provider and tool calls.
+#[allow(dead_code)] // Reserved for future use — test-only API surface currently
 pub struct DenoCorePluginRuntime {
     default_sandbox_policy: SandboxPolicy,
     plugins: BTreeMap<String, PluginInstance>,
@@ -407,6 +411,7 @@ pub struct DenoCorePluginRuntime {
     module_loader: Rc<dyn deno_core::ModuleLoader>,
 }
 
+#[allow(dead_code)] // Reserved for future use
 impl DenoCorePluginRuntime {
     pub fn new(default_sandbox_policy: SandboxPolicy) -> Self {
         let module_loader = create_sdk_module_loader();
@@ -623,6 +628,7 @@ fn resolve_entrypoint_script(
 // Execution timeout guard
 // ─────────────────────────────────────────────────────────────────────────────
 
+#[allow(dead_code)] // Reserved for future use
 struct ExecutionTimeoutGuard {
     done: Arc<AtomicBool>,
 }
@@ -633,6 +639,7 @@ impl Drop for ExecutionTimeoutGuard {
     }
 }
 
+#[allow(dead_code)] // Reserved for future use
 fn install_execution_timeout(
     runtime: &mut JsRuntime,
     max_execution_ms: Option<u64>,

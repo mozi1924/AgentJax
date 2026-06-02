@@ -22,6 +22,7 @@ pub struct SubAgentLcmContext {
     /// Format: `{parent_conv_id}/sub-agent/{agent_id}`
     pub conversation_id: String,
     /// Path to the sub-agent's LCM database.
+    #[allow(dead_code)] // Read in tests; available for future introspection
     pub db_path: PathBuf,
 }
 

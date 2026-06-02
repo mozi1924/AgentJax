@@ -10,7 +10,6 @@
 //! the provider_api migration. The types and functions here will be fully
 //! used once provider_api is migrated to `AgentJaxError`.
 
-#![allow(dead_code)]
 //!
 //! ## Classification Rules
 //!
@@ -27,15 +26,13 @@
 use crate::error::{AgentJaxError, ErrorKind};
 use std::time::Duration;
 
-// Allow unused for now — will be fully used when provider_api is migrated.
-#[allow(dead_code)]
-
 /// Represents a raw provider error from an API call.
 #[derive(Debug, Clone)]
 pub struct RawProviderError {
     /// HTTP status code, if available.
     pub status_code: Option<u16>,
     /// The provider's error code string, if available.
+    #[allow(dead_code)] // Reserved for future use
     pub error_code: Option<String>,
     /// The provider's error message.
     pub message: String,
@@ -53,6 +50,7 @@ pub struct RawProviderError {
 
 /// Classification of network-level errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Reserved for future use — variants constructed as needed
 pub enum NetworkErrorKind {
     Timeout,
     ConnectionRefused,
@@ -99,12 +97,14 @@ impl RawProviderError {
     }
 
     /// Mark the response as empty.
+    #[allow(dead_code)] // Test-only API surface
     pub fn with_empty_response(mut self) -> Self {
         self.is_empty_response = true;
         self
     }
 
     /// Mark the response as incomplete.
+    #[allow(dead_code)] // Test-only API surface
     pub fn with_incomplete(mut self) -> Self {
         self.is_incomplete = true;
         self

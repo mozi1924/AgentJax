@@ -820,7 +820,7 @@ async fn real_gateway_lcm_expand_restricted_to_sub_agent() {
         "如果工具调用成功执行了，请输出'展开成功但不符合预期'。"
     );
 
-    let (response, timeline_events, _stream_events) =
+    let (response, _timeline_events, _stream_events) =
         run_real_gateway_turn_with_full_catalog(prompt).await;
 
     assert!(!response.output_text.trim().is_empty());

@@ -300,6 +300,7 @@ impl ProviderConfig {
             .to_string()
     }
 
+    #[allow(dead_code)] // Reserved for future use
     pub fn models_endpoint_candidates(&self) -> Vec<String> {
         self.custom_settings
             .get("modelsEndpointCandidates")
@@ -312,6 +313,7 @@ impl ProviderConfig {
             .unwrap_or_default()
     }
 
+    #[allow(dead_code)] // Reserved for future use
     pub fn query_params(&self) -> BTreeMap<String, String> {
         self.custom_settings
             .get("queryParams")
@@ -399,6 +401,7 @@ impl ProviderConfig {
             .and_then(Value::as_u64)
     }
 
+    #[allow(dead_code)] // Reserved for future use
     pub fn request_max_retries(&self) -> Option<u32> {
         self.custom_settings
             .get("requestMaxRetries")
@@ -406,6 +409,7 @@ impl ProviderConfig {
             .map(|v| v as u32)
     }
 
+    #[allow(dead_code)] // Reserved for future use
     pub fn stream_max_retries(&self) -> Option<u32> {
         self.custom_settings
             .get("streamMaxRetries")
@@ -413,12 +417,14 @@ impl ProviderConfig {
             .map(|v| v as u32)
     }
 
+    #[allow(dead_code)] // Reserved for future use
     pub fn stream_idle_timeout_ms(&self) -> Option<u64> {
         self.custom_settings
             .get("streamIdleTimeoutMs")
             .and_then(Value::as_u64)
     }
 
+    #[allow(dead_code)] // Reserved for future use
     pub fn websocket_connect_timeout_ms(&self) -> Option<u64> {
         self.custom_settings
             .get("websocketConnectTimeoutMs")

@@ -6,13 +6,15 @@ mod tests {
         ToolManagerConfig, ToolSourcePolicyConfig,
     };
     use crate::conversation_store;
-    use crate::plugin_runtime::{
-        PLUGIN_API_VERSION, PLUGIN_MANIFEST_FILE, PluginManifest, PluginToolDefinition,
-        PluginToolKind, SandboxPolicy,
+    use crate::plugin_runtime::api::PLUGIN_API_VERSION;
+    use crate::plugin_runtime::discovery::PLUGIN_MANIFEST_FILE;
+    use crate::plugin_runtime::manifest::PluginToolKind;
+    use crate::plugin_runtime::{PluginManifest, PluginToolDefinition, SandboxPolicy};
+    use crate::tools::catalog::{
+        MountedToolDefinition, MountedToolSourceSession, MountedToolSourceSessions,
     };
     use crate::tools::{
-        CalculatorTool, FileReaderTool, FileWriterTool, MountedToolDefinition,
-        MountedToolSourceSession, MountedToolSourceSessions, SystemTimeTool, Tool, ToolCatalog,
+        CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool, Tool, ToolCatalog,
         ToolExecutionContext, ToolRegistry, ToolSchemaFormat,
     };
     use serde_json::json;
@@ -1567,7 +1569,7 @@ globalThis.AgentJaxPlugin = {
             .expect("calculator tool exists in manager snapshot");
         assert_eq!(
             calculator.schema_format,
-            crate::tools::ToolManagerSchemaFormat::JsonSchema
+            crate::tools::catalog::ToolManagerSchemaFormat::JsonSchema
         );
         assert_eq!(
             calculator.policy_paths.tool_enabled_path.as_deref(),
@@ -1591,7 +1593,7 @@ globalThis.AgentJaxPlugin = {
             .expect("configured MCP source exists");
         assert_eq!(
             mcp_source.source_type,
-            crate::tools::ToolManagerSourceType::Mcp
+            crate::tools::catalog::ToolManagerSourceType::Mcp
         );
         assert_eq!(mcp_source.status, "configured");
         assert_eq!(

@@ -45,6 +45,7 @@ impl Default for SandboxPolicy {
 
 /// Errors returned when a sandbox policy check fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)] // Reserved for future use
 pub enum SandboxViolation {
     NetworkNotAllowed,
     HostNotAllowed(String),
@@ -84,6 +85,7 @@ impl std::fmt::Display for SandboxViolation {
     }
 }
 
+#[allow(dead_code)] // Reserved for future use
 impl SandboxPolicy {
     /// Check whether the policy allows network access.
     /// Returns `Ok(())` if allowed, or `Err(SandboxViolation)` if denied.
@@ -142,6 +144,7 @@ impl SandboxPolicy {
 ///
 /// `*.example.com` matches `api.example.com` and `sub.api.example.com`,
 /// but NOT `example.com` (must have at least one subdomain level).
+#[allow(dead_code)] // Reserved for future use
 fn host_matches(pattern: &str, host: &str) -> bool {
     let pattern = pattern.trim();
     let host = host.trim();

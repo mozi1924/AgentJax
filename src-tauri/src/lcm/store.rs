@@ -35,7 +35,6 @@ use std::sync::Mutex;
 /// All write operations are transactional.
 pub struct LcmStore {
     conn: Mutex<Connection>,
-    config: LcmConfig,
     db_path: PathBuf,
 }
 
@@ -46,7 +45,7 @@ impl LcmStore {
     ///
     /// If the database file does not exist, it will be created with the
     /// full schema. If it already exists, the schema is migrated if needed.
-    pub fn open(db_path: impl AsRef<Path>, config: LcmConfig) -> Result<Self, LcmError> {
+    pub fn open(db_path: impl AsRef<Path>, _config: LcmConfig) -> Result<Self, LcmError> {
         let db_path = db_path.as_ref().to_path_buf();
 
         // Ensure parent directory exists.
@@ -73,7 +72,6 @@ impl LcmStore {
 
         let store = Self {
             conn: Mutex::new(conn),
-            config,
             db_path,
         };
 
@@ -83,7 +81,7 @@ impl LcmStore {
 
     /// Open an in-memory LCM store (for testing).
     #[cfg(test)]
-    pub fn open_in_memory(config: LcmConfig) -> Result<Self, LcmError> {
+    pub fn open_in_memory(_config: LcmConfig) -> Result<Self, LcmError> {
         let conn = Connection::open_in_memory().map_err(|e| {
             LcmError::Store(format!("Failed to open in-memory LCM store: {e}"))
         })?;
@@ -93,7 +91,6 @@ impl LcmStore {
 
         let store = Self {
             conn: Mutex::new(conn),
-            config,
             db_path: PathBuf::from(":memory:"),
         };
 
@@ -117,11 +114,6 @@ impl LcmStore {
     /// Returns the path to the database file.
     pub fn db_path(&self) -> &Path {
         &self.db_path
-    }
-
-    /// Returns a copy of the current configuration.
-    pub fn config(&self) -> LcmConfig {
-        self.config.clone()
     }
 
     // ── Message Persistence ────────────────────────────────────────────
@@ -292,23 +284,6 @@ impl LcmStore {
             messages.push(row?);
         }
         Ok(messages)
-    }
-
-    /// Count messages in a conversation.
-    pub fn count_messages(&self, conversation_id: &str) -> Result<usize, LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
-
-        let count: usize = conn
-            .query_row(
-                "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
-                params![conversation_id],
-                |row| row.get(0),
-            )
-            .map_err(|e| LcmError::Store(format!("Failed to count messages: {e}")))?;
-
-        Ok(count)
     }
 
     // ── Full-Text Search (lcm_grep) ────────────────────────────────────
@@ -529,49 +504,6 @@ impl LcmStore {
         Ok(())
     }
 
-    /// Get all summaries for a conversation.
-    pub fn get_conversation_summaries(
-        &self,
-        conversation_id: &str,
-    ) -> Result<Vec<SummaryNode>, LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, conversation_id, kind, text, token_count, created_at_unix_ms, compaction_level
-                 FROM summaries WHERE conversation_id = ?1
-                 ORDER BY created_at_unix_ms ASC",
-            )
-            .map_err(|e| LcmError::Store(format!("Failed to prepare query: {e}")))?;
-
-        let rows = stmt
-            .query_map(params![conversation_id], |row| {
-                Ok(SummaryNode {
-                    id: SummaryId::from(row.get::<_, String>(0)?),
-                    conversation_id: row.get(1)?,
-                    kind: parse_summary_kind(row.get::<_, String>(2)?.as_str())?,
-                    text: row.get(3)?,
-                    token_count: row.get(4)?,
-                    created_at_unix_ms: row.get(5)?,
-                    compaction_level: row.get(6)?,
-                    parents: Vec::new(),   // populated below
-                    file_refs: Vec::new(),
-                })
-            })
-            .map_err(|e| LcmError::Store(format!("Failed to query summaries: {e}")))?;
-
-        let mut summaries: Vec<SummaryNode> = Vec::new();
-        for row in rows {
-            let mut summary = row?;
-            // Populate parents for each summary.
-            summary.parents = self.get_summary_parents_internal(&conn, &summary.id)?;
-            summaries.push(summary);
-        }
-        Ok(summaries)
-    }
-
     /// Internal helper: query parents for a summary (requires an open connection).
     fn get_summary_parents_internal(
         &self,
@@ -722,6 +654,8 @@ impl LcmStore {
     // ── File Reference Operations ──────────────────────────────────────
 
     /// Register a file reference for a large file.
+    /// Currently only used in tests (via FileHandler).
+    #[allow(dead_code)]
     pub fn register_file(&self, file_ref: &FileReference) -> Result<(), LcmError> {
         let conn = self.conn.lock().map_err(|e| {
             LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
@@ -941,6 +875,8 @@ impl LcmStore {
     }
 
     /// Get conversation metadata.
+    /// Currently only used in tests.
+    #[allow(dead_code)]
     pub fn get_conversation_meta(
         &self,
         conversation_id: &str,
@@ -971,6 +907,8 @@ impl LcmStore {
     }
 
     /// Update conversation metadata fields.
+    /// Currently only used in tests.
+    #[allow(dead_code)]
     pub fn update_conversation_meta(
         &self,
         conversation_id: &str,
@@ -1026,45 +964,10 @@ impl LcmStore {
         Ok(())
     }
 
-    /// List all conversation metadata summaries, ordered by most recently updated.
-    pub fn list_conversation_metas(&self) -> Result<Vec<ConversationMeta>, LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json
-                 FROM conversation_meta
-                 ORDER BY updated_at_unix_ms DESC",
-            )
-            .map_err(|e| LcmError::Store(format!("Failed to prepare query: {e}")))?;
-
-        let rows = stmt
-            .query_map([], |row| {
-                Ok(ConversationMeta {
-                    conversation_id: row.get(0)?,
-                    title: row.get(1)?,
-                    title_source: row.get(2)?,
-                    created_at_unix_ms: row.get(3)?,
-                    updated_at_unix_ms: row.get(4)?,
-                    message_count: row.get(5)?,
-                    conversation_type: row.get(6)?,
-                    metadata_json: row.get(7)?,
-                })
-            })
-            .map_err(|e| LcmError::Store(format!("Failed to list conversation metas: {e}")))?;
-
-        let mut metas = Vec::new();
-        for row in rows {
-            metas.push(row?);
-        }
-        Ok(metas)
-    }
-
     // ── Maintenance ────────────────────────────────────────────────────
 
     /// Remove all data for a conversation from the LCM store.
+    #[allow(dead_code)]
     pub fn delete_conversation(&self, conversation_id: &str) -> Result<(), LcmError> {
         let conn = self.conn.lock().map_err(|e| {
             LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
@@ -1119,6 +1022,7 @@ impl LcmStore {
     }
 
     /// Run VACUUM to reclaim disk space and optimize the database.
+    #[allow(dead_code)]
     pub fn vacuum(&self) -> Result<(), LcmError> {
         let conn = self.conn.lock().map_err(|e| {
             LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))

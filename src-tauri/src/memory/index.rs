@@ -40,7 +40,6 @@ impl MemoryIndex {
 mod tests {
     use super::*;
     use crate::memory::types::{MemoryFrontmatter, MemoryType, ParsedMemory};
-    use std::path::PathBuf;
 
     #[test]
     fn test_rebuild_index() {

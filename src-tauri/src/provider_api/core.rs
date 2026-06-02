@@ -8,9 +8,12 @@ use uuid::Uuid;
 /// inspection when debugging multi-provider conversations.
 #[derive(Debug, Clone)]
 pub struct ProviderIdFactory {
+    #[allow(dead_code)] // Stored for display/debug; consumed in constructor for response_id
     provider_kind: String,
     response_id: String,
+    #[allow(dead_code)] // Test-only API surface (read via next_item_id)
     next_item_index: usize,
+    #[allow(dead_code)] // Test-only API surface (read via next_call_id)
     next_call_index: usize,
 }
 
@@ -31,6 +34,7 @@ impl ProviderIdFactory {
         &self.response_id
     }
 
+    #[allow(dead_code)] // Test-only API surface
     pub fn next_item_id(&mut self, label: &str) -> String {
         self.next_item_index = self.next_item_index.saturating_add(1);
         format!(
@@ -41,6 +45,7 @@ impl ProviderIdFactory {
         )
     }
 
+    #[allow(dead_code)] // Test-only API surface
     pub fn next_call_id(&mut self, tool_name: &str) -> String {
         self.next_call_index = self.next_call_index.saturating_add(1);
         format!(
@@ -71,6 +76,7 @@ fn sanitize_id_segment(value: &str) -> String {
     }
 }
 
+#[allow(dead_code)] // Test-only API surface
 pub fn normalize_reasoning_levels(levels: &[String]) -> Vec<String> {
     let mut normalized = Vec::new();
 

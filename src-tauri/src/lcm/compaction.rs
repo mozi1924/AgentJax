@@ -209,22 +209,6 @@ impl CompactionEngine {
         )
     }
 
-    /// Create a new SummaryNode from a successful compaction result.
-    pub fn build_summary_node(
-        id: SummaryId,
-        conversation_id: &str,
-        text: &str,
-        compaction_level: u8,
-        kind: SummaryKind,
-        timestamp_unix_ms: i64,
-        count_tokens: &TokenCounter,
-    ) -> SummaryNode {
-        Self::build_summary_node_with_refs(
-            id, conversation_id, text, compaction_level, kind,
-            timestamp_unix_ms, count_tokens, Vec::new(),
-        )
-    }
-
     /// Create a new SummaryNode with propagated file references.
     pub fn build_summary_node_with_refs(
         id: SummaryId,

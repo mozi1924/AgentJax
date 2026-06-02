@@ -1,6 +1,6 @@
 pub(crate) mod background_jobs;
 mod calculator;
-mod catalog;
+pub(crate) mod catalog;
 mod files;
 pub(crate) mod memory_tools;
 mod native;
@@ -15,11 +15,9 @@ use std::sync::Arc;
 
 pub(crate) use catalog::ToolCatalogExecution;
 pub use catalog::{
-    DeclaredPermissions, EffectivePermissions, MountedToolDefinition, MountedToolSourceSession,
-    MountedToolSourceSessions, PluginEntryPolicyPaths, PluginEntrySnapshot, PluginManagerSnapshot,
-    ToolCatalog, ToolCatalogSnapshot, ToolCatalogStateChange, ToolManagerSchemaFormat,
-    ToolManagerSnapshot, ToolManagerSnapshotRequest, ToolManagerSourceSnapshot,
-    ToolManagerSourceType, ToolManagerToolSnapshot, build_plugin_manager_snapshot,
+    MountedToolSourceSessions, PluginManagerSnapshot, ToolCatalog, ToolCatalogSnapshot,
+    ToolCatalogStateChange, ToolManagerSnapshot, ToolManagerSnapshotRequest,
+    build_plugin_manager_snapshot,
 };
 pub use files::{EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool};
 pub use native::{CalculatorTool, SystemTimeTool};
@@ -136,6 +134,7 @@ pub trait Tool: Send + Sync {
         )
     }
 
+    #[allow(dead_code)] // Reserved for future use
     fn to_schema(&self) -> Value {
         self.to_schema_with_format(ToolSchemaFormat::Responses)
     }

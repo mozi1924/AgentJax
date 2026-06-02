@@ -91,6 +91,7 @@ impl ToolCatalogSnapshot {
         self.presentations.get(tool_name)
     }
 
+    #[allow(dead_code)] // Reserved for future use
     pub async fn execute(
         &self,
         tool_name: &str,

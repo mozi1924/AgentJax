@@ -252,6 +252,7 @@ impl std::error::Error for AgentJaxError {}
 /// This wrapper provides a clean JSON structure to the frontend.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)] // Reserved for future use
 pub struct TauriError {
     pub kind: ErrorKind,
     pub message: String,
@@ -274,14 +275,8 @@ impl From<AgentJaxError> for TauriError {
     }
 }
 
-/// Convert an AgentJaxError to its JSON representation for the frontend.
-pub fn format_tauri_error(err: AgentJaxError) -> String {
-    serde_json::to_string(&TauriError::from(err)).unwrap_or_else(|e| {
-        format!(r#"{{"kind":"internal","message":"Serialize error: {e}","retryable":false}}"#)
-    })
-}
-
 /// Convenience trait to map any error into an AgentJaxError for Tauri commands.
+#[allow(dead_code)] // Reserved for future use
 pub trait IntoAgentJaxResult<T> {
     /// Convert to `Result<T, AgentJaxError>`, classifying the error.
     fn into_agentjax(self) -> Result<T, AgentJaxError>;

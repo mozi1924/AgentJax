@@ -1,3 +1,10 @@
+//! Tool call orchestration types.
+//!
+//! This module is an integration point being designed — the orchestration
+//! system is partially wired and will be fully integrated in a future release.
+
+#![allow(dead_code)] // Reserved for future use — integration point being designed
+
 use super::SandboxPolicy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

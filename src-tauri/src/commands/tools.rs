@@ -99,7 +99,8 @@ fn normalize_plugin_settings_data_key(plugin_id: &str, key: &str) -> Result<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin_runtime::{PLUGIN_API_VERSION, PluginManifest, SandboxPolicy};
+    use crate::plugin_runtime::api::PLUGIN_API_VERSION;
+    use crate::plugin_runtime::{PluginManifest, SandboxPolicy};
     use std::path::PathBuf;
 
     fn package_with_settings_data(

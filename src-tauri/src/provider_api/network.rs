@@ -8,30 +8,7 @@
 use std::collections::BTreeMap;
 
 use reqwest::header::{HeaderName, HeaderValue};
-use reqwest::{RequestBuilder, Url};
-
-pub fn apply_query_params_to_url(
-    url: &str,
-    query_params: &BTreeMap<String, String>,
-) -> Result<String, String> {
-    if query_params.is_empty() {
-        return Ok(url.to_string());
-    }
-
-    let mut parsed = Url::parse(url).map_err(|err| format!("Failed to parse URL '{url}': {err}"))?;
-    {
-        let mut pairs = parsed.query_pairs_mut();
-        for (key, value) in query_params {
-            let key = key.trim();
-            let value = value.trim();
-            if !key.is_empty() && !value.is_empty() {
-                pairs.append_pair(key, value);
-            }
-        }
-    }
-
-    Ok(parsed.to_string())
-}
+use reqwest::{RequestBuilder};
 
 pub fn apply_headers_to_reqwest(
     mut builder: RequestBuilder,
@@ -71,16 +48,3 @@ pub fn split_sse_event_block(buffer: &str) -> Option<(String, String)> {
     None
 }
 
-/// Extract concatenated `data:` lines from an SSE event block.
-pub fn sse_data_payload(block: &str) -> Option<String> {
-    let mut data_lines = Vec::new();
-
-    for line in block.lines() {
-        let line = line.trim_end_matches('\r');
-        if let Some(data) = line.strip_prefix("data:") {
-            data_lines.push(data.trim_start().to_string());
-        }
-    }
-
-    (!data_lines.is_empty()).then(|| data_lines.join("\n"))
-}

@@ -69,6 +69,7 @@ impl Default for CircuitBreakerConfig {
 
 impl CircuitBreakerConfig {
     /// Aggressive circuit breaker for auth errors (quick to open, slow to recover).
+    #[allow(dead_code)] // Reserved for future use
     pub fn aggressive() -> Self {
         Self {
             failure_threshold: 2,
@@ -78,6 +79,7 @@ impl CircuitBreakerConfig {
     }
 
     /// Lenient circuit breaker for transient errors.
+    #[allow(dead_code)] // Reserved for future use
     pub fn lenient() -> Self {
         Self {
             failure_threshold: 5,
@@ -252,6 +254,7 @@ impl CircuitBreakerRegistry {
     }
 
     /// Get the current state for a provider (for diagnostics).
+    #[allow(dead_code)] // Test-only API surface
     pub fn get_state(&self, provider_key: &str) -> Option<CircuitState> {
         let mut breakers = self.breakers.lock().unwrap();
         let state = breakers
@@ -261,6 +264,7 @@ impl CircuitBreakerRegistry {
     }
 
     /// Reset a circuit breaker back to Closed.
+    #[allow(dead_code)] // Test-only API surface
     pub fn reset(&self, provider_key: &str) {
         let mut breakers = self.breakers.lock().unwrap();
         if let Some(state) = breakers.get_mut(provider_key) {

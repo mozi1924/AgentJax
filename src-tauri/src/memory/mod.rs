@@ -25,7 +25,4 @@ pub(crate) mod store;
 pub(crate) mod types;
 
 pub use context::build_memory_context;
-pub use index::MemoryIndex;
-pub use search::search_memories;
 pub use store::MemoryStore;
-pub use types::{MemoryFrontmatter, MemoryIndexEntry, MemoryType, ParsedMemory};

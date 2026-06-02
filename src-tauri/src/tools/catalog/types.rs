@@ -28,6 +28,7 @@ pub enum ToolCatalogStateChange {
     MountToolSource(MountedToolSourceSession),
     UnmountToolSource {
         source_id: String,
+        #[allow(dead_code)] // Reserved for future use
         source_type: String,
     },
 }

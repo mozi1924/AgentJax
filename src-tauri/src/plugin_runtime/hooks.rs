@@ -4,6 +4,11 @@
 //! well-defined points. Plugins register callbacks (via the SDK) that the
 //! host invokes during request processing.
 //!
+//! This module is an integration point being designed — the hook system is
+//! partially wired and will be fully integrated in a future release.
+
+#![allow(dead_code)] // Reserved for future use — integration point being designed
+//!
 //! # Hook points
 //!
 //! | Hook | When | What plugins can do |

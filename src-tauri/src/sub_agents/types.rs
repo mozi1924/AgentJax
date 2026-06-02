@@ -53,6 +53,7 @@ impl SubAgentType {
     }
 
     /// Whether this sub-agent type is read-only (exempt from scope-narrowing).
+    #[allow(dead_code)] // Test-only API surface
     pub fn is_explore(&self) -> bool {
         matches!(self, SubAgentType::Explore)
     }

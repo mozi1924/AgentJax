@@ -160,6 +160,7 @@ pub struct ProviderUsageRecord {
 }
 
 impl ProviderUsage {
+    #[allow(dead_code)] // Reserved API
     pub fn from_api_value(value: &Value) -> Option<Self> {
         let usage_value = value
             .get("response")
@@ -199,6 +200,7 @@ pub struct ProviderPendingToolCall {
 /// logic, keeping future native Gemini/Anthropic/Chat Completions adapters
 /// independent from the OpenAI Responses event grammar.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Reserved for future use — fields consumed by pending integration
 pub struct ResponseStreamResult {
     pub response_id: String,
     /// Final answer text (after all tool calls are complete).

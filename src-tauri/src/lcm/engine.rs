@@ -27,10 +27,9 @@
 
 use crate::lcm::compaction::{CompactionEngine, Summarizer};
 use crate::lcm::dag::SummaryDag;
-use crate::lcm::file_handler::FileHandler;
 use crate::lcm::store::LcmStore;
 use crate::lcm::types::{
-    ContextEntry, FileRefId, FileReference, LcmConfig, LcmError, LcmId, MessageId,
+    ContextEntry, FileRefId, LcmConfig, LcmError, LcmId, MessageId,
     StoredMessage, SummaryChild, SummaryId, SummaryKind, estimate_tokens,
 };
 use crate::lcm::types::MessageRole;
@@ -53,8 +52,6 @@ pub struct LcmEngine {
     dag: SummaryDag,
     /// The three-level compaction engine.
     compaction: CompactionEngine,
-    /// The large file handler.
-    file_handler: FileHandler,
     /// LCM configuration.
     config: LcmConfig,
     /// Background compaction signal sender.
@@ -122,7 +119,6 @@ impl LcmEngine {
         });
 
         let compaction = CompactionEngine::new(summarizer, truncation_max_tokens, count_tokens);
-        let file_handler = FileHandler::new(&config);
 
         let (compaction_tx, compaction_rx) = mpsc::unbounded_channel();
 
@@ -130,7 +126,6 @@ impl LcmEngine {
             store,
             dag,
             compaction,
-            file_handler,
             config,
             compaction_tx,
             compaction_rx: Mutex::new(Some(compaction_rx)),
@@ -233,12 +228,8 @@ impl LcmEngine {
         &self.store
     }
 
-    /// Returns a reference to the DAG manager.
-    pub fn dag(&self) -> &SummaryDag {
-        &self.dag
-    }
-
     /// Returns the current configuration.
+    #[allow(dead_code)]
     pub fn config(&self) -> &LcmConfig {
         &self.config
     }
@@ -371,14 +362,6 @@ impl LcmEngine {
         Ok(ctx.entries.clone())
     }
 
-    /// Process multiple messages in batch (legacy — delegates to process_messages_batch).
-    pub async fn process_messages(
-        &self,
-        messages: &[StoredMessage],
-    ) -> Result<Vec<ContextEntry>, LcmError> {
-        self.process_messages_batch(messages).await
-    }
-
     /// Get the current active context snapshot without modifying anything.
     pub fn active_context_snapshot(&self) -> Result<Vec<ContextEntry>, LcmError> {
         let ctx = self.active_context.lock().map_err(|e| {
@@ -388,6 +371,8 @@ impl LcmEngine {
     }
 
     /// Get the current estimated token count.
+    /// Currently only used in tests.
+    #[allow(dead_code)]
     pub fn token_count(&self) -> Result<u32, LcmError> {
         let ctx = self.active_context.lock().map_err(|e| {
             LcmError::Concurrency(format!("Failed to acquire context lock: {e}"))
@@ -400,6 +385,7 @@ impl LcmEngine {
     ///
     /// This bridges the LCM layer with the globally-cached HuggingFace tokenizer
     /// managed by `conversation_store::count_text_tokens`.
+    #[allow(dead_code)]
     pub fn count_tokens(&self, text: &str) -> u32 {
         if let Some(ref model_id) = self.config.tokenizer_model_id {
             match crate::conversation_store::count_text_tokens(model_id, text) {
@@ -415,6 +401,7 @@ impl LcmEngine {
     }
 
     /// Check if the active context is currently above the hard threshold.
+    #[allow(dead_code)]
     pub fn is_above_hard_threshold(&self) -> Result<bool, LcmError> {
         let ctx = self.active_context.lock().map_err(|e| {
             LcmError::Concurrency(format!("Failed to acquire context lock: {e}"))
@@ -829,30 +816,6 @@ impl LcmEngine {
         Ok(())
     }
 
-    // ── Large File Handling ───────────────────────────────────────────
-
-    /// Check if a tool output contains a large file result and handle it.
-    ///
-    /// Returns `Some(FilePointer)` if the file should be represented as a
-    /// reference rather than loaded into context. Returns `None` if the
-    /// content should be included normally.
-    pub fn check_large_file(
-        &self,
-        path: &std::path::Path,
-        content: &str,
-        mime_type: &str,
-        conversation_id: &str,
-    ) -> Result<Option<FileReference>, LcmError> {
-        let now_ms = crate::conversation_store_utils::now_unix_ms();
-        self.file_handler
-            .register_file(path, content, mime_type, conversation_id, now_ms)
-    }
-
-    /// Register a file reference and persist it in the store.
-    pub fn register_file_reference(&self, file_ref: &FileReference) -> Result<(), LcmError> {
-        // Persist the file reference in the immutable store.
-        self.store.register_file(file_ref)
-    }
     // Note: file_refs propagation to StoredMessage happens in runtime/engine.rs
     // when the tool result message is persisted — the caller sets
     // StoredMessage.file_refs before calling process_message.

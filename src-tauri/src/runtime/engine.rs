@@ -520,9 +520,11 @@ mod tests {
     use super::request::{build_base_context, ensure_tool_call_output_pairs};
     use super::tool_state::apply_tool_state_changes;
     use crate::config::McpServerConfig;
+    use crate::tools::catalog::{
+        MountedToolDefinition, MountedToolSourceSession,
+    };
     use crate::tools::{
-        MountedToolDefinition, MountedToolSourceSession, MountedToolSourceSessions,
-        ToolCatalogStateChange, ToolPresentation,
+        MountedToolSourceSessions, ToolCatalogStateChange, ToolPresentation,
     };
     use serde_json::json;
 

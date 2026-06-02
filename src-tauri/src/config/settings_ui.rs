@@ -298,7 +298,8 @@ fn walk_node_ids(node: &Value, ids: &mut std::collections::BTreeSet<String>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin_runtime::{PLUGIN_API_VERSION, PluginManifest};
+    use crate::plugin_runtime::api::PLUGIN_API_VERSION;
+    use crate::plugin_runtime::PluginManifest;
     use std::path::PathBuf;
 
     fn package_with_settings(id: &str, sections: Vec<Value>) -> PluginPackage {

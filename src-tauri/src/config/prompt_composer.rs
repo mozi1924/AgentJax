@@ -16,6 +16,7 @@ pub enum PromptBlockRole {
 }
 
 impl PromptBlockRole {
+    #[allow(dead_code)] // Reserved API
     pub fn as_str(self) -> &'static str {
         match self {
             Self::System => "system",
@@ -34,6 +35,7 @@ pub enum PromptBlockSource {
 }
 
 impl PromptBlockSource {
+    #[allow(dead_code)] // Reserved API
     pub fn as_str(self) -> &'static str {
         match self {
             Self::User => "user",
@@ -75,6 +77,7 @@ pub struct PromptComposerConfig {
 pub struct CompiledPromptAssembly {
     pub instructions_text: String,
     pub developer_items: Vec<Value>,
+    #[allow(dead_code)] // Reserved API
     pub preview_markdown: String,
 }
 

@@ -7,6 +7,7 @@ use serde_json::Value;
 /// Plugin manifests pin to this number so the host can reject plugins that were
 /// authored for an incompatible JavaScript bridge before loading any code.
 pub const PLUGIN_API_VERSION: u32 = 1;
+#[allow(dead_code)] // Reserved for future use
 pub const PLUGIN_SOURCE_TYPE: &str = "plugin";
 pub const PLUGIN_TOOL_NAME_PREFIX: &str = "plugin__";
 
@@ -21,6 +22,7 @@ pub struct RegisteredPluginTool {
 
 impl RegisteredPluginTool {
     /// Build the model-visible tool name used by the shared tool catalog.
+    #[allow(dead_code)] // Test-only API surface
     pub fn prefixed_name(&self) -> String {
         prefixed_plugin_tool_name(&self.plugin_id, &self.tool.name)
     }
@@ -67,6 +69,7 @@ pub struct PluginInvocationContext {
 /// Host-normalized request for a plugin tool invocation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)] // Reserved for future use
 pub struct PluginToolCall {
     pub plugin_id: String,
     pub tool_name: String,
@@ -86,6 +89,7 @@ pub struct PluginToolResult {
     pub error: Option<String>,
 }
 
+#[allow(dead_code)] // Reserved for future use
 impl PluginToolResult {
     pub fn success(output: Value) -> Self {
         Self {

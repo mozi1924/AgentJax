@@ -16,6 +16,7 @@ pub struct ProviderCapabilities {
     pub emits_incremental_tool_call_arguments: bool,
 }
 
+#[allow(dead_code)] // Reserved for future use — capability presets
 impl ProviderCapabilities {
     pub fn openai_responses() -> Self {
         Self {

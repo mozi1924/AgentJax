@@ -78,6 +78,7 @@ pub fn register_plugin_providers_from_packages(packages: impl IntoIterator<Item 
     }
 }
 
+#[allow(dead_code)] // Reserved for future use
 pub fn register_plugin_provider(plugin_provider: PluginProviderDefinition) {
     let Ok(definition) = dynamic_provider_definition_from_plugin(plugin_provider, None) else {
         return;

@@ -32,6 +32,7 @@ pub struct RetryStrategy {
     pub non_retryable_kinds: Vec<crate::error::ErrorKind>,
 }
 
+#[allow(dead_code)] // Reserved for future use — retry strategy presets
 impl RetryStrategy {
     /// Standard retry for provider rate limits (429).
     pub fn rate_limit() -> Self {
@@ -168,6 +169,7 @@ pub enum RetryResult<T> {
 
 impl<T> RetryResult<T> {
     /// Convert to `Option<T>`, discarding errors.
+    #[allow(dead_code)] // Reserved for future use
     pub fn ok(self) -> Option<T> {
         match self {
             RetryResult::Success(val) => Some(val),

@@ -38,7 +38,3 @@ pub(crate) mod types;
 mod worktree;
 
 pub use events::SubAgentEvent;
-pub use lcm_context::SubAgentLcmContext;
-pub use types::{
-    ProgressMessage, SubAgentSnapshot, SubAgentSpec, SubAgentState, SubAgentStatus, SubAgentType,
-};

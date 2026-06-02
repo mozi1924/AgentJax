@@ -20,10 +20,12 @@ use crate::tools::{
 };
 use crate::tools::memory_tools::{MemoryRecallTool, MemorySearchTool, MemoryWriteTool};
 use crate::tools::sub_agent_tools::SubAgentTool;
+#[allow(unused_imports)]
 pub use manager_snapshot::{
     ToolManagerSchemaFormat, ToolManagerSnapshot, ToolManagerSnapshotRequest,
     ToolManagerSourceSnapshot, ToolManagerSourceType, ToolManagerToolSnapshot,
 };
+#[allow(unused_imports)]
 pub use plugin_manager_snapshot::{
     DeclaredPermissions, EffectivePermissions, PluginEntryPolicyPaths, PluginEntrySnapshot,
     PluginManagerSnapshot, build_plugin_manager_snapshot,
@@ -41,6 +43,7 @@ use snapshot::{ToolSnapshotEntry, insert_snapshot_tool};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 pub(crate) use types::ToolCatalogExecution;
+#[allow(unused_imports)]
 pub use types::{
     MountedToolDefinition, MountedToolSourceSession, MountedToolSourceSessions,
     ToolCatalogStateChange,
@@ -135,6 +138,7 @@ impl ToolCatalog {
     /// This keeps plugin discovery separate from execution: manifests can be
     /// normalized into provider schemas now, while the deno_core execution path
     /// can be wired in behind the same catalog entry later.
+    #[allow(dead_code)] // Reserved for future use
     pub fn with_plugin_manifests(
         mut self,
         manifests: impl IntoIterator<Item = PluginManifest>,
@@ -177,6 +181,7 @@ impl ToolCatalog {
         Ok(self)
     }
 
+    #[allow(dead_code)] // Reserved for future use
     pub async fn snapshot(&self, context: &ToolExecutionContext) -> ToolCatalogSnapshot {
         let mounted_servers = self.load_persisted_mounted_servers(context);
         self.snapshot_with_format_and_mounted_servers(
@@ -187,6 +192,7 @@ impl ToolCatalog {
         .await
     }
 
+    #[allow(dead_code)] // Reserved for future use
     pub async fn snapshot_with_format(
         &self,
         format: ToolSchemaFormat,
@@ -469,10 +475,12 @@ impl ToolCatalog {
         }
     }
 
+    #[allow(dead_code)] // Reserved for future use
     pub async fn list_schemas(&self, context: &ToolExecutionContext) -> Vec<Value> {
         self.snapshot(context).await.schemas
     }
 
+    #[allow(dead_code)] // Reserved for future use
     pub async fn list_schemas_with_format(
         &self,
         format: ToolSchemaFormat,
@@ -481,6 +489,7 @@ impl ToolCatalog {
         self.snapshot_with_format(format, context).await.schemas
     }
 
+    #[allow(dead_code)] // Reserved for future use
     pub async fn execute(
         &self,
         prefixed_name: &str,

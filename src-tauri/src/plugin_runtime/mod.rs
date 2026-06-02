@@ -4,46 +4,39 @@
 //! plugin system, sandbox policy, and agent tool-call orchestration without
 //! wiring the concrete V8 runtime into the rest of the backend too early.
 
-mod api;
+pub(crate) mod api;
 mod builtin;
-mod discovery;
+pub(crate) mod discovery;
 mod hooks;
-mod manifest;
+pub(crate) mod manifest;
 mod orchestration;
 mod runtime;
 mod sandbox;
 mod sdk;
 
 pub use api::{
-    PLUGIN_API_VERSION, PLUGIN_SOURCE_TYPE, PLUGIN_TOOL_NAME_PREFIX, PluginInvocationContext,
-    PluginToolCall, PluginToolResult, RegisteredPluginTool, prefixed_plugin_tool_name,
-    registered_tools_for_manifest,
+    PluginInvocationContext, PluginToolCall, PluginToolResult, RegisteredPluginTool,
+    prefixed_plugin_tool_name, registered_tools_for_manifest,
 };
 pub use builtin::builtin_plugin_packages;
 pub use discovery::{
-    PLUGIN_MANIFEST_FILE, PluginPackage, discover_all_plugin_packages,
-    discover_home_plugin_packages, discover_plugin_packages, load_plugin_package,
+    PluginPackage, discover_all_plugin_packages, discover_home_plugin_packages,
 };
-pub use hooks::{
-    ContextAssembleData, ContextAssembleResult, ContextHook, ContextHookPoint, HookRegistry,
-    ToolResultData, ToolResultTransform, serialize_hook_registration,
-};
-pub use manifest::{
-    PluginManifest, PluginProviderDefinition, PluginToolDefinition, PluginToolKind,
-};
-pub use orchestration::{
-    ToolCallBatch, ToolCallExecutionPolicy, ToolCallOutcome, ToolCallRequest, ToolCallSource,
-};
-pub use sdk::create_sdk_module_loader;
+pub use manifest::{PluginManifest, PluginProviderDefinition, PluginToolDefinition};
 pub use runtime::{
-    DenoCorePluginRuntime, PluginInstance, PluginRuntime, PluginRuntimeError, PluginRuntimeResult,
-    create_temp_plugin_instance, provider_definitions_for_package,
+    PluginRuntimeError, PluginRuntimeResult, create_temp_plugin_instance,
+    provider_definitions_for_package,
 };
-pub use sandbox::{SandboxPolicy, SandboxViolation};
+pub use sandbox::SandboxPolicy;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::api::PLUGIN_API_VERSION;
+    use super::discovery::{PLUGIN_MANIFEST_FILE, load_plugin_package};
+    use super::manifest::PluginToolKind;
+    use super::orchestration::{ToolCallBatch, ToolCallRequest, ToolCallSource};
+    use super::runtime::DenoCorePluginRuntime;
     use serde_json::json;
 
     #[test]

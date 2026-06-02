@@ -232,10 +232,6 @@ impl SummaryChild {
             SummaryChild::Summaries { ids } => ids.len(),
         }
     }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
 }
 
 // ── Conversation Metadata ───────────────────────────────────────────────────
@@ -593,6 +589,8 @@ pub fn estimate_tokens(text: &str) -> u32 {
 }
 
 /// Estimate tokens for a collection of context entries.
+/// Currently only used in tests.
+#[allow(dead_code)]
 pub fn estimate_context_tokens(entries: &[ContextEntry]) -> u32 {
     entries
         .iter()

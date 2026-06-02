@@ -15,6 +15,7 @@ use serde_json::Value;
 /// observer so the frontend can track sub-agent progress in real time.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)] // HopCompleted variant reserved for future use
 pub enum SubAgentEvent {
     /// Sub-agent has been spawned and is about to start running.
     Spawned {

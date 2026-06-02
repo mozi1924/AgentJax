@@ -21,6 +21,9 @@ use std::path::Path;
 // ── File Handler ────────────────────────────────────────────────────────────
 
 /// Manages large file detection and exploration summary generation.
+/// Currently only used in tests; will be wired into the LCM engine
+/// when large-file handling is activated.
+#[allow(dead_code)]
 pub struct FileHandler {
     /// Token threshold above which files are stored as references.
     large_file_threshold: u32,
@@ -28,6 +31,7 @@ pub struct FileHandler {
     explorers: Vec<Box<dyn FileExplorer>>,
 }
 
+#[allow(dead_code)]
 impl FileHandler {
     /// Create a new FileHandler from LCM configuration.
     pub fn new(config: &LcmConfig) -> Self {
@@ -125,6 +129,8 @@ impl FileHandler {
 // ── File Explorer Trait ─────────────────────────────────────────────────────
 
 /// A type-aware file explorer that generates exploration summaries.
+/// Currently only used in tests via the FileHandler.
+#[allow(dead_code)]
 pub trait FileExplorer: Send + Sync {
     /// Whether this explorer supports the given file extension and MIME type.
     fn supports(&self, extension: &str, mime_type: &str) -> bool;
@@ -211,6 +217,7 @@ impl FileExplorer for JsonExplorer {
     }
 }
 
+#[allow(dead_code)]
 fn describe_json_type(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::Null => "null".to_string(),
