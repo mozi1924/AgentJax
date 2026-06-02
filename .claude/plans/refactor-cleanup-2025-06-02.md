@@ -77,21 +77,20 @@
 
 ### 2.2 统一子代理系统
 
-- [ ] 评估 `background_jobs` 是否可以迁移到 `sub_agents` 框架
-- [ ] 如可以，将 background task 作为 SubAgentType 的一个变体
-- [ ] 移除 `background_jobs.rs` 独立注册
+- [x] 评估 `background_jobs` 是否可以迁移到 `sub_agents` 框架
+- [x] **结论：保留独立** — 两个系统服务不同目的（单工具异步执行 vs 完整 agent loop），强行合并弊大于利
 
 ### 2.3 移除 JSONL 双写
 
-- [ ] 确定 LCM 作为唯一数据源
-- [ ] 将 JSONL 写入路径改为可选项（feature flag）
-- [ ] 让 `sync_conversation_to_lcm()` 作为迁移工具保留
+- [x] 确定 LCM 作为唯一数据源
+- [x] 将 JSONL 写入路径改为可选项（feature flag）
+- [x] 让 JSONL 读取路径保留作为 fallback 兼容
 
 ### 2.4 合并重复定义
 
-- [ ] 合并两个 `ConversationMeta` 结构体为一个
-- [ ] 合并 `now_unix_ms()` 重复定义
-- [ ] 统一 `title_source` 值处理
+- [x] 合并两个 `ConversationMeta` 结构体为一个
+- [x] 合并 `now_unix_ms()` 重复定义
+- [x] 统一 `title_source` 值处理
 
 ---
 
@@ -136,14 +135,37 @@
 | 2025-06-02 | 2 | 2.1 Deprecate TaskTool | ✅ |
 | 2025-06-02 | 2 | 2.4 合并 now_unix_ms() 重复定义 | ✅ |
 | 2025-06-02 | 2 | 2.3 JSONL 双写 → 可选备份 (默认开启) | ✅ |
+| 2025-06-02 | 2 | 2.2 background_jobs 评估 | ✅ (评估后保留) |
+| 2025-06-02 | 2 | 2.4 合并 ConversationMeta 结构体 | ✅ |
+| 2025-06-02 | 2 | 2.4 统一 title_source 值处理 | ✅ |
 | | | | |
 
 ## 当前状态摘要
 
 - **编译**: 零警告，零错误
 - **测试**: 325 passed, 0 failed
-- **完成**: 1.1-1.4 (前端+后端死代码), 2.1 (TaskTool deprecation), 2.3 (JSONL 可选备份), 2.4 (now_unix_ms 合并)
-- **待处理**: 2.4 (ConversationMeta 合并), 2.2 (background_jobs 合并), 第三阶段 (架构加固)
+- **第二阶段完成**: 2.1 (TaskTool deprecation), 2.2 (评估后保留), 2.3 (JSONL 可选备份), 2.4 (ConversationMeta 合并 + title_source 统一)
+- **待处理**: 第三阶段 (架构加固: 3.1-3.4)
+
+## 2.2 评估结论
+
+`background_jobs` 和 `sub_agents` 服务不同目的，不宜强行合并：
+- `background_jobs`: 单工具调用的异步执行（立即 spawn，无 agent loop）
+- `sub_agents`: 完整 LLM agent 的异步执行（延迟 spawn，有 agent loop）
+- 共享的注册表样板代码 (~150 行) 已足够简洁，无需泛型抽象
+
+## 2.4 ConversationMeta 合并详情
+
+### 统一结构体 (在 `lcm/types.rs`)
+- 新增字段: `version: u32`, `last_message_preview: String`
+- `metadata: BTreeMap<String, Value>` 替代 `metadata_json: String` (LCM SQL 层序列化/反序列化)
+- `message_count: u32` 统一类型 (JSON store 原来用 `usize`)
+- `conversation_store/types.rs` 移除重复定义，改为 `pub use crate::lcm::types::ConversationMeta`
+
+### title_source 统一
+- 全链路统一为 "manual" / "auto" / "pending"
+- LCM 读/写路径增加 `normalize_title_source()` 调用
+- `update_conversation_meta` 参数 `metadata_json: Option<&str>` → `metadata: Option<&BTreeMap<String, Value>>`
 
 ## 2.3 JSONL 备份详情
 

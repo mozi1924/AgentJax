@@ -240,16 +240,23 @@ impl SummaryChild {
 ///
 /// This replaces the legacy `metadata.json` approach, providing
 /// a single source of truth for conversation-level information.
+/// Canonical conversation metadata — the single source of truth shared
+/// between the LCM (SQLite) store and the legacy JSON-based store.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationMeta {
+    /// Schema version (see `conversation_store::LOG_VERSION`).
+    /// Defaults to 0 for LCM-native conversations that predate version tracking.
+    #[serde(default)]
+    pub version: u32,
+
     /// Unique conversation identifier.
     pub conversation_id: String,
 
     /// Human-readable title.
     pub title: String,
 
-    /// Source of the title: "user", "generated", "pending".
+    /// Source of the title: "manual", "auto", or "pending".
     pub title_source: String,
 
     /// When the conversation was created.
@@ -261,25 +268,32 @@ pub struct ConversationMeta {
     /// Number of messages in the conversation.
     pub message_count: u32,
 
+    /// Preview text of the last substantive message for sidebar display.
+    #[serde(default)]
+    pub last_message_preview: String,
+
     /// Type of conversation ("standard", etc.).
     pub conversation_type: String,
 
-    /// Flexible JSON blob for dynamic_tools, mounted_servers, token_usage, etc.
-    pub metadata_json: String,
+    /// Flexible metadata map for dynamic_tools, mounted_servers, token_usage, etc.
+    #[serde(default)]
+    pub metadata: BTreeMap<String, Value>,
 }
 
 impl ConversationMeta {
     /// Create default metadata for a new conversation.
     pub fn new(conversation_id: impl Into<String>, created_at_unix_ms: i64) -> Self {
         Self {
+            version: 0,
             conversation_id: conversation_id.into(),
             title: String::new(),
             title_source: "pending".to_string(),
             created_at_unix_ms,
             updated_at_unix_ms: created_at_unix_ms,
             message_count: 0,
+            last_message_preview: String::new(),
             conversation_type: "standard".to_string(),
-            metadata_json: "{}".to_string(),
+            metadata: BTreeMap::new(),
         }
     }
 }

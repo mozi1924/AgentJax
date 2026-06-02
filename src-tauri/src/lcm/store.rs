@@ -23,6 +23,7 @@ use crate::lcm::types::{
     LcmId, MessageId, MessageRole, PaginatedGrepResults, StoredMessage, SummaryChild, SummaryId,
     SummaryKind, SummaryNode,
 };
+use crate::conversation_store_utils::normalize_title_source;
 use rusqlite::{Connection, params};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -107,6 +108,19 @@ impl LcmStore {
         conn.execute_batch(CREATE_SCHEMA_SQL).map_err(|e| {
             LcmError::Store(format!("Failed to initialize LCM schema: {e}"))
         })?;
+
+        // Migrations: add columns that may not exist in older databases.
+        // SQLite does not support IF NOT EXISTS for ALTER TABLE ADD COLUMN,
+        // so we silently ignore "duplicate column" errors.
+        for migration in SCHEMA_MIGRATIONS {
+            if let Err(e) = conn.execute_batch(migration) {
+                // Error code 1 with "duplicate column" is expected for existing DBs.
+                let msg = e.to_string();
+                if !msg.contains("duplicate column") {
+                    log::warn!("LCM schema migration warning: {msg}");
+                }
+            }
+        }
 
         Ok(())
     }
@@ -826,19 +840,23 @@ impl LcmStore {
 
         let existing = conn
             .query_row(
-                "SELECT conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json
+                "SELECT conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json, version, last_message_preview
                  FROM conversation_meta WHERE conversation_id = ?1",
                 params![conversation_id],
                 |row| {
+                    let metadata_json: String = row.get::<_, String>(7).unwrap_or_default();
+                    let ts: String = row.get::<_, String>(2).unwrap_or_default();
                     Ok(ConversationMeta {
                         conversation_id: row.get(0)?,
                         title: row.get(1)?,
-                        title_source: row.get(2)?,
+                        title_source: normalize_title_source(&ts),
                         created_at_unix_ms: row.get(3)?,
                         updated_at_unix_ms: row.get(4)?,
                         message_count: row.get(5)?,
                         conversation_type: row.get(6)?,
-                        metadata_json: row.get(7)?,
+                        metadata: serde_json::from_str(&metadata_json).unwrap_or_default(),
+                        version: row.get::<_, i32>(8).unwrap_or(0) as u32,
+                        last_message_preview: row.get::<_, String>(9).unwrap_or_default(),
                     })
                 },
             )
@@ -855,9 +873,10 @@ impl LcmStore {
             .as_millis() as i64;
 
         let meta = ConversationMeta::new(conversation_id, now_ms);
+        let metadata_json = serde_json::to_string(&meta.metadata).unwrap_or_default();
         conn.execute(
-            "INSERT OR IGNORE INTO conversation_meta (conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT OR IGNORE INTO conversation_meta (conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json, version, last_message_preview)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 meta.conversation_id,
                 meta.title,
@@ -866,7 +885,9 @@ impl LcmStore {
                 meta.updated_at_unix_ms,
                 meta.message_count,
                 meta.conversation_type,
-                meta.metadata_json,
+                metadata_json,
+                meta.version,
+                meta.last_message_preview,
             ],
         )
         .map_err(|e| LcmError::Store(format!("Failed to insert conversation meta: {e}")))?;
@@ -886,19 +907,23 @@ impl LcmStore {
         })?;
 
         conn.query_row(
-            "SELECT conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json
+            "SELECT conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json, version, last_message_preview
              FROM conversation_meta WHERE conversation_id = ?1",
             params![conversation_id],
             |row| {
+                let metadata_json: String = row.get::<_, String>(7).unwrap_or_default();
+                let ts: String = row.get::<_, String>(2).unwrap_or_default();
                 Ok(ConversationMeta {
                     conversation_id: row.get(0)?,
                     title: row.get(1)?,
-                    title_source: row.get(2)?,
+                    title_source: normalize_title_source(&ts),
                     created_at_unix_ms: row.get(3)?,
                     updated_at_unix_ms: row.get(4)?,
                     message_count: row.get(5)?,
                     conversation_type: row.get(6)?,
-                    metadata_json: row.get(7)?,
+                    metadata: serde_json::from_str(&metadata_json).unwrap_or_default(),
+                    version: row.get::<_, i32>(8).unwrap_or(0) as u32,
+                    last_message_preview: row.get::<_, String>(9).unwrap_or_default(),
                 })
             },
         )
@@ -915,7 +940,7 @@ impl LcmStore {
         title: Option<&str>,
         title_source: Option<&str>,
         message_count_delta: Option<i32>,
-        metadata_json: Option<&str>,
+        metadata: Option<&BTreeMap<String, Value>>,
     ) -> Result<(), LcmError> {
         let conn = self.conn.lock().map_err(|e| {
             LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
@@ -937,15 +962,16 @@ impl LcmStore {
         }
         if let Some(ts) = title_source {
             sets.push("title_source = ?".to_string());
-            param_values.push(Box::new(ts.to_string()));
+            param_values.push(Box::new(normalize_title_source(ts)));
         }
         if let Some(delta) = message_count_delta {
             sets.push("message_count = MAX(0, message_count + ?)".to_string());
             param_values.push(Box::new(delta));
         }
-        if let Some(mj) = metadata_json {
+        if let Some(m) = metadata {
             sets.push("metadata_json = ?".to_string());
-            param_values.push(Box::new(mj.to_string()));
+            let json_str = serde_json::to_string(m).unwrap_or_default();
+            param_values.push(Box::new(json_str));
         }
 
         let sql = format!(
@@ -1120,7 +1146,9 @@ CREATE TABLE IF NOT EXISTS conversation_meta (
     updated_at_unix_ms INTEGER NOT NULL,
     message_count INTEGER NOT NULL DEFAULT 0,
     conversation_type TEXT NOT NULL DEFAULT 'standard',
-    metadata_json TEXT NOT NULL DEFAULT '{}'
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    version INTEGER NOT NULL DEFAULT 0,
+    last_message_preview TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_conv_meta_updated
@@ -1148,6 +1176,13 @@ CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
     INSERT INTO messages_fts(rowid, search_text) VALUES (new.rowid, new.search_text);
 END;
 ";
+
+/// Schema migrations for existing databases that predate the unified
+/// `ConversationMeta` (version, last_message_preview columns).
+const SCHEMA_MIGRATIONS: &[&str] = &[
+    "ALTER TABLE conversation_meta ADD COLUMN version INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE conversation_meta ADD COLUMN last_message_preview TEXT NOT NULL DEFAULT ''",
+];
 
 fn parse_role(s: &str) -> Result<MessageRole, rusqlite::Error> {
     match s {

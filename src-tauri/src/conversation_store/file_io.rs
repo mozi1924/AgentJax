@@ -462,7 +462,7 @@ fn sanitize_meta_basics(meta: &mut ConversationMeta) {
 }
 
 fn refresh_meta_from_lines(meta: &mut ConversationMeta, lines: &[ConversationLine]) {
-    let mut message_count = 0usize;
+    let mut message_count = 0u32;
     let mut last_preview = String::new();
     let mut last_ts = meta.created_at_unix_ms;
 
@@ -499,7 +499,7 @@ pub fn summary_from_meta(meta: &ConversationMeta) -> ConversationSummary {
         conversation_id: meta.conversation_id.clone(),
         title: normalized_title(meta),
         title_source: normalize_title_source(&meta.title_source),
-        message_count: meta.message_count,
+        message_count: meta.message_count as usize,
         last_message_preview: meta.last_message_preview.clone(),
         updated_at_unix_ms: meta.updated_at_unix_ms,
         conversation_type: meta.conversation_type.clone(),

@@ -1,7 +1,6 @@
 use crate::message_phase::AssistantPhase;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
 
 pub const LOG_VERSION: u32 = 6;
 pub const DEFAULT_CONVERSATION_TITLE: &str = "新对话";
@@ -12,22 +11,8 @@ pub const CONVERSATION_TOKEN_USAGE_METADATA_KEY: &str = "token_usage";
 
 // ── Metadata (metadata.json) ──────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConversationMeta {
-    pub version: u32,
-    pub conversation_id: String,
-    pub created_at_unix_ms: i64,
-    pub updated_at_unix_ms: i64,
-    pub title: String,
-    pub title_source: String,
-    pub message_count: usize,
-    pub last_message_preview: String,
-    #[serde(default)]
-    pub conversation_type: String,
-    #[serde(default)]
-    pub metadata: BTreeMap<String, Value>,
-}
+// Canonical definition lives in lcm::types; re-exported here for convenience.
+pub use crate::lcm::types::ConversationMeta;
 
 /// Conversation-scoped dynamic tool definition persisted in metadata.json.
 ///

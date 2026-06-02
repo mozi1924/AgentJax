@@ -498,7 +498,7 @@ mod smoke_tests {
             .update_conversation_meta(
                 conv_id,
                 Some("Test Title"),
-                Some("user"),
+                Some("manual"),
                 None,
                 None,
             )
