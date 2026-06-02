@@ -161,7 +161,7 @@ pub async fn stream_response<F>(
     mut on_delta: F,
 ) -> AgentJaxResult<ResponseStreamResult>
 where
-    F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
+    F: FnMut(ProviderStreamEvent) -> AgentJaxResult<()> + Send,
 {
     use crate::error::AgentJaxError;
     let resolved = config.resolve_model_profile(req.model.as_deref())?;
@@ -338,7 +338,7 @@ fn finalize_and_build_result(
     mut output_items: Vec<Value>,
     mut usage: Option<ProviderUsage>,
     capabilities: crate::provider_api::capabilities::ProviderCapabilities,
-    on_delta: &mut dyn FnMut(ProviderStreamEvent) -> Result<(), String>,
+    on_delta: &mut dyn FnMut(ProviderStreamEvent) -> AgentJaxResult<()>,
 ) -> AgentJaxResult<ResponseStreamResult> {
     let final_step: PluginStreamFinal = call_provider_function(
         package,

@@ -66,10 +66,7 @@ impl ToolCatalog {
         mcp_manager: Arc<crate::mcp::McpManager>,
         config: &crate::config::AppConfig,
     ) -> Self {
-        use crate::lcm::{
-            LcmStore, LcmGrepTool, LcmDescribeTool, LcmExpandTool,
-            LlmMapTool, AgenticMapTool, TaskTool,
-        };
+        use crate::lcm::{LlmMapTool, AgenticMapTool, TaskTool};
         let mut context_tools: Vec<Arc<dyn Tool>> = Vec::new();
         context_tools.push(Arc::new(LlmMapTool));
         context_tools.push(Arc::new(AgenticMapTool));
@@ -78,14 +75,8 @@ impl ToolCatalog {
         context_tools.push(Arc::new(MemoryWriteTool));
         context_tools.push(Arc::new(MemorySearchTool));
         context_tools.push(Arc::new(MemoryRecallTool));
-        if let Ok(dummy_store) = LcmStore::open(":memory:", config.lcm.clone()) {
-            let store = Arc::new(dummy_store);
-            context_tools.extend_from_slice(&[
-                Arc::new(LcmGrepTool::new(store.clone())),
-                Arc::new(LcmDescribeTool::new(store.clone())),
-                Arc::new(LcmExpandTool::new(store)),
-            ]);
-        }
+        // LCM store-backed tools (grep, describe, expand) are wired later
+        // via set_context_tools() when the real LcmEngine is available.
 
         Self {
             native_tools: vec![

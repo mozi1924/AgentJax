@@ -37,6 +37,7 @@ use std::sync::Mutex;
 pub struct LcmStore {
     conn: Mutex<Connection>,
     db_path: PathBuf,
+    grep_page_size: usize,
 }
 
 impl LcmStore {
@@ -46,8 +47,9 @@ impl LcmStore {
     ///
     /// If the database file does not exist, it will be created with the
     /// full schema. If it already exists, the schema is migrated if needed.
-    pub fn open(db_path: impl AsRef<Path>, _config: LcmConfig) -> Result<Self, LcmError> {
+    pub fn open(db_path: impl AsRef<Path>, config: LcmConfig) -> Result<Self, LcmError> {
         let db_path = db_path.as_ref().to_path_buf();
+        let grep_page_size = config.grep_page_size;
 
         // Ensure parent directory exists.
         if let Some(parent) = db_path.parent() {
@@ -74,6 +76,7 @@ impl LcmStore {
         let store = Self {
             conn: Mutex::new(conn),
             db_path,
+            grep_page_size,
         };
 
         store.initialize_schema()?;
@@ -82,7 +85,7 @@ impl LcmStore {
 
     /// Open an in-memory LCM store (for testing).
     #[cfg(test)]
-    pub fn open_in_memory(_config: LcmConfig) -> Result<Self, LcmError> {
+    pub fn open_in_memory(config: LcmConfig) -> Result<Self, LcmError> {
         let conn = Connection::open_in_memory().map_err(|e| {
             LcmError::Store(format!("Failed to open in-memory LCM store: {e}"))
         })?;
@@ -93,6 +96,7 @@ impl LcmStore {
         let store = Self {
             conn: Mutex::new(conn),
             db_path: PathBuf::from(":memory:"),
+            grep_page_size: config.grep_page_size,
         };
 
         store.initialize_schema()?;
@@ -128,6 +132,11 @@ impl LcmStore {
     /// Returns the path to the database file.
     pub fn db_path(&self) -> &Path {
         &self.db_path
+    }
+
+    /// Returns the configured page size for grep results.
+    pub fn grep_page_size(&self) -> usize {
+        self.grep_page_size
     }
 
     // ── Message Persistence ────────────────────────────────────────────
@@ -895,9 +904,7 @@ impl LcmStore {
         Ok(meta)
     }
 
-    /// Get conversation metadata.
-    /// Currently only used in tests.
-    #[allow(dead_code)]
+    /// Get conversation metadata from the LCM store.
     pub fn get_conversation_meta(
         &self,
         conversation_id: &str,

@@ -114,7 +114,7 @@ pub struct ProviderTurnRequest {
 }
 
 pub type ResponseStreamRequest = ProviderTurnRequest;
-pub type ProviderEventSink<'a> = dyn FnMut(ProviderStreamEvent) -> Result<(), String> + Send + 'a;
+pub type ProviderEventSink<'a> = dyn FnMut(ProviderStreamEvent) -> crate::error::AgentJaxResult<()> + Send + 'a;
 
 /// Provider-reported token usage in AgentJax's canonical field names.
 ///

@@ -63,7 +63,11 @@ pub fn list_conversations() -> Result<Vec<ConversationSummary>, String> {
             }
 
             let metadata_path = conversation_metadata_path(&conversation_id)?;
-            let Some(meta) = read_conversation_meta(&metadata_path)? else {
+            let meta = if let Some(meta) = read_conversation_meta(&metadata_path)? {
+                meta
+            } else if let Some(meta) = try_load_meta_from_lcm(&conversation_id, &metadata_path)? {
+                meta
+            } else {
                 return Ok(None);
             };
             let summary = summary_from_meta(&meta);
@@ -76,6 +80,30 @@ pub fn list_conversations() -> Result<Vec<ConversationSummary>, String> {
 
     out.sort_by(|a, b| b.updated_at_unix_ms.cmp(&a.updated_at_unix_ms));
     Ok(out)
+}
+
+/// Try to load conversation metadata from the LCM store when `metadata.json`
+/// does not exist (LCM-only conversations).
+fn try_load_meta_from_lcm(
+    conversation_id: &str,
+    metadata_path: &std::path::Path,
+) -> Result<Option<ConversationMeta>, String> {
+    let db_path = metadata_path
+        .parent()
+        .ok_or_else(|| "Invalid metadata path".to_string())?
+        .join("lcm.db");
+
+    if !db_path.exists() {
+        return Ok(None);
+    }
+
+    let lcm_config = crate::lcm::LcmConfig::default();
+    let store = crate::lcm::LcmStore::open(&db_path, lcm_config)
+        .map_err(|e| format!("Failed to open LCM store for '{}': {}", conversation_id, e))?;
+
+    store
+        .get_conversation_meta(conversation_id)
+        .map_err(|e| format!("Failed to query LCM meta for '{}': {}", conversation_id, e))
 }
 
 // ── Load full conversation detail ─────────────────────────────────────────

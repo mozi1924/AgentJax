@@ -51,7 +51,7 @@ where
             |event| {
                 provider_event_tx
                     .send(event)
-                    .map_err(|_| "Provider stream event receiver dropped".to_string())
+                    .map_err(|_| crate::error::AgentJaxError::internal("Provider stream event receiver dropped"))
             },
         )
         .await

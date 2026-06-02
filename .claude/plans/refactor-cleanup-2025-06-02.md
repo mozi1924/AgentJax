@@ -138,14 +138,23 @@
 | 2025-06-02 | 2 | 2.2 background_jobs 评估 | ✅ (评估后保留) |
 | 2025-06-02 | 2 | 2.4 合并 ConversationMeta 结构体 | ✅ |
 | 2025-06-02 | 2 | 2.4 统一 title_source 值处理 | ✅ |
+| 2025-06-02 | 3 | 3.1 Error 系统清理 (移除 Lcm/TauriError/IntoAgentJaxResult + ProviderEventSink) | ✅ |
+| 2025-06-02 | 3 | 3.2a 移除 ToolCatalog dummy in-memory LCM store | ✅ |
+| 2025-06-02 | 3 | 3.2b grep_page_size 从 LcmConfig 接入 LcmStore | ✅ |
+| 2025-06-02 | 3 | 3.2c 移除 lcm_store_path() 冗余 create_dir_all | ✅ |
+| 2025-06-02 | 3 | 3.2d 移除 engine.rs 硬编码 128 fallback | ✅ |
+| 2025-06-02 | 3 | 3.3 list_conversations() 支持 LCM 元数据回退 | ✅ |
+| 2025-06-02 | 3 | 3.4a 移除 register_manifest() 遗留包装器 | ✅ |
+| 2025-06-02 | 3 | 3.4b 移除 PluginRuntime trait (零实现) | ✅ |
+| 2025-06-02 | 3 | 3.4c 重命名 "Legacy migration helpers" 注释 | ✅ |
 | | | | |
 
 ## 当前状态摘要
 
 - **编译**: 零警告，零错误
-- **测试**: 325 passed, 0 failed
-- **第二阶段完成**: 2.1 (TaskTool deprecation), 2.2 (评估后保留), 2.3 (JSONL 可选备份), 2.4 (ConversationMeta 合并 + title_source 统一)
-- **待处理**: 第三阶段 (架构加固: 3.1-3.4)
+- **测试**: 323 passed, 0 failed
+- **全三阶段完成**: 全部 22 项任务完成
+- **待处理**: 无
 
 ## 2.2 评估结论
 

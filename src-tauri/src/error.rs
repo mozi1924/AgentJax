@@ -46,9 +46,6 @@ pub enum ErrorKind {
     /// Configuration error (invalid settings, missing required fields).
     /// NOT retryable — user must fix config.
     Config,
-    /// LCM (Lossless Context Management) error.
-    /// See `LcmError` for details.
-    Lcm,
     /// Tool execution error (tool call failed, invalid args, etc.).
     ToolExecution,
     /// Resource not found.
@@ -70,7 +67,6 @@ impl fmt::Display for ErrorKind {
             ErrorKind::ProviderOutputIncomplete => write!(f, "provider_output_incomplete"),
             ErrorKind::Network => write!(f, "network"),
             ErrorKind::Config => write!(f, "config"),
-            ErrorKind::Lcm => write!(f, "lcm"),
             ErrorKind::SubAgent => write!(f, "sub_agent"),
             ErrorKind::Memory => write!(f, "memory"),
             ErrorKind::ToolExecution => write!(f, "tool_execution"),
@@ -243,50 +239,6 @@ impl fmt::Display for AgentJaxError {
 }
 
 impl std::error::Error for AgentJaxError {}
-
-// ── Serialization for Tauri ─────────────────────────────────────────────────
-
-/// Serializable representation of AgentJaxError for Tauri command responses.
-///
-/// Tauri commands require the error type to implement `Serialize`.
-/// This wrapper provides a clean JSON structure to the frontend.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)] // Reserved for future use
-pub struct TauriError {
-    pub kind: ErrorKind,
-    pub message: String,
-    pub retryable: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-}
-
-impl From<AgentJaxError> for TauriError {
-    fn from(err: AgentJaxError) -> Self {
-        TauriError {
-            kind: err.kind,
-            message: err.message,
-            retryable: err.retryable,
-            provider_key: err.provider_key,
-            source: err.source,
-        }
-    }
-}
-
-/// Convenience trait to map any error into an AgentJaxError for Tauri commands.
-#[allow(dead_code)] // Reserved for future use
-pub trait IntoAgentJaxResult<T> {
-    /// Convert to `Result<T, AgentJaxError>`, classifying the error.
-    fn into_agentjax(self) -> Result<T, AgentJaxError>;
-}
-
-impl<T> IntoAgentJaxResult<T> for Result<T, String> {
-    fn into_agentjax(self) -> Result<T, AgentJaxError> {
-        self.map_err(|e| AgentJaxError::internal(e))
-    }
-}
 
 // ── ErrorKind helpers ──────────────────────────────────────────────────────
 
@@ -475,16 +427,6 @@ mod tests {
     }
 
     #[test]
-    fn test_tauri_serialization() {
-        let err = AgentJaxError::provider_auth("openai", "invalid API key");
-        let tauri_err = TauriError::from(err);
-        let json = serde_json::to_string(&tauri_err).unwrap();
-        assert!(json.contains("providerAuth"));
-        assert!(json.contains("invalid API key"));
-        assert!(json.contains("openai"));
-    }
-
-    #[test]
     fn test_macro() {
         let err = agentjax_err!("rate limit", ProviderRateLimited);
         assert_eq!(err.kind, ErrorKind::ProviderRateLimited);
@@ -493,16 +435,5 @@ mod tests {
         let err = agentjax_err!("auth failed", ProviderAuth, provider = "anthropic");
         assert_eq!(err.kind, ErrorKind::ProviderAuth);
         assert_eq!(err.provider_key.as_deref(), Some("anthropic"));
-    }
-
-    #[test]
-    fn test_into_agentjax_result() {
-        let ok: Result<i32, String> = Ok(42);
-        assert_eq!(ok.into_agentjax().unwrap(), 42);
-
-        let err: Result<i32, String> = Err("oops".to_string());
-        let result: Result<i32, AgentJaxError> = err.into_agentjax();
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().kind, ErrorKind::Internal);
     }
 }

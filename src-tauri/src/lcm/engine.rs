@@ -100,11 +100,7 @@ impl LcmEngine {
         config: LcmConfig,
     ) -> Self {
         let dag = SummaryDag::new(store.clone());
-        let truncation_max_tokens = if config.truncation_max_tokens > 0 {
-            config.truncation_max_tokens
-        } else {
-            128 // sensible default
-        };
+        let truncation_max_tokens = config.truncation_max_tokens;
 
         // Build a token counter that uses the real tokenizer when available.
         let tokenizer_model_id = config.tokenizer_model_id.clone();

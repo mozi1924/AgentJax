@@ -93,7 +93,7 @@ impl Tool for LcmGrepTool {
 
         let summary_id = args.summary_id.map(|s| LcmId::from(s));
 
-        let page_size = 20; // TODO: read from LcmConfig
+        let page_size = self.store.grep_page_size();
 
         let store = super::effective_store(&self.store, context);
         let results = store

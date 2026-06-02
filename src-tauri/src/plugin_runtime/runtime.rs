@@ -85,65 +85,6 @@ impl Error for PluginRuntimeError {}
 ///
 /// 1. Manifest registration, validation, and discovery
 /// 2. Tool plugin execution (via `AgentJaxPlugin.tools`)
-/// 3. Provider plugin function calls (via `AgentJaxPlugin.providers`)
-///
-/// Each plugin gets its own persistent `JsRuntime` instance on registration,
-/// avoiding repeated V8 isolate creation overhead.
-#[allow(dead_code)] // Reserved for future use — integration point being designed
-pub trait PluginRuntime: Send {
-    fn backend_name(&self) -> &'static str;
-    fn register_package(&mut self, package: PluginPackage) -> PluginRuntimeResult<()>;
-    fn unregister(&mut self, plugin_id: &str) -> PluginRuntimeResult<PluginManifest>;
-    fn manifest(&self, plugin_id: &str) -> Option<&PluginManifest>;
-    fn manifests(&self) -> Vec<&PluginManifest>;
-
-    // ── Tool plugin execution ────────────────────────────────────────────
-
-    fn registered_tools(&self) -> Vec<RegisteredPluginTool>;
-    fn execute_tool_call(&mut self, call: PluginToolCall) -> PluginRuntimeResult<PluginToolResult>;
-
-    // ── Provider plugin execution ────────────────────────────────────────
-
-    /// Extract provider definitions from a plugin's JS entrypoint.
-    fn provider_definitions(&mut self, plugin_id: &str)
-        -> PluginRuntimeResult<Vec<PluginProviderDefinition>>;
-
-    /// Call an arbitrary function on a specific provider within a plugin.
-    fn call_provider_function<T: DeserializeOwned>(
-        &mut self,
-        plugin_id: &str,
-        provider_kind: &str,
-        function: &str,
-        argument: serde_json::Value,
-    ) -> PluginRuntimeResult<T>;
-
-    /// Prepare a tool call with validated plugin/tool identity + sandbox.
-    fn prepare_tool_call(
-        &self,
-        plugin_id: &str,
-        tool_name: &str,
-        arguments: serde_json::Value,
-        context: PluginInvocationContext,
-    ) -> PluginRuntimeResult<PluginToolCall> {
-        let manifest = self
-            .manifest(plugin_id)
-            .ok_or_else(|| PluginRuntimeError::UnknownPlugin(plugin_id.to_string()))?;
-        if !manifest.tools.iter().any(|tool| tool.name == tool_name) {
-            return Err(PluginRuntimeError::UnknownPluginTool {
-                plugin_id: plugin_id.to_string(),
-                tool_name: tool_name.to_string(),
-            });
-        }
-        Ok(PluginToolCall {
-            plugin_id: plugin_id.to_string(),
-            tool_name: tool_name.to_string(),
-            arguments,
-            context,
-            sandbox: manifest.sandbox.clone(),
-        })
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // PluginInstance — one persistent JsRuntime per registered plugin
 // ─────────────────────────────────────────────────────────────────────────────
@@ -154,21 +95,8 @@ pub struct PluginInstance {
     pub(crate) runtime: JsRuntime,
 }
 
-// Legacy trait methods kept as direct impl methods for backward compatibility.
-// TODO(codex): migrate callers and remove these wrappers.
 #[allow(dead_code)] // Reserved for future use
 impl DenoCorePluginRuntime {
-    /// Register a manifest directly (creates a temp JsRuntime).
-    /// Prefer `register_package` instead.
-    pub fn register_manifest(&mut self, manifest: PluginManifest) -> PluginRuntimeResult<()> {
-        // Reuse the SDK module loader; no file root available.
-        let module_loader = create_sdk_module_loader();
-        let instance = PluginInstance::new(manifest, None, None, Some(module_loader))?;
-        let plugin_id = instance.manifest.id.clone();
-        self.plugins.insert(plugin_id, instance);
-        Ok(())
-    }
-
     /// Prepare a tool call with validation.
     pub fn prepare_tool_call(
         &self,
@@ -549,11 +477,11 @@ impl DenoCorePluginRuntime {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Legacy migration helpers (for provider_api compatibility)
+// Temporary plugin instance helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Legacy wrapper: load provider definitions from a `PluginPackage` before it's
-/// registered in the runtime. Used by `provider_api::registry` during startup.
+/// Load provider definitions from a `PluginPackage` without persistent
+/// registration. Used by `provider_api::registry` during startup.
 pub fn provider_definitions_for_package(
     package: &PluginPackage,
 ) -> PluginRuntimeResult<Vec<PluginProviderDefinition>> {

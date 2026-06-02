@@ -66,13 +66,7 @@ pub fn lcm_store_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
             ))
         })?
         .to_path_buf();
-    // Ensure the directory exists.
-    std::fs::create_dir_all(&dir).map_err(|e| {
-        AgentJaxError::internal(format!(
-            "Failed to create LCM store directory {}: {e}",
-            dir.display()
-        ))
-    })?;
+    // Directory creation is handled by LcmStore::open().
     Ok(dir.join("lcm.db"))
 }
 

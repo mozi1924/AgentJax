@@ -64,7 +64,7 @@ pub async fn stream_response<F>(
     on_delta: F,
 ) -> AgentJaxResult<ResponseStreamResult>
 where
-    F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
+    F: FnMut(ProviderStreamEvent) -> AgentJaxResult<()> + Send,
 {
     streaming::stream_response(config, req, cancel_rx, on_delta).await
 }

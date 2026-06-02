@@ -852,8 +852,9 @@ mod tests {
         let snapshot = catalog.snapshot(&ctx).await;
 
         // Native: 7 default + SubAgentTool + background_task = 9
-        // Context: 3 LCM operator + 2 memory (search, recall; write gated) + 3 LCM history = 8
-        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT + 9);
+        // Context: 3 LCM operator + 2 memory (search, recall; write gated) = 5
+        // (LCM history tools — grep, describe, expand — are wired later via set_context_tools)
+        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT + 6);
         // Verify sub_agent is a native tool (not context).
         assert!(snapshot.active_tool_names().contains("sub_agent"));
         // Verify memory tools: search and recall are available, write is gated.
