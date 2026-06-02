@@ -1,4 +1,5 @@
 use super::chat_utils::chrono_like_now_id;
+use crate::sub_agents::manager::SubAgentManager;
 use crate::tools::background_jobs;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -87,6 +88,7 @@ impl ChatRequestRegistry {
             // provider turn, so user-initiated Stop must cancel them
             // explicitly or they can outlive the visible request.
             background_jobs::cancel_conversation_jobs(&request.conversation_id);
+            SubAgentManager::cancel_conversation_agents(&request.conversation_id);
             return Ok(true);
         }
 
@@ -216,6 +218,7 @@ impl ChatRequestRegistry {
 
         let _ = self.cancel_title_request(conversation_id)?;
         background_jobs::cancel_conversation_jobs(conversation_id);
+        SubAgentManager::cancel_conversation_agents(conversation_id);
         Ok(())
     }
 }

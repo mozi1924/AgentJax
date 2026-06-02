@@ -27,3 +27,21 @@ pub use expand::LcmExpandTool;
 pub use grep::LcmGrepTool;
 pub use llm_map::LlmMapTool;
 pub use task::TaskTool;
+
+use crate::lcm::LcmStore;
+use crate::tools::ToolExecutionContext;
+use std::sync::Arc;
+
+/// Resolve the effective LCM store for a tool execution.
+///
+/// When running within a sub-agent context, the `ToolExecutionContext`
+/// carries a `lcm_store_override` pointing at the sub-agent's isolated
+/// LCM database. Otherwise, the tool's own store (parent conversation)
+/// is used. This ensures sub-agents operate on their own conversation
+/// history rather than the parent's.
+pub(crate) fn effective_store<'a>(
+    default: &'a Arc<LcmStore>,
+    context: &'a ToolExecutionContext,
+) -> &'a Arc<LcmStore> {
+    context.lcm_store_override.as_ref().unwrap_or(default)
+}

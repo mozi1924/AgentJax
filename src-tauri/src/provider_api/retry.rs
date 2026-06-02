@@ -113,6 +113,8 @@ impl RetryStrategy {
             crate::error::ErrorKind::NotFound => Self::no_retry(),
             crate::error::ErrorKind::ToolExecution => Self::no_retry(),
             crate::error::ErrorKind::Lcm => Self::server_error(),
+            crate::error::ErrorKind::SubAgent => Self::no_retry(),
+            crate::error::ErrorKind::Memory => Self::no_retry(),
             crate::error::ErrorKind::Internal => Self::server_error(),
         }
     }

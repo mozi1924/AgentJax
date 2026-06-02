@@ -2,8 +2,10 @@ pub(crate) mod background_jobs;
 mod calculator;
 mod catalog;
 mod files;
+pub(crate) mod memory_tools;
 mod native;
 mod registry;
+pub(crate) mod sub_agent_tools;
 
 use crate::config::AppConfig;
 use crate::error::AgentJaxResult;
@@ -139,7 +141,7 @@ pub trait Tool: Send + Sync {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct ToolExecutionContext {
     pub conversation_id: Option<String>,
 
@@ -154,6 +156,33 @@ pub struct ToolExecutionContext {
 
     /// Application configuration (for tools that need provider access).
     pub app_config: Option<Arc<AppConfig>>,
+
+    /// Sub-agent identifier — set when executing within an async sub-agent.
+    /// This allows tools like `lcm_expand` to distinguish between main-agent
+    /// and sub-agent contexts.
+    pub sub_agent_id: Option<String>,
+
+    /// Override LCM store for sub-agent contexts.
+    /// When set, LCM tools (lcm_grep, lcm_describe, lcm_expand) use this
+    /// store instead of the parent's store, ensuring sub-agents operate
+    /// on their own isolated conversation history.
+    #[allow(dead_code)]
+    pub lcm_store_override: Option<Arc<crate::lcm::LcmStore>>,
+}
+
+// Manual Debug impl that skips lcm_store_override (LcmStore doesn't impl Debug).
+impl std::fmt::Debug for ToolExecutionContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolExecutionContext")
+            .field("conversation_id", &self.conversation_id)
+            .field("model_id", &self.model_id)
+            .field("turn_id", &self.turn_id)
+            .field("hop_index", &self.hop_index)
+            .field("app_config", &self.app_config)
+            .field("sub_agent_id", &self.sub_agent_id)
+            .field("lcm_store_override", &self.lcm_store_override.as_ref().map(|_| "Arc<LcmStore>"))
+            .finish()
+    }
 }
 
 impl ToolExecutionContext {
@@ -165,6 +194,63 @@ impl ToolExecutionContext {
             turn_id: None,
             hop_index: None,
             app_config: None,
+            sub_agent_id: None,
+            lcm_store_override: None,
         }
     }
+}
+
+// ── Scope-Narrowing Invariant (LCM §3.2) ─────────────────────────────────────
+
+/// Check the scope-narrowing invariant for sub-agent delegation.
+///
+/// When a sub-agent (non-root) spawns a further sub-agent, it must declare
+/// both `delegated_scope` (which tools the sub-agent may access) and
+/// `kept_work` (what output the sub-agent will produce). If the caller cannot
+/// articulate what it is keeping, the engine rejects the delegation.
+///
+/// ## Exemptions
+/// - **Root agents** (`hop_index == 0`): the main agent can spawn sub-agents
+///   without declaring scope/work.
+/// - **Explore sub-agents** (`subagent_type == "explore"`): read-only agents
+///   that cannot spawn further sub-agents and are exempt.
+///
+/// This structural guarantee ensures each level of delegation represents a
+/// strict reduction in responsibility, creating a well-founded recursion that
+/// must eventually bottom out in direct execution.
+pub fn check_scope_narrowing_invariant(
+    subagent_type: &Option<String>,
+    delegated_scope: &[String],
+    kept_work: &[String],
+    context: &ToolExecutionContext,
+) -> Result<(), crate::error::AgentJaxError> {
+    let is_explore = subagent_type
+        .as_deref()
+        .map(|t| t == "explore")
+        .unwrap_or(false);
+    let is_root = context.hop_index.unwrap_or(0) == 0;
+    let is_sub_agent = context.sub_agent_id.is_some();
+
+    // Root agents and explore sub-agents are exempt.
+    if is_root || is_explore || is_sub_agent {
+        return Ok(());
+    }
+
+    if kept_work.is_empty() {
+        return Err(crate::error::AgentJaxError::sub_agent(
+            "Scope-narrowing invariant violation: sub-agent must declare non-empty \
+             'kept_work' — describe what concrete output you will produce. \
+             Without this, the delegation would represent a pass-through with \
+             no reduction in responsibility."
+                .to_string(),
+        ));
+    }
+    if delegated_scope.is_empty() {
+        return Err(crate::error::AgentJaxError::sub_agent(
+            "Scope-narrowing invariant violation: sub-agent must declare non-empty \
+             'delegated_scope' — specify which tools the sub-agent may access."
+                .to_string(),
+        ));
+    }
+    Ok(())
 }

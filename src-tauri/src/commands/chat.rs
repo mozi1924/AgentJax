@@ -224,6 +224,19 @@ pub async fn chat_stream(
             now_unix_ms(),
             user_message_ts,
         ));
+        // Inject memory context if enabled.
+        if config.memory.enabled && config.memory.auto_inject {
+            let memory_base = crate::agentjax_home::agentjax_home_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from(".agentjax"))
+                .join(&config.memory.storage_dir);
+            if let Ok(store) = crate::memory::MemoryStore::open(memory_base) {
+                if let Ok(Some(memory_item)) =
+                    crate::memory::build_memory_context(&store, &config.memory)
+                {
+                    developer_items.push(memory_item);
+                }
+            }
+        }
         let current_user_item = build_user_input_item(
             &resolved_model.provider.kind,
             &render_timed_message("Current user message", user_message_ts, &input_text),
@@ -344,6 +357,7 @@ pub async fn chat_stream(
                 tool_completed_ts: None,
                 tool_duration_ms: None,
                 phase: None,
+                agent_id: None,
             },
         )
         .map_err(|e| format!("Failed to emit stream done event: {e}"))?;

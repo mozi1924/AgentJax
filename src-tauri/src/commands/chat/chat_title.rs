@@ -129,6 +129,7 @@ async fn generate_title_and_emit(
                     tool_duration_ms: None,
                     context_token_count: None,
                     phase: None,
+                    agent_id: None,
                 },
             )
             .map_err(|e| format!("Failed to emit title update event: {e}"))?;

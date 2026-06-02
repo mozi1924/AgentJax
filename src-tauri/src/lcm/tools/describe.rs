@@ -77,8 +77,8 @@ impl Tool for LcmDescribeTool {
 
         let id = LcmId::from(args.id);
 
-        let result = self
-            .store
+        let store = super::effective_store(&self.store, _context);
+        let result = store
             .describe(&id)
             .map_err(|e| AgentJaxError::internal(format!("lcm_describe failed: {e}")))?;
 

@@ -12,6 +12,63 @@ fn default_language() -> String {
     "auto".to_string()
 }
 
+// ── Sub-Agent Config ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SubAgentConfig {
+    /// Maximum concurrent sub-agents allowed process-wide.
+    pub max_concurrent: usize,
+    /// Default maximum turns for a sub-agent.
+    pub default_max_turns: usize,
+    /// Hard cap on sub-agent turns.
+    pub hard_max_turns: usize,
+    /// Maximum time a sub-agent may run before being timed out (seconds).
+    pub timeout_secs: u64,
+    /// Whether git worktree isolation is enabled.
+    pub worktree_enabled: bool,
+}
+
+impl Default for SubAgentConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent: 4,
+            default_max_turns: 5,
+            hard_max_turns: 10,
+            timeout_secs: 300,
+            worktree_enabled: false,
+        }
+    }
+}
+
+// ── Memory Config ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MemoryConfig {
+    /// Whether the memory system is enabled.
+    pub enabled: bool,
+    /// Maximum tokens for the MEMORY.md index injected into context.
+    pub max_index_tokens: u32,
+    /// Whether to auto-inject the memory index into each conversation turn.
+    pub auto_inject: bool,
+    /// Directory where memory files are stored (relative to agentjax home).
+    pub storage_dir: String,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_index_tokens: 2000,
+            auto_inject: true,
+            storage_dir: "memory".to_string(),
+        }
+    }
+}
+
+// ── AppConfig ─────────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -28,6 +85,10 @@ pub struct AppConfig {
     pub prompt_composer: PromptComposerConfig,
     #[serde(default)]
     pub lcm: crate::lcm::LcmConfig,
+    #[serde(default)]
+    pub sub_agent: SubAgentConfig,
+    #[serde(default)]
+    pub memory: MemoryConfig,
     #[serde(default)]
     pub mcp_runtime: McpRuntimeConfig,
     #[serde(default)]
@@ -398,6 +459,8 @@ impl Default for AppConfig {
             providers,
             prompt_composer: PromptComposerConfig::default(),
             lcm: crate::lcm::LcmConfig::default(),
+            sub_agent: SubAgentConfig::default(),
+            memory: MemoryConfig::default(),
             mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
             tool_manager: ToolManagerConfig::default(),

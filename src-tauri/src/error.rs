@@ -53,6 +53,10 @@ pub enum ErrorKind {
     ToolExecution,
     /// Resource not found.
     NotFound,
+    /// Sub-agent error (spawn failure, timeout, scope violation).
+    SubAgent,
+    /// Memory system error (read/write failure, invalid frontmatter).
+    Memory,
     /// Internal/unexpected error. May be retryable.
     Internal,
 }
@@ -67,6 +71,8 @@ impl fmt::Display for ErrorKind {
             ErrorKind::Network => write!(f, "network"),
             ErrorKind::Config => write!(f, "config"),
             ErrorKind::Lcm => write!(f, "lcm"),
+            ErrorKind::SubAgent => write!(f, "sub_agent"),
+            ErrorKind::Memory => write!(f, "memory"),
             ErrorKind::ToolExecution => write!(f, "tool_execution"),
             ErrorKind::NotFound => write!(f, "not_found"),
             ErrorKind::Internal => write!(f, "internal"),
@@ -132,6 +138,16 @@ impl AgentJaxError {
     /// Create a tool execution error.
     pub fn tool(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::ToolExecution, message)
+    }
+
+    /// Create a sub-agent error.
+    pub fn sub_agent(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::SubAgent, message)
+    }
+
+    /// Create a memory system error.
+    pub fn memory(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Memory, message)
     }
 
     /// Create a provider auth error.

@@ -106,10 +106,11 @@ impl Tool for LcmExpandTool {
         if !Self::is_sub_agent_context(context) {
             return Err(AgentJaxError::tool(
                 "lcm_expand is restricted to sub-agents only. \
-                 The main agent should delegate expansion work to a sub-agent \
-                 using the Task tool:\n\n\
-                 Task(prompt=\"Expand summary X and report findings\", \
-                 subagent_type=\"explore\", ...)\n\n\
+                 The main agent should delegate expansion work to a sub-agent:\n\n\
+                 - Sync: Task(prompt=\"Expand summary X and report findings\", \
+                 subagent_type=\"explore\", delegated_scope=[...], kept_work=[...])\n\
+                 - Async: spawn_sub_agent(prompt=\"Expand summary X and report findings\", \
+                 subagentType=\"explore\")\n\n\
                  This restriction prevents uncontrolled context growth in \
                  the primary conversation loop. See LCM §2.4 for details."
             ));
@@ -117,8 +118,8 @@ impl Tool for LcmExpandTool {
 
         let summary_id = LcmId::from(args.summary_id);
 
-        let messages = self
-            .store
+        let store = super::effective_store(&self.store, context);
+        let messages = store
             .expand_summary(&summary_id)
             .map_err(|e| format!("lcm_expand failed: {e}"))?;
 
@@ -153,21 +154,26 @@ impl Tool for LcmExpandTool {
 impl LcmExpandTool {
     /// Check whether the current execution context is a sub-agent.
     ///
-    /// In the current architecture, sub-agents are identified by having
-    /// a non-empty `turn_id` that differs from the parent, or by the
-    /// `hop_index` being greater than 0 in a sub-agent session.
+    /// Sub-agents can be spawned in two ways:
+    /// 1. **Sync** (`task` tool): inline within the same process, where
+    ///    `hop_index > 0` indicates we're past the root turn.
+    /// 2. **Async** (`spawn_sub_agent` tool): in a separate tokio task
+    ///    with `hop_index = 0` but `sub_agent_id` set to `Some(...)`.
     ///
-    /// For safety, we default to allowing expansion when we can't
-    /// determine the context type (to avoid blocking legitimate use).
+    /// Both cases are valid sub-agent contexts for `lcm_expand`.
     fn is_sub_agent_context(context: &ToolExecutionContext) -> bool {
-        // If we have a hop_index > 0, the main agent is in a tool loop.
-        // The main agent cannot use lcm_expand at hop 0 (first turn).
-        // Sub-agents start fresh with their own hop counter.
-        //
-        // For now, we use a permissive check: allow if hop_index is
-        // explicitly set to non-zero, since the root agent's first
-        // turn has hop_index = None or 0.
-        context.hop_index.unwrap_or(0) > 0
-            || context.turn_id.is_some()
+        // Async sub-agent: identified by sub_agent_id being set.
+        if context.sub_agent_id.is_some() {
+            return true;
+        }
+        // Sync sub-agent (task tool): hop_index > 0 in a delegated context.
+        if context.hop_index.unwrap_or(0) > 0 {
+            return true;
+        }
+        // Has an explicit turn_id (e.g., background task context).
+        if context.turn_id.is_some() {
+            return true;
+        }
+        false
     }
 }

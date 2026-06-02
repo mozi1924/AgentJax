@@ -9,11 +9,13 @@ pub mod error;
 mod error_classifier;
 pub mod lcm;
 pub mod mcp;
+pub mod memory;
 mod message_phase;
 mod models;
 pub mod provider_api;
 pub mod plugin_runtime;
 pub mod runtime;
+pub mod sub_agents;
 mod time_context;
 pub mod tools;
 
@@ -144,7 +146,12 @@ pub fn run() {
             commands::tools::get_plugin_settings_snapshot,
             commands::models::get_model_catalog,
             commands::models::force_sync_model_cache,
-            commands::devtools::open_devtools
+            commands::devtools::open_devtools,
+            commands::sub_agents::cancel_sub_agent,
+            commands::sub_agents::list_sub_agents,
+            commands::memory::list_memories,
+            commands::memory::get_memory,
+            commands::memory::search_memories
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

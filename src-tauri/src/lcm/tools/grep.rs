@@ -95,8 +95,8 @@ impl Tool for LcmGrepTool {
 
         let page_size = 20; // TODO: read from LcmConfig
 
-        let results = self
-            .store
+        let store = super::effective_store(&self.store, context);
+        let results = store
             .search_messages(conversation_id, &args.pattern, summary_id.as_ref(), args.cursor.as_deref(), page_size)
             .map_err(|e| AgentJaxError::internal(format!("lcm_grep search failed: {e}")))?;
 

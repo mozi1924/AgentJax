@@ -161,6 +161,8 @@ export interface ChatStreamEventPayload {
   contextTokenCount?: number;
   /** Phase hint for assistant text events. */
   phase?: AssistantPhase | null;
+  /** Sub-agent identifier — present for sub-agent lifecycle events. */
+  agentId?: string;
 }
 
 interface RawToolCallTimelineEvent {

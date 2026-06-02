@@ -21,7 +21,7 @@ use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::provider_api::types::{
     ProviderPendingToolCall, ProviderStreamEvent, ResponseStreamRequest,
 };
-use crate::tools::{Tool, ToolExecutionContext, ToolRegistry};
+use crate::tools::{Tool, ToolExecutionContext, ToolRegistry, check_scope_narrowing_invariant};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::watch;
@@ -122,32 +122,13 @@ impl Tool for TaskTool {
             .map_err(|e| AgentJaxError::tool(format!("Invalid task arguments: {e}")))?;
 
         // ── Scope-Narrowing Invariant (LCM §3.2) ──────────────────────────
-        // Root agents and explore agents are exempt.
-        let is_explore = args
-            .subagent_type
-            .as_deref()
-            .map(|t| t == "explore")
-            .unwrap_or(false);
-        let is_root = context.hop_index.unwrap_or(0) == 0;
-
-        if !is_root && !is_explore {
-            if args.kept_work.is_empty() {
-                return Err(AgentJaxError::tool(
-                    "Scope-narrowing invariant violation: sub-agent must declare non-empty \
-                     'kept_work' — describe what concrete output you will produce. \
-                     Without this, the delegation would represent a pass-through with \
-                     no reduction in responsibility."
-                        .to_string(),
-                ));
-            }
-            if args.delegated_scope.is_empty() {
-                return Err(AgentJaxError::tool(
-                    "Scope-narrowing invariant violation: sub-agent must declare non-empty \
-                     'delegated_scope' — specify which tools the sub-agent may access."
-                        .to_string(),
-                ));
-            }
-        }
+        // Uses the shared invariant check from tools.rs.
+        check_scope_narrowing_invariant(
+            &args.subagent_type,
+            &args.delegated_scope,
+            &args.kept_work,
+            context,
+        )?;
 
         let model_ref = context
             .model_id

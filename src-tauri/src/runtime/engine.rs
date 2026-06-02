@@ -56,9 +56,28 @@ impl AgentRuntime {
             user_message_ts,
         ));
 
+        // Detect sub-agent context from conversation ID pattern.
+        // Sub-agent conversations use the format "{parent}/sub-agent/{agent_id}".
+        // When detected, LCM tools are pointed at the sub-agent's isolated store
+        // via lcm_store_override, and lcm_expand is allowed via sub_agent_id.
+        let is_sub_agent = conversation_id.contains("/sub-agent/");
         let tool_context = ToolExecutionContext {
             conversation_id: Some(conversation_id.to_string()),
             model_id: Some(resolved_model.model_id.clone()),
+            sub_agent_id: if is_sub_agent {
+                // Extract agent_id from the conversation_id path.
+                conversation_id
+                    .rsplit('/')
+                    .next()
+                    .map(|s| s.to_string())
+            } else {
+                None
+            },
+            lcm_store_override: if is_sub_agent {
+                Some(lcm_engine.store().clone())
+            } else {
+                None
+            },
             ..Default::default()
         };
         let mut mounted_mcp_servers = tools_catalog.load_persisted_mounted_servers(&tool_context);

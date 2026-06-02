@@ -18,6 +18,8 @@ use crate::tools::{
     SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation, ToolSchemaFormat,
     format_tool_schema, humanize_tool_name,
 };
+use crate::tools::memory_tools::{MemoryRecallTool, MemorySearchTool, MemoryWriteTool};
+use crate::tools::sub_agent_tools::{CancelSubAgentTool, SpawnSubAgentTool, SubAgentStatusTool};
 pub use manager_snapshot::{
     ToolManagerSchemaFormat, ToolManagerSnapshot, ToolManagerSnapshotRequest,
     ToolManagerSourceSnapshot, ToolManagerSourceType, ToolManagerToolSnapshot,
@@ -69,6 +71,14 @@ impl ToolCatalog {
         context_tools.push(Arc::new(LlmMapTool));
         context_tools.push(Arc::new(AgenticMapTool));
         context_tools.push(Arc::new(TaskTool));
+        // Sub-agent tools
+        context_tools.push(Arc::new(SpawnSubAgentTool));
+        context_tools.push(Arc::new(SubAgentStatusTool));
+        context_tools.push(Arc::new(CancelSubAgentTool));
+        // Memory tools
+        context_tools.push(Arc::new(MemoryWriteTool));
+        context_tools.push(Arc::new(MemorySearchTool));
+        context_tools.push(Arc::new(MemoryRecallTool));
         if let Ok(dummy_store) = LcmStore::open(":memory:", config.lcm.clone()) {
             let store = Arc::new(dummy_store);
             context_tools.extend_from_slice(&[
@@ -489,6 +499,12 @@ impl ToolCatalog {
             Arc::new(LlmMapTool),
             Arc::new(AgenticMapTool),
             Arc::new(TaskTool),
+            Arc::new(SpawnSubAgentTool),
+            Arc::new(SubAgentStatusTool),
+            Arc::new(CancelSubAgentTool),
+            Arc::new(MemoryWriteTool),
+            Arc::new(MemorySearchTool),
+            Arc::new(MemoryRecallTool),
             Arc::new(LcmGrepTool::new(lcm_store.clone())),
             Arc::new(LcmDescribeTool::new(lcm_store.clone())),
             Arc::new(LcmExpandTool::new(lcm_store)),

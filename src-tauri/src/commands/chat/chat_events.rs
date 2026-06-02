@@ -30,6 +30,9 @@ pub struct ChatStreamEvent {
     /// commentary phase or the final answer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phase: Option<String>,
+    /// Sub-agent identifier — present for sub-agent lifecycle events.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
 }
 
 pub fn next_event_index(current: &mut u64) -> u64 {
@@ -67,6 +70,7 @@ pub fn emit_mapped_stream_event(
         tool_duration_ms: None,
         context_token_count: None,
         phase: None,
+        agent_id: None,
     };
 
     match event {
