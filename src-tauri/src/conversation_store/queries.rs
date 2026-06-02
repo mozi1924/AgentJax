@@ -83,6 +83,13 @@ pub fn list_conversations() -> Result<Vec<ConversationSummary>, String> {
 pub fn load_conversation(conversation_id: &str) -> Result<Option<ConversationDetail>, String> {
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(conversation_id)?;
+
+        // ── Try LCM store first (single source of truth) ──────────────
+        if let Ok(Some(detail)) = try_load_from_lcm(conversation_id, &metadata_path) {
+            return Ok(Some(detail));
+        }
+
+        // ── Fall back to legacy JSONL ─────────────────────────────────
         let messages_path = conversation_messages_path(conversation_id)?;
         let Some(data) = read_conversation_file(&metadata_path, &messages_path)? else {
             return Ok(None);
@@ -97,6 +104,60 @@ pub fn load_conversation(conversation_id: &str) -> Result<Option<ConversationDet
             context_token_count: token_usage_count_from_meta(&data.meta).unwrap_or(0),
         }))
     })
+}
+
+/// Try to load conversation detail from the LCM immutable store.
+fn try_load_from_lcm(
+    conversation_id: &str,
+    metadata_path: &std::path::Path,
+) -> Result<Option<ConversationDetail>, String> {
+    let db_path = metadata_path
+        .parent()
+        .ok_or_else(|| "Invalid metadata path".to_string())?
+        .join("lcm.db");
+
+    if !db_path.exists() {
+        return Ok(None);
+    }
+
+    let lcm_config = crate::lcm::LcmConfig::default();
+    let store = crate::lcm::LcmStore::open(&db_path, lcm_config)
+        .map_err(|e| format!("Failed to open LCM store: {e}"))?;
+
+    let messages = store
+        .get_conversation_messages(conversation_id)
+        .map_err(|e| format!("Failed to read LCM messages: {e}"))?;
+
+    if messages.is_empty() {
+        return Ok(None);
+    }
+
+    // Convert LCM StoredMessages to ConversationLines.
+    let lines = crate::lcm::stored_messages_to_conversation_lines(&messages);
+
+    // Read metadata from the legacy metadata.json (title, timestamps, etc.).
+    let (title, title_source, context_token_count) =
+        if let Ok(Some(meta)) = read_conversation_meta(metadata_path) {
+            (
+                if meta.title.is_empty() || meta.title_source == "pending" {
+                    "New Conversation".to_string()
+                } else {
+                    meta.title.clone()
+                },
+                meta.title_source.clone(),
+                token_usage_count_from_meta(&meta).unwrap_or(0),
+            )
+        } else {
+            ("New Conversation".to_string(), "pending".to_string(), 0usize)
+        };
+
+    Ok(Some(ConversationDetail {
+        conversation_id: conversation_id.to_string(),
+        title,
+        title_source,
+        lines,
+        context_token_count,
+    }))
 }
 
 // ── Load title generation candidate ───────────────────────────────────────

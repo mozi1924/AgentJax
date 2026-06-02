@@ -163,6 +163,141 @@ pub fn open_lcm_engine_with_summarizer(
     Ok(engine)
 }
 
+/// Convert LCM `StoredMessage`s into `ConversationLine`s for frontend display.
+///
+/// This bridges the LCM immutable store (single source of truth) to the
+/// frontend's expected `ConversationDetail.lines` format. Fields not stored
+/// in LCM (transient UI state, tool presentation metadata) are filled with
+/// sensible defaults.
+pub fn stored_messages_to_conversation_lines(
+    messages: &[types::StoredMessage],
+) -> Vec<crate::conversation_store::ConversationLine> {
+    use crate::conversation_store::{
+        AssistantLine, AssistantStatus, ConversationLine, ToolLine, ToolStatus, UserLine,
+    };
+
+    messages
+        .iter()
+        .filter_map(|msg| {
+            let id = msg.id.to_string();
+            let ts = msg.timestamp_unix_ms;
+            let request_id = msg
+                .metadata
+                .get("request_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            match msg.role {
+                types::MessageRole::User => Some(ConversationLine::User(UserLine {
+                    id,
+                    ts,
+                    request_id,
+                    text: msg.content.clone(),
+                })),
+                types::MessageRole::Assistant => {
+                    let phase = msg
+                        .metadata
+                        .get("phase")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| match s {
+                            "commentary" => Some(crate::message_phase::AssistantPhase::Commentary),
+                            "final" | "final_answer" => {
+                                Some(crate::message_phase::AssistantPhase::FinalAnswer)
+                            }
+                            _ => None,
+                        });
+                    let response_id = msg
+                        .metadata
+                        .get("response_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    Some(ConversationLine::Assistant(AssistantLine {
+                        id,
+                        ts,
+                        request_id,
+                        response_id,
+                        phase,
+                        text: msg.content.clone(),
+                        status: AssistantStatus::Done,
+                    }))
+                }
+                types::MessageRole::Tool => {
+                    let message_type = msg
+                        .metadata
+                        .get("message_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let call_id = msg
+                        .metadata
+                        .get("call_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let name = msg
+                        .metadata
+                        .get("tool_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+
+                    match message_type {
+                        "function_call" => {
+                            let args: serde_json::Value =
+                                serde_json::from_str(&msg.content).unwrap_or(serde_json::Value::Null);
+                            Some(ConversationLine::Tool(ToolLine {
+                                id: format!("tool-{request_id}-{call_id}"),
+                                ts,
+                                started_ts: ts,
+                                completed_ts: None,
+                                request_id,
+                                call_id,
+                                name,
+                                display_name: None,
+                                description: None,
+                                icon: None,
+                                args,
+                                output: None,
+                                status: ToolStatus::Pending,
+                            }))
+                        }
+                        "function_call_output" => {
+                            let output: serde_json::Value =
+                                serde_json::from_str(&msg.content).unwrap_or(serde_json::Value::Null);
+                            let is_error = output
+                                .get("ok")
+                                .and_then(|v| v.as_bool())
+                                == Some(false)
+                                || output.get("error").is_some();
+                            Some(ConversationLine::Tool(ToolLine {
+                                id: format!("tool-{request_id}-{call_id}"),
+                                ts,
+                                started_ts: 0,
+                                completed_ts: Some(ts),
+                                request_id,
+                                call_id,
+                                name,
+                                display_name: None,
+                                description: None,
+                                icon: None,
+                                args: serde_json::Value::Null,
+                                output: Some(output),
+                                status: if is_error {
+                                    ToolStatus::Failed
+                                } else {
+                                    ToolStatus::Done
+                                },
+                            }))
+                        }
+                        _ => None,
+                    }
+                }
+            }
+        })
+        .collect()
+}
+
 /// Sync messages from the legacy ConversationStore to the LCM immutable store.
 ///
 /// This is a bridge function that reads the conversation from the existing

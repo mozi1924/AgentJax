@@ -93,7 +93,8 @@ impl AgentRuntime {
         // ── Persist the current user message to LCM ─────────────────────
         {
             let user_text = req.input.trim();
-            let user_msg = crate::lcm::types::StoredMessage::new(
+            let request_id = req.request_id.as_deref().unwrap_or("unknown");
+            let mut user_msg = crate::lcm::types::StoredMessage::new(
                 crate::lcm::types::MessageId::new(),
                 conversation_id,
                 crate::lcm::types::MessageRole::User,
@@ -101,6 +102,7 @@ impl AgentRuntime {
                 crate::lcm::types::estimate_tokens(user_text),
                 user_message_ts,
             );
+            user_msg.metadata.insert("request_id".to_string(), serde_json::Value::String(request_id.to_string()));
             if let Err(e) = lcm_engine.process_message(&user_msg).await {
                 log::warn!("LCM: failed to persist user message for turn: {e}");
             }
@@ -272,6 +274,8 @@ impl AgentRuntime {
                 let engine = lcm_engine;
                 let now_ms = crate::conversation_store_utils::now_unix_ms();
                 let lcm_conv_id = conversation_id.to_string();
+                let request_id = req.request_id.as_deref().unwrap_or("unknown");
+                let response_id = &collected.response_result.response_id;
                 let mut batch_messages: Vec<crate::lcm::types::StoredMessage> = Vec::new();
 
                 // Collect assistant text from structured output_items.
@@ -285,21 +289,16 @@ impl AgentRuntime {
                             crate::lcm::types::estimate_tokens(text),
                             now_ms,
                         );
+                        msg.metadata.insert("request_id".to_string(), serde_json::Value::String(request_id.to_string()));
+                        msg.metadata.insert("response_id".to_string(), serde_json::Value::String(response_id.clone()));
                         if let Some(p) = phase {
-                            msg.metadata.insert(
-                                "phase".to_string(),
-                                serde_json::Value::String(p.as_str().to_string()),
-                            );
+                            msg.metadata.insert("phase".to_string(), serde_json::Value::String(p.as_str().to_string()));
                         }
                         batch_messages.push(msg);
                     }
                 }
 
                 // ── Lossless invariant guard ─────────────────────────────
-                // If assistant text only appeared in output_text (not as a
-                // structured message in output_items), it is missing from
-                // hop_messages_for_lcm. Capture it now so every model-generated
-                // message is preserved — this is the LCM paper's core invariant.
                 let fallback_text: Option<String> = if hop_messages_for_lcm.is_empty()
                     && !collected.response_result.output_text.trim().is_empty()
                 {
@@ -308,30 +307,22 @@ impl AgentRuntime {
                     let already_captured = hop_messages_for_lcm.iter().any(|(t, _)| {
                         t.trim() == final_output_text.trim()
                     });
-                    if !already_captured {
-                        Some(final_output_text.trim().to_string())
-                    } else {
-                        None
-                    }
+                    if !already_captured { Some(final_output_text.trim().to_string()) } else { None }
                 } else {
                     None
                 };
 
                 if let Some(text) = fallback_text {
                     let mut msg = crate::lcm::types::StoredMessage::new(
-                        crate::lcm::types::MessageId::new(),
-                        &lcm_conv_id,
-                        crate::lcm::types::MessageRole::Assistant,
-                        &text,
-                        crate::lcm::types::estimate_tokens(&text),
-                        now_ms,
+                        crate::lcm::types::MessageId::new(), &lcm_conv_id,
+                        crate::lcm::types::MessageRole::Assistant, &text,
+                        crate::lcm::types::estimate_tokens(&text), now_ms,
                     );
-                    msg.metadata.insert(
-                        "phase".to_string(),
-                        serde_json::Value::String(
-                            if is_final_hop { "final" } else { "assistant" }.to_string(),
-                        ),
-                    );
+                    msg.metadata.insert("request_id".to_string(), serde_json::Value::String(request_id.to_string()));
+                    msg.metadata.insert("response_id".to_string(), serde_json::Value::String(response_id.clone()));
+                    msg.metadata.insert("phase".to_string(), serde_json::Value::String(
+                        if is_final_hop { "final" } else { "assistant" }.to_string(),
+                    ));
                     batch_messages.push(msg);
                 }
 
