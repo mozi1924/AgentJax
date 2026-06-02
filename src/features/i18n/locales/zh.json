@@ -225,7 +225,9 @@
   "main.headline.subtitle": "想了解什么，尽管问吧！",
   "main.headline.thinking": "Thinking...",
 
-  "assembler.drag_hint": "拖拽排序",  "assembler.required_block": "必需 — 不可禁用",  "assembler.disable_block": "禁用该块",
+  "assembler.drag_hint": "拖拽排序",
+  "assembler.required_block": "必需 — 不可禁用",
+  "assembler.disable_block": "禁用该块",
   "assembler.enable_block": "启用该块",
   "assembler.delete_block": "删除提示词块",
   "assembler.preview.title": "已编译提示词预览",

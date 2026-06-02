@@ -7,9 +7,8 @@
 //! conversation's event channel (for frontend auto-trigger). On the next turn,
 //! items are collected, formatted, and injected into the developer prefix.
 
-use crate::conversation_store_utils::now_unix_ms;
 use crate::street::types::{
-    Priority, StreetEvent, StreetItem, StreetItemStatus, StreetSnapshot,
+    StreetEvent, StreetItem, StreetItemStatus, StreetSnapshot,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -18,8 +17,6 @@ use tokio::sync::mpsc;
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const MAX_ITEMS_PER_CONVERSATION: usize = 100;
-const TERMINAL_ITEM_RETENTION_MS: i64 = 60 * 60 * 1_000; // 1 hour
-const MAX_RETAINED_TERMINAL_ITEMS: usize = 200;
 
 // ── Global Registry ─────────────────────────────────────────────────────────
 
@@ -37,67 +34,6 @@ fn registry() -> &'static Mutex<HashMap<String, Vec<Arc<Mutex<StreetItem>>>>> {
 
 fn channels() -> &'static Mutex<HashMap<String, mpsc::UnboundedSender<StreetEvent>>> {
     STREET_CHANNELS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-// ── Pruning ─────────────────────────────────────────────────────────────────
-
-fn prune_terminal_items(
-    items: &mut Vec<Arc<Mutex<StreetItem>>>,
-    retention_ms: i64,
-    max_retained: usize,
-) -> usize {
-    let now = now_unix_ms();
-    let cutoff = now.saturating_sub(retention_ms);
-    let mut removed = 0usize;
-
-    // Remove expired terminal items.
-    items.retain(|item| {
-        if let Ok(i) = item.lock() {
-            if i.status.is_terminal() && i.timestamp <= cutoff {
-                removed += 1;
-                return false;
-            }
-        }
-        true
-    });
-
-    // If still over max, remove oldest terminal items.
-    let terminal_count = items
-        .iter()
-        .filter(|item| {
-            item.lock()
-                .ok()
-                .map(|i| i.status.is_terminal())
-                .unwrap_or(false)
-        })
-        .count();
-
-    if terminal_count > max_retained {
-        let excess = terminal_count - max_retained;
-        let mut to_remove = Vec::new();
-        let mut terminal_indices: Vec<(usize, i64)> = items
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, item)| {
-                item.lock()
-                    .ok()
-                    .filter(|i| i.status.is_terminal())
-                    .map(|i| (idx, i.timestamp))
-            })
-            .collect();
-        terminal_indices.sort_by_key(|(_, ts)| *ts);
-        for (idx, _) in terminal_indices.into_iter().take(excess) {
-            to_remove.push(idx);
-        }
-        // Remove from the end to preserve indices.
-        to_remove.sort_unstable_by(|a, b| b.cmp(a));
-        for idx in to_remove {
-            items.remove(idx);
-            removed += 1;
-        }
-    }
-
-    removed
 }
 
 // ── StreetManager ───────────────────────────────────────────────────────────
@@ -246,6 +182,7 @@ impl StreetManager {
     }
 
     /// Get the count of Pending items for a conversation.
+    #[allow(dead_code)]
     pub fn get_pending_count(conversation_id: &str) -> usize {
         let guard = registry()
             .lock()
@@ -300,6 +237,7 @@ impl StreetManager {
     }
 
     /// Remove all items for a conversation (called on conversation delete).
+    #[allow(dead_code)]
     pub fn cleanup_conversation(conversation_id: &str) -> usize {
         let mut guard = registry()
             .lock()
@@ -325,6 +263,7 @@ impl StreetManager {
     }
 
     /// Remove the event channel sender for a conversation.
+    #[allow(dead_code)]
     pub fn unregister_event_channel(conversation_id: &str) {
         let mut guard = channels()
             .lock()
@@ -348,6 +287,7 @@ impl StreetManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::street::types::Priority;
     use serde_json::json;
 
     fn unique_conv() -> String {

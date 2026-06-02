@@ -38,7 +38,6 @@ use crate::lcm::types::MessageRole;
 use crate::lcm::compaction::NoopSummarizer;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
 // ── LcmEngine ───────────────────────────────────────────────────────────────
@@ -523,7 +522,7 @@ impl LcmEngine {
         let (messages, summary_ids) = self.resolve_block(&block).await?;
         let conversation_id = self.infer_conversation_id(&messages, &summary_ids)?;
 
-        let now_ms = Self::now_unix_ms();
+        let now_ms = crate::conversation_store_utils::now_unix_ms();
 
         if !messages.is_empty() {
             // Leaf compaction: messages → summary.
@@ -844,7 +843,7 @@ impl LcmEngine {
         mime_type: &str,
         conversation_id: &str,
     ) -> Result<Option<FileReference>, LcmError> {
-        let now_ms = Self::now_unix_ms();
+        let now_ms = crate::conversation_store_utils::now_unix_ms();
         self.file_handler
             .register_file(path, content, mime_type, conversation_id, now_ms)
     }
@@ -1069,14 +1068,6 @@ impl LcmEngine {
 
 
 
-    // ── Utility ───────────────────────────────────────────────────────
-
-    fn now_unix_ms() -> i64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0)
-    }
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────

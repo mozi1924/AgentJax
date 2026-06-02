@@ -21,5 +21,5 @@ pub(crate) mod types;
 pub use context::{build_street_context_developer_item, format_street_items};
 pub use manager::StreetManager;
 pub use types::{
-    Priority, StreetEvent, StreetItem, StreetItemStatus, StreetSnapshot, StreetSource,
+    Priority, StreetEvent, StreetItem, StreetSnapshot, StreetSource,
 };

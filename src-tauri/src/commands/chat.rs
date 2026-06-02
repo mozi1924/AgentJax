@@ -309,7 +309,7 @@ pub async fn chat_stream(
         let mut index = 0u64;
         while let Some(event) = street_event_rx.recv().await {
             let (kind, delta, tool_name) = match &event {
-                crate::street::StreetEvent::Deposited { item_id, title, priority, .. } => {
+                crate::street::StreetEvent::Deposited { item_id: _, title, priority, .. } => {
                     ("street_notification".to_string(), Some(title.clone()), Some(priority.as_str().to_string()))
                 }
                 crate::street::StreetEvent::Cleared { count, .. } => {
@@ -460,9 +460,7 @@ pub async fn chat_stream(
     if config.memory.enabled {
         crate::sub_agents::manager::SubAgentManager::signal_memory_agent(
             &conversation_id,
-            crate::sub_agents::types::MemoryAgentSignal::TurnCompleted {
-                turn_id: request_id.clone(),
-            },
+            crate::sub_agents::types::MemoryAgentSignal::TurnCompleted,
         );
     }
 

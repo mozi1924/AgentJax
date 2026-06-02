@@ -38,10 +38,7 @@ pub(crate) mod types;
 mod worktree;
 
 pub use events::SubAgentEvent;
-pub(crate) use events::sub_agent_event_to_chat_stream_event;
 pub use lcm_context::SubAgentLcmContext;
-pub(crate) use manager::SubAgentManager;
-pub(crate) use manager::SubAgentTask;
 pub use types::{
     ProgressMessage, SubAgentSnapshot, SubAgentSpec, SubAgentState, SubAgentStatus, SubAgentType,
 };

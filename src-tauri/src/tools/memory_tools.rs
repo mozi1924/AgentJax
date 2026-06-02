@@ -11,7 +11,6 @@ use crate::memory::search::search_memories;
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::path::PathBuf;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

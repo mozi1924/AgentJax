@@ -8,19 +8,3 @@ export interface MemoryIndexEntry {
   fileName: string;
 }
 
-export interface MemorySearchResult {
-  name: string;
-  description: string;
-  memoryType: string;
-  snippet: string;
-  score: number;
-}
-
-export interface ParsedMemory {
-  name: string;
-  description: string;
-  type: string;
-  tags: string[];
-  links: string[];
-  body: string;
-}

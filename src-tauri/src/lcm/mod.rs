@@ -320,7 +320,6 @@ pub async fn sync_conversation_to_lcm(
         return Ok(()); // Conversation doesn't exist yet.
     };
 
-    let now_ms = crate::conversation_store_utils::now_unix_ms();
     let mut persisted_count = 0u32;
 
     for line in &detail.lines {
@@ -442,8 +441,6 @@ pub async fn sync_conversation_to_lcm(
             persisted_count += 1;
         }
     }
-
-    let _ = now_ms; // silence unused warning
 
     log::debug!(
         "LCM sync complete for conversation '{}': {} lines → {} messages persisted",

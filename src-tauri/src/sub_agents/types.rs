@@ -184,9 +184,10 @@ pub struct SubAgentSnapshot {
 pub enum MemoryAgentSignal {
     /// A main-agent turn has completed. The memory agent should evaluate
     /// the conversation context and decide whether to write/update memories.
-    TurnCompleted { turn_id: String },
+    TurnCompleted,
     /// The conversation has ended. The memory agent should perform a final
     /// evaluation and then exit.
+    #[allow(dead_code)]
     Terminate,
 }
 

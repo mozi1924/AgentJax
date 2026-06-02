@@ -72,36 +72,6 @@ export interface ConversationDetail {
   contextTokenCount?: number;
 }
 
-// ── Legacy (kept for compat during migration) ─────────────────────────────
-
-export type MessageRole = 'user' | 'assistant' | 'system';
-export type MessageStatus = 'streaming' | 'done' | 'failed' | 'interrupted';
-
-export interface ConversationMessage {
-  id: string;
-  role: MessageRole;
-  text: string;
-  status?: MessageStatus;
-  errorText?: string;
-  retryable?: boolean;
-  retryInput?: string;
-  retryConversationId?: string | null;
-  createdAtUnixMs?: number;
-  responseId?: string | null;
-  toolCalls?: ToolCall[];
-}
-
-export type ToolCallStatus = 'started' | 'arguments_done' | 'executed' | 'failed';
-
-export interface ToolCall {
-  id: string;
-  name: string;
-  arguments: string;
-  output: string;
-  status: ToolCallStatus;
-  durationMs?: number | null;
-}
-
 // ── Model / stream types ──────────────────────────────────────────────────
 
 export interface ModelOption {
@@ -165,45 +135,3 @@ export interface ChatStreamEventPayload {
   agentId?: string;
 }
 
-// ── Street notification types ──────────────────────────────────────────
-
-export type StreetSource = 'subAgent' | 'backgroundJob' | 'memoryAgent' | 'system' | 'external';
-export type StreetPriority = 'low' | 'normal' | 'high' | 'urgent';
-
-export interface StreetItemSnapshot {
-  id: string;
-  source: StreetSource;
-  priority: StreetPriority;
-  title: string;
-  timestamp: number;
-  status: 'pending' | 'delivered' | 'dismissed';
-}
-
-interface RawToolCallTimelineEvent {
-  type: string;
-  callId?: string;
-  name?: string;
-  arguments?: unknown;
-  output?: unknown;
-  status?: string;
-  durationMs?: number | null;
-}
-
-interface RawFunctionCallContextItem {
-  type: string;
-  call_id?: string;
-  callId?: string;
-  name?: string;
-  arguments?: string;
-  output?: string;
-}
-
-export interface RawConversationMessage {
-  id: string;
-  role: MessageRole;
-  text?: string;
-  createdAtUnixMs?: number;
-  responseId?: string | null;
-  timelineEvents?: RawToolCallTimelineEvent[];
-  contextItems?: RawFunctionCallContextItem[];
-}

@@ -1,4 +1,4 @@
-import { countUserAndDoneAssistant, createLocalConversation, isConversationEmpty } from './conversationUtils';
+import { countUserAndDoneAssistant, createLocalConversation } from './conversationUtils';
 import type {
   Conversation,
   ConversationLine,
@@ -17,15 +17,6 @@ export const restoreConversationPreview = (
   contextTokenCount: 0,
   isLoaded: false,
 });
-
-export const mergeWithLocalDrafts = (
-  currentConversations: Conversation[],
-  storedConversations: ConversationSummary[]
-): Conversation[] => {
-  const localDrafts = currentConversations.filter((c) => isConversationEmpty(c));
-  const restored = storedConversations.map(restoreConversationPreview);
-  return [...localDrafts, ...restored];
-};
 
 export const ensureAtLeastOneConversation = (
   conversations: Conversation[]

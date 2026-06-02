@@ -72,13 +72,6 @@ export interface SettingsSnapshotEvent extends SettingsSnapshot {
   origin: 'internal' | 'external' | string;
 }
 
-export interface SettingsPatchRequest {
-  path: string;
-  value?: unknown;
-  expectedRevision: string;
-  operation?: 'set' | 'delete';
-}
-
 export interface SettingsCondition {
   path: string;
   equals?: string | number | boolean | null;
@@ -202,11 +195,3 @@ export interface SettingsSectionSchema {
   children: SettingsSchemaNode[];
 }
 
-export interface SettingsModuleSchema {
-  namespace: string;
-  sections: SettingsSectionSchema[];
-}
-
-export interface SettingsRegistry {
-  sections: SettingsSectionSchema[];
-}

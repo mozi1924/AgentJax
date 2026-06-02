@@ -18,6 +18,7 @@ pub struct Worktree {
     /// The path to the worktree directory.
     pub path: PathBuf,
     /// The branch name used for this worktree.
+    #[allow(dead_code)]
     pub branch: String,
 }
 

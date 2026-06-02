@@ -293,7 +293,7 @@ pub async fn run_memory_agent(
                 log::info!("Memory agent {}: received Terminate, exiting", agent_id);
                 break;
             }
-            Some(crate::sub_agents::types::MemoryAgentSignal::TurnCompleted { .. }) => {
+            Some(crate::sub_agents::types::MemoryAgentSignal::TurnCompleted) => {
                 log::info!("Memory agent {}: evaluating turn for memories", agent_id);
 
                 // Build the memory index as context.

@@ -22,8 +22,6 @@ use tokio::task::JoinHandle;
 
 const TERMINAL_AGENT_RETENTION_MS: i64 = 6 * 60 * 60 * 1_000; // 6 hours
 const MAX_RETAINED_TERMINAL_AGENTS: usize = 200;
-/// Default max concurrent sub-agents. Can be overridden via config.
-const DEFAULT_MAX_CONCURRENT: usize = 4;
 pub(crate) const DEFAULT_MAX_TURNS: usize = 5;
 pub(crate) const HARD_MAX_TURNS: usize = 10;
 
@@ -248,6 +246,7 @@ impl SubAgentManager {
     }
 
     /// Mark a sub-agent as running and attach its JoinHandle.
+    #[allow(dead_code)]
     pub fn mark_running(task: &Arc<SubAgentTask>, handle: JoinHandle<()>) {
         {
             let mut state = task
@@ -264,6 +263,7 @@ impl SubAgentManager {
     }
 
     /// Append a progress message to a running sub-agent.
+    #[allow(dead_code)]
     pub fn append_progress(task: &Arc<SubAgentTask>, text: String) {
         if let Ok(mut state) = task.state.lock() {
             if state.status == SubAgentStatus::Running {

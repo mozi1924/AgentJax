@@ -35,6 +35,7 @@ impl StreetSource {
         }
     }
 
+    #[allow(dead_code)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "subAgent" => Some(StreetSource::SubAgent),
@@ -69,6 +70,7 @@ impl Priority {
         }
     }
 
+    #[allow(dead_code)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "low" => Some(Priority::Low),
@@ -80,6 +82,7 @@ impl Priority {
     }
 
     /// Map a priority string to a numeric level for threshold comparison.
+    #[allow(dead_code)]
     pub fn level(&self) -> u8 {
         match self {
             Priority::Low => 0,
@@ -90,6 +93,7 @@ impl Priority {
     }
 
     /// Whether this priority meets or exceeds a threshold given as a string.
+    #[allow(dead_code)]
     pub fn meets_threshold(&self, threshold: &str) -> bool {
         let threshold_level = Priority::from_str(threshold)
             .map(|p| p.level())

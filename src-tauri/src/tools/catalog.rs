@@ -466,7 +466,6 @@ impl ToolCatalog {
             presentations,
             mcp_manager: self.mcp_manager.clone(),
             mcp_runtime: self.mcp_runtime.clone(),
-            app_config: context.app_config.clone(),
         }
     }
 

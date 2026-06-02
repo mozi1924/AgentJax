@@ -1,5 +1,10 @@
 //! `task` — delegate work to a sub-agent with scope-narrowing invariant.
 //!
+//! **DEPRECATED**: This tool runs synchronously within the main agent's turn.
+//! Prefer the async `sub_agent` tool (`action: "spawn"`) which runs in the
+//! background via `tokio::spawn` with LCM isolation and progress streaming.
+//! This tool will be removed once the `sub_agent` tool supports scope-narrowing.
+//!
 //! Implements the structural guarantee from LCM §3.2: to prevent infinite
 //! delegation chains, every sub-agent must declare both `delegated_scope`
 //! (which tools or capabilities it may use) and `kept_work` (what output
@@ -70,7 +75,10 @@ impl Tool for TaskTool {
     }
 
     fn description(&self) -> &'static str {
-        "Delegate a task to a sub-agent. The sub-agent has access to a limited \
+        "[DEPRECATED: prefer the 'sub_agent' tool with action 'spawn' for async \
+         execution. The 'task' tool runs synchronously within your turn and will \
+         be removed in a future version.] \
+         Delegate a task to a sub-agent. The sub-agent has access to a limited \
          set of tools and can perform multi-step work. You MUST specify what \
          tools the sub-agent may use (delegated_scope) and what output it will \
          produce (kept_work). This ensures each delegation represents a strict \
