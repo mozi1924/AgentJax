@@ -92,7 +92,7 @@ impl ToolCatalog {
         &self,
         conversation_id: &str,
         mounted_servers: &MountedToolSourceSessions,
-    ) -> Result<(), String> {
+    ) -> crate::error::AgentJaxResult<()> {
         let persisted_sources = mounted_servers
             .values()
             .map(
@@ -118,7 +118,8 @@ impl ToolCatalog {
         crate::conversation_store::update_conversation_mounted_tool_sources(
             conversation_id,
             persisted_sources,
-        )
+        )?;
+        Ok(())
     }
 
     pub(super) fn resolve_server_config_with_workspace_fallback(

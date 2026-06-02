@@ -4,12 +4,13 @@ mod request;
 mod types;
 
 pub(crate) use request::parse_request;
+use crate::error::AgentJaxResult;
 use serde_json::Value;
 use types::CalculatorMode;
 pub(crate) use types::CalculatorRequest;
 
 /// Execute calculator request using the new fend-core-only engine.
-pub(crate) fn execute(request: CalculatorRequest) -> Result<Value, String> {
+pub(crate) fn execute(request: CalculatorRequest) -> AgentJaxResult<Value> {
     if request.mode == CalculatorMode::Capabilities
         || request
             .expression

@@ -298,7 +298,7 @@ async fn execute_manage_mcp_server(
     server_config: &crate::config::McpServerConfig,
     mounted_session: &Option<MountedToolSourceSession>,
     arguments: &Value,
-) -> Result<ToolCatalogExecution, String> {
+) -> crate::error::AgentJaxResult<ToolCatalogExecution> {
     let requested_action = arguments
         .get("action")
         .and_then(Value::as_str)
@@ -362,9 +362,9 @@ async fn execute_manage_mcp_server(
                 .await?;
             let mounted_tools = super::schemas::normalize_mcp_tool_definitions(raw_tools);
             if mounted_tools.is_empty() {
-                return Err(format!(
-                    "MCP server '{}' did not expose any tools to mount",
-                    server_id
+                return Err(crate::agentjax_err!(
+                    format!("MCP server '{}' did not expose any tools to mount", server_id),
+                    ToolExecution
                 ));
             }
 
@@ -413,9 +413,9 @@ async fn execute_manage_mcp_server(
                 Vec::new()
             },
         }),
-        _ => Err(format!(
-            "Unsupported action '{}' for MCP server control tool '{}'. Use one of: mount, unmount, status.",
-            action, control_tool
+        _ => Err(crate::agentjax_err!(
+            format!("Unsupported action '{}' for MCP server control tool '{}'. Use one of: mount, unmount, status.", action, control_tool),
+            ToolExecution
         )),
     }
 }

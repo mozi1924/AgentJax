@@ -1,10 +1,12 @@
 use super::ToolSnapshotEntry;
+use crate::agentjax_err;
+use crate::error::AgentJaxResult;
 use crate::tools::ToolExecutionContext;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
 /// Read the target tool name from a background-tool control call.
-pub(super) fn background_tool_name(arguments: &Value) -> Result<String, String> {
+pub(super) fn background_tool_name(arguments: &Value) -> AgentJaxResult<String> {
     arguments
         .get("toolName")
         .or_else(|| arguments.get("tool_name"))
@@ -12,7 +14,7 @@ pub(super) fn background_tool_name(arguments: &Value) -> Result<String, String> 
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-        .ok_or_else(|| "background_task action='start' requires a non-empty toolName".to_string())
+        .ok_or_else(|| agentjax_err!("background_task action='start' requires a non-empty toolName", ToolExecution))
 }
 
 pub(super) fn background_tool_arguments(arguments: &Value) -> Value {
@@ -23,7 +25,7 @@ pub(super) fn background_tool_arguments(arguments: &Value) -> Value {
         .unwrap_or_else(|| json!({}))
 }
 
-pub(super) fn background_job_id(arguments: &Value) -> Result<String, String> {
+pub(super) fn background_job_id(arguments: &Value) -> AgentJaxResult<String> {
     arguments
         .get("jobId")
         .or_else(|| arguments.get("job_id"))
@@ -31,7 +33,7 @@ pub(super) fn background_job_id(arguments: &Value) -> Result<String, String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-        .ok_or_else(|| "background_task action='wait' requires a non-empty jobId".to_string())
+        .ok_or_else(|| agentjax_err!("background_task action='wait' requires a non-empty jobId", ToolExecution))
 }
 
 pub(super) fn background_wait_timeout_ms(arguments: &Value) -> Option<u64> {

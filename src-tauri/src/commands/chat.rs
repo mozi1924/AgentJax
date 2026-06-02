@@ -86,6 +86,7 @@ pub async fn chat_stream(
                 )?;
             }
             conversation_store::load_context_for_request(&conversation_id, None)
+                .map_err(|e| e.to_string())
         })
         .await
     } {
@@ -98,7 +99,7 @@ pub async fn chat_stream(
 
     let recovery_note = {
         let conversation_id = conversation_id.clone();
-        run_blocking(move || conversation_store::build_recovery_developer_note(&conversation_id))
+        run_blocking(move || conversation_store::build_recovery_developer_note(&conversation_id).map_err(|e| e.to_string()))
             .await
             .ok()
             .flatten()
@@ -180,6 +181,7 @@ pub async fn chat_stream(
                     text: input_text,
                 }),
             })
+            .map_err(|e| e.to_string())
         })
         .await?;
     }
@@ -531,7 +533,7 @@ pub async fn chat_stream(
 
 #[tauri::command]
 pub fn list_conversations() -> Result<Vec<conversation_store::ConversationSummary>, String> {
-    conversation_store::list_conversations()
+    conversation_store::list_conversations().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -562,7 +564,7 @@ pub async fn load_conversation(
 pub fn load_conversation_dynamic_tools(
     req: LoadConversationDynamicToolsRequest,
 ) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
-    conversation_store::load_conversation_dynamic_tools(&req.conversation_id)
+    conversation_store::load_conversation_dynamic_tools(&req.conversation_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -572,7 +574,7 @@ pub fn replace_conversation_dynamic_tools(
     validate_conversation_dynamic_tools(&req.tools)?;
     conversation_store::ensure_conversation(&req.conversation_id)?;
     conversation_store::update_conversation_dynamic_tools(&req.conversation_id, req.tools)?;
-    conversation_store::load_conversation_dynamic_tools(&req.conversation_id)
+    conversation_store::load_conversation_dynamic_tools(&req.conversation_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -582,7 +584,7 @@ pub fn upsert_conversation_dynamic_tool(
     validate_conversation_dynamic_tools(std::slice::from_ref(&req.tool))?;
     conversation_store::ensure_conversation(&req.conversation_id)?;
     conversation_store::upsert_conversation_dynamic_tool(&req.conversation_id, req.tool)?;
-    conversation_store::load_conversation_dynamic_tools(&req.conversation_id)
+    conversation_store::load_conversation_dynamic_tools(&req.conversation_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -595,7 +597,7 @@ pub fn remove_conversation_dynamic_tool(
     }
     conversation_store::ensure_conversation(&req.conversation_id)?;
     conversation_store::remove_conversation_dynamic_tool(&req.conversation_id, tool_name)?;
-    conversation_store::load_conversation_dynamic_tools(&req.conversation_id)
+    conversation_store::load_conversation_dynamic_tools(&req.conversation_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -605,7 +607,7 @@ pub fn rename_conversation(
 ) -> Result<conversation_store::ConversationSummary, String> {
     let _ = registry.cancel_title_request(&req.conversation_id)?;
 
-    conversation_store::rename_conversation(&req.conversation_id, &req.title)
+    conversation_store::rename_conversation(&req.conversation_id, &req.title).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -616,7 +618,7 @@ pub fn delete_conversation(
     registry.mark_conversation_deleted(&req.conversation_id)?;
     registry.cancel_conversation_tasks(&req.conversation_id)?;
 
-    conversation_store::delete_conversation(&req.conversation_id)
+    conversation_store::delete_conversation(&req.conversation_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 ///
 /// A request is "complete" when its last line is an `assistant` with
 /// `status: Done`.  Any other terminal state needs recovery.
-pub fn build_recovery_developer_note(conversation_id: &str) -> Result<Option<Value>, String> {
+pub fn build_recovery_developer_note(conversation_id: &str) -> crate::error::AgentJaxResult<Option<Value>> {
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(conversation_id)?;
         let messages_path = conversation_messages_path(conversation_id)?;

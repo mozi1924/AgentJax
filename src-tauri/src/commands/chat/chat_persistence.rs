@@ -163,6 +163,7 @@ pub fn persist_tool_progress_event(
                     status,
                 }),
             })
+            .map_err(|e| e.to_string())
         }
         _ => Ok(()),
     }
@@ -198,4 +199,5 @@ pub fn persist_assistant_line(
         conversation_id: conversation_id.to_string(),
         line,
     })
+    .map_err(|e| e.to_string())
 }

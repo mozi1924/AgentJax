@@ -1,3 +1,4 @@
+use crate::agentjax_err;
 use crate::error::AgentJaxResult;
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
@@ -44,9 +45,9 @@ struct TextEditOutcome {
     occurrences_changed: usize,
 }
 
-fn count_occurrences(content: &str, needle: &str, label: &str) -> Result<usize, String> {
+fn count_occurrences(content: &str, needle: &str, label: &str) -> AgentJaxResult<usize> {
     if needle.is_empty() {
-        return Err(format!("{label} cannot be empty"));
+        return Err(agentjax_err!(format!("{label} cannot be empty"), ToolExecution));
     }
 
     Ok(content.match_indices(needle).count())
@@ -58,15 +59,16 @@ fn replace_exact_text(
     replacement: &str,
     replace_all: bool,
     label: &str,
-) -> Result<TextEditOutcome, String> {
+) -> AgentJaxResult<TextEditOutcome> {
     let occurrences = count_occurrences(content, needle, label)?;
     if occurrences == 0 {
-        return Err(format!("Could not find the requested {label} in the file"));
+        return Err(agentjax_err!(format!("Could not find the requested {label} in the file"), ToolExecution));
     }
 
     if !replace_all && occurrences > 1 {
-        return Err(format!(
-            "Found {occurrences} matches for the requested {label}; rerun with replace_all=true to update every occurrence"
+        return Err(agentjax_err!(
+            format!("Found {occurrences} matches for the requested {label}; rerun with replace_all=true to update every occurrence"),
+            ToolExecution
         ));
     }
 
@@ -89,17 +91,19 @@ fn insert_relative_to_anchor(
     insert_after: bool,
     insert_all: bool,
     label: &str,
-) -> Result<TextEditOutcome, String> {
+) -> AgentJaxResult<TextEditOutcome> {
     let occurrences = count_occurrences(content, anchor, "anchor text")?;
     if occurrences == 0 {
-        return Err(format!(
-            "Could not find the requested anchor text for {label}"
+        return Err(agentjax_err!(
+            format!("Could not find the requested anchor text for {label}"),
+            ToolExecution
         ));
     }
 
     if !insert_all && occurrences > 1 {
-        return Err(format!(
-            "Found {occurrences} anchor matches for {label}; rerun with insert_all=true to apply the insertion at every match"
+        return Err(agentjax_err!(
+            format!("Found {occurrences} anchor matches for {label}; rerun with insert_all=true to apply the insertion at every match"),
+            ToolExecution
         ));
     }
 
@@ -112,7 +116,7 @@ fn insert_relative_to_anchor(
     } else {
         let index = content
             .find(anchor)
-            .ok_or_else(|| format!("Could not find the requested anchor text for {label}"))?;
+            .ok_or_else(|| agentjax_err!(format!("Could not find the requested anchor text for {label}"), ToolExecution))?;
         let split_index = if insert_after {
             index + anchor.len()
         } else {
@@ -131,7 +135,7 @@ fn insert_relative_to_anchor(
     })
 }
 
-fn apply_single_text_patch(content: &str, edit: &TextPatchEdit) -> Result<TextEditOutcome, String> {
+fn apply_single_text_patch(content: &str, edit: &TextPatchEdit) -> AgentJaxResult<TextEditOutcome> {
     match edit {
         TextPatchEdit::Replace {
             find,
@@ -168,9 +172,9 @@ fn apply_single_text_patch(content: &str, edit: &TextPatchEdit) -> Result<TextEd
 fn apply_text_patch_plan(
     content: &str,
     edits: &[TextPatchEdit],
-) -> Result<(String, Vec<Value>), String> {
+) -> AgentJaxResult<(String, Vec<Value>)> {
     if edits.is_empty() {
-        return Err("Patch must contain at least one edit".to_string());
+        return Err(agentjax_err!("Patch must contain at least one edit", ToolExecution));
     }
 
     let mut next_content = content.to_string();
@@ -178,7 +182,7 @@ fn apply_text_patch_plan(
 
     for (index, edit) in edits.iter().enumerate() {
         let outcome = apply_single_text_patch(&next_content, edit)
-            .map_err(|err| format!("Patch edit {} failed: {err}", index + 1))?;
+            .map_err(|err| err.with_context(format!("Patch edit {} failed", index + 1)))?;
         next_content = outcome.content;
         details.push(json!({
             "index": index + 1,

@@ -222,6 +222,14 @@ impl AgentJaxError {
         self
     }
 
+    /// Attach a context string to the error message.
+    /// Useful for adding "while doing X" context at call sites.
+    pub fn with_context(mut self, context: impl Into<String>) -> Self {
+        let ctx: String = context.into();
+        self.message = format!("{ctx}: {}", self.message);
+        self
+    }
+
     /// Check if the error message contains the given pattern.
     /// Convenience for tests that used `err.contains()` on `String`.
     pub fn contains(&self, pattern: &str) -> bool {
@@ -239,6 +247,22 @@ impl fmt::Display for AgentJaxError {
 }
 
 impl std::error::Error for AgentJaxError {}
+
+// ── Serialize ───────────────────────────────────────────────────────────────
+
+/// Custom serializer — outputs a flat JSON object for Tauri command boundaries.
+/// The frontend receives `{ kind, message, retryable, providerKey }`.
+impl Serialize for AgentJaxError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut s = serializer.serialize_struct("AgentJaxError", 4)?;
+        s.serialize_field("kind", &self.kind)?;
+        s.serialize_field("message", &self.message)?;
+        s.serialize_field("retryable", &self.retryable)?;
+        s.serialize_field("providerKey", &self.provider_key)?;
+        s.end()
+    }
+}
 
 // ── ErrorKind helpers ──────────────────────────────────────────────────────
 
@@ -435,5 +459,31 @@ mod tests {
         let err = agentjax_err!("auth failed", ProviderAuth, provider = "anthropic");
         assert_eq!(err.kind, ErrorKind::ProviderAuth);
         assert_eq!(err.provider_key.as_deref(), Some("anthropic"));
+    }
+
+    #[test]
+    fn test_serialize() {
+        let err = AgentJaxError::provider_auth("openai", "Bad API key");
+        let json = serde_json::to_value(&err).unwrap();
+        assert_eq!(json["kind"], "providerAuth");
+        assert_eq!(json["message"], "Bad API key");
+        assert_eq!(json["retryable"], false);
+        assert_eq!(json["providerKey"], "openai");
+    }
+
+    #[test]
+    fn test_serialize_no_provider() {
+        let err = AgentJaxError::internal("something broke");
+        let json = serde_json::to_value(&err).unwrap();
+        assert_eq!(json["kind"], "internal");
+        assert_eq!(json["providerKey"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn test_with_context() {
+        let err = AgentJaxError::internal("failed to read file")
+            .with_context("while loading config");
+        assert!(err.message.contains("while loading config"));
+        assert!(err.message.contains("failed to read file"));
     }
 }

@@ -49,11 +49,11 @@ pub fn new_conversation_id() -> String {
 }
 
 #[allow(dead_code)]
-pub fn conversations_dir_path() -> Result<PathBuf, String> {
+pub fn conversations_dir_path() -> crate::error::AgentJaxResult<PathBuf> {
     paths::conversations_dir_path()
 }
 
 #[allow(dead_code)]
-pub fn ensure_conversations_dir() -> Result<PathBuf, String> {
+pub fn ensure_conversations_dir() -> crate::error::AgentJaxResult<PathBuf> {
     paths::ensure_conversations_dir()
 }

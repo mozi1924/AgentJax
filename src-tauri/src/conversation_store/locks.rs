@@ -1,4 +1,6 @@
 use super::types::ConversationSummary;
+use crate::agentjax_err;
+use crate::error::AgentJaxResult;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -15,10 +17,10 @@ fn lock_registry() -> &'static Mutex<BTreeMap<String, ConversationMutex>> {
     LOCKS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
-fn conversation_lock(conversation_id: &str) -> Result<ConversationMutex, String> {
+fn conversation_lock(conversation_id: &str) -> AgentJaxResult<ConversationMutex> {
     let mut registry = lock_registry()
         .lock()
-        .map_err(|_| "Conversation lock registry is poisoned".to_string())?;
+        .map_err(|_| agentjax_err!("Conversation lock registry is poisoned", Internal))?;
     Ok(registry
         .entry(conversation_id.to_string())
         .or_insert_with(|| Arc::new(Mutex::new(())))
@@ -30,21 +32,21 @@ fn conversation_index_registry() -> &'static Mutex<BTreeMap<String, Conversation
     INDEX.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
-pub fn with_conversation_lock<T, F>(conversation_id: &str, action: F) -> Result<T, String>
+pub fn with_conversation_lock<T, F>(conversation_id: &str, action: F) -> AgentJaxResult<T>
 where
-    F: FnOnce() -> Result<T, String>,
+    F: FnOnce() -> AgentJaxResult<T>,
 {
     let lock = conversation_lock(conversation_id)?;
     let _guard = lock
         .lock()
-        .map_err(|_| format!("Conversation lock is poisoned for '{conversation_id}'"))?;
+        .map_err(|_| agentjax_err!(format!("Conversation lock is poisoned for '{conversation_id}'"), Internal))?;
     action()
 }
 
-pub fn cached_line_id_exists(conversation_id: &str, line_id: &str) -> Result<Option<bool>, String> {
+pub fn cached_line_id_exists(conversation_id: &str, line_id: &str) -> AgentJaxResult<Option<bool>> {
     let registry = conversation_index_registry()
         .lock()
-        .map_err(|_| "Conversation index registry is poisoned".to_string())?;
+        .map_err(|_| agentjax_err!("Conversation index registry is poisoned", Internal))?;
     Ok(registry
         .get(conversation_id)
         .and_then(|entry| entry.line_ids.as_ref())
@@ -54,10 +56,10 @@ pub fn cached_line_id_exists(conversation_id: &str, line_id: &str) -> Result<Opt
 pub fn replace_cached_line_ids(
     conversation_id: &str,
     line_ids: HashSet<String>,
-) -> Result<(), String> {
+) -> AgentJaxResult<()> {
     let mut registry = conversation_index_registry()
         .lock()
-        .map_err(|_| "Conversation index registry is poisoned".to_string())?;
+        .map_err(|_| agentjax_err!("Conversation index registry is poisoned", Internal))?;
     registry
         .entry(conversation_id.to_string())
         .or_default()
@@ -65,10 +67,10 @@ pub fn replace_cached_line_ids(
     Ok(())
 }
 
-pub fn insert_cached_line_id(conversation_id: &str, line_id: &str) -> Result<(), String> {
+pub fn insert_cached_line_id(conversation_id: &str, line_id: &str) -> AgentJaxResult<()> {
     let mut registry = conversation_index_registry()
         .lock()
-        .map_err(|_| "Conversation index registry is poisoned".to_string())?;
+        .map_err(|_| agentjax_err!("Conversation index registry is poisoned", Internal))?;
     registry
         .entry(conversation_id.to_string())
         .or_default()
@@ -78,10 +80,10 @@ pub fn insert_cached_line_id(conversation_id: &str, line_id: &str) -> Result<(),
     Ok(())
 }
 
-pub fn cached_summary(conversation_id: &str) -> Result<Option<ConversationSummary>, String> {
+pub fn cached_summary(conversation_id: &str) -> AgentJaxResult<Option<ConversationSummary>> {
     let registry = conversation_index_registry()
         .lock()
-        .map_err(|_| "Conversation index registry is poisoned".to_string())?;
+        .map_err(|_| agentjax_err!("Conversation index registry is poisoned", Internal))?;
     Ok(registry
         .get(conversation_id)
         .and_then(|entry| entry.summary.clone()))
@@ -90,10 +92,10 @@ pub fn cached_summary(conversation_id: &str) -> Result<Option<ConversationSummar
 pub fn replace_cached_summary(
     conversation_id: &str,
     summary: ConversationSummary,
-) -> Result<(), String> {
+) -> AgentJaxResult<()> {
     let mut registry = conversation_index_registry()
         .lock()
-        .map_err(|_| "Conversation index registry is poisoned".to_string())?;
+        .map_err(|_| agentjax_err!("Conversation index registry is poisoned", Internal))?;
     registry
         .entry(conversation_id.to_string())
         .or_default()
@@ -101,10 +103,10 @@ pub fn replace_cached_summary(
     Ok(())
 }
 
-pub fn invalidate_cached_conversation_index(conversation_id: &str) -> Result<(), String> {
+pub fn invalidate_cached_conversation_index(conversation_id: &str) -> AgentJaxResult<()> {
     let mut registry = conversation_index_registry()
         .lock()
-        .map_err(|_| "Conversation index registry is poisoned".to_string())?;
+        .map_err(|_| agentjax_err!("Conversation index registry is poisoned", Internal))?;
     registry.remove(conversation_id);
     Ok(())
 }

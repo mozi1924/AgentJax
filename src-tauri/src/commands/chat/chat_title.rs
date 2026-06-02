@@ -44,7 +44,7 @@ async fn generate_title_and_emit(
 
     let candidate = {
         let conversation_id = conversation_id.to_string();
-        run_blocking(move || conversation_store::load_title_generation_candidate(&conversation_id))
+        run_blocking(move || conversation_store::load_title_generation_candidate(&conversation_id).map_err(|e| e.to_string()))
             .await?
     };
 
@@ -95,7 +95,7 @@ async fn generate_title_and_emit(
     let updated_title = {
         let conversation_id = conversation_id.to_string();
         let title = title.clone();
-        run_blocking(move || conversation_store::update_auto_title(&conversation_id, &title))
+        run_blocking(move || conversation_store::update_auto_title(&conversation_id, &title).map_err(|e| e.to_string()))
             .await?
     }
     .and_then(|summary| {

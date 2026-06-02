@@ -41,7 +41,7 @@ pub use types::ConversationContext;
 pub fn load_context_for_request(
     conversation_id: &str,
     budget: Option<&TokenBudget>,
-) -> Result<ConversationContext, String> {
+) -> crate::error::AgentJaxResult<ConversationContext> {
     with_conversation_lock(conversation_id, || {
         // ── Try LCM immutable store first ──────────────────────────
         if let Ok(Some(ctx)) = load_context_from_lcm(conversation_id, budget) {

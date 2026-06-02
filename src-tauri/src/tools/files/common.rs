@@ -1,4 +1,6 @@
+use crate::agentjax_err;
 use crate::conversation_store;
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::tools::ToolExecutionContext;
 use file_format::{FileFormat, Kind as FileFormatKind};
 use serde::Deserialize;
@@ -48,7 +50,7 @@ pub struct TextFileRead {
 
 /// Ensures the active conversation workspace exists before any file tool
 /// touches disk.
-pub fn get_workspace_dir(context: &ToolExecutionContext) -> Result<PathBuf, String> {
+pub fn get_workspace_dir(context: &ToolExecutionContext) -> AgentJaxResult<PathBuf> {
     let dir = if let Some(conversation_id) = context
         .conversation_id
         .as_deref()
@@ -57,18 +59,19 @@ pub fn get_workspace_dir(context: &ToolExecutionContext) -> Result<PathBuf, Stri
     {
         conversation_store::conversation_workspace_path(conversation_id)?
     } else {
-        return Err(
-            "Missing conversation context for file tool. File tools require a conversation workspace."
-                .to_string(),
-        );
+        return Err(agentjax_err!(
+            "Missing conversation context for file tool. File tools require a conversation workspace.",
+            ToolExecution
+        ));
     };
 
     if !dir.exists() {
         fs::create_dir_all(&dir).map_err(|err| {
-            format!(
+            AgentJaxError::tool(format!(
                 "Failed to create workspace directory {}: {err}",
                 dir.display()
-            )
+            ))
+            .with_error_source(&err)
         })?;
     }
 
@@ -80,19 +83,22 @@ pub fn get_workspace_dir(context: &ToolExecutionContext) -> Result<PathBuf, Stri
 pub fn normalize_relative_path(
     raw_path: &str,
     allow_workspace_root: bool,
-) -> Result<PathBuf, String> {
+) -> AgentJaxResult<PathBuf> {
     let trimmed = raw_path.trim();
     if trimmed.is_empty() {
         return if allow_workspace_root {
             Ok(PathBuf::new())
         } else {
-            Err("Path cannot be empty".to_string())
+            Err(agentjax_err!("Path cannot be empty", ToolExecution))
         };
     }
 
     let candidate = Path::new(trimmed);
     if candidate.is_absolute() {
-        return Err("Absolute paths are not allowed; use a workspace-relative path".to_string());
+        return Err(agentjax_err!(
+            "Absolute paths are not allowed; use a workspace-relative path",
+            ToolExecution
+        ));
     }
 
     let mut normalized = PathBuf::new();
@@ -102,24 +108,26 @@ pub fn normalize_relative_path(
             Component::Normal(segment) => normalized.push(segment),
             Component::ParentDir => {
                 if !normalized.pop() {
-                    return Err(format!(
-                        "Path '{}' escapes the conversation workspace",
-                        raw_path
+                    return Err(agentjax_err!(
+                        format!("Path '{}' escapes the conversation workspace", raw_path),
+                        ToolExecution
                     ));
                 }
             }
             Component::RootDir | Component::Prefix(_) => {
-                return Err(
-                    "Absolute paths are not allowed; use a workspace-relative path".to_string(),
-                );
+                return Err(agentjax_err!(
+                    "Absolute paths are not allowed; use a workspace-relative path",
+                    ToolExecution
+                ));
             }
         }
     }
 
     if normalized.as_os_str().is_empty() && !allow_workspace_root {
-        return Err(
-            "Path resolves to the workspace root; provide a file or directory path".to_string(),
-        );
+        return Err(agentjax_err!(
+            "Path resolves to the workspace root; provide a file or directory path",
+            ToolExecution
+        ));
     }
 
     Ok(normalized)
@@ -131,7 +139,7 @@ pub fn resolve_workspace_path(
     raw_path: &str,
     context: &ToolExecutionContext,
     allow_workspace_root: bool,
-) -> Result<ResolvedWorkspacePath, String> {
+) -> AgentJaxResult<ResolvedWorkspacePath> {
     let workspace_dir = get_workspace_dir(context)?;
     let relative_path = normalize_relative_path(raw_path, allow_workspace_root)?;
     let absolute_path = workspace_dir.join(&relative_path);
@@ -151,29 +159,30 @@ pub fn relative_path_display(path: &Path) -> String {
     }
 }
 
-pub fn ensure_parent_dir_exists(path: &Path) -> Result<(), String> {
+pub fn ensure_parent_dir_exists(path: &Path) -> AgentJaxResult<()> {
     let Some(parent) = path.parent() else {
         return Ok(());
     };
 
     if !parent.exists() {
         fs::create_dir_all(parent).map_err(|err| {
-            format!(
+            AgentJaxError::tool(format!(
                 "Failed to create parent directory {}: {err}",
                 parent.display()
-            )
+            ))
+            .with_error_source(&err)
         })?;
     }
 
     Ok(())
 }
 
-pub fn parse_tool_args<T>(arguments: &Value, tool_name: &str) -> Result<T, String>
+pub fn parse_tool_args<T>(arguments: &Value, tool_name: &str) -> AgentJaxResult<T>
 where
     T: for<'de> Deserialize<'de>,
 {
     serde_json::from_value(arguments.clone())
-        .map_err(|err| format!("Invalid arguments for tool '{tool_name}': {err}"))
+        .map_err(|err| AgentJaxError::tool(format!("Invalid arguments for tool '{tool_name}': {err}")))
 }
 
 pub fn detect_binary_reason_from_bytes(bytes: &[u8]) -> Option<&'static str> {
@@ -196,9 +205,9 @@ pub fn detect_binary_reason_from_bytes(bytes: &[u8]) -> Option<&'static str> {
     None
 }
 
-pub fn read_file_sample(path: &Path, max_bytes: usize) -> Result<Vec<u8>, String> {
+pub fn read_file_sample(path: &Path, max_bytes: usize) -> AgentJaxResult<Vec<u8>> {
     let metadata = fs::metadata(path)
-        .map_err(|err| format!("Failed to stat file {}: {err}", path.display()))?;
+        .map_err(|err| AgentJaxError::tool(format!("Failed to stat file {}: {err}", path.display())).with_error_source(&err))?;
     if !metadata.is_file() {
         return Ok(Vec::new());
     }
@@ -211,11 +220,11 @@ pub fn read_file_sample(path: &Path, max_bytes: usize) -> Result<Vec<u8>, String
     }
 
     let file = fs::File::open(path)
-        .map_err(|err| format!("Failed to open file {}: {err}", path.display()))?;
+        .map_err(|err| AgentJaxError::tool(format!("Failed to open file {}: {err}", path.display())).with_error_source(&err))?;
     let mut sample = Vec::with_capacity(sample_len);
     file.take(sample_len as u64)
         .read_to_end(&mut sample)
-        .map_err(|err| format!("Failed to inspect file {}: {err}", path.display()))?;
+        .map_err(|err| AgentJaxError::tool(format!("Failed to inspect file {}: {err}", path.display())).with_error_source(&err))?;
 
     Ok(sample)
 }
@@ -270,9 +279,9 @@ pub fn format_is_text_candidate(format: FileFormat) -> bool {
         || media_type_is_textual(format.media_type())
 }
 
-pub fn detect_file_type(path: &Path) -> Result<FileTypeDetection, String> {
+pub fn detect_file_type(path: &Path) -> AgentJaxResult<FileTypeDetection> {
     let metadata = fs::metadata(path)
-        .map_err(|err| format!("Failed to stat file {}: {err}", path.display()))?;
+        .map_err(|err| AgentJaxError::tool(format!("Failed to stat file {}: {err}", path.display())).with_error_source(&err))?;
     if !metadata.is_dir() && !metadata.is_file() {
         return Ok(FileTypeDetection {
             detected_format: "Other".to_string(),
@@ -302,9 +311,9 @@ pub fn detect_file_type(path: &Path) -> Result<FileTypeDetection, String> {
     }
 
     let file = fs::File::open(path)
-        .map_err(|err| format!("Failed to open file {}: {err}", path.display()))?;
+        .map_err(|err| AgentJaxError::tool(format!("Failed to open file {}: {err}", path.display())).with_error_source(&err))?;
     let detected = FileFormat::from_reader(file)
-        .map_err(|err| format!("Failed to detect file type for {}: {err}", path.display()))?;
+        .map_err(|err| AgentJaxError::tool(format!("Failed to detect file type for {}: {err}", path.display())).with_error_source(&err))?;
     let sample = read_file_sample(path, TEXT_DETECTION_SAMPLE_BYTES)?;
     let sample_reason = detect_binary_reason_from_bytes(&sample);
     let text_candidate = format_is_text_candidate(detected);
@@ -386,23 +395,26 @@ pub fn attach_file_type_metadata(
     object.insert("typeDetectionSource".to_string(), json!("content_sniffing"));
 }
 
-pub fn ensure_text_file(path: &Path, operation: &str) -> Result<(), String> {
+pub fn ensure_text_file(path: &Path, operation: &str) -> AgentJaxResult<()> {
     let detection = detect_file_type(path)?;
     if !detection.text_readable {
-        return Err(format!(
-            "Refusing to {operation} '{}' because it appears to be a non-text/binary file ({reason})",
-            path.display(),
-            reason = detection
-                .content_kind_reason
-                .as_deref()
-                .unwrap_or("content probe marked it as non-text")
+        return Err(agentjax_err!(
+            format!(
+                "Refusing to {operation} '{}' because it appears to be a non-text/binary file ({reason})",
+                path.display(),
+                reason = detection
+                    .content_kind_reason
+                    .as_deref()
+                    .unwrap_or("content probe marked it as non-text")
+            ),
+            ToolExecution
         ));
     }
 
     Ok(())
 }
 
-pub fn ensure_text_path_for_write(path: &Path) -> Result<(), String> {
+pub fn ensure_text_path_for_write(path: &Path) -> AgentJaxResult<()> {
     if path.exists() {
         ensure_text_file(path, "write")?;
     }
@@ -410,14 +422,17 @@ pub fn ensure_text_path_for_write(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn truncate_to_utf8_boundary(bytes: &[u8], max_bytes: usize) -> Result<&[u8], String> {
+pub fn truncate_to_utf8_boundary(bytes: &[u8], max_bytes: usize) -> AgentJaxResult<&[u8]> {
     let mut end = bytes.len().min(max_bytes);
     while end > 0 && std::str::from_utf8(&bytes[..end]).is_err() {
         end -= 1;
     }
 
     if end == 0 && !bytes.is_empty() {
-        return Err("File preview could not be truncated to a valid UTF-8 boundary".to_string());
+        return Err(agentjax_err!(
+            "File preview could not be truncated to a valid UTF-8 boundary",
+            ToolExecution
+        ));
     }
 
     Ok(&bytes[..end])
@@ -427,35 +442,38 @@ pub fn read_text_file(
     path: &Path,
     max_bytes: usize,
     operation: &str,
-) -> Result<TextFileRead, String> {
+) -> AgentJaxResult<TextFileRead> {
     let file_type = detect_file_type(path)?;
     if !file_type.text_readable {
-        return Err(format!(
-            "Refusing to {operation} '{}' because it appears to be a non-text/binary file ({reason})",
-            path.display(),
-            reason = file_type
-                .content_kind_reason
-                .as_deref()
-                .unwrap_or("content probe marked it as non-text")
+        return Err(agentjax_err!(
+            format!(
+                "Refusing to {operation} '{}' because it appears to be a non-text/binary file ({reason})",
+                path.display(),
+                reason = file_type
+                    .content_kind_reason
+                    .as_deref()
+                    .unwrap_or("content probe marked it as non-text")
+            ),
+            ToolExecution
         ));
     }
 
     let metadata = fs::metadata(path)
-        .map_err(|err| format!("Failed to stat file {}: {err}", path.display()))?;
+        .map_err(|err| AgentJaxError::tool(format!("Failed to stat file {}: {err}", path.display())).with_error_source(&err))?;
     let total_bytes = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
     let read_limit = max_bytes.saturating_add(4);
     let bytes_to_read = total_bytes.min(read_limit);
 
     let file = fs::File::open(path)
-        .map_err(|err| format!("Failed to open file {}: {err}", path.display()))?;
+        .map_err(|err| AgentJaxError::tool(format!("Failed to open file {}: {err}", path.display())).with_error_source(&err))?;
     let mut buffer = Vec::with_capacity(bytes_to_read);
     file.take(bytes_to_read as u64)
         .read_to_end(&mut buffer)
-        .map_err(|err| format!("Failed to read file {}: {err}", path.display()))?;
+        .map_err(|err| AgentJaxError::tool(format!("Failed to read file {}: {err}", path.display())).with_error_source(&err))?;
 
     let preview = truncate_to_utf8_boundary(&buffer, max_bytes)?;
     let content = std::str::from_utf8(preview)
-        .map_err(|err| format!("Failed to decode file {} as UTF-8: {err}", path.display()))?
+        .map_err(|err| AgentJaxError::tool(format!("Failed to decode file {} as UTF-8: {err}", path.display())).with_error_source(&err))?
         .to_string();
 
     Ok(TextFileRead {
@@ -467,11 +485,11 @@ pub fn read_text_file(
     })
 }
 
-pub fn write_text_file(path: &Path, content: &str) -> Result<(), String> {
+pub fn write_text_file(path: &Path, content: &str) -> AgentJaxResult<()> {
     ensure_text_path_for_write(path)?;
     ensure_parent_dir_exists(path)?;
     fs::write(path, content)
-        .map_err(|err| format!("Failed to write file {}: {err}", path.display()))
+        .map_err(|err| AgentJaxError::tool(format!("Failed to write file {}: {err}", path.display())).with_error_source(&err))
 }
 
 pub fn count_lines(content: &str) -> usize {

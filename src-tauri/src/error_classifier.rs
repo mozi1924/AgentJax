@@ -50,7 +50,7 @@ pub struct RawProviderError {
 
 /// Classification of network-level errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // Reserved for future use — variants constructed as needed
+#[allow(dead_code)] // Reserved for future network error classification
 pub enum NetworkErrorKind {
     Timeout,
     ConnectionRefused,

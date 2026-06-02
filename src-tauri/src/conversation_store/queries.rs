@@ -41,7 +41,7 @@ fn token_usage_count_from_meta(meta: &ConversationMeta) -> Option<usize> {
         })
 }
 
-pub fn load_conversation_token_usage_count(conversation_id: &str) -> Result<Option<usize>, String> {
+pub fn load_conversation_token_usage_count(conversation_id: &str) -> crate::error::AgentJaxResult<Option<usize>> {
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(conversation_id)?;
         let Some(meta) = read_conversation_meta(&metadata_path)? else {
@@ -53,7 +53,7 @@ pub fn load_conversation_token_usage_count(conversation_id: &str) -> Result<Opti
 
 // ── List all conversations ────────────────────────────────────────────────
 
-pub fn list_conversations() -> Result<Vec<ConversationSummary>, String> {
+pub fn list_conversations() -> crate::error::AgentJaxResult<Vec<ConversationSummary>> {
     let mut out = Vec::new();
 
     for conversation_id in list_conversation_ids()? {
@@ -87,7 +87,7 @@ pub fn list_conversations() -> Result<Vec<ConversationSummary>, String> {
 fn try_load_meta_from_lcm(
     conversation_id: &str,
     metadata_path: &std::path::Path,
-) -> Result<Option<ConversationMeta>, String> {
+) -> crate::error::AgentJaxResult<Option<ConversationMeta>> {
     let db_path = metadata_path
         .parent()
         .ok_or_else(|| "Invalid metadata path".to_string())?
@@ -103,12 +103,12 @@ fn try_load_meta_from_lcm(
 
     store
         .get_conversation_meta(conversation_id)
-        .map_err(|e| format!("Failed to query LCM meta for '{}': {}", conversation_id, e))
+        .map_err(|e| crate::error::AgentJaxError::internal(format!("Failed to query LCM meta for '{}': {}", conversation_id, e)).with_error_source(&e))
 }
 
 // ── Load full conversation detail ─────────────────────────────────────────
 
-pub fn load_conversation(conversation_id: &str) -> Result<Option<ConversationDetail>, String> {
+pub fn load_conversation(conversation_id: &str) -> crate::error::AgentJaxResult<Option<ConversationDetail>> {
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(conversation_id)?;
 
@@ -138,7 +138,7 @@ pub fn load_conversation(conversation_id: &str) -> Result<Option<ConversationDet
 fn try_load_from_lcm(
     conversation_id: &str,
     metadata_path: &std::path::Path,
-) -> Result<Option<ConversationDetail>, String> {
+) -> crate::error::AgentJaxResult<Option<ConversationDetail>> {
     let db_path = metadata_path
         .parent()
         .ok_or_else(|| "Invalid metadata path".to_string())?
@@ -192,7 +192,7 @@ fn try_load_from_lcm(
 
 pub fn load_title_generation_candidate(
     conversation_id: &str,
-) -> Result<Option<TitleGenerationCandidate>, String> {
+) -> crate::error::AgentJaxResult<Option<TitleGenerationCandidate>> {
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(conversation_id)?;
         let messages_path = conversation_messages_path(conversation_id)?;
@@ -247,7 +247,7 @@ pub fn load_title_generation_candidate(
 
 pub fn load_conversation_dynamic_tools(
     conversation_id: &str,
-) -> Result<Vec<ConversationDynamicTool>, String> {
+) -> crate::error::AgentJaxResult<Vec<ConversationDynamicTool>> {
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(conversation_id)?;
         let Some(meta) = read_conversation_meta(&metadata_path)? else {
@@ -259,13 +259,13 @@ pub fn load_conversation_dynamic_tools(
         };
 
         serde_json::from_value::<Vec<ConversationDynamicTool>>(value.clone())
-            .map_err(|err| format!("Failed to parse conversation dynamic tools: {err}"))
+            .map_err(|err| crate::error::AgentJaxError::internal(format!("Failed to parse conversation dynamic tools: {err}")).with_error_source(&err))
     })
 }
 
 pub fn load_conversation_mounted_tool_sources(
     conversation_id: &str,
-) -> Result<Vec<ConversationMountedToolSource>, String> {
+) -> crate::error::AgentJaxResult<Vec<ConversationMountedToolSource>> {
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(conversation_id)?;
         let Some(meta) = read_conversation_meta(&metadata_path)? else {
@@ -277,7 +277,7 @@ pub fn load_conversation_mounted_tool_sources(
             .get(CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY)
         {
             return serde_json::from_value::<Vec<ConversationMountedToolSource>>(value.clone())
-                .map_err(|err| format!("Failed to parse mounted tool sources metadata: {err}"));
+                .map_err(|err| crate::error::AgentJaxError::internal(format!("Failed to parse mounted tool sources metadata: {err}")).with_error_source(&err));
         }
 
         // Fallback to legacy MCP servers key

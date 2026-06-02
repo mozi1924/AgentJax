@@ -1,4 +1,5 @@
 use crate::conversation_store_utils::sanitize_conversation_id;
+use crate::error::{AgentJaxError, AgentJaxResult};
 use std::fs;
 use std::path::PathBuf;
 
@@ -8,67 +9,68 @@ const MESSAGES_FILE_NAME: &str = "messages.jsonl";
 const LCM_DB_FILE_NAME: &str = "lcm.db";
 const WORKSPACE_DIR_NAME: &str = "workspace";
 
-pub fn agentjax_home_dir() -> Result<PathBuf, String> {
-    crate::agentjax_home::agentjax_home_dir()
+pub fn agentjax_home_dir() -> AgentJaxResult<PathBuf> {
+    crate::agentjax_home::agentjax_home_dir().map_err(Into::into)
 }
 
-pub fn conversations_dir_path() -> Result<PathBuf, String> {
+pub fn conversations_dir_path() -> AgentJaxResult<PathBuf> {
     Ok(agentjax_home_dir()?.join(SESSIONS_DIR_NAME))
 }
 
-pub fn ensure_conversations_dir() -> Result<PathBuf, String> {
+pub fn ensure_conversations_dir() -> AgentJaxResult<PathBuf> {
     let dir = conversations_dir_path()?;
     if !dir.exists() {
         fs::create_dir_all(&dir)
-            .map_err(|e| format!("Failed to create conversations dir {}: {e}", dir.display()))?;
+            .map_err(|e| AgentJaxError::internal(format!("Failed to create conversations dir {}: {e}", dir.display())).with_error_source(&e))?;
     }
     Ok(dir)
 }
 
-pub fn conversation_dir_path(conversation_id: &str) -> Result<PathBuf, String> {
+pub fn conversation_dir_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
     let dir = ensure_conversations_dir()?;
     let safe = sanitize_conversation_id(conversation_id);
     Ok(dir.join(safe))
 }
 
-pub fn conversation_metadata_path(conversation_id: &str) -> Result<PathBuf, String> {
+pub fn conversation_metadata_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
     Ok(conversation_dir_path(conversation_id)?.join(METADATA_FILE_NAME))
 }
 
-pub fn conversation_messages_path(conversation_id: &str) -> Result<PathBuf, String> {
+pub fn conversation_messages_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
     Ok(conversation_dir_path(conversation_id)?.join(MESSAGES_FILE_NAME))
 }
 
-pub fn conversation_workspace_path(conversation_id: &str) -> Result<PathBuf, String> {
+pub fn conversation_workspace_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
     Ok(conversation_dir_path(conversation_id)?.join(WORKSPACE_DIR_NAME))
 }
 
-pub fn ensure_session_layout(conversation_id: &str) -> Result<(), String> {
+pub fn ensure_session_layout(conversation_id: &str) -> AgentJaxResult<()> {
     let workspace_dir = conversation_workspace_path(conversation_id)?;
     if !workspace_dir.exists() {
         fs::create_dir_all(&workspace_dir).map_err(|e| {
-            format!(
+            AgentJaxError::internal(format!(
                 "Failed to create session workspace directory {}: {e}",
                 workspace_dir.display()
-            )
+            ))
+            .with_error_source(&e)
         })?;
     }
     Ok(())
 }
 
-pub fn conversation_lcm_db_path(conversation_id: &str) -> Result<PathBuf, String> {
+pub fn conversation_lcm_db_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
     Ok(conversation_dir_path(conversation_id)?.join(LCM_DB_FILE_NAME))
 }
 
-pub fn list_conversation_ids() -> Result<Vec<String>, String> {
+pub fn list_conversation_ids() -> AgentJaxResult<Vec<String>> {
     let dir = ensure_conversations_dir()?;
     let mut out = Vec::new();
 
     let entries = fs::read_dir(&dir)
-        .map_err(|e| format!("Failed to read conversations dir {}: {e}", dir.display()))?;
+        .map_err(|e| AgentJaxError::internal(format!("Failed to read conversations dir {}: {e}", dir.display())).with_error_source(&e))?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to inspect conversation file entry: {e}"))?;
+        let entry = entry.map_err(|e| AgentJaxError::internal(format!("Failed to inspect conversation file entry: {e}")).with_error_source(&e))?;
         let path = entry.path();
 
         if !path.is_dir() {

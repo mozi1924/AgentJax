@@ -3,6 +3,8 @@ use super::types::{
     CalculatorMode, CalculatorRequest, CalculatorResponse, CalculatorVariableBinding,
     FEND_TIMEOUT_MS,
 };
+use crate::agentjax_err;
+use crate::error::AgentJaxResult;
 use fend_core::{Context as FendContext, Interrupt as FendInterrupt, evaluate_with_interrupt};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -38,14 +40,14 @@ struct FendPayload {
 }
 
 /// Execute calculator request using fend-core only.
-pub(crate) fn execute(request: CalculatorRequest) -> Result<CalculatorResponse, String> {
+pub(crate) fn execute(request: CalculatorRequest) -> AgentJaxResult<CalculatorResponse> {
     reject_unsupported_mode(request.mode)?;
 
     let original_expression = request.expression.clone();
     let expression = request
         .expression
         .as_deref()
-        .ok_or_else(|| "Missing calculator expression.".to_string())?;
+        .ok_or_else(|| agentjax_err!("Missing calculator expression.", ToolExecution))?;
     let normalized = normalize_expression(expression)?;
 
     reject_unsupported_symbolic_call(&normalized)?;
@@ -75,18 +77,18 @@ pub(crate) fn execute(request: CalculatorRequest) -> Result<CalculatorResponse, 
     })
 }
 
-fn reject_unsupported_mode(mode: CalculatorMode) -> Result<(), String> {
+fn reject_unsupported_mode(mode: CalculatorMode) -> AgentJaxResult<()> {
     if matches!(mode, CalculatorMode::Auto | CalculatorMode::Evaluate) {
         return Ok(());
     }
 
-    Err(format!(
-        "Unsupported mode '{}'. This calculator is now fend-core only; use mode='auto' or mode='evaluate', or pass mode='capabilities' to inspect supported behavior.",
-        mode.as_str()
+    Err(agentjax_err!(
+        format!("Unsupported mode '{}'. This calculator is now fend-core only; use mode='auto' or mode='evaluate', or pass mode='capabilities' to inspect supported behavior.", mode.as_str()),
+        ToolExecution
     ))
 }
 
-fn reject_unsupported_symbolic_call(expression: &str) -> Result<(), String> {
+fn reject_unsupported_symbolic_call(expression: &str) -> AgentJaxResult<()> {
     let Some((name, _)) = parse_top_level_call(expression) else {
         return Ok(());
     };
@@ -106,8 +108,9 @@ fn reject_unsupported_symbolic_call(expression: &str) -> Result<(), String> {
     ];
 
     if legacy_symbolic_calls.contains(&name.as_str()) {
-        return Err(format!(
-            "'{name}(...)' is no longer supported in the native calculator. The legacy symbolic engine was removed; please provide a direct fend-core expression instead."
+        return Err(agentjax_err!(
+            format!("'{name}(...)' is no longer supported in the native calculator. The legacy symbolic engine was removed; please provide a direct fend-core expression instead."),
+            ToolExecution
         ));
     }
 
@@ -132,11 +135,14 @@ fn build_fend_expression(expression: &str, variables: &[CalculatorVariableBindin
     out
 }
 
-fn evaluate_with_fend(expression: &str, precision: u32) -> Result<FendPayload, String> {
+fn evaluate_with_fend(expression: &str, precision: u32) -> AgentJaxResult<FendPayload> {
     let mut context = FendContext::new();
     let interrupt = DeadlineInterrupt::new(Duration::from_millis(FEND_TIMEOUT_MS));
     let result = evaluate_with_interrupt(expression, &mut context, &interrupt)
-        .map_err(|err| format_evaluation_error(expression, &err.to_string()))?;
+        .map_err(|err| agentjax_err!(
+            format_evaluation_error(expression, &err.to_string()),
+            ToolExecution
+        ))?;
 
     let (rendered, warnings) = normalize_fend_output(result.get_main_result().trim());
 

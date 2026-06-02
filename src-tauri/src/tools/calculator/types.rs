@@ -1,4 +1,6 @@
 use serde_json::{Value, json};
+use crate::agentjax_err;
+use crate::error::AgentJaxResult;
 
 pub(crate) const DEFAULT_PRECISION: u32 = 12;
 pub(crate) const MAX_PRECISION: u32 = 32;
@@ -18,13 +20,14 @@ pub(crate) enum CalculatorMode {
 }
 
 impl CalculatorMode {
-    pub(crate) fn parse(value: Option<&str>) -> Result<Self, String> {
+    pub(crate) fn parse(value: Option<&str>) -> AgentJaxResult<Self> {
         match value.unwrap_or("auto") {
             "auto" => Ok(Self::Auto),
             "capabilities" => Ok(Self::Capabilities),
             "evaluate" => Ok(Self::Evaluate),
-            other => Err(format!(
-                "Unsupported calculator mode '{other}'. Try one of: auto, capabilities, evaluate."
+            other => Err(agentjax_err!(
+                format!("Unsupported calculator mode '{other}'. Try one of: auto, capabilities, evaluate."),
+                ToolExecution
             )),
         }
     }

@@ -149,16 +149,17 @@ pub fn collect_directory_entries(
     max_entries: usize,
     entries: &mut Vec<Value>,
     state: &mut ListCollectionState,
-) -> Result<(), String> {
+) -> AgentJaxResult<()> {
     let mut children = Vec::new();
     for entry in fs::read_dir(current_dir)
-        .map_err(|err| format!("Failed to list directory {}: {err}", current_dir.display()))?
+        .map_err(|err| AgentJaxError::tool(format!("Failed to list directory {}: {err}", current_dir.display())).with_error_source(&err))?
     {
         let entry = entry.map_err(|err| {
-            format!(
+            AgentJaxError::tool(format!(
                 "Failed to inspect directory entry {}: {err}",
                 current_dir.display()
-            )
+            ))
+            .with_error_source(&err)
         })?;
         children.push(entry);
     }
@@ -174,7 +175,7 @@ pub fn collect_directory_entries(
         let path = entry.path();
         let relative = path
             .strip_prefix(workspace_dir)
-            .map_err(|err| format!("Failed to derive workspace-relative path: {err}"))?
+            .map_err(|err| AgentJaxError::tool(format!("Failed to derive workspace-relative path: {err}")).with_error_source(&err))?
             .to_path_buf();
 
         let name = entry.file_name();
@@ -185,7 +186,7 @@ pub fn collect_directory_entries(
 
         let metadata = entry
             .metadata()
-            .map_err(|err| format!("Failed to read metadata for {}: {err}", path.display()))?;
+            .map_err(|err| AgentJaxError::tool(format!("Failed to read metadata for {}: {err}", path.display())).with_error_source(&err))?;
         let value = stat_value(&relative, &metadata);
         let estimated_chars = value.to_string().chars().count();
         if !entries.is_empty() && state.output_chars + estimated_chars > LIST_OUTPUT_CHAR_BUDGET {

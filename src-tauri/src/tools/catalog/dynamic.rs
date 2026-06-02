@@ -17,7 +17,7 @@ impl ToolCatalog {
         active_tool_names: &mut HashSet<String>,
         entries: &mut HashMap<String, ToolSnapshotEntry>,
         presentations: &mut HashMap<String, ToolPresentation>,
-    ) -> Result<(), String> {
+    ) -> crate::error::AgentJaxResult<()> {
         let conversation_id = context
             .conversation_id
             .as_deref()

@@ -2,10 +2,12 @@ use super::types::{
     CalculatorMode, CalculatorRequest, CalculatorVariableBinding, DEFAULT_PRECISION,
     MAX_EXPRESSION_LENGTH, MAX_PRECISION,
 };
+use crate::agentjax_err;
+use crate::error::AgentJaxResult;
 use serde_json::Value;
 
 /// Parse and validate external JSON payload into a stable internal request.
-pub(crate) fn parse_request(arguments: &Value) -> Result<CalculatorRequest, String> {
+pub(crate) fn parse_request(arguments: &Value) -> AgentJaxResult<CalculatorRequest> {
     let expression = arguments
         .get("expression")
         .and_then(Value::as_str)
@@ -22,10 +24,10 @@ pub(crate) fn parse_request(arguments: &Value) -> Result<CalculatorRequest, Stri
     let variables = parse_variables(arguments.get("variables"))?;
 
     if mode != CalculatorMode::Capabilities && expression.is_none() {
-        return Err(
-            "Missing calculator input. Provide 'expression', or use mode='capabilities' to inspect supported syntax."
-                .to_string(),
-        );
+        return Err(agentjax_err!(
+            "Missing calculator input. Provide 'expression', or use mode='capabilities' to inspect supported syntax.",
+            ToolExecution
+        ));
     }
 
     if let Some(expr) = &expression {
@@ -42,7 +44,7 @@ pub(crate) fn parse_request(arguments: &Value) -> Result<CalculatorRequest, Stri
 
 /// Normalize only display-layer characters that users commonly paste into the
 /// calculator UI, and otherwise let fend-core own the full parse.
-pub(crate) fn normalize_expression(expression: &str) -> Result<String, String> {
+pub(crate) fn normalize_expression(expression: &str) -> AgentJaxResult<String> {
     let normalized = expression
         .trim()
         .replace('π', "pi")
@@ -54,7 +56,7 @@ pub(crate) fn normalize_expression(expression: &str) -> Result<String, String> {
     Ok(normalized)
 }
 
-fn parse_variables(value: Option<&Value>) -> Result<Vec<CalculatorVariableBinding>, String> {
+fn parse_variables(value: Option<&Value>) -> AgentJaxResult<Vec<CalculatorVariableBinding>> {
     let mut variables = Vec::new();
     if let Some(values) = value.and_then(Value::as_object) {
         for (name, raw) in values {
@@ -69,28 +71,32 @@ fn parse_variables(value: Option<&Value>) -> Result<Vec<CalculatorVariableBindin
     Ok(variables)
 }
 
-fn validate_variable_name(name: &str) -> Result<(), String> {
+fn validate_variable_name(name: &str) -> AgentJaxResult<()> {
     let mut chars = name.chars();
     let Some(first) = chars.next() else {
-        return Err("Variable names cannot be empty.".to_string());
+        return Err(agentjax_err!("Variable names cannot be empty.", ToolExecution));
     };
 
     if !(first.is_ascii_alphabetic() || first == '_')
         || !chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
     {
-        return Err(format!(
-            "Variable '{name}' is not a valid fend identifier. Use letters, numbers, and underscores, and do not start with a number."
+        return Err(agentjax_err!(
+            format!("Variable '{name}' is not a valid fend identifier. Use letters, numbers, and underscores, and do not start with a number."),
+            ToolExecution
         ));
     }
 
     Ok(())
 }
 
-fn parse_variable_expression(name: &str, raw: &Value) -> Result<String, String> {
+fn parse_variable_expression(name: &str, raw: &Value) -> AgentJaxResult<String> {
     match raw {
         Value::Number(number) => {
             if number.as_f64().is_some_and(|value| !value.is_finite()) {
-                return Err(format!("Variable '{name}' must be finite."));
+                return Err(agentjax_err!(
+                    format!("Variable '{name}' must be finite."),
+                    ToolExecution
+                ));
             }
 
             Ok(number.to_string())
@@ -99,23 +105,25 @@ fn parse_variable_expression(name: &str, raw: &Value) -> Result<String, String> 
         Value::String(value) => {
             let expression = value.trim();
             if expression.is_empty() {
-                return Err(format!(
-                    "Variable '{name}' cannot be an empty fend expression."
+                return Err(agentjax_err!(
+                    format!("Variable '{name}' cannot be an empty fend expression."),
+                    ToolExecution
                 ));
             }
             Ok(expression.to_string())
         }
-        _ => Err(format!(
-            "Variable '{name}' must be a number, boolean, or fend expression string."
+        _ => Err(agentjax_err!(
+            format!("Variable '{name}' must be a number, boolean, or fend expression string."),
+            ToolExecution
         )),
     }
 }
 
-fn validate_expression_budget(expression: &str) -> Result<(), String> {
+fn validate_expression_budget(expression: &str) -> AgentJaxResult<()> {
     if expression.len() > MAX_EXPRESSION_LENGTH {
-        return Err(format!(
-            "Expression is too long ({} characters). The calculator currently limits inputs to {MAX_EXPRESSION_LENGTH} characters to avoid runaway evaluations.",
-            expression.len()
+        return Err(agentjax_err!(
+            format!("Expression is too long ({} characters). The calculator currently limits inputs to {MAX_EXPRESSION_LENGTH} characters to avoid runaway evaluations.", expression.len()),
+            ToolExecution
         ));
     }
 
