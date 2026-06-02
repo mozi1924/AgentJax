@@ -13,6 +13,15 @@
       "children": [
         {
           "kind": "field",
+          "id": "lcm-dynamic-thresholds",
+          "title": "settings.lcm.dynamic_thresholds.title",
+          "description": "settings.lcm.dynamic_thresholds.description",
+          "path": "lcm.dynamic_thresholds",
+          "valueType": "boolean",
+          "control": "switch"
+        },
+        {
+          "kind": "field",
           "id": "lcm-soft-threshold",
           "title": "settings.lcm.soft_token_threshold.title",
           "description": "settings.lcm.soft_token_threshold.description",
@@ -21,7 +30,8 @@
           "control": "number",
           "min": 1024,
           "max": 2097152,
-          "step": 1024
+          "step": 1024,
+          "visibleWhen": [{"path": "lcm.dynamic_thresholds", "truthy": false}]
         },
         {
           "kind": "field",
@@ -33,7 +43,8 @@
           "control": "number",
           "min": 1024,
           "max": 2097152,
-          "step": 1024
+          "step": 1024,
+          "visibleWhen": [{"path": "lcm.dynamic_thresholds", "truthy": false}]
         },
         {
           "kind": "field",
@@ -45,7 +56,8 @@
           "control": "number",
           "min": 100,
           "max": 102400,
-          "step": 100
+          "step": 100,
+          "visibleWhen": [{"path": "lcm.dynamic_thresholds", "truthy": false}]
         }
       ]
     },

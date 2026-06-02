@@ -387,5 +387,7 @@
   "settings.lcm.summarization_model.description": "Model used for LLM-powered summarization. Select 'default' to use the utility small model.",
   "settings.lcm.summarization_model.default": "Use utility small model (default)",
   "settings.lcm.grep_page_size.title": "Grep page size",
-  "settings.lcm.grep_page_size.description": "Number of results returned per lcm_grep call."
+  "settings.lcm.grep_page_size.description": "Number of results returned per lcm_grep call.",
+  "settings.lcm.dynamic_thresholds.title": "Dynamic Thresholds",
+  "settings.lcm.dynamic_thresholds.description": "Automatically compute token thresholds from the active model's context window (soft: 50%, hard: 85%, large file: 10%). Turn off to set manual thresholds."
 }

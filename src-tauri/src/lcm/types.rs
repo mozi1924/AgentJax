@@ -447,6 +447,13 @@ pub enum DescribeResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", default)]
 pub struct LcmConfig {
+    /// When true, the soft/hard/large-file thresholds are computed dynamically
+    /// from the active model's context window. Percentages: soft=50%, hard=85%,
+    /// large_file=10% (capped at 100K). When false, the manually-configured
+    /// values below are used.
+    /// Default: true (dynamic).
+    pub dynamic_thresholds: bool,
+
     /// Soft token threshold: when the active context exceeds this count,
     /// asynchronous compaction is triggered (does not block the user).
     /// Default: 65,536 (64K tokens).
@@ -502,6 +509,7 @@ pub struct LcmConfig {
 impl Default for LcmConfig {
     fn default() -> Self {
         Self {
+            dynamic_thresholds: true,
             soft_token_threshold: 65536,       // 64K
             hard_token_threshold: 131072,      // 128K
             large_file_token_threshold: 25600, // 25K
@@ -512,6 +520,30 @@ impl Default for LcmConfig {
             grep_page_size: 20,
             summarization_model: String::new(),
             tokenizer_model_id: None,
+        }
+    }
+}
+
+impl LcmConfig {
+    /// Produce effective thresholds, optionally auto-computed from the model's
+    /// context window when `dynamic_thresholds` is enabled.
+    ///
+    /// Dynamic formulas (when enabled):
+    /// - Soft  = 50% of context window
+    /// - Hard  = 85% of context window
+    /// - Large file = 10% of context window, capped at 100,000 tokens
+    ///
+    /// When `dynamic_thresholds` is `false`, returns `self` unchanged.
+    pub fn with_dynamic_thresholds(self, context_window: usize) -> Self {
+        if !self.dynamic_thresholds {
+            return self;
+        }
+        let cw = context_window as u32;
+        Self {
+            soft_token_threshold: cw / 2,
+            hard_token_threshold: (cw as f64 * 0.85) as u32,
+            large_file_token_threshold: (cw / 10).min(100_000),
+            ..self
         }
     }
 }

@@ -383,5 +383,7 @@
   "settings.lcm.summarization_model.description": "用于 LLM 摘要的模型。选择'default'使用 utility small model。",
   "settings.lcm.summarization_model.default": "使用 utility small model（默认）",
   "settings.lcm.grep_page_size.title": "Grep 分页大小",
-  "settings.lcm.grep_page_size.description": "每次 lcm_grep 调用返回的结果数。"
+  "settings.lcm.grep_page_size.description": "每次 lcm_grep 调用返回的结果数。",
+  "settings.lcm.dynamic_thresholds.title": "动态阈值",
+  "settings.lcm.dynamic_thresholds.description": "根据当前模型上下文窗口自动计算 token 阈值（软阈值: 50%, 硬阈值: 85%, 大文件阈值: 10%）。关闭后可手动设置阈值。"
 }

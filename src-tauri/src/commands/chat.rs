@@ -104,9 +104,42 @@ pub async fn chat_stream(
     let mut tools_catalog =
         ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config);
 
+    // ── Resolve model early for dynamic LCM threshold computation ───────
+    let resolved_model = resolve_prompt_counting_model(&config, req.model.as_deref());
+
+    // ── Compute effective LCM thresholds (dynamic or manual) ────────────
+    let effective_lcm_config = {
+        let base = config.lcm.clone();
+        if base.dynamic_thresholds {
+            if let Some(ref model) = resolved_model {
+                let budget = conversation_store::TokenBudget::for_model(
+                    &model.provider.kind,
+                    &model.model_id,
+                );
+                log::info!(
+                    "LCM dynamic thresholds: model={} provider={} context_window={} (soft={}, hard={}, large_file={})",
+                    model.model_id,
+                    model.provider.kind,
+                    budget.context_window,
+                    budget.context_window / 2,
+                    (budget.context_window as f64 * 0.85) as u32,
+                    ((budget.context_window / 10) as u32).min(100_000),
+                );
+                base.with_dynamic_thresholds(budget.context_window)
+            } else {
+                log::warn!(
+                    "LCM dynamic thresholds enabled but model resolution failed; falling back to manual thresholds"
+                );
+                base
+            }
+        } else {
+            base
+        }
+    };
+
     // ── LCM: Initialize context management (always on) ──────────────────
     let lcm_engine =
-        crate::lcm::open_lcm_engine_with_summarizer(&conversation_id, &config.lcm, &config)?;
+        crate::lcm::open_lcm_engine_with_summarizer(&conversation_id, &effective_lcm_config, &config)?;
     tools_catalog.set_context_tools(lcm_engine.store().clone());
 
     // Ensure LCM conversation metadata exists.
@@ -148,7 +181,7 @@ pub async fn chat_stream(
         .await?;
     }
 
-    let resolved_model = resolve_prompt_counting_model(&config, req.model.as_deref());
+    // resolved_model was computed above (before LCM engine initialization).
     let model_id: Option<String> = resolved_model.as_ref().map(|m| m.model_id.clone());
 
     // ── Apply token budget truncation now that we know the model ──────
