@@ -265,6 +265,83 @@ impl AgentRuntime {
                 }
             }
 
+            // ── LCM: Persist this hop's messages BEFORE the is_final_hop break ──
+            // Must run for EVERY hop — including the final hop without tool calls.
+            // Otherwise the final answer is never stored in the immutable store.
+            {
+                let engine = lcm_engine;
+                let now_ms = crate::conversation_store_utils::now_unix_ms();
+                let lcm_conv_id = conversation_id.to_string();
+                let mut batch_messages: Vec<crate::lcm::types::StoredMessage> = Vec::new();
+
+                // Collect assistant text from structured output_items.
+                for (text, phase) in &hop_messages_for_lcm {
+                    if !text.trim().is_empty() {
+                        let mut msg = crate::lcm::types::StoredMessage::new(
+                            crate::lcm::types::MessageId::new(),
+                            &lcm_conv_id,
+                            crate::lcm::types::MessageRole::Assistant,
+                            text,
+                            crate::lcm::types::estimate_tokens(text),
+                            now_ms,
+                        );
+                        if let Some(p) = phase {
+                            msg.metadata.insert(
+                                "phase".to_string(),
+                                serde_json::Value::String(p.as_str().to_string()),
+                            );
+                        }
+                        batch_messages.push(msg);
+                    }
+                }
+
+                // ── Lossless invariant guard ─────────────────────────────
+                // If assistant text only appeared in output_text (not as a
+                // structured message in output_items), it is missing from
+                // hop_messages_for_lcm. Capture it now so every model-generated
+                // message is preserved — this is the LCM paper's core invariant.
+                let fallback_text: Option<String> = if hop_messages_for_lcm.is_empty()
+                    && !collected.response_result.output_text.trim().is_empty()
+                {
+                    Some(collected.response_result.output_text.trim().to_string())
+                } else if is_final_hop && !final_output_text.trim().is_empty() {
+                    let already_captured = hop_messages_for_lcm.iter().any(|(t, _)| {
+                        t.trim() == final_output_text.trim()
+                    });
+                    if !already_captured {
+                        Some(final_output_text.trim().to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(text) = fallback_text {
+                    let mut msg = crate::lcm::types::StoredMessage::new(
+                        crate::lcm::types::MessageId::new(),
+                        &lcm_conv_id,
+                        crate::lcm::types::MessageRole::Assistant,
+                        &text,
+                        crate::lcm::types::estimate_tokens(&text),
+                        now_ms,
+                    );
+                    msg.metadata.insert(
+                        "phase".to_string(),
+                        serde_json::Value::String(
+                            if is_final_hop { "final" } else { "assistant" }.to_string(),
+                        ),
+                    );
+                    batch_messages.push(msg);
+                }
+
+                if !batch_messages.is_empty() {
+                    if let Err(e) = engine.process_messages_batch(&batch_messages).await {
+                        log::warn!("LCM: failed to persist {} messages: {}", batch_messages.len(), e);
+                    }
+                }
+            }
+
             // ── No tools → final response reached ─────────────────────────
             if is_final_hop {
                 if final_output_text.is_empty() {
@@ -290,7 +367,7 @@ impl AgentRuntime {
                 )
                 .await?;
 
-            // ── LCM: Persist hop messages in batch (single SQLite transaction) ──
+            // ── LCM: Persist tool-call hop messages ───────────────────────
             {
                 let engine = lcm_engine;
                 let now_ms = crate::conversation_store_utils::now_unix_ms();
@@ -299,154 +376,52 @@ impl AgentRuntime {
                 let lcm_tool_calls = executed_batch.executed_tool_call_items.clone();
                 let mut batch_messages: Vec<crate::lcm::types::StoredMessage> = Vec::new();
 
-                // Build call_id → name lookup for annotating results.
                 let tool_name_by_call_id: std::collections::HashMap<String, String> =
-                    lcm_tool_calls
-                        .iter()
-                        .filter_map(|item| {
-                            let call_id = item
-                                .get("call_id")
-                                .and_then(|v| v.as_str())
-                                .map(String::from)?;
-                            let name = item
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown")
-                                .to_string();
-                            Some((call_id, name))
-                        })
-                        .collect();
+                    lcm_tool_calls.iter().filter_map(|item| {
+                        let call_id = item.get("call_id").and_then(|v| v.as_str()).map(String::from)?;
+                        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                        Some((call_id, name))
+                    }).collect();
 
-                // Collect assistant text messages.
-                for (text, phase) in &hop_messages_for_lcm {
-                    if !text.trim().is_empty() {
-                        let mut msg = crate::lcm::types::StoredMessage::new(
-                            crate::lcm::types::MessageId::new(),
-                            &lcm_conv_id,
-                            crate::lcm::types::MessageRole::Assistant,
-                            text,
-                            crate::lcm::types::estimate_tokens(text),
-                            now_ms,
-                        );
-                        if let Some(p) = phase {
-                            msg.metadata.insert(
-                                "phase".to_string(),
-                                serde_json::Value::String(p.as_str().to_string()),
-                            );
-                        }
-                        batch_messages.push(msg);
-                    }
-                }
-
-                // Collect function_call messages.
                 for item in &lcm_tool_calls {
-                    let call_id = item
-                        .get("call_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
-                    let name = item
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let arguments = item
-                        .get("arguments")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("{}");
-
+                    let call_id = item.get("call_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let arguments = item.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
                     let mut metadata = std::collections::BTreeMap::new();
                     metadata.insert("message_type".to_string(), serde_json::Value::String("function_call".to_string()));
                     metadata.insert("call_id".to_string(), serde_json::Value::String(call_id.to_string()));
                     metadata.insert("tool_name".to_string(), serde_json::Value::String(name.to_string()));
                     metadata.insert("arguments".to_string(), serde_json::Value::String(arguments.to_string()));
-
                     let mut msg = crate::lcm::types::StoredMessage::new(
-                        crate::lcm::types::MessageId::new(),
-                        &lcm_conv_id,
-                        crate::lcm::types::MessageRole::Tool,
-                        arguments,
-                        crate::lcm::types::estimate_tokens(arguments),
-                        now_ms,
+                        crate::lcm::types::MessageId::new(), &lcm_conv_id,
+                        crate::lcm::types::MessageRole::Tool, arguments,
+                        crate::lcm::types::estimate_tokens(arguments), now_ms,
                     );
                     msg.metadata = metadata;
                     batch_messages.push(msg);
                 }
 
-                // Collect tool result messages.
                 for item in &lcm_tool_results {
                     if let Some(output_str) = item.get("output").and_then(|v| v.as_str()) {
-                        let call_id = item
-                            .get("call_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown");
-                        let tool_name = tool_name_by_call_id
-                            .get(call_id)
-                            .map(String::as_str)
-                            .unwrap_or("unknown");
-
+                        let call_id = item.get("call_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let tool_name = tool_name_by_call_id.get(call_id).map(String::as_str).unwrap_or("unknown");
                         let mut metadata = std::collections::BTreeMap::new();
                         metadata.insert("message_type".to_string(), serde_json::Value::String("function_call_output".to_string()));
                         metadata.insert("call_id".to_string(), serde_json::Value::String(call_id.to_string()));
                         metadata.insert("tool_name".to_string(), serde_json::Value::String(tool_name.to_string()));
-
                         let mut msg = crate::lcm::types::StoredMessage::new(
-                            crate::lcm::types::MessageId::new(),
-                            &lcm_conv_id,
-                            crate::lcm::types::MessageRole::Tool,
-                            output_str,
-                            crate::lcm::types::estimate_tokens(output_str),
-                            now_ms,
+                            crate::lcm::types::MessageId::new(), &lcm_conv_id,
+                            crate::lcm::types::MessageRole::Tool, output_str,
+                            crate::lcm::types::estimate_tokens(output_str), now_ms,
                         );
                         msg.metadata = metadata;
                         batch_messages.push(msg);
                     }
                 }
 
-                // ── Lossless invariant guard ─────────────────────────────────
-                // If any assistant text from this hop appeared only in output_text
-                // (not as a structured message in output_items), it would be
-                // missing from hop_messages_for_lcm. Persist it now so every
-                // model-generated message is preserved in the immutable store.
-                let assistant_text_for_lcm: String = if hop_messages_for_lcm.is_empty()
-                    && !collected.response_result.output_text.trim().is_empty()
-                {
-                    // Text only in output_text — must persist manually.
-                    collected.response_result.output_text.trim().to_string()
-                } else if is_final_hop && !final_output_text.trim().is_empty() {
-                    // Final answer: ensure it's captured even if already in hop messages.
-                    let already_captured = hop_messages_for_lcm.iter().any(|(text, _)| {
-                        text.trim() == final_output_text.trim()
-                    });
-                    if !already_captured {
-                        final_output_text.trim().to_string()
-                    } else {
-                        String::new()
-                    }
-                } else {
-                    String::new()
-                };
-
-                if !assistant_text_for_lcm.is_empty() {
-                    let mut final_msg = crate::lcm::types::StoredMessage::new(
-                        crate::lcm::types::MessageId::new(),
-                        &lcm_conv_id,
-                        crate::lcm::types::MessageRole::Assistant,
-                        &assistant_text_for_lcm,
-                        crate::lcm::types::estimate_tokens(&assistant_text_for_lcm),
-                        now_ms,
-                    );
-                    final_msg.metadata.insert(
-                        "phase".to_string(),
-                        serde_json::Value::String(
-                            if is_final_hop { "final" } else { "assistant" }.to_string(),
-                        ),
-                    );
-                    batch_messages.push(final_msg);
-                }
-
-                // Persist all messages in a single batch (one SQLite transaction, one threshold check).
                 if !batch_messages.is_empty() {
                     if let Err(e) = engine.process_messages_batch(&batch_messages).await {
-                        log::warn!("LCM: failed to persist batch of {} messages: {}", batch_messages.len(), e);
+                        log::warn!("LCM: failed to persist tool batch of {} messages: {}", batch_messages.len(), e);
                     }
                 }
             }
