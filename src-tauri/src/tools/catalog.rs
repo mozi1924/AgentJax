@@ -135,7 +135,7 @@ impl ToolCatalog {
         manifests: impl IntoIterator<Item = PluginManifest>,
     ) -> Result<Self, String> {
         for manifest in manifests {
-            manifest.validate()?;
+            manifest.validate().map_err(|e| e.to_string())?;
             if self.plugin_manifests.contains_key(&manifest.id) {
                 return Err(format!("plugin '{}' is already registered", manifest.id));
             }

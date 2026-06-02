@@ -51,8 +51,7 @@ pub fn load_plugin_package(path: impl AsRef<Path>) -> PluginRuntimeResult<Plugin
     })?;
 
     manifest
-        .validate()
-        .map_err(PluginRuntimeError::InvalidManifest)?;
+        .validate()?;
     validate_entrypoint_path(&root_dir, &manifest)?;
 
     Ok(PluginPackage {

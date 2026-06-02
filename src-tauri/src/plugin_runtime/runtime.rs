@@ -131,7 +131,7 @@ impl PluginInstance {
         entrypoint_source: Option<String>,
         _module_loader: Option<Rc<dyn deno_core::ModuleLoader>>,
     ) -> PluginRuntimeResult<Self> {
-        manifest.validate().map_err(PluginRuntimeError::InvalidManifest)?;
+        manifest.validate()?;
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
 

@@ -239,12 +239,12 @@ impl Default for HookRegistry {
 pub fn serialize_hook_registration(
     _plugin_id: &str,
     point: &str,
-) -> Result<ContextHookPoint, String> {
+) -> super::PluginRuntimeResult<ContextHookPoint> {
     match point.trim() {
         "onContextAssemble" | "OnContextAssemble" => Ok(ContextHookPoint::OnContextAssemble),
         "onBeforeTruncation" | "OnBeforeTruncation" => Ok(ContextHookPoint::OnBeforeTruncation),
         "onToolResult" | "OnToolResult" => Ok(ContextHookPoint::OnToolResult),
-        other => Err(format!("Unknown context hook point: '{other}'")),
+        other => Err(super::PluginRuntimeError::InvalidManifest(format!("Unknown context hook point: '{other}'"))),
     }
 }
 

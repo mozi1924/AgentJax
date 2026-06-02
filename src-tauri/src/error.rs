@@ -362,10 +362,23 @@ impl From<crate::lcm::LcmError> for AgentJaxError {
 
 impl From<crate::plugin_runtime::PluginRuntimeError> for AgentJaxError {
     fn from(e: crate::plugin_runtime::PluginRuntimeError) -> Self {
+        use crate::plugin_runtime::PluginRuntimeError::*;
+        let (kind, retryable) = match &e {
+            // Manifest/config errors — user must fix plugin definition.
+            InvalidManifest(_) | ManifestParse(_) | InvalidEntrypoint(_) | UnsupportedOperation(_) => (ErrorKind::Config, false),
+            // Duplicate plugin registration — config error.
+            DuplicatePlugin(_) => (ErrorKind::Config, false),
+            // Plugin/tool/provider not found — not installed or misconfigured.
+            UnknownPlugin(_) | UnknownPluginTool { .. } | UnknownProvider { .. } => (ErrorKind::NotFound, false),
+            // I/O errors during plugin loading — may be transient.
+            Io(_) => (ErrorKind::Internal, true),
+            // JavaScript execution errors — tool execution failure.
+            JavaScript(_) => (ErrorKind::ToolExecution, false),
+        };
         AgentJaxError {
-            kind: ErrorKind::ToolExecution,
+            kind,
             message: e.to_string(),
-            retryable: false,
+            retryable,
             provider_key: None,
             source: Some(e.to_string()),
         }
@@ -485,5 +498,24 @@ mod tests {
             .with_context("while loading config");
         assert!(err.message.contains("while loading config"));
         assert!(err.message.contains("failed to read file"));
+    }
+
+    #[test]
+    fn test_from_plugin_runtime_error_classification() {
+        let err: AgentJaxError = crate::plugin_runtime::PluginRuntimeError::InvalidManifest("bad manifest".to_string()).into();
+        assert_eq!(err.kind, ErrorKind::Config);
+        assert!(!err.retryable);
+
+        let err: AgentJaxError = crate::plugin_runtime::PluginRuntimeError::UnknownPlugin("p".to_string()).into();
+        assert_eq!(err.kind, ErrorKind::NotFound);
+        assert!(!err.retryable);
+
+        let err: AgentJaxError = crate::plugin_runtime::PluginRuntimeError::Io("io error".to_string()).into();
+        assert_eq!(err.kind, ErrorKind::Internal);
+        assert!(err.retryable);
+
+        let err: AgentJaxError = crate::plugin_runtime::PluginRuntimeError::JavaScript("js error".to_string()).into();
+        assert_eq!(err.kind, ErrorKind::ToolExecution);
+        assert!(!err.retryable);
     }
 }
