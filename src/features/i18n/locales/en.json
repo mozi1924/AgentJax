@@ -370,6 +370,14 @@
   "settings.memory.max_index_tokens.title": "Max Index Tokens",
   "settings.memory.max_index_tokens.description": "Maximum token budget used by the auto-injected MEMORY.md index.",
 
+  "settings.street.title": "Street",
+  "settings.street.description": "Async notification queue — automatically delivers sub-agent and background job results to the agent's context.",
+  "settings.street.general.title": "Street Settings",
+  "settings.street.enabled.title": "Enable Street",
+  "settings.street.enabled.description": "When enabled, async work results are automatically collected and injected into the agent's context on the next turn, eliminating the need to poll for status.",
+  "settings.street.auto_trigger.title": "Auto-Trigger Priority",
+  "settings.street.auto_trigger.description": "Minimum priority level required to automatically start a new agent turn when a Street notification arrives.",
+
   "settings.lcm.title": "LCM (Context Management)",
   "settings.lcm.description": "Lossless Context Management — deterministic, engine-driven context compression with lossless retrievability.",
   "settings.lcm.general.title": "General",

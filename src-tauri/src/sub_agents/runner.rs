@@ -160,6 +160,7 @@ pub async fn run_sub_agent(
         &sub_lcm.engine,
         &mut merged_cancel_rx,
         Some(run_event_tx),
+        Vec::new(), // street_items — sub-agents don't receive Street notifications
         move |event| {
             // Map provider events to sub-agent events for progress tracking.
             match &event {
@@ -349,7 +350,9 @@ pub async fn run_memory_agent(
                             continue;
                         }
                         // Parse the LLM output for memory operations.
-                        execute_memory_operations(&memory_store, &text, agent_id);
+                        execute_memory_operations(
+                            &memory_store, &text, agent_id, &spec.parent_conversation_id,
+                        );
                     }
                     Err(e) => {
                         log::warn!("Memory agent {}: LLM call failed: {e}", agent_id);
@@ -409,6 +412,7 @@ fn execute_memory_operations(
     store: &crate::memory::store::MemoryStore,
     llm_output: &str,
     agent_id: &str,
+    parent_conv_id: &str,
 ) {
     // Try to extract JSON from the output.
     let json_str = llm_output
@@ -477,6 +481,16 @@ fn execute_memory_operations(
             match store.write_memory(&memory) {
                 Ok(()) => {
                     log::info!("Memory agent {}: {action}d memory '{}'", agent_id, name);
+                    // Deposit into Street for proactive context injection.
+                    crate::street::StreetManager::deposit(
+                        crate::street::StreetItem::new(
+                            parent_conv_id,
+                            crate::street::StreetSource::MemoryAgent,
+                            crate::street::Priority::Low,
+                            &format!("Memory updated: '{}' ({})", name, action),
+                            serde_json::json!({"action": action, "name": name, "type": memory_type_str}),
+                        ),
+                    );
                 }
                 Err(e) => {
                     log::warn!("Memory agent {}: failed to {action} memory '{}': {e}", agent_id, name);

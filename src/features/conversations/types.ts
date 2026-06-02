@@ -165,6 +165,20 @@ export interface ChatStreamEventPayload {
   agentId?: string;
 }
 
+// ── Street notification types ──────────────────────────────────────────
+
+export type StreetSource = 'subAgent' | 'backgroundJob' | 'memoryAgent' | 'system' | 'external';
+export type StreetPriority = 'low' | 'normal' | 'high' | 'urgent';
+
+export interface StreetItemSnapshot {
+  id: string;
+  source: StreetSource;
+  priority: StreetPriority;
+  title: string;
+  timestamp: number;
+  status: 'pending' | 'delivered' | 'dismissed';
+}
+
 interface RawToolCallTimelineEvent {
   type: string;
   callId?: string;

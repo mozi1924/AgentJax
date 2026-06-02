@@ -278,45 +278,79 @@ impl SubAgentManager {
     /// Mark a sub-agent as completed with a result.
     pub fn complete(task: &Arc<SubAgentTask>, result: Value) {
         let completed_at = now_unix_ms();
-        let mut state = task
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if state.status != SubAgentStatus::Running {
-            return;
-        }
-        state.status = SubAgentStatus::Completed;
-        state.completed_at_unix_ms = Some(completed_at);
-        state.duration_ms = Some(
-            completed_at
-                .saturating_sub(state.started_at_unix_ms)
-                .max(0) as u64,
-        );
-        state.result = Some(result);
-        drop(state);
+        let (conv_id, agent_id, type_str) = {
+            let mut state = task
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if state.status != SubAgentStatus::Running {
+                return;
+            }
+            state.status = SubAgentStatus::Completed;
+            state.completed_at_unix_ms = Some(completed_at);
+            state.duration_ms = Some(
+                completed_at
+                    .saturating_sub(state.started_at_unix_ms)
+                    .max(0) as u64,
+            );
+            state.result = Some(result.clone());
+            (
+                state.spec.parent_conversation_id.clone(),
+                state.agent_id.clone(),
+                state.spec.subagent_type.as_str().to_string(),
+            )
+        };
         task.notify.notify_waiters();
+
+        // Deposit into Street for proactive context injection.
+        crate::street::StreetManager::deposit(crate::street::StreetItem::new(
+            &conv_id,
+            crate::street::StreetSource::SubAgent,
+            crate::street::Priority::Normal,
+            &format!("Sub-agent '{}' ({}) completed successfully", agent_id, type_str),
+            result,
+        ));
     }
 
     /// Mark a sub-agent as failed with an error.
     pub fn fail(task: &Arc<SubAgentTask>, error: String) {
         let completed_at = now_unix_ms();
-        let mut state = task
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if state.status != SubAgentStatus::Running {
-            return;
-        }
-        state.status = SubAgentStatus::Failed;
-        state.completed_at_unix_ms = Some(completed_at);
-        state.duration_ms = Some(
-            completed_at
-                .saturating_sub(state.started_at_unix_ms)
-                .max(0) as u64,
-        );
-        state.error = Some(error);
-        drop(state);
+        let (conv_id, agent_id, type_str) = {
+            let mut state = task
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if state.status != SubAgentStatus::Running {
+                return;
+            }
+            state.status = SubAgentStatus::Failed;
+            state.completed_at_unix_ms = Some(completed_at);
+            state.duration_ms = Some(
+                completed_at
+                    .saturating_sub(state.started_at_unix_ms)
+                    .max(0) as u64,
+            );
+            state.error = Some(error.clone());
+            (
+                state.spec.parent_conversation_id.clone(),
+                state.agent_id.clone(),
+                state.spec.subagent_type.as_str().to_string(),
+            )
+        };
         task.notify.notify_waiters();
+
+        // Deposit into Street for proactive context injection.
+        let truncated: String = error.chars().take(200).collect();
+        crate::street::StreetManager::deposit(crate::street::StreetItem::new(
+            &conv_id,
+            crate::street::StreetSource::SubAgent,
+            crate::street::Priority::Normal,
+            &format!(
+                "Sub-agent '{}' ({}) failed: {}",
+                agent_id, type_str, truncated
+            ),
+            serde_json::json!({"error": error}),
+        ));
     }
 
     /// Cancel a sub-agent by ID.

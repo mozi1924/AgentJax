@@ -67,6 +67,29 @@ impl Default for MemoryConfig {
     }
 }
 
+// ── Street Config ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StreetConfig {
+    /// Whether the Street notification system is enabled.
+    pub enabled: bool,
+    /// Minimum priority to auto-trigger a new turn ("never", "urgent", "high", "normal", "low").
+    pub auto_trigger_priority: String,
+    /// Maximum Street items retained per conversation.
+    pub max_items_per_conversation: usize,
+}
+
+impl Default for StreetConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_trigger_priority: "urgent".to_string(),
+            max_items_per_conversation: 100,
+        }
+    }
+}
+
 // ── AppConfig ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +112,8 @@ pub struct AppConfig {
     pub sub_agent: SubAgentConfig,
     #[serde(default)]
     pub memory: MemoryConfig,
+    #[serde(default)]
+    pub street: StreetConfig,
     #[serde(default)]
     pub mcp_runtime: McpRuntimeConfig,
     #[serde(default)]
@@ -461,6 +486,7 @@ impl Default for AppConfig {
             lcm: crate::lcm::LcmConfig::default(),
             sub_agent: SubAgentConfig::default(),
             memory: MemoryConfig::default(),
+            street: StreetConfig::default(),
             mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
             tool_manager: ToolManagerConfig::default(),

@@ -48,6 +48,8 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
   const [stoppingConversationIds, setStoppingConversationIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [pendingStreetCount, setPendingStreetCount] = useState(0);
+
   const [thinkingConversationIds, setThinkingConversationIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -183,6 +185,27 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
             setConversations((prev) =>
               applyConversationTitleUpdate(prev, conversationId, payload.conversationTitle || '')
             );
+            return;
+          }
+
+          // Street notifications: cross-turn events for async work results.
+          if (payload.kind === 'street_notification' && conversationId) {
+            setPendingStreetCount((prev) => prev + 1);
+            // Auto-trigger: if priority meets threshold, start a new turn.
+            // The priority is stored in toolName field by the backend.
+            const priority = payload.toolName || 'normal';
+            const threshold = 'urgent'; // TODO: read from config
+            const priorityLevels: Record<string, number> = { low: 0, normal: 1, high: 2, urgent: 3 };
+            if ((priorityLevels[priority] || 0) >= (priorityLevels[threshold] || 3)) {
+              // High-priority notification — could auto-trigger a turn here.
+              // For now, just log; full auto-trigger requires conversation state.
+              console.log(`[Street] High-priority notification (${priority}): auto-trigger candidate`);
+            }
+            return;
+          }
+
+          if (payload.kind === 'street_cleared') {
+            setPendingStreetCount(0);
             return;
           }
 
@@ -392,6 +415,8 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
     isConversationStopping,
     isConversationThinking,
     markConversationThinking,
+    pendingStreetCount,
+    setPendingStreetCount,
     stopConversationRequest,
     stoppingConversationIds,
     thinkingConversationIds,

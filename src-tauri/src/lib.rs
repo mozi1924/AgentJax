@@ -11,6 +11,7 @@ pub mod lcm;
 pub mod mcp;
 pub mod memory;
 mod message_phase;
+pub(crate) mod street;
 mod models;
 pub mod provider_api;
 pub mod plugin_runtime;
@@ -149,6 +150,8 @@ pub fn run() {
             commands::devtools::open_devtools,
             commands::sub_agents::cancel_sub_agent,
             commands::sub_agents::list_sub_agents,
+            commands::street::get_street_items,
+            commands::street::dismiss_street_item,
             commands::memory::list_memories,
             commands::memory::get_memory,
             commands::memory::search_memories,

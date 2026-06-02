@@ -40,6 +40,7 @@ impl AgentRuntime {
         lcm_engine: &std::sync::Arc<crate::lcm::LcmEngine>,
         cancel_rx: &mut watch::Receiver<bool>,
         sub_agent_event_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::sub_agents::SubAgentEvent>>,
+        street_items: Vec<Value>,
         mut on_event: F,
     ) -> AgentJaxResult<(ResponseStreamResult, Vec<Value>)>
     where
@@ -140,6 +141,8 @@ impl AgentRuntime {
             if let Some(note) = recovery_note {
                 prefix.push(note);
             }
+            // Inject Street notifications as developer items.
+            prefix.extend(street_items);
             prefix
         };
 

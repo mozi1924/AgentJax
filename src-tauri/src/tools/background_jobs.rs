@@ -278,31 +278,54 @@ pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: crate::error::A
     let duration_ms = completed_at_unix_ms
         .saturating_sub(job.started_at_unix_ms)
         .max(0) as u64;
-    let mut state = job
-        .state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if state.status != BackgroundJobStatus::InProgress {
-        return;
-    }
+    let (is_success, output_val, error_msg, conv_id) = {
+        let mut state = job
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.status != BackgroundJobStatus::InProgress {
+            return;
+        }
 
-    match result {
-        Ok(output) => {
-            state.status = BackgroundJobStatus::Completed;
-            state.output = Some(output);
-            state.error = None;
+        let success;
+        match result {
+            Ok(output) => {
+                state.status = BackgroundJobStatus::Completed;
+                state.output = Some(output.clone());
+                state.error = None;
+                success = true;
+            }
+            Err(error) => {
+                state.status = BackgroundJobStatus::Failed;
+                state.output = None;
+                state.error = Some(error.to_string());
+                success = false;
+            }
         }
-        Err(error) => {
-            state.status = BackgroundJobStatus::Failed;
-            state.output = None;
-            state.error = Some(error.to_string());
-        }
-    }
-    state.completed_at_unix_ms = Some(completed_at_unix_ms);
-    state.duration_ms = Some(duration_ms);
-    drop(state);
+        state.completed_at_unix_ms = Some(completed_at_unix_ms);
+        state.duration_ms = Some(duration_ms);
+        (success, state.output.clone(), state.error.clone(), job.conversation_id.clone())
+    };
 
     job.notify.notify_waiters();
+
+    // Deposit into Street for proactive context injection.
+    if let Some(conv_id) = conv_id {
+        let title = if is_success {
+            format!("Background job '{}' ({}) completed", job.job_id, job.tool_name)
+        } else {
+            let err_preview: String = error_msg.clone().unwrap_or_default().chars().take(80).collect();
+            format!("Background job '{}' ({}) failed: {}", job.job_id, job.tool_name, err_preview)
+        };
+        let payload = output_val.unwrap_or_else(|| serde_json::json!({"error": error_msg.unwrap_or_default()}));
+        crate::street::StreetManager::deposit(crate::street::StreetItem::new(
+            &conv_id,
+            crate::street::StreetSource::BackgroundJob,
+            crate::street::Priority::Low,
+            &title,
+            payload,
+        ));
+    }
 }
 
 pub(crate) fn cancel_job(job_id: &str, conversation_id: Option<&str>) -> crate::error::AgentJaxResult<Value> {

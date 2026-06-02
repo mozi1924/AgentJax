@@ -27,6 +27,7 @@ const PLUGIN_MANAGER_SECTION_JSON: &str =
     include_str!("settings_ui_sections/plugin_manager.json");
 const LCM_SECTION_JSON: &str = include_str!("settings_ui_sections/lcm.json");
 const MEMORY_SECTION_JSON: &str = include_str!("settings_ui_sections/memory.json");
+const STREET_SECTION_JSON: &str = include_str!("settings_ui_sections/street.json");
 
 pub fn build_settings_sections() -> Result<Vec<Value>, String> {
     let mut sections = build_builtin_settings_sections()?;
@@ -59,6 +60,7 @@ fn build_builtin_settings_sections() -> Result<Vec<Value>, String> {
         PLUGIN_MANAGER_SECTION_JSON,
         LCM_SECTION_JSON,
         MEMORY_SECTION_JSON,
+        STREET_SECTION_JSON,
     ];
 
     let mut sections = Vec::with_capacity(section_sources.len());
@@ -193,6 +195,18 @@ pub fn build_dynamic_options(
     }];
     global_options.extend(global_reasoning_levels);
     dynamic_options.insert("reasoning_effort".to_string(), global_options);
+
+    // Street auto-trigger priority options.
+    dynamic_options.insert(
+        "street_auto_trigger_priorities".to_string(),
+        vec![
+            SettingsOption { label: "Never".to_string(), value: "never".to_string() },
+            SettingsOption { label: "Urgent only".to_string(), value: "urgent".to_string() },
+            SettingsOption { label: "High or above".to_string(), value: "high".to_string() },
+            SettingsOption { label: "Normal or above".to_string(), value: "normal".to_string() },
+            SettingsOption { label: "All (low or above)".to_string(), value: "low".to_string() },
+        ],
+    );
 
     Ok(dynamic_options)
 }

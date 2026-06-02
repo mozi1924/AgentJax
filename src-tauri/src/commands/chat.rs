@@ -25,6 +25,7 @@ use crate::tools::ToolExecutionContext;
 use chat_client_metadata::{split_local_client_metadata, validate_conversation_dynamic_tools};
 use std::sync::Arc;
 use chat_events::{ChatStreamEvent, emit_mapped_stream_event, next_event_index};
+use serde_json::Value;
 use chat_prompt_tokens::{load_conversation_prompt_token_count, resolve_prompt_counting_model};
 use chat_stream_observer::ChatStreamObserver;
 use chat_title::schedule_title_generation;
@@ -298,6 +299,52 @@ pub async fn chat_stream(
         }
     });
 
+    // ── Street Event Channel ────────────────────────────────────────────
+    let (street_event_tx, mut street_event_rx) =
+        tokio::sync::mpsc::unbounded_channel::<crate::street::StreetEvent>();
+    crate::street::StreetManager::register_event_channel(&conversation_id, street_event_tx);
+    let street_fwd_window = closure_window.clone();
+    let street_fwd_conv = conversation_id.clone();
+    tokio::spawn(async move {
+        let mut index = 0u64;
+        while let Some(event) = street_event_rx.recv().await {
+            let (kind, delta, tool_name) = match &event {
+                crate::street::StreetEvent::Deposited { item_id, title, priority, .. } => {
+                    ("street_notification".to_string(), Some(title.clone()), Some(priority.as_str().to_string()))
+                }
+                crate::street::StreetEvent::Cleared { count, .. } => {
+                    ("street_cleared".to_string(), Some(count.to_string()), None)
+                }
+            };
+            index += 1;
+            let chat_event = crate::commands::chat::chat_events::ChatStreamEvent {
+                request_id: street_fwd_conv.clone(),
+                event_index: index,
+                kind,
+                delta,
+                response_id: None,
+                conversation_id: Some(street_fwd_conv.clone()),
+                conversation_title: None,
+                error: None,
+                tool_call_id: None,
+                tool_name,
+                tool_display_name: None,
+                tool_description: None,
+                tool_icon: None,
+                tool_arguments: None,
+                tool_output: None,
+                tool_status: None,
+                tool_started_ts: None,
+                tool_completed_ts: None,
+                tool_duration_ms: None,
+                context_token_count: None,
+                phase: None,
+                agent_id: None,
+            };
+            let _ = street_fwd_window.emit("chat_stream_event", chat_event);
+        }
+    });
+
     // ── Memory Agent Lifecycle ──────────────────────────────────────────
     // If memory is enabled and no memory agent exists for this conversation,
     // spawn a persistent background memory observer.
@@ -338,6 +385,21 @@ pub async fn chat_stream(
         }
     }
 
+    // ── Collect Street notifications ────────────────────────────────────
+    let street_dev_items: Vec<Value> = if config.street.enabled {
+        let pending = crate::street::StreetManager::collect_pending(&conversation_id);
+        if !pending.is_empty() {
+            let count = pending.len();
+            let formatted = crate::street::format_street_items(&pending);
+            crate::street::StreetManager::mark_delivered(&conversation_id);
+            vec![crate::street::build_street_context_developer_item(count, &formatted)]
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     let result = crate::runtime::AgentRuntime::run_turn(
         &config,
         &runtime_req,
@@ -349,6 +411,7 @@ pub async fn chat_stream(
         &lcm_engine,
         &mut cancel_rx,
         Some(sub_event_tx.clone()),
+        street_dev_items,
         move |event| {
             let event_token_count = stream_observer_for_callback.handle_provider_event(&event);
 

@@ -107,6 +107,7 @@ async fn run_real_gateway_turn_with_config(
             &lcm_engine_for_test(&conversation_id),
             &mut cancel_rx,
             None, // sub_agent_event_tx
+            Vec::new(), // street_items
             move |event| {
                 stream_events_for_closure
                     .lock()
@@ -509,6 +510,7 @@ async fn run_real_gateway_turn_with_full_catalog(
             &lcm_engine,
             &mut cancel_rx,
             None, // sub_agent_event_tx
+            Vec::new(), // street_items
             move |event| {
                 stream_events_for_closure
                     .lock()
