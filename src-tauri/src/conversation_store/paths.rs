@@ -5,6 +5,7 @@ use std::path::PathBuf;
 const SESSIONS_DIR_NAME: &str = "sessions";
 const METADATA_FILE_NAME: &str = "metadata.json";
 const MESSAGES_FILE_NAME: &str = "messages.jsonl";
+const LCM_DB_FILE_NAME: &str = "lcm.db";
 const WORKSPACE_DIR_NAME: &str = "workspace";
 
 pub fn agentjax_home_dir() -> Result<PathBuf, String> {
@@ -55,6 +56,10 @@ pub fn ensure_session_layout(conversation_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub fn conversation_lcm_db_path(conversation_id: &str) -> Result<PathBuf, String> {
+    Ok(conversation_dir_path(conversation_id)?.join(LCM_DB_FILE_NAME))
+}
+
 pub fn list_conversation_ids() -> Result<Vec<String>, String> {
     let dir = ensure_conversations_dir()?;
     let mut out = Vec::new();
@@ -69,9 +74,13 @@ pub fn list_conversation_ids() -> Result<Vec<String>, String> {
         if !path.is_dir() {
             continue;
         }
+        // Accept conversation if it has EITHER legacy files OR an LCM database.
         let metadata = path.join(METADATA_FILE_NAME);
         let messages = path.join(MESSAGES_FILE_NAME);
-        if !metadata.exists() || !messages.exists() {
+        let lcm_db = path.join(LCM_DB_FILE_NAME);
+        let has_legacy = metadata.exists() && messages.exists();
+        let has_lcm = lcm_db.exists();
+        if !has_legacy && !has_lcm {
             continue;
         }
         if let Some(name) = path.file_name().and_then(|s| s.to_str()) {

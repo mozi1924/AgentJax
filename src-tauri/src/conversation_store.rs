@@ -27,6 +27,7 @@ pub use mutations::{
 };
 #[cfg(test)]
 pub use paths::conversation_dir_path;
+pub use paths::conversation_lcm_db_path;
 pub use paths::conversation_workspace_path;
 pub use queries::{
     list_conversations, load_conversation, load_conversation_dynamic_tools,

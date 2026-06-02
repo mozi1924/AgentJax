@@ -72,7 +72,26 @@ fn ensure_conversation_inner(conversation_id: &str) -> Result<ConversationMeta, 
     ensure_session_layout(conversation_id)?;
     write_conversation_file(&metadata_path, &messages_path, &data)?;
     replace_cached_summary(conversation_id, summary_from_meta(&data.meta))?;
+
+    // Also ensure LCM conversation metadata exists (immutable store).
+    let _ = ensure_lcm_conversation_meta(conversation_id);
+
     Ok(data.meta)
+}
+
+/// Ensure LCM conversation_meta row exists for this conversation.
+fn ensure_lcm_conversation_meta(conversation_id: &str) -> Result<(), String> {
+    let db_path = match crate::conversation_store::paths::conversation_lcm_db_path(conversation_id) {
+        Ok(p) => p,
+        Err(_) => return Ok(()),
+    };
+    let lcm_config = crate::lcm::LcmConfig::default();
+    let store = crate::lcm::LcmStore::open(&db_path, lcm_config)
+        .map_err(|e| format!("Failed to open LCM store: {e}"))?;
+    store
+        .ensure_conversation_meta(conversation_id)
+        .map_err(|e| format!("Failed to ensure LCM meta: {e}"))?;
+    Ok(())
 }
 
 // ── Append line ───────────────────────────────────────────────────────────
