@@ -17,7 +17,6 @@
 //!
 //! Root agents and read-only explore agents are exempt from this invariant.
 
-use crate::config::AppConfig;
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::provider_api::types::{
     ProviderPendingToolCall, ProviderStreamEvent, ResponseStreamRequest,

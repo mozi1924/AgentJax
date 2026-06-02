@@ -3,6 +3,7 @@ use crate::provider_api::types::ResponseStreamRequest;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
+#[cfg(test)]
 pub(super) fn build_base_context(
     developer_items: Vec<Value>,
     recovery_note: Option<Value>,
