@@ -9,24 +9,19 @@
 //!
 //! - Operator-Level Recursion (§3.1, Figure 4):
 //!   - `llm_map` — parallel stateless LLM calls over a JSONL file
-//!   - `agentic_map` — parallel sub-agent sessions over a JSONL file
 //!
 //! - Delegation (§3.2):
 //!   - `task` — delegate to a sub-agent with scope-narrowing invariant
 
-pub mod agentic_map;
 pub mod describe;
 pub mod expand;
 pub mod grep;
 pub mod llm_map;
-pub mod task;
 
-pub use agentic_map::AgenticMapTool;
 pub use describe::LcmDescribeTool;
 pub use expand::LcmExpandTool;
 pub use grep::LcmGrepTool;
 pub use llm_map::LlmMapTool;
-pub use task::TaskTool;
 
 use crate::lcm::LcmStore;
 use crate::tools::ToolExecutionContext;

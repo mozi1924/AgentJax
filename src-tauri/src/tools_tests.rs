@@ -852,9 +852,9 @@ mod tests {
         let snapshot = catalog.snapshot(&ctx).await;
 
         // Native: 7 default + SubAgentTool + background_task = 9
-        // Context: 3 LCM operator + 2 memory (search, recall; write gated) = 5
-        // (LCM history tools — grep, describe, expand — are wired later via set_context_tools)
-        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT + 6);
+        // Context: 1 LCM operator (llm_map) + 2 memory (search, recall; write gated) = 3
+        // (task/agentic_map removed in favor of sub_agent tool; LCM history tools — grep, describe, expand — are wired later via set_context_tools)
+        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT + 4);
         // Verify sub_agent is a native tool (not context).
         assert!(snapshot.active_tool_names().contains("sub_agent"));
         // Verify memory tools: search and recall are available, write is gated.
@@ -1842,24 +1842,6 @@ rl.on('line', (line) => {
     }
 
     #[tokio::test]
-    async fn test_catalog_includes_agentic_map() {
-        let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
-        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
-
-        assert!(
-            snapshot.active_tool_names().contains("agentic_map"),
-            "agentic_map should be in the tool catalog"
-        );
-        let schema = snapshot
-            .schemas()
-            .iter()
-            .find(|s| s.get("name").and_then(|v| v.as_str()) == Some("agentic_map"))
-            .expect("agentic_map schema");
-        assert!(schema["description"].as_str().unwrap_or("").contains("sub-agent"));
-    }
-
-    #[tokio::test]
     async fn test_llm_map_rejects_empty_input() {
         let tool = crate::lcm::LlmMapTool;
         let ctx = ToolExecutionContext::default();
@@ -1873,16 +1855,4 @@ rl.on('line', (line) => {
         assert!(result.is_err(), "llm_map should fail without conversation context");
     }
 
-    #[tokio::test]
-    async fn test_agentic_map_rejects_empty_input() {
-        let tool = crate::lcm::AgenticMapTool;
-        let ctx = ToolExecutionContext::default();
-        let args = serde_json::json!({
-            "inputPath": "/nonexistent/file.jsonl",
-            "prompt": "Analyze: {input}",
-            "outputPath": "/tmp/out.jsonl"
-        });
-        let result = tool.execute(&args, &ctx).await;
-        assert!(result.is_err(), "agentic_map should fail without conversation context");
-    }
 }

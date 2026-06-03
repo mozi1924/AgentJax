@@ -67,11 +67,9 @@ impl ToolCatalog {
         mcp_manager: Arc<crate::mcp::McpManager>,
         config: &crate::config::AppConfig,
     ) -> Self {
-        use crate::lcm::{LlmMapTool, AgenticMapTool, TaskTool};
+        use crate::lcm::LlmMapTool;
         let mut context_tools: Vec<Arc<dyn Tool>> = Vec::new();
         context_tools.push(Arc::new(LlmMapTool));
-        context_tools.push(Arc::new(AgenticMapTool));
-        context_tools.push(Arc::new(TaskTool));
         // Memory tools
         context_tools.push(Arc::new(MemoryWriteTool));
         context_tools.push(Arc::new(MemorySearchTool));
@@ -508,11 +506,9 @@ impl ToolCatalog {
     /// Context tools provide the model with access to the immutable
     /// conversation history (lcm_grep, lcm_describe, lcm_expand).
     pub fn set_context_tools(&mut self, lcm_store: Arc<crate::lcm::LcmStore>) {
-        use crate::lcm::{AgenticMapTool, LcmDescribeTool, LcmExpandTool, LcmGrepTool, LlmMapTool, TaskTool};
+        use crate::lcm::{LcmDescribeTool, LcmExpandTool, LcmGrepTool, LlmMapTool};
         self.context_tools = vec![
             Arc::new(LlmMapTool),
-            Arc::new(AgenticMapTool),
-            Arc::new(TaskTool),
             Arc::new(MemoryWriteTool),
             Arc::new(MemorySearchTool),
             Arc::new(MemoryRecallTool),

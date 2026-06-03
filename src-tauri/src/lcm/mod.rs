@@ -47,7 +47,7 @@ pub use compaction::{NoopSummarizer, Summarizer};
 pub use engine::LcmEngine;
 pub use store::LcmStore;
 pub use summarizer::ProviderSummarizer;
-pub use tools::{AgenticMapTool, LcmDescribeTool, LcmExpandTool, LcmGrepTool, LlmMapTool, TaskTool};
+pub use tools::{LcmDescribeTool, LcmExpandTool, LcmGrepTool, LlmMapTool};
 pub use types::*;
 
 use crate::error::{AgentJaxError, AgentJaxResult};

@@ -26,7 +26,7 @@
 //!   outlive individual Tauri command invocations.
 //! - **Reuse `AgentRuntime::run_turn`** — sub-agents get full multi-hop tool-using
 //!   capability for free.
-//! - **Scope-narrowing invariant** (from `lcm/tools/task.rs`) — non-root sub-agents
+//! - **Scope-narrowing invariant** (from `sub_agent_tools.rs`) — non-root sub-agents
 //!   must declare `delegated_scope` and `kept_work` to prevent infinite delegation
 //!   chains.
 
