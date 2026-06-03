@@ -427,8 +427,10 @@ mod tests {
 
     #[test]
     fn test_large_file_explored() {
-        let mut config = LcmConfig::default();
-        config.large_file_token_threshold = 5; // Very low threshold for testing.
+        let config = LcmConfig {
+            large_file_token_threshold: 5, // Very low threshold for testing.
+            ..Default::default()
+        };
         let handler = FileHandler::new(&config);
 
         let content = "This is a long text that exceeds the threshold for large file detection and should be explored.";
@@ -443,8 +445,10 @@ mod tests {
 
     #[test]
     fn test_json_exploration() {
-        let mut config = LcmConfig::default();
-        config.large_file_token_threshold = 5;
+        let config = LcmConfig {
+            large_file_token_threshold: 5,
+            ..Default::default()
+        };
         let handler = FileHandler::new(&config);
 
         let content = r#"{"name": "Alice", "age": 30, "city": "New York", "skills": ["rust", "python"]}"#;
@@ -461,8 +465,10 @@ mod tests {
 
     #[test]
     fn test_csv_exploration() {
-        let mut config = LcmConfig::default();
-        config.large_file_token_threshold = 5;
+        let config = LcmConfig {
+            large_file_token_threshold: 5,
+            ..Default::default()
+        };
         let handler = FileHandler::new(&config);
 
         let content = "name,age,city\nAlice,30,New York\nBob,25,London\n";
@@ -478,8 +484,10 @@ mod tests {
 
     #[test]
     fn test_code_exploration() {
-        let mut config = LcmConfig::default();
-        config.large_file_token_threshold = 5;
+        let config = LcmConfig {
+            large_file_token_threshold: 5,
+            ..Default::default()
+        };
         let handler = FileHandler::new(&config);
 
         let content = "fn main() {\n    println!(\"Hello\");\n}\n\npub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\nstruct User {\n    name: String,\n}\n";
@@ -507,8 +515,10 @@ mod tests {
 
     #[test]
     fn test_register_file_above_threshold() {
-        let mut config = LcmConfig::default();
-        config.large_file_token_threshold = 1;
+        let config = LcmConfig {
+            large_file_token_threshold: 1,
+            ..Default::default()
+        };
         let handler = FileHandler::new(&config);
 
         let content = "some content that is above the threshold";

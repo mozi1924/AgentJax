@@ -1115,9 +1115,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_below_soft_threshold_no_compaction() {
-        let mut config = LcmConfig::default();
-        config.soft_token_threshold = 10000; // Very high.
-        config.hard_token_threshold = 20000;
+        let config = LcmConfig {
+            soft_token_threshold: 10000, // Very high.
+            hard_token_threshold: 20000,
+            ..Default::default()
+        };
         let store = Arc::new(LcmStore::open_in_memory(config.clone()).unwrap());
         let engine = LcmEngine::new_for_testing(store, config);
 

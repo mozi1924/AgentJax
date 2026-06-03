@@ -67,9 +67,11 @@ mod tests {
 
     #[test]
     fn keeps_unresolved_model_refs_during_normalize() {
-        let mut cfg = AppConfig::default();
-        cfg.default_model = "cm/gpt-5.4-mini".to_string();
-        cfg.utility_small_model = "cm/gpt-5.4-mini".to_string();
+        let cfg = AppConfig {
+            default_model: "cm/gpt-5.4-mini".to_string(),
+            utility_small_model: "cm/gpt-5.4-mini".to_string(),
+            ..Default::default()
+        };
 
         let normalized = cfg.normalize();
         assert_eq!(normalized.default_model, "cm/gpt-5.4-mini");
@@ -78,9 +80,11 @@ mod tests {
 
     #[test]
     fn resolve_profile_falls_back_to_first_enabled_model_when_defaults_are_unresolved() {
-        let mut cfg = AppConfig::default();
-        cfg.default_model = "cm/gpt-5.4-mini".to_string();
-        cfg.utility_small_model = "cm/gpt-5.4-mini".to_string();
+        let cfg = AppConfig {
+            default_model: "cm/gpt-5.4-mini".to_string(),
+            utility_small_model: "cm/gpt-5.4-mini".to_string(),
+            ..Default::default()
+        };
 
         let normalized = cfg.normalize();
         let resolved = normalized
@@ -233,6 +237,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn provider_normalize_accepts_legacy_snake_case_custom_settings() {
         let mut provider = ProviderConfig::default();
         provider.kind = "openai-responses".to_string();
@@ -509,11 +514,16 @@ mod tests {
         register_plugin_provider(plugin_provider);
 
         // Create an AppConfig where the provider config is registered but custom_settings is empty
-        let mut cfg = AppConfig::default();
-        let mut provider_cfg = ProviderConfig::default();
-        provider_cfg.kind = "custom-oauth-llm".to_string();
-        cfg.providers
-            .insert("custom-oauth-llm".to_string(), provider_cfg);
+        let provider_cfg = ProviderConfig {
+            kind: "custom-oauth-llm".to_string(),
+            ..Default::default()
+        };
+        let cfg = AppConfig {
+            providers: [("custom-oauth-llm".to_string(), provider_cfg)]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
 
         // Normalize
         let normalized = cfg.normalize();
@@ -555,9 +565,11 @@ mod tests {
 
     #[test]
     fn test_config_yaml_serialization_order_and_abbreviation() {
-        let mut cfg = AppConfig::default();
-        cfg.language = "zh-CN".to_string();
-        cfg.active_provider = "custom".to_string();
+        let cfg = AppConfig {
+            language: "zh-CN".to_string(),
+            active_provider: "custom".to_string(),
+            ..Default::default()
+        };
         
         let yaml = serialize_config_to_yaml(&cfg).expect("serialize config");
         

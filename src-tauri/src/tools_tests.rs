@@ -246,6 +246,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let reader = FileReaderTool;
         let writer = FileWriterTool;
         let conversation_a = format!("test-workspace-a-{}", uuid::Uuid::new_v4());
@@ -280,6 +281,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -320,6 +322,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -379,6 +382,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -422,6 +426,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -454,6 +459,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -499,6 +505,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -531,6 +538,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -586,6 +594,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -713,6 +722,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -1079,6 +1089,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let conversation_id = format!("test-dynamic-tools-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).expect("ensure conversation");
         conversation_store::update_conversation_dynamic_tools(
@@ -1138,6 +1149,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let conversation_id = format!("test-dynamic-mcp-tools-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).expect("ensure conversation");
         conversation_store::update_conversation_dynamic_tools(
@@ -1321,6 +1333,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let home = setup_test_home();
+        drop(_guard);
         let plugin_dir = home.home.join("plugins").join("home-demo");
         std::fs::create_dir_all(&plugin_dir).expect("create plugin dir");
         std::fs::write(
@@ -1392,6 +1405,7 @@ globalThis.AgentJaxPlugin = {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
         let conversation_id = format!("test-mounted-mcp-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).expect("ensure conversation");
         conversation_store::update_conversation_mounted_tool_sources(
@@ -1444,6 +1458,7 @@ globalThis.AgentJaxPlugin = {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
+        drop(_guard);
 
         let mut config = AppConfig::default();
         config.mcp_servers.insert(
@@ -1591,30 +1606,32 @@ globalThis.AgentJaxPlugin = {
             sandbox: SandboxPolicy::default(),
         };
 
-        let mut config = AppConfig::default();
-        config.tool_manager = ToolManagerConfig {
-            native_tools: [(
-                "calculator".to_string(),
-                ToolEnabledConfig { enabled: false },
-            )]
-            .into_iter()
-            .collect(),
-            plugin_tools: [(
-                "local.demo".to_string(),
-                ToolSourcePolicyConfig {
-                    enabled: true,
-                    tools: [(
-                        "say_hello".to_string(),
-                        ToolEnabledConfig { enabled: false },
-                    )]
-                    .into_iter()
-                    .collect(),
-                },
-            )]
-            .into_iter()
-            .collect(),
-            mcp_tools: Default::default(),
-            context_tools: Default::default(),
+        let config = AppConfig {
+            tool_manager: ToolManagerConfig {
+                native_tools: [(
+                    "calculator".to_string(),
+                    ToolEnabledConfig { enabled: false },
+                )]
+                .into_iter()
+                .collect(),
+                plugin_tools: [(
+                    "local.demo".to_string(),
+                    ToolSourcePolicyConfig {
+                        enabled: true,
+                        tools: [(
+                            "say_hello".to_string(),
+                            ToolEnabledConfig { enabled: false },
+                        )]
+                        .into_iter()
+                        .collect(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+                mcp_tools: Default::default(),
+                context_tools: Default::default(),
+            },
+            ..Default::default()
         };
 
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config)
@@ -1665,6 +1682,7 @@ globalThis.AgentJaxPlugin = {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let home = setup_test_home();
+        drop(_guard);
         let server_script = home.home.join("mock-mcp-server.js");
         std::fs::write(
             &server_script,
