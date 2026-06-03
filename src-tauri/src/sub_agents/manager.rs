@@ -561,6 +561,21 @@ impl SubAgentManager {
         cancelled
     }
 
+    /// Get the specification of a sub-agent by ID.
+    pub fn get_spec(agent_id: &str) -> Option<SubAgentSpec> {
+        let guard = registry()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.get(agent_id).and_then(|task| {
+            task.state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .spec
+                .clone()
+                .into()
+        })
+    }
+
     /// Get a snapshot of a specific sub-agent.
     pub fn status(
         agent_id: &str,

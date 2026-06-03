@@ -51,6 +51,33 @@ pub struct TextFileRead {
 /// Ensures the active conversation workspace exists before any file tool
 /// touches disk.
 pub fn get_workspace_dir(context: &ToolExecutionContext) -> AgentJaxResult<PathBuf> {
+    if let Some(agent_id) = &context.sub_agent_id {
+        if let Some(spec) = crate::sub_agents::manager::SubAgentManager::get_spec(agent_id) {
+            let parent_id = &spec.parent_conversation_id;
+            let dir = if spec.use_worktree {
+                conversation_store::conversation_workspace_path(parent_id)?
+                    .parent()
+                    .ok_or_else(|| agentjax_err!("Invalid parent workspace path", ToolExecution))?
+                    .join("sub_agents")
+                    .join(agent_id)
+                    .join("worktree")
+            } else {
+                conversation_store::conversation_workspace_path(parent_id)?
+            };
+
+            if !dir.exists() {
+                fs::create_dir_all(&dir).map_err(|err| {
+                    AgentJaxError::tool(format!(
+                        "Failed to create workspace directory {}: {err}",
+                        dir.display()
+                    ))
+                    .with_error_source(&err)
+                })?;
+            }
+            return Ok(dir);
+        }
+    }
+
     let dir = if let Some(conversation_id) = context
         .conversation_id
         .as_deref()
@@ -541,4 +568,91 @@ pub fn stat_value(path: &Path, metadata: &fs::Metadata) -> Value {
         "modifiedTimeMs": system_time_to_unix_ms(metadata.modified()),
         "accessedTimeMs": system_time_to_unix_ms(metadata.accessed()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sub_agents::types::{SubAgentSpec, SubAgentType};
+    use crate::sub_agents::manager::SubAgentManager;
+
+    #[test]
+    fn test_get_workspace_dir_for_main_agent() {
+        let context = ToolExecutionContext {
+            conversation_id: Some("test-conv-main".to_string()),
+            ..Default::default()
+        };
+        let res = get_workspace_dir(&context);
+        assert!(res.is_ok());
+        let path = res.unwrap();
+        assert!(path.to_string_lossy().contains("test-conv-main"));
+        assert!(path.to_string_lossy().ends_with("workspace"));
+    }
+
+    #[test]
+    fn test_get_workspace_dir_for_sub_agent_with_worktree() {
+        let spec = SubAgentSpec {
+            agent_id: "test-agent-wt".to_string(),
+            parent_conversation_id: "test-conv-wt".to_string(),
+            subagent_type: SubAgentType::Explore,
+            prompt: "test".to_string(),
+            delegated_scope: vec![],
+            kept_work: vec![],
+            max_turns: 5,
+            max_retries: 0,
+            use_worktree: true,
+            model_id: None,
+            parent_request_id: "test-req".to_string(),
+            persistent: false,
+        };
+        let _task = SubAgentManager::register(spec);
+
+        let context = ToolExecutionContext {
+            conversation_id: Some("test-conv-wt/sub-agent/explore/test-agent-wt".to_string()),
+            sub_agent_id: Some("test-agent-wt".to_string()),
+            ..Default::default()
+        };
+
+        let res = get_workspace_dir(&context);
+        assert!(res.is_ok());
+        let path = res.unwrap();
+        let path_str = path.to_string_lossy();
+        assert!(path_str.contains("test-conv-wt"));
+        assert!(path_str.contains("sub_agents"));
+        assert!(path_str.contains("test-agent-wt"));
+        assert!(path_str.ends_with("worktree"));
+    }
+
+    #[test]
+    fn test_get_workspace_dir_for_sub_agent_without_worktree() {
+        let spec = SubAgentSpec {
+            agent_id: "test-agent-nowt".to_string(),
+            parent_conversation_id: "test-conv-nowt".to_string(),
+            subagent_type: SubAgentType::GeneralPurpose,
+            prompt: "test".to_string(),
+            delegated_scope: vec![],
+            kept_work: vec![],
+            max_turns: 5,
+            max_retries: 0,
+            use_worktree: false,
+            model_id: None,
+            parent_request_id: "test-req".to_string(),
+            persistent: false,
+        };
+        let _task = SubAgentManager::register(spec);
+
+        let context = ToolExecutionContext {
+            conversation_id: Some("test-conv-nowt/sub-agent/general/test-agent-nowt".to_string()),
+            sub_agent_id: Some("test-agent-nowt".to_string()),
+            ..Default::default()
+        };
+
+        let res = get_workspace_dir(&context);
+        assert!(res.is_ok());
+        let path = res.unwrap();
+        let path_str = path.to_string_lossy();
+        assert!(path_str.contains("test-conv-nowt"));
+        assert!(path_str.ends_with("workspace"));
+        assert!(!path_str.contains("sub_agents"));
+    }
 }
