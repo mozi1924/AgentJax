@@ -687,11 +687,10 @@ impl LcmEngine {
         if let Some(msg) = messages.first() {
             return Ok(msg.conversation_id.clone());
         }
-        if let Some(sid) = summary_ids.first() {
-            if let Some(summary) = self.store.get_summary(sid)? {
+        if let Some(sid) = summary_ids.first()
+            && let Some(summary) = self.store.get_summary(sid)? {
                 return Ok(summary.conversation_id);
             }
-        }
         Err(LcmError::Compaction(
             "Cannot infer conversation ID for compaction".to_string(),
         ))
@@ -763,7 +762,7 @@ impl LcmEngine {
 
             let is_in_old_block = entry_id
                 .as_ref()
-                .map_or(false, |id| old_ids.contains(id));
+                .is_some_and(|id| old_ids.contains(id));
 
             if !replaced && is_in_old_block {
                 if !skip_until_done {
@@ -793,7 +792,7 @@ impl LcmEngine {
                         }
                         _ => None,
                     };
-                    !id.map_or(false, |i| old_ids.contains(&i))
+                    !id.is_some_and(|i| old_ids.contains(&i))
                 })
                 .cloned()
                 .collect();
@@ -839,8 +838,8 @@ impl LcmEngine {
                 Some(summary_id) => {
                     // This message is covered by a summary — show the summary
                     // pointer instead of the raw message.
-                    if seen_summaries.insert(summary_id.to_string()) {
-                        if let Some(summary) = self.store.get_summary(summary_id)? {
+                    if seen_summaries.insert(summary_id.to_string())
+                        && let Some(summary) = self.store.get_summary(summary_id)? {
                             let children = self.store.get_summary_children(summary_id)?;
                             let child_ids: Vec<LcmId> = children
                                 .iter()
@@ -867,7 +866,6 @@ impl LcmEngine {
                             entries.push(entry);
                             active_ids.insert(summary_id.to_string());
                         }
-                    }
                 }
                 None => {
                     // Raw message — include directly.

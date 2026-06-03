@@ -198,14 +198,12 @@ impl FileExplorer for JsonExplorer {
             if let Some(first_valid) = lines
                 .iter()
                 .find(|line| serde_json::from_str::<serde_json::Value>(line).is_ok())
-            {
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(first_valid) {
+                && let Ok(val) = serde_json::from_str::<serde_json::Value>(first_valid) {
                     summary.push_str(&format!(
                         "Sample record shape: {}\n",
                         describe_json_type(&val)
                     ));
                 }
-            }
         }
 
         summary.push_str(&format!(

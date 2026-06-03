@@ -19,16 +19,6 @@ pub struct ToolProgressPersistInput<'a> {
     pub completed_at_unix_ms: Option<i64>,
 }
 
-/// Persist a tool-call event during streaming.  Called from the provider
-/// stream callback so that tool state survives crashes.
-///
-/// - `event_kind == "tool_call_started"` → append a `ToolLine` with
-///   `status: Pending` before arguments are complete.
-/// - `event_kind == "tool_call_done"` → ensure the pending line exists and
-///   merge finalized arguments onto it.
-/// - `event_kind == "tool_call_exec"` → update the matching `ToolLine`
-///   with the output, terminal status, and exact execution timestamps.
-
 fn is_successful_tool_output(output: &Value) -> bool {
     match output {
         Value::Object(map) => {
@@ -41,6 +31,15 @@ fn is_successful_tool_output(output: &Value) -> bool {
     }
 }
 
+/// Persist a tool-call event during streaming.  Called from the provider
+/// stream callback so that tool state survives crashes.
+///
+/// - `event_kind == "tool_call_started"` → append a `ToolLine` with
+///   `status: Pending` before arguments are complete.
+/// - `event_kind == "tool_call_done"` → ensure the pending line exists and
+///   merge finalized arguments onto it.
+/// - `event_kind == "tool_call_exec"` → update the matching `ToolLine`
+///   with the output, terminal status, and exact execution timestamps.
 pub fn persist_tool_progress_event(
     input: ToolProgressPersistInput<'_>,
     jsonl_backup_enabled: bool,

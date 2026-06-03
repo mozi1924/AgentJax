@@ -44,16 +44,14 @@ impl LocalTokenizerManager {
 
     fn get_or_load_tokenizer(&self, model: &str) -> crate::error::AgentJaxResult<Arc<Tokenizer>> {
         let tokenizer_id = tokenizer_id_for_model(model)?;
-        if let Ok(cache) = self.cache.lock() {
-            if let Some(tokenizer) = cache.get(tokenizer_id) {
+        if let Ok(cache) = self.cache.lock()
+            && let Some(tokenizer) = cache.get(tokenizer_id) {
                 return Ok(Arc::clone(tokenizer));
             }
-        }
-        if let Ok(failed_loads) = self.failed_loads.lock() {
-            if let Some(err) = failed_loads.get(tokenizer_id) {
+        if let Ok(failed_loads) = self.failed_loads.lock()
+            && let Some(err) = failed_loads.get(tokenizer_id) {
                 return Err(AgentJaxError::internal(err.clone()));
             }
-        }
 
         let tokenizer = match Tokenizer::from_pretrained(tokenizer_id, None) {
             Ok(tokenizer) => Arc::new(tokenizer),

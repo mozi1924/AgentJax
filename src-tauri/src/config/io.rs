@@ -28,8 +28,7 @@ pub struct ConfigUpgradeResult {
 }
 
 pub fn config_dir_path() -> AgentJaxResult<PathBuf> {
-    crate::agentjax_home::agentjax_home_dir().map_err(Into::into)
-}
+    crate::agentjax_home::agentjax_home_dir()}
 
 pub fn init_config_if_missing() -> AgentJaxResult<PathBuf> {
     let dir = config_dir_path()?;

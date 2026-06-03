@@ -328,6 +328,7 @@ pub fn get_model_metadata(
 /// Shared finalization: call the plugin's `finalizeStream`, collect results,
 /// and build the `ResponseStreamResult`. Extracted from the SSE and WebSocket
 /// paths to avoid ~50 lines of duplicated code.
+#[allow(clippy::too_many_arguments)]
 fn finalize_and_build_result(
     package: &PluginPackage,
     provider_kind: &str,
@@ -524,13 +525,11 @@ async fn stream_websocket_request(
     for (key, value) in &request.headers {
         let key = key.trim();
         let value = value.trim();
-        if !key.is_empty() && !value.is_empty() {
-            if let Ok(header_name) = tokio_tungstenite::tungstenite::http::header::HeaderName::from_bytes(key.as_bytes()) {
-                if let Ok(header_value) = tokio_tungstenite::tungstenite::http::header::HeaderValue::from_str(value) {
+        if !key.is_empty() && !value.is_empty()
+            && let Ok(header_name) = tokio_tungstenite::tungstenite::http::header::HeaderName::from_bytes(key.as_bytes())
+                && let Ok(header_value) = tokio_tungstenite::tungstenite::http::header::HeaderValue::from_str(value) {
                     ws_req.headers_mut().insert(header_name, header_value);
                 }
-            }
-        }
     }
 
     let (ws_stream, _) = connect_async(ws_req)

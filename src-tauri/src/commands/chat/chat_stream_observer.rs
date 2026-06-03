@@ -109,8 +109,8 @@ impl ChatStreamObserver {
                 text,
                 phase,
                 response_id,
-            } => {
-                if *phase == Some(crate::message_phase::AssistantPhase::Commentary) {
+            }
+                if *phase == Some(crate::message_phase::AssistantPhase::Commentary) => {
                     let _ = persist_assistant_line(
                         &self.conversation_id,
                         &self.request_id,
@@ -121,7 +121,6 @@ impl ChatStreamObserver {
                     );
                     self.add_text_tokens(text);
                 }
-            }
             ProviderStreamEvent::HopAssistantText {
                 text,
                 phase,
@@ -152,8 +151,8 @@ impl ChatStreamObserver {
         if let Some(latest_usage_record) = response.usage_hops.last() {
             self.visible_token_count
                 .store(latest_usage_record.usage.total_tokens, Ordering::Relaxed);
-            if self.jsonl_backup_enabled {
-                if let Err(err) = conversation_store::update_conversation_token_usage(
+            if self.jsonl_backup_enabled
+                && let Err(err) = conversation_store::update_conversation_token_usage(
                     &self.conversation_id,
                     &self.request_id,
                     &latest_usage_record.response_id,
@@ -169,7 +168,6 @@ impl ChatStreamObserver {
                     err
                 );
                 }
-            }
         } else {
             let fallback_total = self.fallback_token_count.load(Ordering::Relaxed);
             self.visible_token_count
@@ -179,8 +177,8 @@ impl ChatStreamObserver {
                 completion_tokens: 0,
                 total_tokens: fallback_total,
             };
-            if self.jsonl_backup_enabled {
-                if let Err(err) = conversation_store::update_conversation_token_usage(
+            if self.jsonl_backup_enabled
+                && let Err(err) = conversation_store::update_conversation_token_usage(
                     &self.conversation_id,
                     &self.request_id,
                     &response.response_id,
@@ -196,7 +194,6 @@ impl ChatStreamObserver {
                         err
                     );
                 }
-            }
         }
 
         self.visible_token_count.load(Ordering::Relaxed)

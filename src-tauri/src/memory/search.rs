@@ -86,7 +86,7 @@ pub fn search_memories(
     }
 
     // Sort by score descending.
-    results.sort_by(|a, b| b.score.cmp(&a.score));
+    results.sort_by_key(|b| std::cmp::Reverse(b.score));
     results.truncate(max_results.max(1));
 
     Ok(results)

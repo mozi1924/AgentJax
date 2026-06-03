@@ -10,8 +10,7 @@ const LCM_DB_FILE_NAME: &str = "lcm.db";
 const WORKSPACE_DIR_NAME: &str = "workspace";
 
 pub fn agentjax_home_dir() -> AgentJaxResult<PathBuf> {
-    crate::agentjax_home::agentjax_home_dir().map_err(Into::into)
-}
+    crate::agentjax_home::agentjax_home_dir()}
 
 pub fn conversations_dir_path() -> AgentJaxResult<PathBuf> {
     Ok(agentjax_home_dir()?.join(SESSIONS_DIR_NAME))
@@ -85,11 +84,10 @@ pub fn list_conversation_ids() -> AgentJaxResult<Vec<String>> {
         if !has_legacy && !has_lcm {
             continue;
         }
-        if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-            if !name.trim().is_empty() {
+        if let Some(name) = path.file_name().and_then(|s| s.to_str())
+            && !name.trim().is_empty() {
                 out.push(name.to_string());
             }
-        }
     }
 
     Ok(out)

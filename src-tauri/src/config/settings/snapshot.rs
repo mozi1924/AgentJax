@@ -65,7 +65,7 @@ fn redact_secret_values(
                     .is_some();
                 let env_credential = provider_config
                     .and_then(|entry| {
-                        std::env::var(&entry.credential_env())
+                        std::env::var(entry.credential_env())
                             .ok()
                             .map(|value| value.trim().to_string())
                     })

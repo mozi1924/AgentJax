@@ -26,6 +26,7 @@ use std::collections::HashMap;
 /// Well-known points in the context assembly lifecycle where plugins can
 /// register callbacks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(clippy::enum_variant_names)]
 pub enum ContextHookPoint {
     /// After conversation history is loaded and transformed to input items,
     /// but before truncation. Receives the full item list.
@@ -168,7 +169,7 @@ impl HookRegistry {
 
     /// Check whether any hooks are registered at the given point.
     pub fn has_hooks(&self, point: ContextHookPoint) -> bool {
-        self.hooks.get(&point).map_or(false, |hooks| !hooks.is_empty())
+        self.hooks.get(&point).is_some_and(|hooks| !hooks.is_empty())
     }
 
     /// Return all hooks registered at the given point.
@@ -202,13 +203,11 @@ impl HookRegistry {
         data: &ToolResultData,
     ) -> Option<ToolResultTransform> {
         for hook in self.hooks_at(ContextHookPoint::OnToolResult) {
-            if let ContextHook::ToolResult { plugin_id: pid, handler } = hook {
-                if pid == plugin_id {
-                    if let Some(transform) = handler(data) {
+            if let ContextHook::ToolResult { plugin_id: pid, handler } = hook
+                && pid == plugin_id
+                    && let Some(transform) = handler(data) {
                         return Some(transform);
                     }
-                }
-            }
         }
         None
     }

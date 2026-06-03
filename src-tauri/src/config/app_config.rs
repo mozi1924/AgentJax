@@ -22,8 +22,8 @@ impl ProviderConfig {
 
         // Auto-complete custom_settings fields dynamically using registered config schema
         if let Some(definition) = registry::provider_definition(&self.kind) {
-            if let Some(obj) = definition.config_schema.as_object() {
-                if let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {
+            if let Some(obj) = definition.config_schema.as_object()
+                && let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {
                     for (key, property_schema) in properties {
                         if !self.custom_settings.contains_key(key) {
                             let default_val = property_schema
@@ -34,7 +34,6 @@ impl ProviderConfig {
                         }
                     }
                 }
-            }
 
             // Auto-complete models if completely empty
             if self.models.is_empty() {
@@ -178,7 +177,7 @@ impl ProviderConfig {
             .map(ToOwned::to_owned);
 
         from_config.or_else(|| {
-            std::env::var(&self.credential_env())
+            std::env::var(self.credential_env())
                 .ok()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
@@ -449,8 +448,8 @@ impl AppConfig {
             .providers
             .values()
             .any(|provider| provider.models.values().any(|model| model.enabled));
-        if !has_any_model {
-            if let Some(provider) = self.providers.get_mut(&self.active_provider) {
+        if !has_any_model
+            && let Some(provider) = self.providers.get_mut(&self.active_provider) {
                 let fallback_model_id = registry::provider_definition(&provider.kind)
                     .and_then(|definition| definition.default_model_ids.first().cloned())
                     .unwrap_or_else(|| "gpt-5-mini".to_string());
@@ -463,7 +462,6 @@ impl AppConfig {
                     },
                 );
             }
-        }
 
         self.default_model = self.default_model.trim().to_string();
         if self.default_model.is_empty() {
@@ -512,11 +510,10 @@ impl AppConfig {
     ) -> Option<(String, ProviderConfig, String, ProviderModelConfig)> {
         let (provider_key, requested_model) = parse_model_ref(full_ref)?;
         let provider = self.providers.get(&provider_key)?.clone();
-        if let Some(model_cfg) = provider.models.get(&requested_model).cloned() {
-            if model_cfg.enabled {
+        if let Some(model_cfg) = provider.models.get(&requested_model).cloned()
+            && model_cfg.enabled {
                 return Some((provider_key, provider, requested_model, model_cfg));
             }
-        }
 
         let matched = provider.models.iter().find_map(|(model_key, model_cfg)| {
             if model_cfg.enabled && model_key == &requested_model {

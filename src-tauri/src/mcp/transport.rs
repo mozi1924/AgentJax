@@ -103,11 +103,10 @@ fn resolve_stdio_executable(
 
     for base in std::env::split_paths(&path_value) {
         let candidate = base.join(trimmed);
-        if candidate.is_file() {
-            if let Some(resolved) = path_to_string(&candidate) {
+        if candidate.is_file()
+            && let Some(resolved) = path_to_string(&candidate) {
                 return resolved;
             }
-        }
     }
 
     trimmed.to_string()
@@ -115,6 +114,30 @@ fn resolve_stdio_executable(
 
 fn path_to_string(path: &Path) -> Option<String> {
     path.to_str().map(ToOwned::to_owned)
+}
+
+fn strip_bearer_prefix(token: &str) -> String {
+    token
+        .trim()
+        .strip_prefix("Bearer ")
+        .or_else(|| token.trim().strip_prefix("bearer "))
+        .unwrap_or(token.trim())
+        .to_string()
+}
+
+fn parse_headers(
+    headers: &std::collections::BTreeMap<String, String>,
+) -> AgentJaxResult<HashMap<reqwest::header::HeaderName, reqwest::header::HeaderValue>> {
+    let mut parsed = HashMap::new();
+    for (name, value) in headers {
+        let header_name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
+            .map_err(|e| AgentJaxError::config(format!("Invalid HTTP header name '{name}': {e}")).with_error_source(&e))?;
+        let header_value = reqwest::header::HeaderValue::from_str(value)
+            .map_err(|e| AgentJaxError::config(format!("Invalid HTTP header value for '{name}': {e}")).with_error_source(&e))?;
+        parsed.insert(header_name, header_value);
+    }
+
+    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -153,28 +176,4 @@ mod tests {
         let _ = std::fs::remove_file(&executable_path);
         let _ = std::fs::remove_dir_all(&dir);
     }
-}
-
-fn strip_bearer_prefix(token: &str) -> String {
-    token
-        .trim()
-        .strip_prefix("Bearer ")
-        .or_else(|| token.trim().strip_prefix("bearer "))
-        .unwrap_or(token.trim())
-        .to_string()
-}
-
-fn parse_headers(
-    headers: &std::collections::BTreeMap<String, String>,
-) -> AgentJaxResult<HashMap<reqwest::header::HeaderName, reqwest::header::HeaderValue>> {
-    let mut parsed = HashMap::new();
-    for (name, value) in headers {
-        let header_name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
-            .map_err(|e| AgentJaxError::config(format!("Invalid HTTP header name '{name}': {e}")).with_error_source(&e))?;
-        let header_value = reqwest::header::HeaderValue::from_str(value)
-            .map_err(|e| AgentJaxError::config(format!("Invalid HTTP header value for '{name}': {e}")).with_error_source(&e))?;
-        parsed.insert(header_name, header_value);
-    }
-
-    Ok(parsed)
 }

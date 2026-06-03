@@ -92,9 +92,9 @@ pub fn run() {
             );
 
             let config_path =
-                config::init_config_if_missing().map_err(|e| std::io::Error::other(e))?;
+                config::init_config_if_missing().map_err(std::io::Error::other)?;
             let upgrade_result =
-                config::upgrade_config_file().map_err(|e| std::io::Error::other(e))?;
+                config::upgrade_config_file().map_err(std::io::Error::other)?;
             log::info!("Config file ready at {}", config_path.display());
             if upgrade_result.upgraded {
                 log::info!(

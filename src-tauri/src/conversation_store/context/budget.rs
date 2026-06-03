@@ -180,12 +180,11 @@ fn build_tool_pair_map(items: &[serde_json::Value]) -> std::collections::HashSet
         if type_str == "function_call" || type_str == "custom_tool_call" {
             call_ids.insert(call_id, idx);
             pairs.insert(idx);
-        } else if type_str == "function_call_output" || type_str == "custom_tool_call_output" {
-            if let Some(&call_idx) = call_ids.get(call_id) {
+        } else if (type_str == "function_call_output" || type_str == "custom_tool_call_output")
+            && let Some(&call_idx) = call_ids.get(call_id) {
                 pairs.insert(idx);
                 pairs.insert(call_idx);
             }
-        }
     }
 
     pairs
@@ -210,9 +209,7 @@ fn adjust_for_tool_pair_boundary(
         let counterpart_before = (0..start).any(|i| tool_pairs.contains(&i));
         if counterpart_before {
             // Move start back to include the first element of this pair.
-            let pair_start = (0..start)
-                .filter(|i| tool_pairs.contains(i))
-                .last()
+            let pair_start = (0..start).rfind(|i| tool_pairs.contains(i))
                 .unwrap_or(0);
             return pair_start;
         }

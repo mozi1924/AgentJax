@@ -210,6 +210,7 @@ impl CompactionEngine {
     }
 
     /// Create a new SummaryNode with propagated file references.
+    #[allow(clippy::too_many_arguments)]
     pub fn build_summary_node_with_refs(
         id: SummaryId,
         conversation_id: &str,

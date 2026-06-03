@@ -263,7 +263,7 @@ impl Tool for EditFileTool {
         Ok(json!({
             "path": relative_path_display(&resolved.relative_path),
             "operationsApplied": details.len(),
-            "bytesWritten": patched.as_bytes().len(),
+            "bytesWritten": patched.len(),
             "lineCount": count_lines(&patched),
             "details": details,
             "status": "success"

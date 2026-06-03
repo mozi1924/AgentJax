@@ -201,11 +201,10 @@ fn parse_tool_arguments_value(raw: Option<&Value>) -> Value {
         if trimmed.is_empty() {
             return json!({});
         }
-        if let Ok(parsed) = serde_json::from_str::<Value>(trimmed) {
-            if parsed.is_object() {
+        if let Ok(parsed) = serde_json::from_str::<Value>(trimmed)
+            && parsed.is_object() {
                 return parsed;
             }
-        }
         return json!({});
     }
 

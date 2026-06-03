@@ -115,6 +115,7 @@ pub fn conversation_line_exists(conversation_id: &str, line_id: &str) -> crate::
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_conversation_token_usage(
     conversation_id: &str,
     request_id: &str,

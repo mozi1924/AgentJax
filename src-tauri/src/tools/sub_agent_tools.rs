@@ -469,7 +469,8 @@ async fn execute_batch(
 
     let total = items.len();
     let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
-    let results: Arc<std::sync::Mutex<Vec<(usize, String, Option<AgentJaxError>)>>> =
+    type BatchResultVec = Vec<(usize, String, Option<AgentJaxError>)>;
+    let results: Arc<std::sync::Mutex<BatchResultVec>> =
         Arc::new(std::sync::Mutex::new(Vec::with_capacity(total)));
     let completed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let failed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -502,7 +503,7 @@ async fn execute_batch(
         let conv = batch_conv_id.clone();
         let agent_type = subagent_type.clone();
         let event_tx = _batch_event_tx.clone();
-        let output_path = args.output_path.clone();
+        let _output_path = args.output_path.clone();
         let scope = args.delegated_scope.clone();
         let kept = args.kept_work.clone();
         let model = context.model_id.clone();
@@ -592,7 +593,7 @@ async fn execute_batch(
     }
 
     // Sort results by original item index.
-    let mut sorted_results = {
+    let sorted_results = {
         let mut lock = results.lock().unwrap();
         lock.sort_by_key(|(i, _, _)| *i);
         lock.clone()
@@ -795,7 +796,7 @@ mod tests {
         });
         let tool = SubAgentTool;
         let result = tool.execute(&args, &ctx).await.unwrap();
-        assert_eq!(result["ok"].as_bool().unwrap(), true);
+        assert!(result["ok"].as_bool().unwrap());
         assert!(result["agentId"].as_str().unwrap().starts_with("agent_"));
         assert_eq!(result["status"].as_str().unwrap(), "pending");
     }

@@ -83,13 +83,13 @@ impl MemoryStore {
                 Err(_) => continue,
             };
             let path = entry.path();
-            if path.extension().map_or(true, |ext| ext != "md") {
+            if path.extension().is_none_or(|ext| ext != "md") {
                 continue;
             }
             // Skip MEMORY.md (the index file itself).
             if path
                 .file_stem()
-                .map_or(false, |s| s == "MEMORY")
+                .is_some_and(|s| s == "MEMORY")
             {
                 continue;
             }

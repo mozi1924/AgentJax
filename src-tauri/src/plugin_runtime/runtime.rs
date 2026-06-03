@@ -78,13 +78,13 @@ impl Error for PluginRuntimeError {}
 // Unified PluginRuntime trait
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Host-level API for plugin registries.
-///
-/// This trait unifies the responsibilities that were previously split across
-/// `runtime.rs` (tool plugins) and `provider_api::streaming` (provider plugins):
-///
-/// 1. Manifest registration, validation, and discovery
-/// 2. Tool plugin execution (via `AgentJaxPlugin.tools`)
+// Host-level API for plugin registries.
+//
+// This trait unifies the responsibilities that were previously split across
+// `runtime.rs` (tool plugins) and `provider_api::streaming` (provider plugins):
+//
+// 1. Manifest registration, validation, and discovery
+// 2. Tool plugin execution (via `AgentJaxPlugin.tools`)
 // ─────────────────────────────────────────────────────────────────────────────
 // PluginInstance — one persistent JsRuntime per registered plugin
 // ─────────────────────────────────────────────────────────────────────────────
@@ -572,9 +572,7 @@ fn install_execution_timeout(
     runtime: &mut JsRuntime,
     max_execution_ms: Option<u64>,
 ) -> Option<ExecutionTimeoutGuard> {
-    let Some(max_execution_ms) = max_execution_ms else {
-        return None;
-    };
+    let max_execution_ms = max_execution_ms?;
     if max_execution_ms == 0 {
         return None;
     }

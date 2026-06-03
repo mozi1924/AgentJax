@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 /// process on behalf of a plugin, it must check the plugin's sandbox policy.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase")]
+#[derive(Default)]
 pub struct SandboxPolicy {
     #[serde(default)]
     pub allow_file_read: bool,
@@ -28,24 +29,11 @@ pub struct SandboxPolicy {
     pub allowed_hosts: Vec<String>,
 }
 
-impl Default for SandboxPolicy {
-    fn default() -> Self {
-        Self {
-            allow_file_read: false,
-            allow_file_write: false,
-            allow_network: false,
-            allow_process_spawn: false,
-            allow_env_read: false,
-            max_memory_mb: None,
-            max_execution_ms: None,
-            allowed_hosts: Vec::new(),
-        }
-    }
-}
 
 /// Errors returned when a sandbox policy check fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)] // Reserved for future use
+#[allow(clippy::enum_variant_names)]
 pub enum SandboxViolation {
     NetworkNotAllowed,
     HostNotAllowed(String),
@@ -93,13 +81,12 @@ impl SandboxPolicy {
         if !self.allow_network {
             return Err(SandboxViolation::NetworkNotAllowed);
         }
-        if let Some(host) = host {
-            if !self.allowed_hosts.is_empty()
+        if let Some(host) = host
+            && !self.allowed_hosts.is_empty()
                 && !self.allowed_hosts.iter().any(|allowed| host_matches(allowed, host))
             {
                 return Err(SandboxViolation::HostNotAllowed(host.to_string()));
             }
-        }
         Ok(())
     }
 

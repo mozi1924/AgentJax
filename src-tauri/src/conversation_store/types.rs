@@ -90,6 +90,7 @@ pub struct ConversationMountedToolDefinition {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind")]
+#[allow(clippy::large_enum_variant)]
 pub enum ConversationLine {
     #[serde(rename = "user")]
     User(UserLine),
@@ -197,7 +198,7 @@ impl ToolLine {
     }
 
     pub fn completed_at_unix_ms(&self) -> Option<i64> {
-        self.completed_ts.or_else(|| match self.status {
+        self.completed_ts.or(match self.status {
             ToolStatus::Done | ToolStatus::Failed => Some(self.ts),
             ToolStatus::Pending => None,
         })

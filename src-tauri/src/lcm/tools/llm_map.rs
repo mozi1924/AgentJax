@@ -367,7 +367,7 @@ fn validate_against_schema(value: &Value, schema: &Value) -> crate::error::Agent
     if let Some(required) = schema.get("required").and_then(|v| v.as_array()) {
         for key in required {
             let key_str = key.as_str().ok_or_else(|| "Invalid schema: required key is not a string".to_string())?;
-            if !value.get(key_str).is_some() {
+            if value.get(key_str).is_none() {
                 return Err(AgentJaxError::tool(format!("Missing required field: '{key_str}'")));
             }
         }

@@ -68,12 +68,13 @@ impl ToolCatalog {
         config: &crate::config::AppConfig,
     ) -> Self {
         use crate::lcm::LlmMapTool;
-        let mut context_tools: Vec<Arc<dyn Tool>> = Vec::new();
-        context_tools.push(Arc::new(LlmMapTool));
-        // Memory tools
-        context_tools.push(Arc::new(MemoryWriteTool));
-        context_tools.push(Arc::new(MemorySearchTool));
-        context_tools.push(Arc::new(MemoryRecallTool));
+        let context_tools: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(LlmMapTool),
+            // Memory tools
+            Arc::new(MemoryWriteTool),
+            Arc::new(MemorySearchTool),
+            Arc::new(MemoryRecallTool),
+        ];
         // LCM store-backed tools (grep, describe, expand) are wired later
         // via set_context_tools() when the real LcmEngine is available.
 

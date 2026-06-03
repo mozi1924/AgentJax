@@ -29,7 +29,7 @@ impl MemoryIndex {
             }
             index.push_str(&format!("- **File**: {}\n", entry.file_name));
             index.push_str(&format!("- **Description**: {}\n", entry.description));
-            index.push_str("\n");
+            index.push('\n');
         }
 
         Ok(index)

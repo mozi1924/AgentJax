@@ -17,6 +17,7 @@ pub(super) struct CollectedProviderTurn {
     pub pending_tools: Vec<ProviderPendingToolCall>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn collect_provider_turn<F>(
     config: &AppConfig,
     provider_kind: &str,
@@ -190,11 +191,10 @@ where
                 pending_tool.name.clone(),
                 pending_tool.arguments.clone(),
             );
-            if is_valid_pending_tool_call(&pending_tool) {
-                if let Some(scheduler) = tool_scheduler.as_deref_mut() {
+            if is_valid_pending_tool_call(&pending_tool)
+                && let Some(scheduler) = tool_scheduler.as_deref_mut() {
                     scheduler.schedule_pending_tool(pending_tool, repeated_failed_tool_signatures);
                 }
-            }
         }
         _ => {}
     }

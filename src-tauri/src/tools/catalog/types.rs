@@ -25,7 +25,7 @@ pub type MountedToolSourceSessions = BTreeMap<String, MountedToolSourceSession>;
 /// Persistent state changes requested by a tool execution.
 #[derive(Debug, Clone)]
 pub enum ToolCatalogStateChange {
-    MountToolSource(MountedToolSourceSession),
+    MountToolSource(Box<MountedToolSourceSession>),
     UnmountToolSource {
         source_id: String,
         #[allow(dead_code)] // Reserved for future use

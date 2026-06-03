@@ -157,8 +157,8 @@ pub async fn run_sub_agent(
         move |event| {
             // Map provider events to sub-agent events for progress tracking.
             match &event {
-                ProviderStreamEvent::HopAssistantText { text, phase, .. } => {
-                    if phase.map_or(true, |p| p.as_str() != "commentary") {
+                ProviderStreamEvent::HopAssistantText { text, phase, .. }
+                    if phase.is_none_or(|p| p.as_str() != "commentary") => {
                         let _ = closure_event_tx.send(SubAgentEvent::Progress {
                             agent_id: closure_agent_id.clone(),
                             text: text.chars().take(200).collect(),
@@ -166,7 +166,6 @@ pub async fn run_sub_agent(
                             turns_remaining: max_turns,
                         });
                     }
-                }
                 ProviderStreamEvent::ToolCallStarted { call_id, name, .. } => {
                     let _ = closure_event_tx.send(SubAgentEvent::ToolCallStarted {
                         agent_id: closure_agent_id.clone(),
@@ -231,11 +230,10 @@ pub async fn run_sub_agent(
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────
-    if let Some(wt) = _worktree {
-        if let Err(e) = wt.cleanup() {
+    if let Some(wt) = _worktree
+        && let Err(e) = wt.cleanup() {
             log::warn!("Sub-agent {}: worktree cleanup failed: {e}", agent_id);
         }
-    }
 
     log::info!("Sub-agent {}: finished", agent_id);
 }

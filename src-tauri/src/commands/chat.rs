@@ -74,7 +74,7 @@ pub async fn chat_stream(
 
     registry.clear_conversation_deleted(&conversation_id)?;
 
-    let mut context = match {
+    let mut context = {
         let conversation_id = conversation_id.clone();
         let local_dynamic_tools = local_dynamic_tools.clone();
         run_blocking(move || {
@@ -88,14 +88,11 @@ pub async fn chat_stream(
             conversation_store::load_context_for_request(&conversation_id, None)
                 .map_err(|e| e.to_string())
         })
-        .await
-    } {
-        Ok(context) => context,
-        Err(err) => {
-            let _ = registry.remove_chat_request(&request_id)?;
-            return Err(err);
-        }
-    };
+    }
+    .await
+    .inspect_err(|_e| {
+        let _ = registry.remove_chat_request(&request_id);
+    })?;
 
     let recovery_note = {
         let conversation_id = conversation_id.clone();
@@ -170,7 +167,6 @@ pub async fn chat_stream(
         let conversation_id = conversation_id.clone();
         let request_id = request_id.clone();
         let input_text = input_text.clone();
-        let user_message_ts = user_message_ts;
         run_blocking(move || {
             conversation_store::append_line(conversation_store::AppendLineInput {
                 conversation_id,
@@ -234,13 +230,12 @@ pub async fn chat_stream(
             let memory_base = crate::agentjax_home::agentjax_home_dir()
                 .unwrap_or_else(|_| std::path::PathBuf::from(".agentjax"))
                 .join(&config.memory.storage_dir);
-            if let Ok(store) = crate::memory::MemoryStore::open(memory_base) {
-                if let Ok(Some(memory_item)) =
+            if let Ok(store) = crate::memory::MemoryStore::open(memory_base)
+                && let Ok(Some(memory_item)) =
                     crate::memory::build_memory_context(&store, &config.memory)
                 {
                     developer_items.push(memory_item);
                 }
-            }
         }
         let current_user_item = build_user_input_item(
             &resolved_model.provider.kind,

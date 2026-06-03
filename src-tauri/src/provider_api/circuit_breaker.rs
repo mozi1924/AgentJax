@@ -167,12 +167,11 @@ impl BreakerState {
         if self.state != CircuitState::Open {
             return;
         }
-        if let Some(opened_at) = self.opened_at {
-            if now.duration_since(opened_at) >= self.config.cooldown_duration {
+        if let Some(opened_at) = self.opened_at
+            && now.duration_since(opened_at) >= self.config.cooldown_duration {
                 self.state = CircuitState::HalfOpen;
                 log::info!("Circuit breaker HALF_OPEN (cooldown elapsed)");
             }
-        }
     }
 
     /// Whether a request should be allowed through.

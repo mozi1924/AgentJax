@@ -53,11 +53,10 @@ impl McpManager {
 
         {
             let services = self.services.lock().await;
-            if let Some(entry) = services.get(server_id) {
-                if entry.fingerprint == resolved.fingerprint {
+            if let Some(entry) = services.get(server_id)
+                && entry.fingerprint == resolved.fingerprint {
                     return Ok(entry.service.peer().clone());
                 }
-            }
         }
 
         self.shutdown_service(server_id).await;

@@ -73,9 +73,7 @@ pub(super) async fn execute_backgroundable_entry(
                     &tool_name,
                     arguments,
                 )
-                .await
-                .map_err(Into::into)
-        }
+                .await}
         ToolSnapshotEntry::Plugin { .. } => {
             Err(crate::error::AgentJaxError::tool("Plugin tools are not supported as background jobs yet"))
         }

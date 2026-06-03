@@ -8,7 +8,7 @@ pub(super) fn apply_tool_state_changes(
     for state_change in state_changes {
         match state_change {
             ToolCatalogStateChange::MountToolSource(source_session) => {
-                mounted_tool_sources.insert(source_session.source_id.clone(), source_session);
+                mounted_tool_sources.insert(source_session.source_id.clone(), *source_session);
             }
             ToolCatalogStateChange::UnmountToolSource { source_id, .. } => {
                 mounted_tool_sources.remove(&source_id);

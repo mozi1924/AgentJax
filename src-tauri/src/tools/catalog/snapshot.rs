@@ -149,7 +149,6 @@ impl ToolCatalogSnapshot {
                     )
                 })?;
                 execute_plugin_package_tool(package, plugin_id, tool_name, arguments, context)
-                    .map_err(Into::into)
             }
             ToolSnapshotEntry::BackgroundTask => {
                 use super::schemas::BACKGROUND_TASK_NAME;
@@ -285,7 +284,6 @@ impl ToolCatalogSnapshot {
                     arguments,
                 )
                 .await
-                .map_err(Into::into)
             }
         }
     }
@@ -387,14 +385,14 @@ async fn execute_manage_mcp_server(
                         "status": { "action": "status" }
                     }
                 }),
-                state_changes: vec![ToolCatalogStateChange::MountToolSource(
+                state_changes: vec![ToolCatalogStateChange::MountToolSource(Box::new(
                     MountedToolSourceSession {
                         source_id: server_id.to_string(),
                         source_type: "mcp".to_string(),
                         tools: mounted_tools,
                         mcp_config: Some(server_config.clone()),
                     },
-                )],
+                ))],
             })
         }
         "unmount" => Ok(ToolCatalogExecution {

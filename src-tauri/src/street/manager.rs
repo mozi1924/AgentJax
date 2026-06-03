@@ -21,8 +21,8 @@ const MAX_ITEMS_PER_CONVERSATION: usize = 100;
 // ── Global Registry ─────────────────────────────────────────────────────────
 
 /// Registry: conversation_id → Vec<Arc<Mutex<StreetItem>>>
-static STREET_ITEMS: OnceLock<Mutex<HashMap<String, Vec<Arc<Mutex<StreetItem>>>>>> =
-    OnceLock::new();
+type StreetItemMap = std::collections::HashMap<String, Vec<Arc<Mutex<StreetItem>>>>;
+static STREET_ITEMS: OnceLock<Mutex<StreetItemMap>> = OnceLock::new();
 
 /// Event channels: conversation_id → mpsc::Sender
 static STREET_CHANNELS: OnceLock<Mutex<HashMap<String, mpsc::UnboundedSender<StreetEvent>>>> =
@@ -139,12 +139,11 @@ impl StreetManager {
         let mut count = 0usize;
         if let Some(items) = guard.get(conversation_id) {
             for item in items {
-                if let Ok(mut i) = item.lock() {
-                    if i.status == StreetItemStatus::Pending {
+                if let Ok(mut i) = item.lock()
+                    && i.status == StreetItemStatus::Pending {
                         i.status = StreetItemStatus::Delivered;
                         count += 1;
                     }
-                }
             }
         }
 
@@ -170,12 +169,11 @@ impl StreetManager {
 
         if let Some(items) = guard.get(conversation_id) {
             for item in items {
-                if let Ok(mut i) = item.lock() {
-                    if i.id == item_id && i.status == StreetItemStatus::Pending {
+                if let Ok(mut i) = item.lock()
+                    && i.id == item_id && i.status == StreetItemStatus::Pending {
                         i.status = StreetItemStatus::Dismissed;
                         return true;
                     }
-                }
             }
         }
         false

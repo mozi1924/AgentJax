@@ -91,7 +91,7 @@ impl Tool for LcmGrepTool {
             .as_deref()
             .ok_or_else(|| "lcm_grep requires a conversation_id".to_string())?;
 
-        let summary_id = args.summary_id.map(|s| LcmId::from(s));
+        let summary_id = args.summary_id.map(LcmId::from);
 
         let page_size = self.store.grep_page_size();
 

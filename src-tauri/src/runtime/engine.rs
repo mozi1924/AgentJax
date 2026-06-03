@@ -29,6 +29,7 @@ use tool_state::apply_tool_state_changes;
 use turn::TurnAccumulator;
 
 impl AgentRuntime {
+    #[allow(clippy::too_many_arguments)]
     pub async fn run_turn<F>(
         config: &AppConfig,
         req: &ChatRequest,
@@ -368,11 +369,10 @@ impl AgentRuntime {
                     batch_messages.push(msg);
                 }
 
-                if !batch_messages.is_empty() {
-                    if let Err(e) = engine.process_messages_batch(&batch_messages).await {
+                if !batch_messages.is_empty()
+                    && let Err(e) = engine.process_messages_batch(&batch_messages).await {
                         log::warn!("LCM: failed to persist {} messages: {}", batch_messages.len(), e);
                     }
-                }
             }
 
             // ── No tools → final response reached ─────────────────────────
@@ -452,11 +452,10 @@ impl AgentRuntime {
                     }
                 }
 
-                if !batch_messages.is_empty() {
-                    if let Err(e) = engine.process_messages_batch(&batch_messages).await {
+                if !batch_messages.is_empty()
+                    && let Err(e) = engine.process_messages_batch(&batch_messages).await {
                         log::warn!("LCM: failed to persist tool batch of {} messages: {}", batch_messages.len(), e);
                     }
-                }
             }
 
             accumulator
@@ -657,7 +656,7 @@ mod tests {
         let mut mounted_servers = MountedToolSourceSessions::new();
         apply_tool_state_changes(
             &mut mounted_servers,
-            vec![ToolCatalogStateChange::MountToolSource(
+            vec![ToolCatalogStateChange::MountToolSource(Box::new(
                 MountedToolSourceSession {
                     source_id: "openai_docs".to_string(),
                     source_type: "mcp".to_string(),
@@ -670,7 +669,7 @@ mod tests {
                     }],
                     mcp_config: Some(McpServerConfig::default()),
                 },
-            )],
+            ))],
         );
 
         let mounted = mounted_servers

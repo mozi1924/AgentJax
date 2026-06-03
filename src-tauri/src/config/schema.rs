@@ -205,6 +205,7 @@ impl Default for PluginEntryConfig {
 /// When `None`, the effective permission falls back to the manifest-declared value.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct PluginPermissionOverride {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow_network: Option<bool>,
@@ -218,17 +219,6 @@ pub struct PluginPermissionOverride {
     pub allow_env_read: Option<bool>,
 }
 
-impl Default for PluginPermissionOverride {
-    fn default() -> Self {
-        Self {
-            allow_network: None,
-            allow_file_read: None,
-            allow_file_write: None,
-            allow_process_spawn: None,
-            allow_env_read: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -289,6 +279,7 @@ pub struct McpRuntimeConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct McpStdioRuntimeConfig {
     #[serde(default)]
     pub env: BTreeMap<String, String>,
@@ -571,14 +562,6 @@ impl Default for McpServerConfig {
     }
 }
 
-impl Default for McpStdioRuntimeConfig {
-    fn default() -> Self {
-        Self {
-            env: BTreeMap::new(),
-            inherit_parent_env: false,
-        }
-    }
-}
 
 impl Default for McpRuntimeConfig {
     fn default() -> Self {

@@ -78,7 +78,7 @@ pub fn list_conversations() -> crate::error::AgentJaxResult<Vec<ConversationSumm
         }
     }
 
-    out.sort_by(|a, b| b.updated_at_unix_ms.cmp(&a.updated_at_unix_ms));
+    out.sort_by_key(|b| std::cmp::Reverse(b.updated_at_unix_ms));
     Ok(out)
 }
 

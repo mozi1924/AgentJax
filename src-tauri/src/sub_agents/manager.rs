@@ -281,14 +281,13 @@ impl SubAgentManager {
     /// Append a progress message to a running sub-agent.
     #[allow(dead_code)]
     pub fn append_progress(task: &Arc<SubAgentTask>, text: String) {
-        if let Ok(mut state) = task.state.lock() {
-            if state.status == SubAgentStatus::Running {
+        if let Ok(mut state) = task.state.lock()
+            && state.status == SubAgentStatus::Running {
                 state.progress_messages.push(ProgressMessage {
                     text,
                     ts: now_unix_ms(),
                 });
             }
-        }
     }
 
     /// Mark a sub-agent as completed with a result.
@@ -375,7 +374,7 @@ impl SubAgentManager {
         conversation_id: Option<&str>,
     ) -> AgentJaxResult<Value> {
         let task = resolve_task(agent_id, conversation_id)
-            .map_err(|e| AgentJaxError::not_found(e))?;
+            .map_err(AgentJaxError::not_found)?;
 
         let should_abort = {
             let completed_at = now_unix_ms();
@@ -485,14 +484,12 @@ impl SubAgentManager {
         conversation_id: &str,
         signal: crate::sub_agents::types::MemoryAgentSignal,
     ) -> bool {
-        if let Some(task) = Self::get_memory_agent_for_conversation(conversation_id) {
-            if let Ok(tx_guard) = task.memory_signal_tx.lock() {
-                if let Some(tx) = tx_guard.as_ref() {
+        if let Some(task) = Self::get_memory_agent_for_conversation(conversation_id)
+            && let Ok(tx_guard) = task.memory_signal_tx.lock()
+                && let Some(tx) = tx_guard.as_ref() {
                     let _ = tx.send(Some(signal));
                     return true;
                 }
-            }
-        }
         false
     }
 
@@ -570,7 +567,7 @@ impl SubAgentManager {
         conversation_id: Option<&str>,
     ) -> AgentJaxResult<Value> {
         let task = resolve_task(agent_id, conversation_id)
-            .map_err(|e| AgentJaxError::not_found(e))?;
+            .map_err(AgentJaxError::not_found)?;
         let snapshot = serialize_task(&task);
         let is_terminal = snapshot
             .get("status")
@@ -614,7 +611,7 @@ impl SubAgentManager {
         conversation_id: Option<&str>,
     ) -> AgentJaxResult<Value> {
         let task = resolve_task(agent_id, conversation_id)
-            .map_err(|e| AgentJaxError::not_found(e))?;
+            .map_err(AgentJaxError::not_found)?;
 
         let timeout_ms = timeout_ms.unwrap_or(30_000).clamp(1, 300_000); // 30s default, 5min max
 
@@ -743,7 +740,7 @@ mod tests {
         let status = SubAgentManager::status("agent_complete", Some(&conv)).unwrap();
         let agent = &status["agent"];
         assert_eq!(agent["status"].as_str().unwrap(), "completed");
-        assert_eq!(agent["result"]["done"].as_bool().unwrap(), true);
+        assert!(agent["result"]["done"].as_bool().unwrap());
     }
 
     #[tokio::test]

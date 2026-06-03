@@ -72,7 +72,7 @@ impl Tool for FileWriterTool {
 
         Ok(json!({
             "path": relative_path_display(&resolved.relative_path),
-            "bytesWritten": args.content.as_bytes().len(),
+            "bytesWritten": args.content.len(),
             "lineCount": count_lines(&args.content),
             "status": "success"
         }))

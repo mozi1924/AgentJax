@@ -97,8 +97,8 @@ pub fn write_conversation_file(
     messages_path: &Path,
     data: &ConversationData,
 ) -> crate::error::AgentJaxResult<()> {
-    if let Some(parent) = metadata_path.parent() {
-        if !parent.exists() {
+    if let Some(parent) = metadata_path.parent()
+        && !parent.exists() {
             fs::create_dir_all(parent).map_err(|e| {
                 format!(
                     "Failed to create session directory {}: {e}",
@@ -106,7 +106,6 @@ pub fn write_conversation_file(
                 )
             })?;
         }
-    }
 
     // metadata.json — pretty-printed
     write_conversation_metadata(metadata_path, &data.meta)?;
