@@ -13,9 +13,10 @@
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::sub_agents::manager::{SubAgentManager, DEFAULT_MAX_TURNS, HARD_MAX_TURNS};
 use crate::sub_agents::types::{SubAgentSpec, SubAgentType};
-use crate::tools::{Tool, ToolExecutionContext, check_scope_narrowing_invariant};
+use crate::tools::{Tool, ToolExecutionContext, ToolCatalog, check_scope_narrowing_invariant};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::sync::Arc;
 
 // ── Argument structs ────────────────────────────────────────────────────────
 
@@ -164,15 +165,17 @@ struct SubAgentArgs {
                 "keptWork": ["result"]
             });
             let tool = SubAgentTool;
+            // In test env, sub-agents will fail (no provider configured).
+            // The batch coordinator should still complete without error,
+            // returning the correct count and status.
             let result = tool.execute(&args, &ctx).await.unwrap();
             assert!(result["batchMode"].as_bool().unwrap(), "Should be batch mode");
-            assert_eq!(result["agentCount"].as_i64().unwrap(), 3);
-            let ids = result["agentIds"].as_array().unwrap();
-            assert_eq!(ids.len(), 3);
-            assert!(ids[0].as_str().unwrap().starts_with("batch_"));
-            assert!(ids[1].as_str().unwrap().starts_with("batch_"));
-            assert!(ids[2].as_str().unwrap().starts_with("batch_"));
-            // Cleanup
+            assert_eq!(result["totalItems"].as_i64().unwrap(), 3);
+            assert_eq!(result["completedItems"].as_i64().unwrap(), 0);
+            assert_eq!(result["failedItems"].as_i64().unwrap(), 3);
+            assert!(result["status"].as_str().unwrap() == "partial", 
+                "Status should be partial, got: {:?}", result["status"].as_str());
+            // Cleanup: remove the workspace directory
             let _ = std::fs::remove_dir_all(&workspace_dir);
         });
     }
@@ -194,9 +197,10 @@ impl Tool for SubAgentTool {
 
     fn description(&self) -> &'static str {
         "Manage async sub-agents that perform tasks independently. \
-         Use action 'spawn' to launch a new sub-agent, 'status' to check \
-         its progress and results, or 'cancel' to stop a running sub-agent. \
-         Spawned sub-agents run in the background while you continue working."
+         Use action 'spawn' for a single sub-agent, 'batch' to spawn one \
+         per JSONL item with concurrency and retry, 'status' to check \
+         progress, or 'cancel' to stop. Spawned sub-agents run in the \
+         background while you continue working."
     }
 
     fn display_name(&self) -> &'static str {
@@ -337,6 +341,7 @@ async fn execute_spawn(
         delegated_scope: args.delegated_scope.clone(),
         kept_work: args.kept_work.clone(),
         max_turns,
+        max_retries: 0,
         use_worktree: args.use_worktree,
         model_id: context.model_id.clone(),
         parent_request_id: "tool-call".to_string(),
@@ -400,7 +405,8 @@ async fn execute_cancel(
 
 // ── Batch implementation ──────────────────────────────────────────────────
 
-/// Execute a batch spawn: read a JSONL file and spawn one sub-agent per item.
+/// Execute a batch spawn: read a JSONL file, spawn one sub-agent per item,
+/// wait for results with concurrency control and retry, and write the output file.
 async fn execute_batch(
     args: &SubAgentArgs,
     context: &ToolExecutionContext,
@@ -456,49 +462,199 @@ async fn execute_batch(
     .unwrap_or(SubAgentType::GeneralPurpose);
 
     let max_turns = args.max_turns.min(HARD_MAX_TURNS);
-    let mut agent_ids = Vec::with_capacity(items.len());
+    let concurrency = std::cmp::max(1, 16); // default concurrency cap
+    let max_retries: u32 = 2u32; // default retries
 
-    for item in &items {
-        let prompt = prompt_template.replace("{input}", item);
-        let agent_id = format!("batch_{}", uuid::Uuid::new_v4().simple());
+    // Create shared state for concurrent execution.
 
-        let spec = SubAgentSpec {
-            agent_id: agent_id.clone(),
-            parent_conversation_id: conversation_id.clone(),
-            subagent_type: subagent_type.clone(),
-            prompt,
-            delegated_scope: args.delegated_scope.clone(),
-            kept_work: args.kept_work.clone(),
-            max_turns,
-            use_worktree: args.use_worktree,
-            model_id: context.model_id.clone(),
-            parent_request_id: "batch".to_string(),
-            persistent: false,
-        };
+    let total = items.len();
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
+    let results: Arc<std::sync::Mutex<Vec<(usize, String, Option<AgentJaxError>)>>> =
+        Arc::new(std::sync::Mutex::new(Vec::with_capacity(total)));
+    let completed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let failed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
-        let _task = SubAgentManager::register(spec);
-        agent_ids.push(agent_id);
+    // Prepare catalog and config for sub-agent spawning.
+    // We create a minimal catalog (native + plugin tools, no MCP) for batch items,
+    // since we don't have access to the full Tauri MCP manager from within a tool.
+    let batch_config = context
+        .app_config
+        .clone()
+        .unwrap_or_else(|| Arc::new(crate::config::AppConfig::default()));
+    let batch_catalog = Arc::new(crate::tools::ToolCatalog::new_with_home_plugins(
+        Arc::new(crate::mcp::McpManager::new()),
+        &batch_config,
+    ));
+    let (_batch_event_tx, _batch_event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let batch_conv_id = conversation_id.clone();
+
+    let mut handles = Vec::with_capacity(total);
+
+    for (i, item) in items.iter().enumerate() {
+        let item_text = item.clone();
+        let prompt = prompt_template.replace("{input}", &item_text);
+        let sem = semaphore.clone();
+        let res = results.clone();
+        let comp = completed.clone();
+        let fail = failed.clone();
+        let cfg = batch_config.clone();
+        let catalog = batch_catalog.clone();
+        let conv = batch_conv_id.clone();
+        let agent_type = subagent_type.clone();
+        let event_tx = _batch_event_tx.clone();
+        let output_path = args.output_path.clone();
+        let scope = args.delegated_scope.clone();
+        let kept = args.kept_work.clone();
+        let model = context.model_id.clone();
+
+        handles.push(tokio::spawn(async move {
+            let _permit = sem.acquire().await;
+            let mut last_error: Option<AgentJaxError> = None;
+            let retries = max_retries;
+
+            for attempt in 0..=retries {
+                if attempt > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
+                }
+
+                let agent_id = format!("batch_{}", uuid::Uuid::new_v4().simple());
+                let spec = crate::sub_agents::types::SubAgentSpec {
+                    agent_id: agent_id.clone(),
+                    parent_conversation_id: conv.clone(),
+                    subagent_type: agent_type.clone(),
+                    prompt: prompt.clone(),
+                    delegated_scope: scope.clone(),
+                    kept_work: kept.clone(),
+                    max_turns,
+                    max_retries: 0, // internal retries handled here, not in the agent
+                    use_worktree: false,
+                    model_id: model.clone(),
+                    parent_request_id: "batch".to_string(),
+                    persistent: false,
+                };
+
+                let task = SubAgentManager::register(spec.clone());
+                let handle = tokio::spawn(crate::sub_agents::runner::run_sub_agent(
+                    task.clone(),
+                    spec,
+                    cfg.clone(),
+                    catalog.clone(),
+                    event_tx.clone(),
+                ));
+                SubAgentManager::mark_running(&task, handle);
+
+                // Wait for the sub-agent to complete.
+                match crate::sub_agents::manager::SubAgentManager::wait(
+                    &agent_id,
+                    Some(300_000),
+                    None,
+                )
+                .await
+                {
+                    Ok(status_json) => {
+                        let agent_status = status_json["agent"]["status"]
+                            .as_str()
+                            .unwrap_or("failed");
+                        if agent_status == "completed" {
+                            let result_text = status_json["agent"]["result"]
+                                .to_string();
+                            comp.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            let mut lock = res.lock().unwrap();
+                            lock.push((i, result_text, None));
+                            return;
+                        }
+                        last_error = Some(AgentJaxError::sub_agent(format!(
+                            "Item {} failed with status '{}'",
+                            i, agent_status
+                        )));
+                    }
+                    Err(e) => {
+                        last_error = Some(e);
+                    }
+                }
+            }
+
+            fail.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let mut lock = res.lock().unwrap();
+            lock.push((
+                i,
+                String::new(),
+                Some(last_error.unwrap_or_else(|| {
+                    AgentJaxError::sub_agent(format!("Item {} exhausted retries", i))
+                })),
+            ));
+        }));
     }
 
-    let output_hint = match &args.output_path {
-        Some(path) => format!(
-            ". Collect results via sub_agent(action='status', agentId=...)              for each item and write to {}",
-            path
-        ),
-        None => ". Collect results via sub_agent(action='status', agentId=...)                   for each item.".to_string(),
+    // Wait for all items to complete.
+    for handle in handles {
+        let _ = handle.await;
+    }
+
+    // Sort results by original item index.
+    let mut sorted_results = {
+        let mut lock = results.lock().unwrap();
+        lock.sort_by_key(|(i, _, _)| *i);
+        lock.clone()
+    };
+
+    let completed_count = completed.load(std::sync::atomic::Ordering::SeqCst);
+    let failed_count = failed.load(std::sync::atomic::Ordering::SeqCst);
+
+    // Write output file if output_path is specified.
+    if let Some(output) = &args.output_path {
+        let out_path = workspace_dir.join(output);
+        let mut out_lines = Vec::with_capacity(sorted_results.len());
+
+        for (_i, result_text, error) in &sorted_results {
+            if let Some(err) = error {
+                out_lines.push(serde_json::to_string(&json!({
+                    "error": err.to_string(),
+                    "status": "failed"
+                })).unwrap_or_default());
+            } else {
+                // Try to parse the result as JSON; if not possible, wrap as raw text.
+                let line = serde_json::from_str::<Value>(result_text)
+                    .unwrap_or_else(|_| json!({ "result": result_text, "status": "success" }));
+                out_lines.push(serde_json::to_string(&line).unwrap_or_default());
+            }
+        }
+
+        if let Some(parent) = out_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::write(&out_path, out_lines.join("\n")) {
+            log::warn!("Failed to write batch output to {}: {e}", out_path.display());
+        }
+    }
+
+    let summary = if failed_count == 0 {
+        format!(
+            "All {total} items processed successfully. {}",
+            if args.output_path.is_some() {
+                format!("Output written to {}", args.output_path.as_deref().unwrap())
+            } else {
+                String::new()
+            }
+        )
+    } else {
+        format!(
+            "Processed {total} items: {completed_count} succeeded, {failed_count} failed.",
+            total = total,
+            completed_count = completed_count,
+            failed_count = failed_count,
+        )
     };
 
     Ok(json!({
         "ok": true,
         "batchMode": true,
-        "agentCount": agent_ids.len(),
-        "agentIds": agent_ids,
-        "status": "pending",
-        "hint": format!(
-            "Batch of {} sub-agents registered. Each will process one JSONL item{}",
-            agent_ids.len(),
-            output_hint,
-        ),
+        "totalItems": total,
+        "completedItems": completed_count,
+        "failedItems": failed_count,
+        "agentIds": sorted_results.iter().map(|(_, result, error)| json!({"result": result, "error": error.as_ref().map(|e| e.to_string())})).collect::<Vec<_>>(),
+        "status": if failed_count == 0 { "completed" } else { "partial" },
+        "summary": summary,
     }))
 }
 

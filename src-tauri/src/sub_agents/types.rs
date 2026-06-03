@@ -115,6 +115,9 @@ pub struct SubAgentSpec {
     pub kept_work: Vec<String>,
     /// Maximum tool-using turns (default 5, max 10).
     pub max_turns: usize,
+    /// Maximum retries on failure (default 0 = no retry).
+    #[serde(default)]
+    pub max_retries: u32,
     /// Whether to create an isolated git worktree.
     pub use_worktree: bool,
     /// Optional model override (defaults to utility_small_model).
@@ -244,6 +247,7 @@ mod tests {
             delegated_scope: vec!["filesystem".to_string()],
             kept_work: vec!["file_list".to_string()],
             max_turns: 5,
+            max_retries: 0,
             use_worktree: false,
             model_id: None,
             parent_request_id: "req_001".to_string(),

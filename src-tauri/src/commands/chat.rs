@@ -366,6 +366,7 @@ pub async fn chat_stream(
                 delegated_scope: vec!["lcm".to_string(), "memory".to_string()],
                 kept_work: vec!["memory_update".to_string()],
                 max_turns: 3,
+                max_retries: 0,
                 use_worktree: false,
                 model_id: None,
                 parent_request_id: request_id.clone(),
@@ -444,12 +445,16 @@ pub async fn chat_stream(
         let pending = crate::sub_agents::manager::SubAgentManager::collect_pending(&conversation_id);
         if !pending.is_empty() {
             let tools_catalog_arc = Arc::new(tools_catalog);
+            let sub_semaphore = crate::sub_agents::manager::sub_agent_semaphore();
             for (task, spec) in pending {
                 let agent_id = spec.agent_id.clone();
                 let spawn_config = Arc::new(config.clone());
                 let spawn_catalog = Arc::clone(&tools_catalog_arc);
                 let spawn_event_tx = sub_event_tx.clone();
+                let sem_perm = sub_semaphore;
                 let _handle = tokio::spawn(async move {
+                    // Acquire concurrency permit before starting execution.
+                    let _permit = sem_perm.acquire().await;
                     run_sub_agent(task, spec, spawn_config, spawn_catalog, spawn_event_tx).await;
                 });
                 log::info!("Sub-agent {} spawned for conv={}", agent_id, conversation_id);

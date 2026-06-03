@@ -25,6 +25,22 @@ const MAX_RETAINED_TERMINAL_AGENTS: usize = 200;
 pub(crate) const DEFAULT_MAX_TURNS: usize = 5;
 pub(crate) const HARD_MAX_TURNS: usize = 10;
 
+// ── Global Concurrency ──────────────────────────────────────────────────────
+
+/// Maximum concurrent sub-agent executions (across all conversations).
+pub(crate) const MAX_CONCURRENT_SUB_AGENTS: usize = 16;
+
+static SUB_AGENT_SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+
+/// Returns the global sub-agent concurrency semaphore.
+/// Each spawned sub-agent acquires a permit from this semaphore before starting
+/// to execute, limiting the total number of concurrently running sub-agents.
+pub(crate) fn sub_agent_semaphore() -> &'static tokio::sync::Semaphore {
+    SUB_AGENT_SEMAPHORE.get_or_init(|| {
+        tokio::sync::Semaphore::new(MAX_CONCURRENT_SUB_AGENTS)
+    })
+}
+
 // ── SubAgentTask ──────────────────────────────────────────────────────────────
 
 /// A single sub-agent task tracked in the process-wide registry.
@@ -671,6 +687,7 @@ mod tests {
             delegated_scope: vec!["filesystem".to_string()],
             kept_work: vec!["result".to_string()],
             max_turns: 5,
+            max_retries: 0,
             use_worktree: false,
             model_id: None,
             parent_request_id: "req_test".to_string(),
