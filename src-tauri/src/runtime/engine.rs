@@ -4,7 +4,7 @@ mod request;
 mod tool_state;
 mod turn;
 
-use crate::error::AgentJaxResult;
+use crate::error::{AgentJaxError, AgentJaxResult};
 use super::AgentRuntime;
 use super::stream_collection::collect_provider_turn;
 use super::tool_archiving::archive_unavailable_historical_tool_calls;
@@ -44,7 +44,7 @@ impl AgentRuntime {
         mut on_event: F,
     ) -> AgentJaxResult<(ResponseStreamResult, Vec<Value>)>
     where
-        F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send + 'static,
+        F: FnMut(ProviderStreamEvent) -> Result<(), AgentJaxError> + Send + 'static,
     {
         let resolved_model = config.resolve_model_profile(req.model.as_deref())?;
         let provider_capabilities =

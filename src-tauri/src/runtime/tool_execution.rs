@@ -133,7 +133,7 @@ impl ToolExecutionScheduler {
 
     pub(super) fn try_emit_completed_tools<F>(&mut self, on_event: &mut F) -> AgentJaxResult<()>
     where
-        F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
+        F: FnMut(ProviderStreamEvent) -> Result<(), AgentJaxError> + Send,
     {
         while let Ok(message) = self.completed_rx.try_recv() {
             self.record_completion_message(message, on_event)?;
@@ -143,7 +143,7 @@ impl ToolExecutionScheduler {
 
     pub(super) fn emit_progress_events<F>(&self, on_event: &mut F) -> AgentJaxResult<()>
     where
-        F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
+        F: FnMut(ProviderStreamEvent) -> Result<(), AgentJaxError> + Send,
     {
         for (call_id, active) in &self.active_tools {
             on_event(ProviderStreamEvent::ToolCallProgress {
@@ -163,7 +163,7 @@ impl ToolExecutionScheduler {
         on_event: &mut F,
     ) -> AgentJaxResult<ExecutedToolBatch>
     where
-        F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
+        F: FnMut(ProviderStreamEvent) -> Result<(), AgentJaxError> + Send,
     {
         let mut progress_interval =
             tokio::time::interval(Duration::from_secs(TOOL_PROGRESS_HEARTBEAT_SECS));
@@ -228,7 +228,7 @@ impl ToolExecutionScheduler {
         on_event: &mut F,
     ) -> AgentJaxResult<()>
     where
-        F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
+        F: FnMut(ProviderStreamEvent) -> Result<(), AgentJaxError> + Send,
     {
         self.active_tools.remove(&call_id);
         if let Some(record) = maybe_record {

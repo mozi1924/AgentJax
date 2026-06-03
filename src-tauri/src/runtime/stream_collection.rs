@@ -3,7 +3,7 @@ use super::tool_parsing::{
     is_valid_pending_tool_call, parse_tool_arguments, push_or_update_pending_tool_call,
 };
 use crate::config::AppConfig;
-use crate::error::AgentJaxResult;
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::provider_api::types::{
     ProviderPendingToolCall, ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult,
 };
@@ -28,7 +28,7 @@ pub(super) async fn collect_provider_turn<F>(
     repeated_failed_tool_signatures: &HashMap<String, usize>,
 ) -> AgentJaxResult<CollectedProviderTurn>
 where
-    F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
+    F: FnMut(ProviderStreamEvent) -> Result<(), AgentJaxError> + Send,
 {
     let mut active_tool_calls_in_turn: HashMap<String, (String, Value)> = HashMap::new();
     let mut tool_args_delta_by_call: HashMap<String, String> = HashMap::new();
@@ -156,9 +156,9 @@ fn handle_provider_stream_event<F>(
     tool_scheduler: &mut Option<&mut ToolExecutionScheduler>,
     repeated_failed_tool_signatures: &HashMap<String, usize>,
     on_event: &mut F,
-) -> Result<(), String>
+) -> Result<(), AgentJaxError>
 where
-    F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
+    F: FnMut(ProviderStreamEvent) -> Result<(), AgentJaxError> + Send,
 {
     match &event {
         ProviderStreamEvent::ToolCallStarted { call_id, name, .. } => {
@@ -205,9 +205,9 @@ where
 fn drain_tool_scheduler_events<F>(
     tool_scheduler: &mut Option<&mut ToolExecutionScheduler>,
     on_event: &mut F,
-) -> Result<(), String>
+) -> Result<(), AgentJaxError>
 where
-    F: FnMut(ProviderStreamEvent) -> Result<(), String> + Send,
+    F: FnMut(ProviderStreamEvent) -> Result<(), AgentJaxError> + Send,
 {
     if let Some(scheduler) = tool_scheduler.as_deref_mut() {
         scheduler.try_emit_completed_tools(on_event)?;

@@ -427,6 +427,7 @@ pub async fn chat_stream(
                 event,
                 event_token_count,
             )
+            .map_err(Into::into)
         },
     )
     .await;
