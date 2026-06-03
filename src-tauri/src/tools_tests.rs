@@ -15,13 +15,12 @@ mod tests {
     };
     use crate::tools::{
         CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool, Tool, ToolCatalog,
-        ToolExecutionContext, ToolRegistry, ToolSchemaFormat,
+        ToolExecutionContext, ToolSchemaFormat,
     };
     use serde_json::json;
     use std::sync::Arc;
 
-    const DEFAULT_REGISTRY_TOOL_COUNT: usize = 7;
-    const DEFAULT_CATALOG_TOOL_COUNT: usize = DEFAULT_REGISTRY_TOOL_COUNT + 1;
+        const DEFAULT_CATALOG_TOOL_COUNT: usize = 8;
 
     struct TestHomeGuard {
         home: std::path::PathBuf,
@@ -281,12 +280,16 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
-        let registry = ToolRegistry::new_with_defaults();
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &crate::config::AppConfig::default(),
+        );
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-file-paths-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
-        registry
+        snapshot
             .execute(
                 "write_file",
                 &json!({"path": "src/components/Sidebar.tsx", "content": "export const sidebar = true;\n"}),
@@ -294,7 +297,7 @@ mod tests {
             ).await
             .unwrap();
 
-        let read_res = registry
+        let read_res = snapshot
             .execute(
                 "read_file",
                 &json!({"path": "src/components/Sidebar.tsx"}),
@@ -303,7 +306,7 @@ mod tests {
             .unwrap();
         assert_eq!(read_res["content"], "export const sidebar = true;\n");
 
-        let err = registry
+        let err = snapshot
             .execute("read_file", &json!({"path": "../outside.txt"}), &ctx).await
             .unwrap_err();
         assert!(err.contains("escapes the conversation workspace"));
@@ -317,22 +320,26 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
-        let registry = ToolRegistry::new_with_defaults();
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &crate::config::AppConfig::default(),
+        );
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-directory-tools-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
-        registry
+        snapshot
             .execute("mkdir", &json!({"path": "src/components"}), &ctx).await
             .unwrap();
-        registry
+        snapshot
             .execute(
                 "write_file",
                 &json!({"path": "src/components/Button.tsx", "content": "export const Button = () => null;\n"}),
                 &ctx,
             ).await
             .unwrap();
-        registry
+        snapshot
             .execute(
                 "write_file",
                 &json!({"path": "README.md", "content": "# Demo\n"}),
@@ -340,7 +347,7 @@ mod tests {
             ).await
             .unwrap();
 
-        let root_listing = registry.execute("list_files", &json!({}), &ctx).await.unwrap();
+        let root_listing = snapshot.execute("list_files", &json!({}), &ctx).await.unwrap();
         let root_entries = root_listing["entries"].as_array().unwrap();
         assert!(
             root_entries
@@ -349,7 +356,7 @@ mod tests {
         );
         assert!(root_entries.iter().any(|entry| entry["path"] == "src"));
 
-        let recursive_listing = registry
+        let recursive_listing = snapshot
             .execute(
                 "list_files",
                 &json!({"path": "src", "recursive": true}),
@@ -372,13 +379,17 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
-        let registry = ToolRegistry::new_with_defaults();
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &crate::config::AppConfig::default(),
+        );
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-read-truncation-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         let content = "0123456789abcdef".repeat(4_096);
-        registry
+        snapshot
             .execute(
                 "write_file",
                 &json!({"path": "logs/large.txt", "content": content}),
@@ -386,7 +397,7 @@ mod tests {
             ).await
             .unwrap();
 
-        let preview = registry
+        let preview = snapshot
             .execute(
                 "read_file",
                 &json!({"path": "logs/large.txt", "max_bytes": 1024}),
@@ -411,12 +422,16 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
-        let registry = ToolRegistry::new_with_defaults();
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &crate::config::AppConfig::default(),
+        );
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-content-sniffing-text-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
-        registry
+        snapshot
             .execute(
                 "write_file",
                 &json!({"path": "notes/README", "content": "hello from a file without an extension\n"}),
@@ -424,7 +439,7 @@ mod tests {
             ).await
             .unwrap();
 
-        let read = registry
+        let read = snapshot
             .execute("read_file", &json!({"path": "notes/README"}), &ctx).await
             .unwrap();
         assert_eq!(read["contentKind"], "text");
@@ -439,13 +454,17 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
-        let registry = ToolRegistry::new_with_defaults();
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &crate::config::AppConfig::default(),
+        );
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-list-truncation-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         for index in 0..400 {
-            registry
+            snapshot
                 .execute(
                     "write_file",
                     &json!({
@@ -457,7 +476,7 @@ mod tests {
                 .unwrap();
         }
 
-        let listing = registry
+        let listing = snapshot
             .execute(
                 "list_files",
                 &json!({"path": "many", "recursive": true, "max_entries": 1000}),
@@ -480,7 +499,11 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
-        let registry = ToolRegistry::new_with_defaults();
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &crate::config::AppConfig::default(),
+        );
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-content-sniffing-binary-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
@@ -494,7 +517,7 @@ mod tests {
         )
         .unwrap();
 
-        let read_err = registry
+        let read_err = snapshot
             .execute("read_file", &json!({"path": "assets/fake-notes.txt"}), &ctx).await
             .unwrap_err();
         assert!(read_err.contains("Portable Network Graphics"));
@@ -508,7 +531,11 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
-        let registry = ToolRegistry::new_with_defaults();
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &crate::config::AppConfig::default(),
+        );
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-binary-guards-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
@@ -518,12 +545,12 @@ mod tests {
         std::fs::create_dir_all(binary_path.parent().unwrap()).unwrap();
         std::fs::write(&binary_path, [0_u8, 159, 146, 150, 0]).unwrap();
 
-        let read_err = registry
+        let read_err = snapshot
             .execute("read_file", &json!({"path": "assets/image.bin"}), &ctx).await
             .unwrap_err();
         assert!(read_err.contains("non-text/binary"));
 
-        let replace_err = registry
+        let replace_err = snapshot
             .execute(
                 "edit_file",
                 &json!({
@@ -541,7 +568,7 @@ mod tests {
             .unwrap_err();
         assert!(replace_err.contains("Refusing to edit"));
 
-        let write_err = registry
+        let write_err = snapshot
             .execute(
                 "write_file",
                 &json!({"path": "assets/image.bin", "content": "hello"}),
@@ -559,12 +586,16 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
-        let registry = ToolRegistry::new_with_defaults();
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &crate::config::AppConfig::default(),
+        );
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-text-edits-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
-        registry
+        snapshot
             .execute(
                 "write_file",
                 &json!({
@@ -575,7 +606,7 @@ mod tests {
             ).await
             .unwrap();
 
-        registry
+        snapshot
             .execute(
                 "edit_file",
                 &json!({
@@ -592,7 +623,7 @@ mod tests {
             ).await
             .unwrap();
 
-        registry
+        snapshot
             .execute(
                 "edit_file",
                 &json!({
@@ -609,7 +640,7 @@ mod tests {
             ).await
             .unwrap();
 
-        registry
+        snapshot
             .execute(
                 "edit_file",
                 &json!({
@@ -626,7 +657,7 @@ mod tests {
             ).await
             .unwrap();
 
-        registry
+        snapshot
             .execute(
                 "edit_file",
                 &json!({
@@ -643,7 +674,7 @@ mod tests {
             ).await
             .unwrap();
 
-        registry
+        snapshot
             .execute(
                 "edit_file",
                 &json!({
@@ -665,7 +696,7 @@ mod tests {
             ).await
             .unwrap();
 
-        let final_file = registry
+        let final_file = snapshot
             .execute("read_file", &json!({"path": "src/main.rs"}), &ctx).await
             .unwrap();
         assert_eq!(
@@ -682,12 +713,16 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _home = setup_test_home();
-        let registry = ToolRegistry::new_with_defaults();
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &crate::config::AppConfig::default(),
+        );
+        let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-apply-patch-atomic-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
-        registry
+        snapshot
             .execute(
                 "write_file",
                 &json!({
@@ -698,7 +733,7 @@ mod tests {
             ).await
             .unwrap();
 
-        let err = registry
+        let err = snapshot
             .execute(
                 "edit_file",
                 &json!({
@@ -721,124 +756,12 @@ mod tests {
             .unwrap_err();
         assert!(err.contains("Patch edit 2 failed"));
 
-        let final_file = registry
+        let final_file = snapshot
             .execute("read_file", &json!({"path": "notes/example.txt"}), &ctx).await
             .unwrap();
         assert_eq!(final_file["content"], "alpha\nbeta\ngamma\n");
 
         conversation_store::delete_conversation(&conversation_id).unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_tool_registry() {
-        let registry = ToolRegistry::new_with_defaults();
-        let schemas = registry.list_schemas();
-        assert_eq!(schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
-
-        // Execute via registry
-        let args = json!({ "expression": "100 * 2.5" });
-        let res = registry
-            .execute("calculator", &args, &ToolExecutionContext::default()).await
-            .unwrap();
-        assert_eq!(res["result"].as_f64().unwrap(), 250.0);
-    }
-
-    #[test]
-    fn test_tool_schema_formats() {
-        let registry = ToolRegistry::new_with_defaults();
-
-        let responses_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Responses);
-        let cc_schemas = registry.list_schemas_with_format(ToolSchemaFormat::ChatCompletions);
-        let gemini_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Gemini);
-        let anthropic_schemas = registry.list_schemas_with_format(ToolSchemaFormat::Anthropic);
-
-        assert_eq!(responses_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
-        assert_eq!(cc_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
-        assert_eq!(gemini_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
-        assert_eq!(anthropic_schemas.len(), DEFAULT_REGISTRY_TOOL_COUNT);
-
-        let first_responses = &responses_schemas[0];
-        assert_eq!(first_responses["type"], "function");
-        assert!(first_responses.get("name").is_some());
-        assert!(first_responses.get("function").is_none());
-
-        let first_cc = &cc_schemas[0];
-        assert_eq!(first_cc["type"], "function");
-        assert!(first_cc.get("name").is_none());
-        assert!(first_cc.get("function").is_some());
-        assert!(first_cc["function"].get("name").is_some());
-        assert!(first_cc["function"].get("parameters").is_some());
-
-        let first_gemini = &gemini_schemas[0];
-        assert!(first_gemini.get("type").is_none());
-        assert!(first_gemini.get("name").is_some());
-        assert!(first_gemini.get("parameters").is_some());
-
-        let first_anthropic = &anthropic_schemas[0];
-        assert!(first_anthropic.get("type").is_none());
-        assert!(first_anthropic.get("name").is_some());
-        assert!(first_anthropic.get("input_schema").is_some());
-
-        for schema in &responses_schemas {
-            let parameters = schema
-                .get("parameters")
-                .and_then(|value| value.as_object())
-                .expect("responses schema parameters should be an object");
-            assert_eq!(
-                parameters.get("type").and_then(|value| value.as_str()),
-                Some("object")
-            );
-            assert!(!parameters.contains_key("anyOf"));
-            assert!(!parameters.contains_key("oneOf"));
-            assert!(!parameters.contains_key("allOf"));
-            assert!(!parameters.contains_key("not"));
-        }
-
-        for schema in &cc_schemas {
-            let parameters = schema
-                .get("function")
-                .and_then(|value| value.get("parameters"))
-                .and_then(|value| value.as_object())
-                .expect("chat completions schema parameters should be an object");
-            assert_eq!(
-                parameters.get("type").and_then(|value| value.as_str()),
-                Some("object")
-            );
-            assert!(!parameters.contains_key("anyOf"));
-            assert!(!parameters.contains_key("oneOf"));
-            assert!(!parameters.contains_key("allOf"));
-            assert!(!parameters.contains_key("not"));
-        }
-
-        for schema in &gemini_schemas {
-            let parameters = schema
-                .get("parameters")
-                .and_then(|value| value.as_object())
-                .expect("gemini schema parameters should be an object");
-            assert_eq!(
-                parameters.get("type").and_then(|value| value.as_str()),
-                Some("object")
-            );
-            assert!(!parameters.contains_key("anyOf"));
-            assert!(!parameters.contains_key("oneOf"));
-            assert!(!parameters.contains_key("allOf"));
-            assert!(!parameters.contains_key("not"));
-        }
-
-        for schema in &anthropic_schemas {
-            let parameters = schema
-                .get("input_schema")
-                .and_then(|value| value.as_object())
-                .expect("anthropic schema input_schema should be an object");
-            assert_eq!(
-                parameters.get("type").and_then(|value| value.as_str()),
-                Some("object")
-            );
-            assert!(!parameters.contains_key("anyOf"));
-            assert!(!parameters.contains_key("oneOf"));
-            assert!(!parameters.contains_key("allOf"));
-            assert!(!parameters.contains_key("not"));
-        }
     }
 
     #[tokio::test]

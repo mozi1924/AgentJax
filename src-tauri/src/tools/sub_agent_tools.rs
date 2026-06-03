@@ -13,7 +13,7 @@
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::sub_agents::manager::{SubAgentManager, DEFAULT_MAX_TURNS, HARD_MAX_TURNS};
 use crate::sub_agents::types::{SubAgentSpec, SubAgentType};
-use crate::tools::{Tool, ToolExecutionContext, ToolCatalog, check_scope_narrowing_invariant};
+use crate::tools::{Tool, ToolExecutionContext, check_scope_narrowing_invariant};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;

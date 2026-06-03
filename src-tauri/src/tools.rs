@@ -4,7 +4,6 @@ pub(crate) mod catalog;
 mod files;
 pub(crate) mod memory_tools;
 mod native;
-mod registry;
 pub(crate) mod sub_agent_tools;
 
 use crate::config::AppConfig;
@@ -21,7 +20,6 @@ pub use catalog::{
 };
 pub use files::{EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool};
 pub use native::{CalculatorTool, SystemTimeTool};
-pub use registry::ToolRegistry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolSchemaFormat {
