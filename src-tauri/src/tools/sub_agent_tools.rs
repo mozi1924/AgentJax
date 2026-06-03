@@ -47,7 +47,136 @@ struct SubAgentArgs {
     wait: bool,
     #[serde(default)]
     timeout_ms: Option<u64>,
+
+    // ── batch fields ───────────────────────────────────────────────────
+    #[serde(default)]
+    input_path: Option<String>,
+    #[serde(default)]
+    output_path: Option<String>,
 }
+
+    #[test]
+    fn test_batch_args_deserialization() {
+        let args = json!({
+            "action": "batch",
+            "prompt": "Analyze: {input}",
+            "inputPath": "items.jsonl",
+            "outputPath": "results.jsonl",
+            "maxTurns": 8
+        });
+        let parsed: SubAgentArgs = serde_json::from_value(args).unwrap();
+        assert_eq!(parsed.action, "batch");
+        assert_eq!(parsed.prompt.unwrap(), "Analyze: {input}");
+        assert_eq!(parsed.input_path.unwrap(), "items.jsonl");
+        assert_eq!(parsed.output_path.unwrap(), "results.jsonl");
+        assert_eq!(parsed.max_turns, 8);
+    }
+
+    #[test]
+    fn test_batch_args_defaults_work_with_spawn_fields() {
+        // Batch reuses spawn fields as batch defaults.
+        let args = json!({
+            "action": "batch",
+            "prompt": "Classify: {input}",
+            "inputPath": "data.jsonl",
+            "subagentType": "explore",
+            "keptWork": ["classification"]
+        });
+        let parsed: SubAgentArgs = serde_json::from_value(args).unwrap();
+        assert_eq!(parsed.action, "batch");
+        assert_eq!(parsed.subagent_type.unwrap(), "explore");
+        assert_eq!(parsed.kept_work, vec!["classification"]);
+        assert_eq!(parsed.max_turns, DEFAULT_MAX_TURNS);
+    }
+
+    #[test]
+    fn test_batch_missing_input_path() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let ctx = ToolExecutionContext::default();
+            let args = json!({ "action": "batch", "prompt": "Analyze: {input}" });
+            let tool = SubAgentTool;
+            let result = tool.execute(&args, &ctx).await;
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("inputPath"), "Got: {err}");
+        });
+    }
+
+    #[test]
+    fn test_batch_missing_prompt() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let ctx = ToolExecutionContext::default();
+            let args = json!({ "action": "batch", "inputPath": "items.jsonl" });
+            let tool = SubAgentTool;
+            let result = tool.execute(&args, &ctx).await;
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("prompt"), "Got: {err}");
+        });
+    }
+
+    #[test]
+    fn test_batch_input_file_not_found() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let ctx = ToolExecutionContext {
+                conversation_id: Some("conv-test-batch".to_string()),
+                ..Default::default()
+            };
+            let args = json!({
+                "action": "batch",
+                "prompt": "Analyze: {input}",
+                "inputPath": "nonexistent_file.jsonl"
+            });
+            let tool = SubAgentTool;
+            let result = tool.execute(&args, &ctx).await;
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("not found"), "Got: {err}");
+        });
+    }
+
+    #[test]
+    fn test_batch_registers_multiple_agents() {
+        // Create a temp JSONL file in the conversation workspace and test batch registration.
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let conv_id = format!("conv_batch_test_{}", uuid::Uuid::new_v4());
+            // Create the conversation workspace directory
+            let workspace_dir = crate::conversation_store::conversation_workspace_path(&conv_id).unwrap();
+            std::fs::create_dir_all(&workspace_dir).unwrap();
+            let input_path = workspace_dir.join("items.jsonl");
+            std::fs::write(&input_path, r#"{"item": 1}
+{"item": 2}
+{"item": 3}
+"#).unwrap();
+
+            let ctx = ToolExecutionContext {
+                conversation_id: Some(conv_id.clone()),
+                ..Default::default()
+            };
+            let args = json!({
+                "action": "batch",
+                "prompt": "Analyze: {input}",
+                "inputPath": "items.jsonl",
+                "keptWork": ["result"]
+            });
+            let tool = SubAgentTool;
+            let result = tool.execute(&args, &ctx).await.unwrap();
+            assert!(result["batchMode"].as_bool().unwrap(), "Should be batch mode");
+            assert_eq!(result["agentCount"].as_i64().unwrap(), 3);
+            let ids = result["agentIds"].as_array().unwrap();
+            assert_eq!(ids.len(), 3);
+            assert!(ids[0].as_str().unwrap().starts_with("batch_"));
+            assert!(ids[1].as_str().unwrap().starts_with("batch_"));
+            assert!(ids[2].as_str().unwrap().starts_with("batch_"));
+            // Cleanup
+            let _ = std::fs::remove_dir_all(&workspace_dir);
+        });
+    }
+
 
 fn default_max_turns() -> usize {
     DEFAULT_MAX_TURNS
@@ -85,8 +214,8 @@ impl Tool for SubAgentTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["spawn", "status", "cancel"],
-                    "description": "The sub-agent operation: 'spawn' to launch, 'status' to check progress, 'cancel' to stop."
+                    "enum": ["spawn", "status", "cancel", "batch"],
+                    "description": "The sub-agent operation: 'spawn' to launch, 'status' to check progress, 'cancel' to stop, 'batch' to spawn one sub-agent per JSONL item."
                 },
                 "prompt": {
                     "type": "string",
@@ -129,6 +258,14 @@ impl Tool for SubAgentTool {
                 "timeoutMs": {
                     "type": "integer",
                     "description": "[status] Maximum wait time in milliseconds (default 30000)."
+                },
+                "inputPath": {
+                    "type": "string",
+                    "description": "[batch] Path to the JSONL input file (one item per line). Each item replaces {input} in the prompt."
+                },
+                "outputPath": {
+                    "type": "string",
+                    "description": "[batch] Path to write the JSONL output file. If omitted, results must be collected manually."
                 }
             }
         })
@@ -146,8 +283,9 @@ impl Tool for SubAgentTool {
             "spawn" => execute_spawn(&args, context).await,
             "status" => execute_status(&args, context).await,
             "cancel" => execute_cancel(&args, context).await,
+            "batch" => execute_batch(&args, context).await,
             other => Err(AgentJaxError::sub_agent(format!(
-                "Unknown action '{}'. Valid actions: spawn, status, cancel.",
+                "Unknown action '{}'. Valid actions: spawn, status, cancel, batch.",
                 other
             ))),
         }
@@ -258,6 +396,110 @@ async fn execute_cancel(
 
     let conversation_id = context.conversation_id.as_deref();
     SubAgentManager::cancel(agent_id, conversation_id)
+}
+
+// ── Batch implementation ──────────────────────────────────────────────────
+
+/// Execute a batch spawn: read a JSONL file and spawn one sub-agent per item.
+async fn execute_batch(
+    args: &SubAgentArgs,
+    context: &ToolExecutionContext,
+) -> AgentJaxResult<Value> {
+    let input_path = args.input_path.as_deref().ok_or_else(|| {
+        AgentJaxError::sub_agent(
+            "The 'inputPath' field is required for action 'batch'.".to_string(),
+        )
+    })?;
+
+    let prompt_template = args.prompt.as_deref().ok_or_else(|| {
+        AgentJaxError::sub_agent(
+            "The 'prompt' field is required for action 'batch'.".to_string(),
+        )
+    })?;
+
+    // Resolve path relative to the conversation workspace.
+    let workspace_dir = context
+        .conversation_id
+        .as_deref()
+        .and_then(|id| crate::conversation_store::conversation_workspace_path(id).ok())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let full_path = workspace_dir.join(input_path);
+
+    if !full_path.exists() {
+        return Err(AgentJaxError::not_found(format!(
+            "Batch input file not found: {}",
+            full_path.display()
+        )));
+    }
+
+    let input_content = std::fs::read_to_string(&full_path)
+        .map_err(|e| AgentJaxError::internal(format!("Failed to read batch input file: {e}")))?;
+
+    let items: Vec<String> = input_content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|s| s.to_string())
+        .collect();
+
+    if items.is_empty() {
+        return Err(AgentJaxError::sub_agent("Batch input file is empty".to_string()));
+    }
+
+    let conversation_id = context
+        .conversation_id
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let subagent_type = SubAgentType::from_str(
+        args.subagent_type.as_deref().unwrap_or("general"),
+    )
+    .unwrap_or(SubAgentType::GeneralPurpose);
+
+    let max_turns = args.max_turns.min(HARD_MAX_TURNS);
+    let mut agent_ids = Vec::with_capacity(items.len());
+
+    for item in &items {
+        let prompt = prompt_template.replace("{input}", item);
+        let agent_id = format!("batch_{}", uuid::Uuid::new_v4().simple());
+
+        let spec = SubAgentSpec {
+            agent_id: agent_id.clone(),
+            parent_conversation_id: conversation_id.clone(),
+            subagent_type: subagent_type.clone(),
+            prompt,
+            delegated_scope: args.delegated_scope.clone(),
+            kept_work: args.kept_work.clone(),
+            max_turns,
+            use_worktree: args.use_worktree,
+            model_id: context.model_id.clone(),
+            parent_request_id: "batch".to_string(),
+            persistent: false,
+        };
+
+        let _task = SubAgentManager::register(spec);
+        agent_ids.push(agent_id);
+    }
+
+    let output_hint = match &args.output_path {
+        Some(path) => format!(
+            ". Collect results via sub_agent(action='status', agentId=...)              for each item and write to {}",
+            path
+        ),
+        None => ". Collect results via sub_agent(action='status', agentId=...)                   for each item.".to_string(),
+    };
+
+    Ok(json!({
+        "ok": true,
+        "batchMode": true,
+        "agentCount": agent_ids.len(),
+        "agentIds": agent_ids,
+        "status": "pending",
+        "hint": format!(
+            "Batch of {} sub-agents registered. Each will process one JSONL item{}",
+            agent_ids.len(),
+            output_hint,
+        ),
+    }))
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
