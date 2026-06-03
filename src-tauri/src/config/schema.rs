@@ -112,6 +112,70 @@ impl Default for ConversationConfig {
 
 // ── AppConfig ─────────────────────────────────────────────────────────────────
 
+// ── RAG / Embedding Config ──────────────────────────────────────────────────────
+
+/// Configuration for the embedding provider used by RAG.
+/// Credentials are resolved by referencing an existing provider config
+/// via `provider_key` (e.g., "openai-responses").
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EmbeddingProviderConfig {
+    /// Embedding provider implementation name (e.g., "openai").
+    pub provider: String,
+    /// Optional reference to an existing provider config key for credentials.
+    /// When set, the system reads apiEndpoint and credential/credentialEnv
+    /// from the referenced provider config in AppConfig.providers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_key: Option<String>,
+    /// Embedding model name (e.g., "text-embedding-3-small").
+    pub model: String,
+    /// Output vector dimensions.
+    pub dimensions: usize,
+}
+
+impl Default for EmbeddingProviderConfig {
+    fn default() -> Self {
+        Self {
+            provider: "openai".to_string(),
+            provider_key: None,
+            model: "text-embedding-3-small".to_string(),
+            dimensions: 1536,
+        }
+    }
+}
+
+/// RAG (Retrieval-Augmented Generation) system configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RagConfig {
+    /// Whether the RAG system is enabled.
+    pub enabled: bool,
+    /// Directory for vector store data (relative to agentjax home).
+    pub storage_path: String,
+    /// Default chunk size in characters for text splitting.
+    pub chunk_size: usize,
+    /// Chunk overlap in characters.
+    pub chunk_overlap: usize,
+    /// Default top-K results for searches.
+    pub top_k: usize,
+    /// Embedding provider configuration.
+    #[serde(default)]
+    pub embedding: EmbeddingProviderConfig,
+}
+
+impl Default for RagConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            storage_path: "rag".to_string(),
+            chunk_size: 512,
+            chunk_overlap: 64,
+            top_k: 5,
+            embedding: EmbeddingProviderConfig::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -136,6 +200,8 @@ pub struct AppConfig {
     pub street: StreetConfig,
     #[serde(default)]
     pub conversation: ConversationConfig,
+    #[serde(default)]
+    pub rag: RagConfig,
     #[serde(default)]
     pub mcp_runtime: McpRuntimeConfig,
     #[serde(default)]
@@ -507,6 +573,7 @@ impl Default for AppConfig {
             memory: MemoryConfig::default(),
             street: StreetConfig::default(),
             conversation: ConversationConfig::default(),
+            rag: RagConfig::default(),
             mcp_runtime: McpRuntimeConfig::default(),
             mcp_servers: BTreeMap::new(),
             tool_manager: ToolManagerConfig::default(),

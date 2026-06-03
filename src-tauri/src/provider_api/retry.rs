@@ -115,6 +115,7 @@ impl RetryStrategy {
             crate::error::ErrorKind::ToolExecution => Self::no_retry(),
             crate::error::ErrorKind::SubAgent => Self::no_retry(),
             crate::error::ErrorKind::Memory => Self::no_retry(),
+            crate::error::ErrorKind::Embedding => Self::server_error(),
             crate::error::ErrorKind::Internal => Self::server_error(),
         }
     }

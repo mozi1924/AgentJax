@@ -21,7 +21,7 @@ pub use schema::{
     AppConfig, McpRuntimeConfig, McpServerConfig, McpToolSourcePolicyConfig, McpTransportKind,
     MemoryConfig, ModelRequestConfig, PluginEntryConfig, PluginManagerConfig,
     PluginPermissionOverride, ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
-    SubAgentConfig, ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
+    RagConfig, EmbeddingProviderConfig, SubAgentConfig, ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
 };
 #[allow(unused_imports)]
 pub use settings::{

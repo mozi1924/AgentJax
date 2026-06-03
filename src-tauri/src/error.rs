@@ -54,6 +54,9 @@ pub enum ErrorKind {
     SubAgent,
     /// Memory system error (read/write failure, invalid frontmatter).
     Memory,
+    /// Embedding/RAG system error (API failure, vector store error, etc.).
+    /// Retryable for transient network errors, non-retryable for config issues.
+    Embedding,
     /// Internal/unexpected error. May be retryable.
     Internal,
 }
@@ -71,6 +74,7 @@ impl fmt::Display for ErrorKind {
             ErrorKind::Memory => write!(f, "memory"),
             ErrorKind::ToolExecution => write!(f, "tool_execution"),
             ErrorKind::NotFound => write!(f, "not_found"),
+            ErrorKind::Embedding => write!(f, "embedding"),
             ErrorKind::Internal => write!(f, "internal"),
         }
     }
@@ -144,6 +148,17 @@ impl AgentJaxError {
     /// Create a memory system error.
     pub fn memory(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::Memory, message)
+    }
+
+    /// Create an embedding/RAG error.
+    pub fn embedding(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Embedding, message)
+    }
+
+    /// Create a retryable embedding error (e.g., network timeout).
+    pub fn embedding_retryable(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Embedding, message)
+            .retryable(true)
     }
 
     /// Create a provider auth error.
@@ -272,6 +287,7 @@ impl ErrorKind {
         matches!(
             self,
             ErrorKind::ProviderRateLimited
+                | ErrorKind::Embedding
                 | ErrorKind::ProviderUnavailable
                 | ErrorKind::ProviderOutputIncomplete
                 | ErrorKind::Network

@@ -42,6 +42,10 @@ chrono = { version = "0.4", features = ["clock", "serde"] }
 file-format = { version = "0.29.0", features = ["reader"] }
 fend-core = "1.5.8"
 tokenizers = { version = "0.19", features = ["http", "onig"] }
+lancedb = "0.17"
+arrow-array = "53"
+arrow-schema = "53"
+
 rusqlite = { version = "0.36", features = ["bundled", "vtab"] }
 thiserror = "2"
 async-trait = "0.1"
