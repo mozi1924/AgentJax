@@ -33,10 +33,11 @@ impl SubAgentLcmContext {
     /// `~/.agentjax/sessions/{parent_conv_id}/sub_agents/{agent_id}/lcm.db`
     pub fn create(
         parent_conv_id: &str,
+        subagent_type: &str,
         agent_id: &str,
         base_lcm_config: &LcmConfig,
     ) -> AgentJaxResult<Self> {
-        let sub_conv_id = format!("{}/sub-agent/{}", parent_conv_id, agent_id);
+        let sub_conv_id = format!("{}/sub-agent/{}/{}", parent_conv_id, subagent_type, agent_id);
         let db_path = sub_agent_lcm_store_path(parent_conv_id, agent_id)?;
 
         // Use smaller thresholds for sub-agents since they have limited scope.
@@ -141,10 +142,10 @@ mod tests {
     #[tokio::test]
     async fn test_create_lcm_context() {
         let config = LcmConfig::default();
-        let result = SubAgentLcmContext::create("test-conv", "agent-test", &config);
+        let result = SubAgentLcmContext::create("test-conv", "explore", "agent-test", &config);
         assert!(result.is_ok());
         let ctx = result.unwrap();
-        assert!(ctx.conversation_id.contains("sub-agent"));
+        assert!(ctx.conversation_id.contains("/sub-agent/explore/"));
         assert!(ctx.conversation_id.contains("agent-test"));
         // Cleanup: remove the test directory.
         if let Some(parent) = ctx.db_path.parent() {
@@ -164,7 +165,7 @@ mod tests {
             compaction_timeout_secs: 60,
             ..LcmConfig::default()
         };
-        let ctx = SubAgentLcmContext::create("test-conv", "agent-capped", &config)
+        let ctx = SubAgentLcmContext::create("test-conv", "general", "agent-capped", &config)
             .expect("create");
         // We can't directly read the config from LcmEngine, but we can verify
         // it was created successfully with capped values.

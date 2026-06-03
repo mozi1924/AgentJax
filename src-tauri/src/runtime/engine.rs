@@ -60,16 +60,30 @@ impl AgentRuntime {
         ));
 
         // Detect sub-agent context from conversation ID pattern.
-        // Sub-agent conversations use the format "{parent}/sub-agent/{agent_id}".
+        // Sub-agent conversations use the format:
+        //   "{parent}/sub-agent/{type}/{agent_id}"
+        // where {type} is the SubAgentType (e.g., "explore", "memory", "implement").
         // When detected, LCM tools are pointed at the sub-agent's isolated store
         // via lcm_store_override, and lcm_expand is allowed via sub_agent_id.
+        // Additionally, the sub-agent type is propagated to ToolExecutionContext
+        // so context tools like memory_write can be gated appropriately.
         let is_sub_agent = conversation_id.contains("/sub-agent/");
+        let sub_agent_type: Option<String> = if is_sub_agent {
+            // Extract type from ".../sub-agent/{type}/{id}"
+            conversation_id.split("/sub-agent/")
+                .nth(1)
+                .and_then(|rest| rest.split('/').next())
+                .map(|s| s.to_string())
+        } else {
+            None
+        };
+        let is_memory_sub_agent = sub_agent_type.as_deref() == Some("memory");
         let tool_context = ToolExecutionContext {
             conversation_id: Some(conversation_id.to_string()),
             model_id: Some(resolved_model.model_id.clone()),
             app_config: Some(Arc::new(config.clone())),
             sub_agent_id: if is_sub_agent {
-                // Extract agent_id from the conversation_id path.
+                // Extract agent_id (last segment) from the conversation_id path.
                 conversation_id
                     .rsplit('/')
                     .next()
@@ -82,6 +96,8 @@ impl AgentRuntime {
             } else {
                 None
             },
+            sub_agent_type: sub_agent_type.clone(),
+            is_memory_sub_agent,
             sub_agent_event_tx: sub_agent_event_tx.clone(),
             ..Default::default()
         };

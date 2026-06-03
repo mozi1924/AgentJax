@@ -52,6 +52,7 @@ pub async fn run_sub_agent(
     let lcm_config = app_config.lcm.clone();
     let sub_lcm = match SubAgentLcmContext::create(
         &spec.parent_conversation_id,
+        spec.subagent_type.as_str(),
         &agent_id,
         &lcm_config,
     ) {
@@ -115,35 +116,27 @@ pub async fn run_sub_agent(
     };
 
     // ── Run the agent loop ────────────────────────────────────────────────
-    let (_cancel_tx, mut cancel_rx) = tokio::sync::watch::channel(false);
-    // Merge with task's cancel signal.
-    let mut task_cancel_rx = task.cancel_tx.subscribe();
-    let mut merged_cancel_rx = tokio::sync::watch::channel(false).1;
+    // Wire the task's cancel signal so run_turn receives actual cancellations.
+    let (merged_cancel_tx, mut merged_cancel_rx) = tokio::sync::watch::channel(false);
 
-    // We need to run the main loop with cancellation from either source.
-    // Use a simple approach: poll both cancel sources.
-    let cancel_handle = {
-        let agent_id = agent_id.clone();
-        let event_tx = event_tx.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = task_cancel_rx.changed() => {
-                        if *task_cancel_rx.borrow() {
-                            let _ = event_tx.send(SubAgentEvent::Cancelled {
-                                agent_id: agent_id.clone(),
-                                reason: "Sub-agent cancelled by user".to_string(),
-                            });
-                            break;
-                        }
-                    }
-                    _ = cancel_rx.changed() => {
-                        break;
-                    }
-                }
+    // Forward task cancellation to merged_cancel_rx.
+    let mut task_cancel_rx = task.cancel_tx.subscribe();
+    let cancel_fwd_agent_id = agent_id.clone();
+    let cancel_fwd_event_tx = event_tx.clone();
+    tokio::spawn(async move {
+        loop {
+            let changed = task_cancel_rx.changed().await;
+            if changed.is_err() { break; }
+            if *task_cancel_rx.borrow() {
+                let _ = merged_cancel_tx.send(true);
+                let _ = cancel_fwd_event_tx.send(SubAgentEvent::Cancelled {
+                    agent_id: cancel_fwd_agent_id.clone(),
+                    reason: "Sub-agent cancelled by user".to_string(),
+                });
+                break;
             }
-        })
-    };
+        }
+    });
 
     // Clone values that need to be used both inside and outside the closure.
     let closure_event_tx = event_tx.clone();
@@ -205,8 +198,6 @@ pub async fn run_sub_agent(
     )
     .await;
 
-    // Cancel the cancel watcher.
-    cancel_handle.abort();
 
     match result {
         Ok((response, _timeline)) => {
@@ -306,8 +297,13 @@ pub async fn run_memory_agent(
                     }
                 };
 
+                // Load parent conversation context from LCM.
+                let conv_context = load_conversation_context(&spec.parent_conversation_id).unwrap_or_default();
+
                 // Build the prompt instructing the LLM to classify and act.
-                let prompt = build_memory_agent_prompt(&index_content);
+                // Now includes both the memory index AND the actual conversation context
+                // so the LLM can evaluate what was actually said.
+                let prompt = build_memory_agent_prompt(&index_content, &conv_context);
 
                 // Resolve the model (use utility_small_model or default).
                 let model_id = if app_config.utility_small_model.is_empty() {
@@ -316,10 +312,10 @@ pub async fn run_memory_agent(
                     app_config.utility_small_model.clone()
                 };
 
-                // Call the provider.
+                // Call the provider with instructions as developer role (not user).
                 let request = crate::provider_api::types::ResponseStreamRequest {
                     input_items: vec![serde_json::json!({
-                        "role": "user",
+                        "role": "developer",
                         "content": [{"type": "input_text", "text": prompt}]
                     })],
                     model: Some(model_id),
@@ -364,7 +360,7 @@ pub async fn run_memory_agent(
 }
 
 /// Build the classification prompt for the memory agent.
-fn build_memory_agent_prompt(index_content: &str) -> String {
+fn build_memory_agent_prompt(index_content: &str, conversation_context: &str) -> String {
     let has_memories = index_content.contains("\n## ");
     let memory_context = if has_memories {
         format!(
@@ -374,11 +370,20 @@ fn build_memory_agent_prompt(index_content: &str) -> String {
     } else {
         "No existing memories found.\n\n".to_string()
     };
+    // Include actual conversation context for the LLM to evaluate.
+    let conv_context = if conversation_context.is_empty() {
+        "(No conversation messages available.)".to_string()
+    } else {
+        format!(
+            "## Recent Conversation Context\n\n{}\n\n---\n",
+            conversation_context
+        )
+    };
 
     format!(
         "You are a background memory observer agent. Your role is to review the \
          conversation and manage persistent memories across sessions.\n\n\
-         {memory_context}\
+         {memory_context}{conv_context}\
          ## Instructions\n\n\
          Review the conversation context above and decide if there is any new, \
          corrected, or updated information worth remembering across sessions.\n\n\
@@ -520,6 +525,72 @@ fn extract_wikilinks_from_body(body: &str) -> Vec<String> {
         }
     }
     links
+}
+
+/// Load recent conversation context from the parent conversation's LCM store.
+/// Returns a formatted string representation of recent messages, or None if
+/// the LCM store cannot be opened or has no messages.
+fn load_conversation_context(parent_conv_id: &str) -> Option<String> {
+    use crate::lcm::LcmConfig;
+    use crate::lcm::LcmEngine;
+    use crate::lcm::LcmStore;
+    use std::sync::Arc;
+
+    // Open the parent conversation's LCM store
+    let lcm_config = LcmConfig::default();
+    let store_path = match crate::lcm::lcm_store_path(parent_conv_id) {
+        Ok(p) => p,
+        Err(e) => {
+            log::warn!("Memory agent: failed to get LCM store path for '{}': {e}", parent_conv_id);
+            return None;
+        }
+    };
+    let store = match LcmStore::open(&store_path, lcm_config.clone()) {
+        Ok(s) => Arc::new(s),
+        Err(e) => {
+            log::warn!("Memory agent: failed to open LCM store for '{}': {e}", parent_conv_id);
+            return None;
+        }
+    };
+    let engine = LcmEngine::new(
+        store,
+        Arc::new(crate::lcm::NoopSummarizer),
+        lcm_config,
+    );
+
+    // Rebuild active context for the parent conversation
+    if let Err(e) = engine.rebuild_active_context(parent_conv_id) {
+        log::warn!("Memory agent: failed to rebuild LCM context for '{}': {e}", parent_conv_id);
+        return None;
+    }
+
+    let context_items = match engine.active_context_snapshot() {
+        Ok(entries) => engine.context_to_provider_items(&entries),
+        Err(e) => {
+            log::warn!("Memory agent: failed to snapshot LCM context for '{}': {e}", parent_conv_id);
+            return None;
+        }
+    };
+
+    if context_items.is_empty() {
+        return None;
+    }
+
+    // Format the context items into a readable string
+    let mut output = String::new();
+    for item in &context_items {
+        let role = item.get("role").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let text = item.get("content")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|c| c.get("text"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !text.is_empty() {
+            output.push_str(&format!("[{}] {}\n\n", role, text));
+        }
+    }
+    Some(output)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
