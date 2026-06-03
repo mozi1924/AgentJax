@@ -1,3 +1,5 @@
+use crate::agentjax_err;
+use crate::error::AgentJaxError;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -26,7 +28,7 @@ impl LocalTokenizerManager {
             tokenizer
                 .encode(text, true)
                 .map(|encoding| encoding.get_ids().len())
-                .map_err(|err| err.to_string())
+                .map_err(|err| AgentJaxError::internal(format!("Tokenization error: {err}")).with_source(err.to_string()))
         }) {
             Ok(count) => count,
             Err(err) => {
@@ -40,7 +42,7 @@ impl LocalTokenizerManager {
         }
     }
 
-    fn get_or_load_tokenizer(&self, model: &str) -> Result<Arc<Tokenizer>, String> {
+    fn get_or_load_tokenizer(&self, model: &str) -> crate::error::AgentJaxResult<Arc<Tokenizer>> {
         let tokenizer_id = tokenizer_id_for_model(model)?;
         if let Ok(cache) = self.cache.lock() {
             if let Some(tokenizer) = cache.get(tokenizer_id) {
@@ -49,7 +51,7 @@ impl LocalTokenizerManager {
         }
         if let Ok(failed_loads) = self.failed_loads.lock() {
             if let Some(err) = failed_loads.get(tokenizer_id) {
-                return Err(err.clone());
+                return Err(AgentJaxError::internal(err.clone()));
             }
         }
 
@@ -60,7 +62,7 @@ impl LocalTokenizerManager {
                 if let Ok(mut failed_loads) = self.failed_loads.lock() {
                     failed_loads.insert(tokenizer_id.to_string(), message.clone());
                 }
-                return Err(message);
+                return Err(AgentJaxError::internal(message));
             }
         };
 
@@ -88,7 +90,7 @@ pub(super) fn count_model_tokens(model: &str, text: &str) -> usize {
 pub(super) fn count_serialized_tool_schema_tokens(
     model: &str,
     tools: &[Value],
-) -> Result<usize, String> {
+) -> crate::error::AgentJaxResult<usize> {
     let mut total = 0usize;
     for tool in tools {
         let serialized = serde_json::to_string(tool)
@@ -109,10 +111,10 @@ fn normalize_model_name(model: &str) -> String {
     trimmed.to_ascii_lowercase()
 }
 
-fn tokenizer_id_for_model(model: &str) -> Result<&'static str, String> {
+fn tokenizer_id_for_model(model: &str) -> crate::error::AgentJaxResult<&'static str> {
     let normalized = normalize_model_name(model).to_ascii_lowercase();
     if normalized.is_empty() {
-        return Err("Model name cannot be empty for token counting".to_string());
+        return Err(agentjax_err!("Model name cannot be empty for token counting", Config));
     }
 
     if normalized.contains("claude") {

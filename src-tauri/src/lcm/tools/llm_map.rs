@@ -362,13 +362,13 @@ async fn call_llm_for_item(prompt: &str, model_ref: &str) -> AgentJaxResult<Valu
 }
 
 /// Validate a value against a JSON Schema.
-fn validate_against_schema(value: &Value, schema: &Value) -> Result<(), String> {
+fn validate_against_schema(value: &Value, schema: &Value) -> crate::error::AgentJaxResult<()> {
     // Basic validation: check that required top-level keys exist.
     if let Some(required) = schema.get("required").and_then(|v| v.as_array()) {
         for key in required {
             let key_str = key.as_str().ok_or_else(|| "Invalid schema: required key is not a string".to_string())?;
             if !value.get(key_str).is_some() {
-                return Err(format!("Missing required field: '{key_str}'"));
+                return Err(AgentJaxError::tool(format!("Missing required field: '{key_str}'")));
             }
         }
     }
@@ -384,9 +384,9 @@ fn validate_against_schema(value: &Value, schema: &Value) -> Result<(), String> 
             Value::Object(_) => "object",
         };
         if actual_type != expected_type {
-            return Err(format!(
+            return Err(AgentJaxError::tool(format!(
                 "Type mismatch: expected '{expected_type}', got '{actual_type}'"
-            ));
+            )));
         }
     }
 

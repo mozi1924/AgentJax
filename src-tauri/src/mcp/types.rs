@@ -1,4 +1,6 @@
+use crate::agentjax_err;
 use crate::config::{McpRuntimeConfig, McpServerConfig, McpTransportKind};
+use crate::error::{AgentJaxError, AgentJaxResult};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -33,13 +35,13 @@ pub fn resolve_server_runtime(
     server_id: &str,
     server_config: &McpServerConfig,
     runtime_config: &McpRuntimeConfig,
-) -> Result<McpResolvedServerRuntime, String> {
+) -> AgentJaxResult<McpResolvedServerRuntime> {
     let connection = match server_config.transport {
         McpTransportKind::Stdio => {
             if server_config.command.is_empty() {
-                return Err(format!(
-                    "MCP server '{}' requires `command` for stdio transport",
-                    server_id
+                return Err(agentjax_err!(
+                    format!("MCP server '{}' requires `command` for stdio transport", server_id),
+                    Config
                 ));
             }
 
@@ -61,9 +63,9 @@ pub fn resolve_server_runtime(
         }
         McpTransportKind::StreamableHttp => {
             let uri = server_config.uri.clone().ok_or_else(|| {
-                format!(
-                    "MCP server '{}' requires `uri` for streamable_http transport",
-                    server_id
+                agentjax_err!(
+                    format!("MCP server '{}' requires `uri` for streamable_http transport", server_id),
+                    Config
                 )
             })?;
 
@@ -79,7 +81,7 @@ pub fn resolve_server_runtime(
     };
 
     let fingerprint = serde_json::to_string(&connection)
-        .map_err(|e| format!("Failed to serialize MCP server '{server_id}' config: {e}"))?;
+        .map_err(|e| AgentJaxError::internal(format!("Failed to serialize MCP server '{server_id}' config: {e}")).with_error_source(&e))?;
 
     Ok(McpResolvedServerRuntime {
         enabled: server_config.enabled,

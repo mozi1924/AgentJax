@@ -89,7 +89,7 @@ pub fn load_context_for_request(
 fn load_context_from_lcm(
     conversation_id: &str,
     budget: Option<&TokenBudget>,
-) -> Result<Option<ConversationContext>, String> {
+) -> crate::error::AgentJaxResult<Option<ConversationContext>> {
     use crate::conversation_store::paths::conversation_lcm_db_path;
 
     let db_path = conversation_lcm_db_path(conversation_id)?;

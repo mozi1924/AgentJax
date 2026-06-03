@@ -13,7 +13,7 @@ use reqwest::{RequestBuilder};
 pub fn apply_headers_to_reqwest(
     mut builder: RequestBuilder,
     headers: &BTreeMap<String, String>,
-) -> Result<RequestBuilder, String> {
+) -> crate::error::AgentJaxResult<RequestBuilder> {
     for (key, value) in headers {
         let key = key.trim();
         let value = value.trim();

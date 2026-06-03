@@ -348,7 +348,7 @@ impl ToolCatalog {
                     }
                     Err(err) => {
                         status = "error".to_string();
-                        error = Some(err);
+                        error = Some(err.to_string());
                     }
                 }
             }

@@ -112,7 +112,7 @@ pub fn discover_plugin_packages(
 
 /// Discover plugin packages from `$AGENTJAX_HOME/plugins`.
 pub fn discover_home_plugin_packages() -> PluginRuntimeResult<Vec<PluginPackage>> {
-    let plugins_dir = crate::agentjax_home::ensure_plugins_dir().map_err(PluginRuntimeError::Io)?;
+    let plugins_dir = crate::agentjax_home::ensure_plugins_dir().map_err(|e| PluginRuntimeError::Io(e.to_string()))?;
     discover_plugin_packages(plugins_dir)
 }
 

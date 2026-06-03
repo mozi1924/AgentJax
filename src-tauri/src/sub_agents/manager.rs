@@ -117,7 +117,7 @@ fn to_snapshot(task: &SubAgentTask) -> SubAgentSnapshot {
 fn resolve_task(
     agent_id: &str,
     conversation_id: Option<&str>,
-) -> Result<Arc<SubAgentTask>, String> {
+) -> crate::error::AgentJaxResult<Arc<SubAgentTask>> {
     let guard = registry()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());

@@ -97,7 +97,7 @@ fn job_visible_to_conversation(job: &BackgroundToolJob, conversation_id: Option<
 fn resolve_job(
     job_id: &str,
     conversation_id: Option<&str>,
-) -> Result<Arc<BackgroundToolJob>, String> {
+) -> crate::error::AgentJaxResult<Arc<BackgroundToolJob>> {
     let guard = jobs()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());

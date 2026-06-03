@@ -151,7 +151,7 @@ impl Tool for AgenticMapTool {
         let completed = Arc::new(AtomicUsize::new(0));
         let failed = Arc::new(AtomicUsize::new(0));
         let semaphore = Arc::new(Semaphore::new(concurrency));
-        let results: Arc<std::sync::Mutex<Vec<(usize, Result<Value, String>)>>> =
+        let results: Arc<std::sync::Mutex<Vec<(usize, AgentJaxResult<Value>)>>> =
             Arc::new(std::sync::Mutex::new(Vec::with_capacity(total)));
 
         // Spawn all sub-agent tasks with concurrency control.
@@ -170,7 +170,7 @@ impl Tool for AgenticMapTool {
             handles.push(tokio::spawn(async move {
                 let _permit = permit.await.unwrap();
 
-                let mut last_error: Option<String> = None;
+                let mut last_error: Option<AgentJaxError> = None;
                 for attempt in 0..retries {
                     if attempt > 0 {
                         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
@@ -189,7 +189,7 @@ impl Tool for AgenticMapTool {
                 }
                 fail.fetch_add(1, Ordering::SeqCst);
                 let mut lock = res.lock().unwrap();
-                lock.push((i, Err(last_error.unwrap_or_else(|| "Max retries exceeded".to_string()))));
+                lock.push((i, Err(last_error.unwrap_or_else(|| AgentJaxError::internal("Max retries exceeded")))));
             }));
         }
 
@@ -262,7 +262,7 @@ async fn run_subagent_task(
     prompt: &str,
     model_ref: &str,
     app_config: Option<&AppConfig>,
-) -> Result<Value, String> {
+) -> crate::error::AgentJaxResult<Value> {
     use crate::provider_api::types::{
         ProviderPendingToolCall, ProviderStreamEvent, ResponseStreamRequest,
     };
@@ -344,7 +344,7 @@ Do not include any other text, explanation, or markdown outside the JSON.";
         if tool_calls.is_empty() {
             let text = response.output_text.trim().to_string();
             if text.is_empty() {
-                return Err("Sub-agent returned empty response".to_string());
+                return Err(AgentJaxError::tool("Sub-agent returned empty response"));
             }
             if let Ok(parsed) = serde_json::from_str::<Value>(&text) {
                 return Ok(parsed);
@@ -396,9 +396,9 @@ Do not include any other text, explanation, or markdown outside the JSON.";
         }
     }
 
-    Err(format!(
+    Err(AgentJaxError::tool(format!(
         "Sub-agent exceeded maximum turns ({MAX_SUBAGENT_TURNS}) without completing"
-    ))
+    )))
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────

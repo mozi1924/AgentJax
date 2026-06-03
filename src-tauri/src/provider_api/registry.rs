@@ -1,3 +1,4 @@
+use crate::agentjax_err;
 use crate::config::{ModelRequestConfig, ProviderConfig, ProviderModelConfig};
 use crate::plugin_runtime::{
     PluginPackage, PluginProviderDefinition, builtin_plugin_packages,
@@ -169,14 +170,14 @@ pub fn provider_plugin_package(provider_kind: &str) -> Option<PluginPackage> {
 fn dynamic_provider_definition_from_plugin(
     plugin_provider: PluginProviderDefinition,
     package: Option<PluginPackage>,
-) -> Result<DynamicProviderDefinition, String> {
+) -> crate::error::AgentJaxResult<DynamicProviderDefinition> {
     let kind = normalize_provider_kind(&plugin_provider.kind);
     if kind.is_empty() {
-        return Err("provider kind cannot be empty".to_string());
+        return Err(agentjax_err!("provider kind cannot be empty", Config));
     }
     let display_name = plugin_provider.display_name.trim().to_string();
     if display_name.is_empty() {
-        return Err(format!("provider '{kind}' must have a display name"));
+        return Err(agentjax_err!(format!("provider '{kind}' must have a display name"), Config));
     }
 
     let capabilities = plugin_provider

@@ -25,7 +25,7 @@ pub fn count_request_prompt_tokens(
     instructions_text: Option<&str>,
     input_items: &[Value],
     tools: &[Value],
-) -> Result<ConversationTokenUsage, String> {
+) -> crate::error::AgentJaxResult<ConversationTokenUsage> {
     let mut request_items = Vec::with_capacity(input_items.len().saturating_add(1));
     if let Some(instructions_text) = instructions_text
         .map(str::trim)
@@ -54,7 +54,7 @@ pub fn count_request_prompt_tokens(
 pub fn count_conversation_context_tokens(
     model: &str,
     lines: &[ConversationLine],
-) -> Result<ConversationTokenUsage, String> {
+) -> crate::error::AgentJaxResult<ConversationTokenUsage> {
     let mut items = build_context_items(lines);
     items = sanitize_tool_call_pairs(items);
     items = truncate_context_items_preserving_tool_pairs(items, MAX_CONTEXT_ITEMS_PER_REQUEST);
@@ -78,7 +78,7 @@ pub fn count_conversation_prompt_tokens(
     context_items: &[Value],
     extra_input_items: &[Value],
     tools: &[Value],
-) -> Result<ConversationTokenUsage, String> {
+) -> crate::error::AgentJaxResult<ConversationTokenUsage> {
     let mut items = Vec::with_capacity(
         developer_items
             .len()
@@ -97,7 +97,7 @@ pub fn count_conversation_prompt_tokens(
 }
 
 /// Count token usage for already-built chat messages.
-pub fn count_messages_tokens(model: &str, messages: &[TokenCountMessage]) -> Result<usize, String> {
+pub fn count_messages_tokens(model: &str, messages: &[TokenCountMessage]) -> crate::error::AgentJaxResult<usize> {
     if messages.is_empty() {
         return Ok(0);
     }
@@ -127,7 +127,7 @@ pub fn count_messages_tokens(model: &str, messages: &[TokenCountMessage]) -> Res
 /// This is a lightweight helper exposed for the streaming event path so the
 /// backend can report the live token count without reloading the full
 /// conversation context on every event.
-pub fn count_text_tokens(model: &str, text: &str) -> Result<usize, String> {
+pub fn count_text_tokens(model: &str, text: &str) -> crate::error::AgentJaxResult<usize> {
     if text.is_empty() {
         return Ok(0);
     }
@@ -139,7 +139,7 @@ pub fn count_text_tokens(model: &str, text: &str) -> Result<usize, String> {
 /// The schema is tokenized from its compact JSON form so the count reflects
 /// the model-facing payload rather than an ad-hoc projection of the object.
 #[allow(dead_code)]
-pub fn count_tool_schema_tokens(model: &str, tools: &[Value]) -> Result<usize, String> {
+pub fn count_tool_schema_tokens(model: &str, tools: &[Value]) -> crate::error::AgentJaxResult<usize> {
     if tools.is_empty() {
         return Ok(0);
     }

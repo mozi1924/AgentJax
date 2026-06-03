@@ -1,10 +1,12 @@
+use crate::agentjax_err;
+use crate::error::{AgentJaxError, AgentJaxResult};
 use std::path::PathBuf;
 
 pub const AGENTJAX_HOME_ENV: &str = "AGENTJAX_HOME";
 const AGENTJAX_DIR_NAME: &str = ".agentjax";
 const PLUGINS_DIR_NAME: &str = "plugins";
 
-pub fn agentjax_home_dir() -> Result<PathBuf, String> {
+pub fn agentjax_home_dir() -> AgentJaxResult<PathBuf> {
     let configured = std::env::var(AGENTJAX_HOME_ENV)
         .ok()
         .map(|value| value.trim().to_string())
@@ -15,35 +17,36 @@ pub fn agentjax_home_dir() -> Result<PathBuf, String> {
     }
 
     let home = dirs::home_dir()
-        .ok_or_else(|| "Failed to resolve home directory for AgentJax".to_string())?;
+        .ok_or_else(|| agentjax_err!("Failed to resolve home directory for AgentJax", Config))?;
     Ok(home.join(AGENTJAX_DIR_NAME))
 }
 
-pub fn plugins_dir() -> Result<PathBuf, String> {
+pub fn plugins_dir() -> AgentJaxResult<PathBuf> {
     Ok(agentjax_home_dir()?.join(PLUGINS_DIR_NAME))
 }
 
-pub fn ensure_plugins_dir() -> Result<PathBuf, String> {
+pub fn ensure_plugins_dir() -> AgentJaxResult<PathBuf> {
     let dir = plugins_dir()?;
     std::fs::create_dir_all(&dir).map_err(|err| {
-        format!(
+        AgentJaxError::config(format!(
             "Failed to create plugins directory {}: {err}",
             dir.display()
-        )
+        ))
+        .with_error_source(&err)
     })?;
     Ok(dir)
 }
 
-fn expand_home_prefix(value: &str) -> Result<PathBuf, String> {
+fn expand_home_prefix(value: &str) -> AgentJaxResult<PathBuf> {
     if value == "~" {
         let home = dirs::home_dir()
-            .ok_or_else(|| "Failed to resolve home directory for AGENTJAX_HOME".to_string())?;
+            .ok_or_else(|| agentjax_err!("Failed to resolve home directory for AGENTJAX_HOME", Config))?;
         return Ok(home);
     }
 
     if let Some(remainder) = value.strip_prefix("~/") {
         let home = dirs::home_dir()
-            .ok_or_else(|| "Failed to resolve home directory for AGENTJAX_HOME".to_string())?;
+            .ok_or_else(|| agentjax_err!("Failed to resolve home directory for AGENTJAX_HOME", Config))?;
         return Ok(home.join(remainder));
     }
 

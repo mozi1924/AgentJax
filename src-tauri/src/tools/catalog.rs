@@ -9,6 +9,7 @@ mod schemas;
 mod snapshot;
 mod types;
 
+use crate::agentjax_err;
 use crate::plugin_runtime::{
     PluginManifest, PluginPackage, discover_all_plugin_packages, prefixed_plugin_tool_name,
     registered_tools_for_manifest,
@@ -133,11 +134,11 @@ impl ToolCatalog {
     pub fn with_plugin_manifests(
         mut self,
         manifests: impl IntoIterator<Item = PluginManifest>,
-    ) -> Result<Self, String> {
+    ) -> crate::error::AgentJaxResult<Self> {
         for manifest in manifests {
             manifest.validate().map_err(|e| e.to_string())?;
             if self.plugin_manifests.contains_key(&manifest.id) {
-                return Err(format!("plugin '{}' is already registered", manifest.id));
+                return Err(agentjax_err!(format!("plugin '{}' is already registered", manifest.id), Config));
             }
             self.plugin_manifests.insert(manifest.id.clone(), manifest);
         }
@@ -149,7 +150,7 @@ impl ToolCatalog {
     pub fn with_plugin_packages(
         mut self,
         packages: impl IntoIterator<Item = PluginPackage>,
-    ) -> Result<Self, String> {
+    ) -> crate::error::AgentJaxResult<Self> {
         let mut manifests = BTreeMap::new();
         let mut registered_packages = BTreeMap::new();
         for package in packages {
@@ -157,7 +158,7 @@ impl ToolCatalog {
             if manifests.contains_key(&manifest.id)
                 || self.plugin_manifests.contains_key(&manifest.id)
             {
-                return Err(format!("plugin '{}' is already registered", manifest.id));
+                return Err(agentjax_err!(format!("plugin '{}' is already registered", manifest.id), Config));
             }
             // Validate the manifest without creating a JsRuntime -
             // tool execution creates a temp PluginInstance on demand.

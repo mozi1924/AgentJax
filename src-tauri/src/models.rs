@@ -1,11 +1,11 @@
+use crate::config::{self, AppConfig};
+use crate::error::{AgentJaxError, AgentJaxResult};
+use crate::provider_api;
+use crate::provider_api::types::ProviderModelDescriptor;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-use crate::config::{self, AppConfig};
-use crate::provider_api;
-use crate::provider_api::types::ProviderModelDescriptor;
 
 const MODEL_CACHE_FILE_NAME: &str = "models-cache.yaml";
 pub const MODEL_CACHE_SYNC_INTERVAL_SECONDS: u64 = 30 * 60;
@@ -65,7 +65,7 @@ pub struct ModelCatalog {
     pub last_synced_unix: Option<i64>,
 }
 
-pub async fn get_model_catalog(sync_if_stale: bool) -> Result<ModelCatalog, String> {
+pub async fn get_model_catalog(sync_if_stale: bool) -> AgentJaxResult<ModelCatalog> {
     let config_path = config::init_config_if_missing()?;
     let cfg = config::load_config()?;
     let cache_path = model_cache_path()?;
@@ -114,19 +114,19 @@ pub async fn get_model_catalog(sync_if_stale: bool) -> Result<ModelCatalog, Stri
 
 pub fn get_model_catalog_entries_from_config(
     cfg: &AppConfig,
-) -> Result<Vec<ModelCatalogEntry>, String> {
+) -> AgentJaxResult<Vec<ModelCatalogEntry>> {
     let cache = load_model_cache().ok().flatten();
     build_model_catalog_entries(cfg, cache.as_ref())
 }
 
-pub async fn sync_remote_model_cache() -> Result<ModelCache, String> {
+pub async fn sync_remote_model_cache() -> AgentJaxResult<ModelCache> {
     let cfg = config::load_config()?;
     sync_remote_model_cache_with_config(&cfg).await
 }
 
 pub async fn sync_remote_model_cache_if_stale(
     cfg: &AppConfig,
-) -> Result<Option<ModelCache>, String> {
+) -> AgentJaxResult<Option<ModelCache>> {
     let cache = load_model_cache()?;
 
     let has_stale_provider = cfg.provider_keys().iter().any(|provider_key| {
@@ -145,7 +145,7 @@ pub async fn sync_remote_model_cache_if_stale(
     Ok(Some(refreshed))
 }
 
-pub async fn sync_remote_model_cache_with_config(cfg: &AppConfig) -> Result<ModelCache, String> {
+pub async fn sync_remote_model_cache_with_config(cfg: &AppConfig) -> AgentJaxResult<ModelCache> {
     let mut cache = load_model_cache()?.unwrap_or_default();
     cache.version = 3;
 
@@ -175,44 +175,44 @@ pub async fn sync_remote_model_cache_with_config(cfg: &AppConfig) -> Result<Mode
     }
 
     if successful_providers == 0 {
-        return Err(format!(
+        return Err(AgentJaxError::internal(format!(
             "Failed to sync remote model cache for all providers: {}",
             sync_errors.join(" | ")
-        ));
+        )));
     }
 
     save_model_cache(&cache)?;
     Ok(cache)
 }
 
-fn model_cache_path() -> Result<std::path::PathBuf, String> {
+fn model_cache_path() -> AgentJaxResult<std::path::PathBuf> {
     Ok(config::config_dir_path()?.join(MODEL_CACHE_FILE_NAME))
 }
 
-fn load_model_cache() -> Result<Option<ModelCache>, String> {
+fn load_model_cache() -> AgentJaxResult<Option<ModelCache>> {
     let path = model_cache_path()?;
     if !path.exists() {
         return Ok(None);
     }
 
     let raw = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read model cache {}: {e}", path.display()))?;
+        .map_err(|e| AgentJaxError::internal(format!("Failed to read model cache {}: {e}", path.display())).with_error_source(&e))?;
     if raw.trim().is_empty() {
         return Ok(None);
     }
     let parsed: ModelCache = serde_yaml::from_str(&raw)
-        .map_err(|e| format!("Invalid YAML in model cache {}: {e}", path.display()))?;
+        .map_err(|e| AgentJaxError::config(format!("Invalid YAML in model cache {}: {e}", path.display())).with_error_source(&e))?;
 
     Ok(Some(parsed))
 }
 
-fn save_model_cache(cache: &ModelCache) -> Result<(), String> {
+fn save_model_cache(cache: &ModelCache) -> AgentJaxResult<()> {
     let path = model_cache_path()?;
     let yaml = serde_yaml::to_string(cache)
-        .map_err(|e| format!("Failed to serialize model cache: {e}"))?;
+        .map_err(|e| AgentJaxError::internal(format!("Failed to serialize model cache: {e}")).with_error_source(&e))?;
 
     fs::write(&path, yaml)
-        .map_err(|e| format!("Failed to write model cache {}: {e}", path.display()))
+        .map_err(|e| AgentJaxError::internal(format!("Failed to write model cache {}: {e}", path.display())).with_error_source(&e))
 }
 
 fn provider_cache_is_stale(cache: &ProviderModelCache) -> bool {
@@ -279,7 +279,7 @@ fn dedup_model_descriptors(models: Vec<ProviderModelDescriptor>) -> Vec<Provider
 fn build_model_catalog_entries(
     cfg: &AppConfig,
     cache: Option<&ModelCache>,
-) -> Result<Vec<ModelCatalogEntry>, String> {
+) -> AgentJaxResult<Vec<ModelCatalogEntry>> {
     let mut entries = Vec::new();
 
     for (provider_key, provider) in &cfg.providers {

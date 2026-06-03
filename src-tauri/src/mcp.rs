@@ -1,6 +1,7 @@
 mod transport;
 mod types;
 
+use crate::agentjax_err;
 use rmcp::{model::CallToolRequestParams, service::RoleClient};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -40,11 +41,11 @@ impl McpManager {
         server_id: &str,
         config: &crate::config::McpServerConfig,
         runtime_config: &crate::config::McpRuntimeConfig,
-    ) -> Result<rmcp::Peer<RoleClient>, String> {
+    ) -> crate::error::AgentJaxResult<rmcp::Peer<RoleClient>> {
         let resolved = resolve_server_runtime(server_id, config, runtime_config)?;
         if !resolved.enabled {
             self.shutdown_service(server_id).await;
-            return Err(format!("MCP server '{}' is disabled", server_id));
+            return Err(agentjax_err!(format!("MCP server '{}' is disabled", server_id), Config));
         }
 
         let server_lock = self.server_lock(server_id).await;
@@ -115,7 +116,7 @@ impl McpManager {
         server_id: &str,
         config: &crate::config::McpServerConfig,
         runtime_config: &crate::config::McpRuntimeConfig,
-    ) -> Result<Vec<Value>, String> {
+    ) -> crate::error::AgentJaxResult<Vec<Value>> {
         let peer = self.get_peer(server_id, config, runtime_config).await?;
 
         let response = tokio::time::timeout(
@@ -146,7 +147,7 @@ impl McpManager {
         runtime_config: &crate::config::McpRuntimeConfig,
         name: &str,
         arguments: Value,
-    ) -> Result<Value, String> {
+    ) -> crate::error::AgentJaxResult<Value> {
         let peer = self.get_peer(server_id, config, runtime_config).await?;
 
         let args_map = match arguments {

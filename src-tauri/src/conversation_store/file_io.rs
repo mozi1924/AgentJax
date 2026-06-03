@@ -2,9 +2,11 @@ use super::types::{
     ConversationData, ConversationLine, ConversationMeta, ConversationSummary,
     DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
 };
+use crate::agentjax_err;
 use crate::conversation_store_utils::{
     compact_preview, normalize_title_source, sanitize_conversation_id,
 };
+use crate::error::AgentJaxError;
 use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -15,7 +17,7 @@ use std::path::Path;
 pub fn read_conversation_file(
     metadata_path: &Path,
     messages_path: &Path,
-) -> Result<Option<ConversationData>, String> {
+) -> crate::error::AgentJaxResult<Option<ConversationData>> {
     if !metadata_path.exists() || !messages_path.exists() {
         return Ok(None);
     }
@@ -63,7 +65,7 @@ pub fn read_conversation_file(
     Ok(Some(ConversationData { meta, lines }))
 }
 
-pub fn read_conversation_meta(metadata_path: &Path) -> Result<Option<ConversationMeta>, String> {
+pub fn read_conversation_meta(metadata_path: &Path) -> crate::error::AgentJaxResult<Option<ConversationMeta>> {
     if !metadata_path.exists() {
         return Ok(None);
     }
@@ -94,7 +96,7 @@ pub fn write_conversation_file(
     metadata_path: &Path,
     messages_path: &Path,
     data: &ConversationData,
-) -> Result<(), String> {
+) -> crate::error::AgentJaxResult<()> {
     if let Some(parent) = metadata_path.parent() {
         if !parent.exists() {
             fs::create_dir_all(parent).map_err(|e| {
@@ -123,7 +125,7 @@ pub fn write_conversation_file(
 pub fn append_conversation_line(
     messages_path: &Path,
     line: &ConversationLine,
-) -> Result<(), String> {
+) -> crate::error::AgentJaxResult<()> {
     ensure_parent_dir(messages_path, "messages")?;
 
     let json = serde_json::to_string(line)
@@ -151,17 +153,18 @@ pub fn append_conversation_line(
         )
     })?;
     file.sync_data().map_err(|e| {
-        format!(
+        AgentJaxError::internal(format!(
             "Failed to sync appended messages file {}: {e}",
             messages_path.display()
-        )
+        ))
+        .with_error_source(&e)
     })
 }
 
 pub fn write_conversation_metadata(
     metadata_path: &Path,
     meta: &ConversationMeta,
-) -> Result<(), String> {
+) -> crate::error::AgentJaxResult<()> {
     ensure_parent_dir(metadata_path, "metadata")?;
     let meta_json = serde_json::to_string_pretty(meta)
         .map_err(|e| format!("Failed to serialize metadata: {e}"))?;
@@ -172,7 +175,7 @@ pub fn write_conversation_metadata(
     )
 }
 
-pub fn read_conversation_line_ids(messages_path: &Path) -> Result<HashSet<String>, String> {
+pub fn read_conversation_line_ids(messages_path: &Path) -> crate::error::AgentJaxResult<HashSet<String>> {
     if !messages_path.exists() {
         return Ok(HashSet::new());
     }
@@ -221,7 +224,7 @@ pub fn rewrite_conversation_messages<F>(
     messages_path: &Path,
     current_meta: &ConversationMeta,
     mut transform: F,
-) -> Result<(ConversationMeta, bool, HashSet<String>), String>
+) -> crate::error::AgentJaxResult<(ConversationMeta, bool, HashSet<String>)>
 where
     F: FnMut(ConversationLine) -> (ConversationLine, bool),
 {
@@ -305,13 +308,13 @@ pub fn apply_line_to_meta(meta: &mut ConversationMeta, line: &ConversationLine) 
     }
 }
 
-fn ensure_parent_dir(path: &Path, label: &str) -> Result<(), String> {
+fn ensure_parent_dir(path: &Path, label: &str) -> crate::error::AgentJaxResult<()> {
     let Some(parent) = path.parent() else {
-        return Err(format!(
+        return Err(agentjax_err!(format!(
             "Failed to resolve parent directory for {} file {}",
             label,
             path.display()
-        ));
+        ), Internal));
     };
 
     if !parent.exists() {
@@ -327,7 +330,7 @@ fn ensure_parent_dir(path: &Path, label: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> Result<(), String> {
+fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> crate::error::AgentJaxResult<()> {
     let (tmp_path, mut tmp_file) = create_temp_file(path, label)?;
     tmp_file.write_all(contents).map_err(|e| {
         format!(
@@ -348,7 +351,7 @@ fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> Result<()
     finalize_atomic_replace(&tmp_path, path, label)
 }
 
-fn create_temp_file(path: &Path, label: &str) -> Result<(std::path::PathBuf, fs::File), String> {
+fn create_temp_file(path: &Path, label: &str) -> crate::error::AgentJaxResult<(std::path::PathBuf, fs::File)> {
     let parent = path.parent().ok_or_else(|| {
         format!(
             "Failed to resolve parent directory for {} file {}",
@@ -386,7 +389,7 @@ fn write_jsonl_line(
     line: &ConversationLine,
     path: &Path,
     label: &str,
-) -> Result<(), String> {
+) -> crate::error::AgentJaxResult<()> {
     let json = serde_json::to_string(line)
         .map_err(|e| format!("Failed to serialize conversation line: {e}"))?;
     file.write_all(json.as_bytes()).map_err(|e| {
@@ -397,15 +400,16 @@ fn write_jsonl_line(
         )
     })?;
     file.write_all(b"\n").map_err(|e| {
-        format!(
+        AgentJaxError::internal(format!(
             "Failed to write newline to temporary {} file for {}: {e}",
             label,
             path.display()
-        )
+        ))
+        .with_error_source(&e)
     })
 }
 
-fn finalize_atomic_replace(tmp_path: &Path, path: &Path, label: &str) -> Result<(), String> {
+fn finalize_atomic_replace(tmp_path: &Path, path: &Path, label: &str) -> crate::error::AgentJaxResult<()> {
     if let Err(rename_err) = fs::rename(tmp_path, path) {
         #[cfg(target_os = "windows")]
         {
@@ -426,26 +430,26 @@ fn finalize_atomic_replace(tmp_path: &Path, path: &Path, label: &str) -> Result<
                     )
                 })?;
             } else {
-                return Err(format!(
+                return Err(agentjax_err!(format!(
                     "Failed to atomically rename temporary {} file {} to {}: {}",
                     label,
                     tmp_path.display(),
                     path.display(),
                     rename_err
-                ));
+                ), Internal));
             }
         }
 
         #[cfg(not(target_os = "windows"))]
         {
             let _ = fs::remove_file(tmp_path);
-            return Err(format!(
+            return Err(agentjax_err!(format!(
                 "Failed to atomically rename temporary {} file {} to {}: {}",
                 label,
                 tmp_path.display(),
                 path.display(),
                 rename_err
-            ));
+            ), Internal));
         }
     }
 

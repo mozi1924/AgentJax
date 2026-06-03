@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 pub(super) fn build_chat_completion_messages(
     items: &[Value],
-) -> Result<Vec<TokenCountMessage>, String> {
+) -> crate::error::AgentJaxResult<Vec<TokenCountMessage>> {
     let mut messages = Vec::new();
     let mut tool_names_by_call_id: HashMap<String, String> = HashMap::new();
 

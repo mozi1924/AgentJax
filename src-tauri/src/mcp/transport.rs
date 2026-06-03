@@ -1,3 +1,4 @@
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::mcp::types::McpConnectionSpec;
 use rmcp::ServiceExt;
 use rmcp::service::RoleClient;
@@ -10,7 +11,7 @@ use tokio::process::Command;
 
 pub async fn start_transport(
     spec: &McpConnectionSpec,
-) -> Result<rmcp::service::RunningService<RoleClient, ()>, String> {
+) -> AgentJaxResult<rmcp::service::RunningService<RoleClient, ()>> {
     match spec {
         McpConnectionSpec::Stdio {
             command,
@@ -32,17 +33,18 @@ pub async fn start_transport(
             }
 
             let transport = TokioChildProcess::new(cmd).map_err(|e| {
-                format!(
+                AgentJaxError::internal(format!(
                     "Failed to create stdio transport (command='{}', resolved='{}', cwd='{}'): {e}",
                     command,
                     executable,
                     cwd.as_deref().unwrap_or(""),
-                )
+                ))
+                .with_error_source(&e)
             })?;
 
             ().serve(transport)
                 .await
-                .map_err(|e| format!("Failed to initialize MCP stdio connection: {e}"))
+                .map_err(|e| AgentJaxError::internal(format!("Failed to initialize MCP stdio connection: {e}")).with_error_source(&e))
         }
         McpConnectionSpec::StreamableHttp {
             uri,
@@ -68,7 +70,7 @@ pub async fn start_transport(
             let transport = StreamableHttpClientTransport::from_config(config);
             ().serve(transport)
                 .await
-                .map_err(|e| format!("Failed to initialize MCP streamable_http connection: {e}"))
+                .map_err(|e| AgentJaxError::internal(format!("Failed to initialize MCP streamable_http connection: {e}")).with_error_source(&e))
         }
     }
 }
@@ -164,13 +166,13 @@ fn strip_bearer_prefix(token: &str) -> String {
 
 fn parse_headers(
     headers: &std::collections::BTreeMap<String, String>,
-) -> Result<HashMap<reqwest::header::HeaderName, reqwest::header::HeaderValue>, String> {
+) -> AgentJaxResult<HashMap<reqwest::header::HeaderName, reqwest::header::HeaderValue>> {
     let mut parsed = HashMap::new();
     for (name, value) in headers {
         let header_name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
-            .map_err(|e| format!("Invalid HTTP header name '{name}': {e}"))?;
+            .map_err(|e| AgentJaxError::config(format!("Invalid HTTP header name '{name}': {e}")).with_error_source(&e))?;
         let header_value = reqwest::header::HeaderValue::from_str(value)
-            .map_err(|e| format!("Invalid HTTP header value for '{name}': {e}"))?;
+            .map_err(|e| AgentJaxError::config(format!("Invalid HTTP header value for '{name}': {e}")).with_error_source(&e))?;
         parsed.insert(header_name, header_value);
     }
 
