@@ -49,6 +49,8 @@ pub struct PluginProviderDefinition {
     pub capabilities: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_schema_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supports_protocols: Vec<String>,
 }
 
 impl Default for PluginProviderDefinition {
@@ -61,6 +63,7 @@ impl Default for PluginProviderDefinition {
             default_priority: None,
             capabilities: None,
             tool_schema_format: None,
+            supports_protocols: Vec::new(),
         }
     }
 }

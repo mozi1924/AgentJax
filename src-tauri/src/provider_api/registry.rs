@@ -28,6 +28,7 @@ pub struct DynamicProviderDefinition {
     pub tool_schema_format: ToolSchemaFormat,
     pub default_model_ids: Vec<String>,
     pub default_config: ProviderConfig,
+    pub supports_protocols: Vec<String>,
 }
 
 pub fn builtin_provider_definitions() -> Vec<DynamicProviderDefinition> {
@@ -167,6 +168,12 @@ pub fn provider_plugin_package(provider_kind: &str) -> Option<PluginPackage> {
     provider_definition(provider_kind).and_then(|definition| definition.plugin_package)
 }
 
+pub fn provider_supports_protocols(provider_kind: &str) -> Vec<String> {
+    provider_definition(provider_kind)
+        .map(|def| def.supports_protocols)
+        .unwrap_or_default()
+}
+
 fn dynamic_provider_definition_from_plugin(
     plugin_provider: PluginProviderDefinition,
     package: Option<PluginPackage>,
@@ -205,6 +212,7 @@ fn dynamic_provider_definition_from_plugin(
         tool_schema_format,
         default_model_ids,
         default_config,
+        supports_protocols: plugin_provider.supports_protocols.clone(),
     })
 }
 

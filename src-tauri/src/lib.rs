@@ -19,7 +19,6 @@ pub(crate) mod runtime;
 pub(crate) mod sub_agents;
 mod time_context;
 pub(crate) mod tools;
-pub(crate) mod embeddings;
 pub(crate) mod rag;
 
 use tauri::Manager;
@@ -113,7 +112,6 @@ pub fn run() {
             .map_err(std::io::Error::other)?;
 
             // Initialize built-in embedding providers
-            crate::embeddings::registry::init_builtin_providers();
 
             std::thread::spawn(|| {
                 loop {

@@ -1,17 +1,13 @@
 //! High-level RAG indexing and search operations.
 //!
 //! Coordinates chunking, embedding, and vector store operations into
-//! a single `RagIndex` interface that the rest of the application uses.
+//! a single `RagIndex` interface.
 
-// use std::path::PathBuf; // unused
-
-
-use crate::config::{EmbeddingProviderConfig, RagConfig};
-use crate::embeddings::EmbeddingProvider;
-use crate::embeddings::registry;
-use crate::embeddings::types::EmbeddingRequest;
+use crate::config::{AppConfig, RagConfig};
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::agentjax_home;
+use crate::provider_api;
+use crate::provider_api::types::EmbeddingRequest;
 
 use super::chunking::Chunker;
 use super::types::{Document, SearchConfig, SearchResult};
@@ -20,59 +16,71 @@ use super::vector_store::VectorStore;
 /// The main RAG index interface.
 ///
 /// Coordinates chunking, embedding, and vector store operations.
-/// Created from an `AppConfig` via [`RagIndex::from_config`].
 pub struct RagIndex {
     /// The vector store for chunk persistence.
     store: VectorStore,
-    /// Embedding provider for computing vector embeddings.
-    embedding_provider: Box<dyn EmbeddingProvider>,
     /// Text chunker for splitting documents.
     chunker: Chunker,
     /// Search configuration defaults.
     top_k: usize,
+    /// Provider key for embedding resolution.
+    provider_key: String,
+    /// Model ID for embedding.
+    embedding_model: String,
 }
 
 impl RagIndex {
     /// Create a new `RagIndex` from the app configuration.
     ///
-    /// This opens the vector store and initializes the embedding provider
-    /// and chunker from the configured RAG settings.
-    pub async fn from_config(config: &RagConfig) -> AgentJaxResult<Self> {
+    /// Opens the vector store and initializes the chunker from the
+    /// configured RAG settings. Embedding is performed via the
+    /// unified `provider_api` protocol layer.
+    pub async fn from_config(config: &RagConfig, app_config: &AppConfig) -> AgentJaxResult<Self> {
         let home = agentjax_home::agentjax_home_dir()?;
         let store_path = home.join(&config.storage_path);
-
         let store = VectorStore::open(&store_path).await?;
-
-        // Resolve the embedding provider
-        let embedding_provider = resolve_embedding_provider(&config.embedding)?;
-
         let chunker = Chunker::new(config.chunk_size, config.chunk_overlap)?;
+
+        // Resolve the provider key and model for embedding from the config.
+        // In the old config, `embedding.provider_key` references an existing
+        // provider config. If not set, default to the active provider.
+        let provider_key = config.embedding.provider_key.clone()
+            .filter(|k| !k.is_empty())
+            .unwrap_or_else(|| app_config.active_provider.clone());
+        let embedding_model = config.embedding.model.clone();
 
         Ok(Self {
             store,
-            embedding_provider,
             chunker,
             top_k: config.top_k,
+            provider_key,
+            embedding_model,
         })
     }
 
     /// Create a `RagIndex` with explicit dependencies (useful for testing).
     pub async fn new(
         store: VectorStore,
-        embedding_provider: Box<dyn EmbeddingProvider>,
         chunker: Chunker,
         top_k: usize,
+        provider_key: String,
+        embedding_model: String,
     ) -> Self {
         Self {
             store,
-            embedding_provider,
             chunker,
             top_k,
+            provider_key,
+            embedding_model,
         }
     }
 
     /// Index a document: chunk, embed all chunks, store in vector store.
-    pub async fn index_document(&self, document: Document) -> AgentJaxResult<()> {
+    pub async fn index_document(
+        &self,
+        document: Document,
+        app_config: &AppConfig,
+    ) -> AgentJaxResult<()> {
         // 1. Chunk the document
         let chunks = self.chunker.chunk(&document);
         if chunks.is_empty() {
@@ -86,14 +94,15 @@ impl RagIndex {
             chunks.len()
         );
 
-        // 2. Embed all chunks in parallel-ready batches
+        // 2. Embed all chunks via provider_api
         let texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
-
-        // Batch embed — providers may handle batching and throttling internally
-        let response = self
-            .embedding_provider
-            .embed(&EmbeddingRequest::batch(texts))
-            .await?;
+        let response = provider_api::embed_text(
+            app_config,
+            &self.provider_key,
+            &self.embedding_model,
+            &EmbeddingRequest::batch(texts),
+        )
+        .await?;
 
         if response.embeddings.len() != chunks.len() {
             return Err(AgentJaxError::embedding(format!(
@@ -123,23 +132,28 @@ impl RagIndex {
         &self,
         query_text: &str,
         config: Option<SearchConfig>,
+        app_config: &AppConfig,
     ) -> AgentJaxResult<Vec<SearchResult>> {
         let config = config.unwrap_or_else(|| SearchConfig {
             top_k: self.top_k,
             ..Default::default()
         });
 
-        // Embed the query
-        let response = self
-            .embedding_provider
-            .embed(&EmbeddingRequest::single(query_text))
-            .await?;
+        // Embed the query via provider_api
+        let response = provider_api::embed_text(
+            app_config,
+            &self.provider_key,
+            &self.embedding_model,
+            &EmbeddingRequest::single(query_text),
+        )
+        .await?;
 
-        let query_vector = response.single().clone();
+        let query_vector = response.embeddings.first()
+            .ok_or_else(|| AgentJaxError::embedding("Empty embedding response"))?
+            .clone();
 
         // Search the vector store
         let results = self.store.search(&query_vector, &config).await?;
-
         Ok(results)
     }
 
@@ -160,87 +174,40 @@ impl RagIndex {
     }
 }
 
-/// Resolve the embedding provider from the embedding config.
-///
-/// First checks the static registry, then falls back to creating
-/// a fresh instance.
-fn resolve_embedding_provider(
-    config: &EmbeddingProviderConfig,
-) -> AgentJaxResult<Box<dyn EmbeddingProvider>> {
-    // Prefer a registered provider (from init_builtin_providers)
-    if let Some(provider) = registry::get(&config.provider) {
-        return Ok(provider);
-    }
-
-    // Fall back to creating a fresh provider from config
-    let provider = registry::create_provider(&config.provider, config);
-    Ok(provider)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::RagConfig;
-    use crate::embeddings::types::EmbeddingResponse;
-    use async_trait::async_trait;
-    use std::collections::BTreeMap;
-
-    struct MockEmbeddingProvider;
-
-    #[async_trait]
-    impl EmbeddingProvider for MockEmbeddingProvider {
-        fn provider_name(&self) -> &str { "mock" }
-        fn model_name(&self) -> &str { "mock-model" }
-        fn dimensions(&self) -> usize { 4 }
-
-        async fn embed(&self, _input: &EmbeddingRequest) -> AgentJaxResult<EmbeddingResponse> {
-            Ok(EmbeddingResponse {
-                embeddings: vec![vec![0.1, 0.2, 0.3, 0.4]],
-                model: "mock-model".to_string(),
-                usage: Default::default(),
-            })
-        }
-    }
+    use crate::provider_api::types::EmbeddingResponse;
 
     #[tokio::test]
     async fn test_index_and_search_flow() {
-        // This is a basic flow test that validates the high-level API compiles
-        // and runs without the actual vector store (we use in-memory).
-        let store = VectorStore::open(std::env::temp_dir().join("rag-test-index"))
+        // Validate that the high-level API compiles and runs
+        let store = VectorStore::open(std::env::temp_dir().join("rag-test-index-v2"))
             .await
             .expect("open store");
 
         let chunker = Chunker::new(100, 10).unwrap();
         let index = RagIndex::new(
             store,
-            Box::new(MockEmbeddingProvider),
             chunker,
             5,
+            "openai".to_string(),
+            "text-embedding-3-small".to_string(),
         )
         .await;
 
         let doc = Document {
             id: "test-doc".to_string(),
             content: "This is a test document for RAG indexing.".to_string(),
-            metadata: BTreeMap::new(),
+            metadata: std::collections::BTreeMap::new(),
         };
 
-        // The actual index_document call will fail since MockEmbeddingProvider
-        // returns 1 embedding but the document produces 1 chunk,
-        // so it should succeed
-        let result = index.index_document(doc).await;
-        assert!(result.is_ok() || result.is_err());
-        // Clean up
-        let _ = std::fs::remove_dir_all(std::env::temp_dir().join("rag-test-index"));
-    }
-
-    #[test]
-    fn test_chunk_count_mismatch_detection() {
-        // The error for mismatched chunk/embedding counts is tested via
-        // the index_document method's batch size validation.
-        let chunker = Chunker::new(512, 64).unwrap();
-        let config = EmbeddingProviderConfig::default();
-        let provider = registry::create_provider("openai", &config);
-        assert_eq!(provider.provider_name(), "openai");
+        // Without a config, index_document will fail due to no provider config
+        // This is expected behavior for unit testing
+        let default_cfg = AppConfig::default();
+        let result = index.index_document(doc, &default_cfg).await;
+        assert!(result.is_err()); // Expected: no such provider
+        let _ = std::fs::remove_dir_all(std::env::temp_dir().join("rag-test-index-v2"));
     }
 }

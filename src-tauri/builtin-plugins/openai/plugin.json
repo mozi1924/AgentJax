@@ -1,0 +1,14 @@
+{
+  "id": "agentjax.provider.openai",
+  "name": "OpenAI Provider",
+  "version": "0.0.0",
+  "apiVersion": 1,
+  "entrypoint": "plugin.js",
+  "description": "Declarative provider plugin for OpenAI-compatible APIs. Supports Responses, Chat Completions, and Embeddings protocols — protocol handling is done natively in Rust.",
+  "sandbox": {
+    "allowNetwork": false,
+    "allowFileRead": false,
+    "allowFileWrite": false,
+    "maxExecutionMs": 30000
+  }
+}
