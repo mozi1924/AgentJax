@@ -722,8 +722,7 @@ mod tests {
     #[test]
     fn dynamic_tool_commands_support_replace_upsert_and_remove() {
         let _guard = config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .blocking_lock();
         let _home = setup_test_home();
         let conversation_id = format!("conv-dtool-cmd-{}", Uuid::new_v4());
 

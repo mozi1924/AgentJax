@@ -51,8 +51,8 @@ pub struct TextFileRead {
 /// Ensures the active conversation workspace exists before any file tool
 /// touches disk.
 pub fn get_workspace_dir(context: &ToolExecutionContext) -> AgentJaxResult<PathBuf> {
-    if let Some(agent_id) = &context.sub_agent_id {
-        if let Some(spec) = crate::sub_agents::manager::SubAgentManager::get_spec(agent_id) {
+    if let Some(agent_id) = &context.sub_agent_id
+        && let Some(spec) = crate::sub_agents::manager::SubAgentManager::get_spec(agent_id) {
             let parent_id = &spec.parent_conversation_id;
             let dir = if spec.use_worktree {
                 conversation_store::conversation_workspace_path(parent_id)?
@@ -76,7 +76,6 @@ pub fn get_workspace_dir(context: &ToolExecutionContext) -> AgentJaxResult<PathB
             }
             return Ok(dir);
         }
-    }
 
     let dir = if let Some(conversation_id) = context
         .conversation_id

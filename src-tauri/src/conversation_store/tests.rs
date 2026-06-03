@@ -83,8 +83,7 @@ fn t(
 #[test]
 fn delete_conversation_removes_session_directory() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("td-{}", Uuid::new_v4());
     let p = conversation_dir_path(&cid).expect("path");
@@ -97,8 +96,7 @@ fn delete_conversation_removes_session_directory() {
 #[test]
 fn load_context_merges_user_and_assistant() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tc-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -136,8 +134,7 @@ fn load_context_merges_user_and_assistant() {
 #[test]
 fn load_context_replays_commentary_and_final_with_phase() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tphase-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -180,8 +177,7 @@ fn load_context_replays_commentary_and_final_with_phase() {
 #[test]
 fn load_context_omits_phase_field_for_unknown_assistant_phase() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tphase-unknown-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -204,8 +200,7 @@ fn load_context_omits_phase_field_for_unknown_assistant_phase() {
 #[test]
 fn load_context_includes_tool_calls_with_outputs() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tt-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -247,8 +242,7 @@ fn load_context_includes_tool_calls_with_outputs() {
 #[test]
 fn update_line_preserves_existing_tool_args_when_exec_event_omits_them() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tmerge-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -297,8 +291,7 @@ fn update_line_preserves_existing_tool_args_when_exec_event_omits_them() {
 #[test]
 fn update_line_refreshes_summary_metadata_after_streaming_rewrite() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tsummary-update-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -348,8 +341,7 @@ fn update_line_refreshes_summary_metadata_after_streaming_rewrite() {
 #[test]
 fn commentary_is_excluded_from_summary_metadata() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tsummary-commentary-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -400,8 +392,7 @@ fn commentary_is_excluded_from_summary_metadata() {
 #[test]
 fn summary_refresh_rebuild_still_excludes_commentary_preview() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("trefresh-commentary-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -440,8 +431,7 @@ fn summary_refresh_rebuild_still_excludes_commentary_preview() {
 #[test]
 fn duplicate_append_is_skipped_with_cached_line_ids() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tdup-cache-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -467,8 +457,7 @@ fn duplicate_append_is_skipped_with_cached_line_ids() {
 #[test]
 fn delete_conversation_clears_line_id_cache_for_recreated_session() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tcache-reset-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -500,8 +489,7 @@ fn delete_conversation_clears_line_id_cache_for_recreated_session() {
 #[test]
 fn delete_conversation_clears_cached_summary_for_recreated_session() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tsummary-reset-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -533,8 +521,7 @@ fn delete_conversation_clears_cached_summary_for_recreated_session() {
 #[test]
 fn load_context_filters_orphan_tool_calls() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("to-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -581,8 +568,7 @@ fn load_context_filters_orphan_tool_calls() {
 #[test]
 fn load_context_truncates_without_splitting_tool_pairs() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("ttrunc-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -619,8 +605,7 @@ fn load_context_truncates_without_splitting_tool_pairs() {
 #[test]
 fn build_recovery_note_for_unfinished_turn() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("trec-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -661,8 +646,7 @@ fn build_recovery_note_for_unfinished_turn() {
 #[test]
 fn load_conversation_returns_all_lines() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tld-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -709,8 +693,7 @@ fn load_conversation_returns_all_lines() {
 #[test]
 fn fault_injection_recovery_clears_after_completion() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tfault-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -788,8 +771,7 @@ fn fault_injection_recovery_clears_after_completion() {
 #[test]
 fn recovery_treats_unknown_assistant_phase_as_completed_answer() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("trecovery-unknown-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -815,8 +797,7 @@ fn recovery_treats_unknown_assistant_phase_as_completed_answer() {
 #[test]
 fn conversation_dynamic_tools_round_trip_through_metadata() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tdyntools-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -862,8 +843,7 @@ fn conversation_dynamic_tools_round_trip_through_metadata() {
 #[test]
 fn conversation_mounted_tool_sources_round_trip_through_metadata() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tmountedtools-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -911,8 +891,7 @@ fn load_conversation_uses_token_usage_metadata() {
     use super::types::CONVERSATION_TOKEN_USAGE_METADATA_KEY;
 
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("ttokenmeta-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -955,8 +934,7 @@ fn conversation_mounted_mcp_servers_legacy_fallback() {
     use super::paths::conversation_metadata_path;
 
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tlegacyfallback-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");
@@ -1001,8 +979,7 @@ fn conversation_mounted_mcp_servers_legacy_fallback() {
 #[test]
 fn concurrent_appends_preserve_all_lines_for_same_conversation() {
     let _g = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+        .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tconcurrent-{}", Uuid::new_v4());
     ensure_conversation(&cid).expect("ensure");

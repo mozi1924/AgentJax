@@ -243,10 +243,8 @@ mod tests {
     #[tokio::test]
     async fn test_file_tools_workspace_isolated_by_conversation() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let reader = FileReaderTool;
         let writer = FileWriterTool;
         let conversation_a = format!("test-workspace-a-{}", uuid::Uuid::new_v4());
@@ -278,10 +276,8 @@ mod tests {
     #[tokio::test]
     async fn test_file_tools_support_nested_paths_and_reject_workspace_escape() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -319,10 +315,8 @@ mod tests {
     #[tokio::test]
     async fn test_directory_tools_list_stat_and_mkdir() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -379,10 +373,8 @@ mod tests {
     #[tokio::test]
     async fn test_read_file_truncates_large_text_preview() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -423,10 +415,8 @@ mod tests {
     #[tokio::test]
     async fn test_content_sniffing_detects_extensionless_text_files() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -456,10 +446,8 @@ mod tests {
     #[tokio::test]
     async fn test_list_files_truncates_by_output_size() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -502,10 +490,8 @@ mod tests {
     #[tokio::test]
     async fn test_content_sniffing_rejects_binary_files_disguised_as_text() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -535,10 +521,8 @@ mod tests {
     #[tokio::test]
     async fn test_binary_files_are_rejected_by_text_tools() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -591,10 +575,8 @@ mod tests {
     #[tokio::test]
     async fn test_text_edit_tools_and_structured_patch_are_deterministic() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -719,10 +701,8 @@ mod tests {
     #[tokio::test]
     async fn test_apply_patch_is_atomic_when_a_later_edit_fails() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
@@ -1086,10 +1066,8 @@ mod tests {
     #[tokio::test]
     async fn test_tool_catalog_includes_conversation_dynamic_tool_alias() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let conversation_id = format!("test-dynamic-tools-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).expect("ensure conversation");
         conversation_store::update_conversation_dynamic_tools(
@@ -1146,10 +1124,8 @@ mod tests {
     #[tokio::test]
     async fn test_dynamic_mcp_tool_alias_defaults_to_layout_grid_icon() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let conversation_id = format!("test-dynamic-mcp-tools-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).expect("ensure conversation");
         conversation_store::update_conversation_dynamic_tools(
@@ -1330,10 +1306,8 @@ mod tests {
     #[tokio::test]
     async fn test_home_plugin_package_is_exposed_and_executable() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let home = setup_test_home();
-        drop(_guard);
         let plugin_dir = home.home.join("plugins").join("home-demo");
         std::fs::create_dir_all(&plugin_dir).expect("create plugin dir");
         std::fs::write(
@@ -1402,10 +1376,8 @@ globalThis.AgentJaxPlugin = {
     #[tokio::test]
     async fn test_snapshot_restores_persisted_mounted_mcp_server_from_conversation_metadata() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
         let conversation_id = format!("test-mounted-mcp-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(&conversation_id).expect("ensure conversation");
         conversation_store::update_conversation_mounted_tool_sources(
@@ -1455,10 +1427,8 @@ globalThis.AgentJaxPlugin = {
     #[tokio::test]
     async fn test_unfolded_mcp_server_bypasses_control_tool_and_exposes_tools() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let _home = setup_test_home();
-        drop(_guard);
 
         let mut config = AppConfig::default();
         config.mcp_servers.insert(
@@ -1679,10 +1649,8 @@ globalThis.AgentJaxPlugin = {
     #[tokio::test]
     async fn test_tool_manager_mcp_exposure_unfolded_replaces_control_with_server_tools() {
         let _guard = crate::config::test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock().await;
         let home = setup_test_home();
-        drop(_guard);
         let server_script = home.home.join("mock-mcp-server.js");
         std::fs::write(
             &server_script,

@@ -53,8 +53,7 @@ fn write_test_config(home: &Path) -> std::path::PathBuf {
 #[test]
 fn snapshot_redacts_secret_values() {
     let _guard = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .blocking_lock();
     let home =
         std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&home).expect("create home");
@@ -87,8 +86,7 @@ fn snapshot_redacts_secret_values() {
 #[test]
 fn apply_patch_updates_scalar_values() {
     let _guard = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .blocking_lock();
     let home =
         std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&home).expect("create home");
@@ -120,8 +118,7 @@ fn apply_patch_updates_scalar_values() {
 #[test]
 fn apply_patch_rejects_invalid_collection_keys() {
     let _guard = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .blocking_lock();
     let home =
         std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&home).expect("create home");
@@ -150,8 +147,7 @@ fn apply_patch_rejects_invalid_collection_keys() {
 #[test]
 fn apply_patch_updates_tool_manager_policy() {
     let _guard = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .blocking_lock();
     let home =
         std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&home).expect("create home");
@@ -187,8 +183,7 @@ fn apply_patch_updates_tool_manager_policy() {
 #[test]
 fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
     let _guard = crate::config::test_env_lock()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .blocking_lock();
     let home =
         std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&home).expect("create home");

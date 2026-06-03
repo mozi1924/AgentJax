@@ -32,11 +32,11 @@ pub use settings::{
 pub use settings_ui::{SettingsUiSnapshot, build_dynamic_options, build_settings_sections};
 
 #[cfg(test)]
-pub(crate) fn test_env_lock() -> &'static std::sync::Mutex<()> {
-    use std::sync::{Mutex, OnceLock};
+pub(crate) fn test_env_lock() -> &'static tokio::sync::Mutex<()> {
+    use std::sync::OnceLock;
 
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
 #[cfg(test)]
@@ -149,8 +149,7 @@ mod tests {
     #[test]
     fn load_config_does_not_rewrite_file_on_startup() {
         let _guard = test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .blocking_lock();
         let home =
             std::env::temp_dir().join(format!("agentjax-config-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&home).expect("create temp home");
@@ -266,8 +265,7 @@ mod tests {
     #[test]
     fn provider_resolved_http_headers_merges_env_values() {
         let _guard = test_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .blocking_lock();
         let mut provider = ProviderConfig::default();
 
         let mut http_headers = serde_json::Map::new();
