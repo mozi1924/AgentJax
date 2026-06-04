@@ -20,7 +20,7 @@ pub(super) fn build_context_items(lines: &[ConversationLine]) -> Vec<Value> {
                 if assistant.status != AssistantStatus::Done || assistant.text.trim().is_empty() {
                     continue;
                 }
-                input_items.push(build_assistant_input_item(assistant));
+                input_items.extend(build_assistant_input_items(assistant));
             }
             ConversationLine::Tool(tool) => {
                 input_items.extend(build_tool_input_items(tool));
@@ -41,7 +41,22 @@ fn build_user_input_item(line: &UserLine) -> Value {
     })
 }
 
-fn build_assistant_input_item(line: &AssistantLine) -> Value {
+fn build_assistant_input_items(line: &AssistantLine) -> Vec<Value> {
+    let mut items = Vec::new();
+
+    // ── Reasoning / thinking chain (for CoT models like DeepSeek R1) ────
+    // Must come BEFORE the assistant output text so the model sees its
+    // prior chain of thought when continuing the conversation.
+    if let Some(ref thinking) = line.thinking {
+        let trimmed = thinking.trim();
+        if !trimmed.is_empty() {
+            items.push(json!({
+                "type": "reasoning",
+                "text": trimmed,
+            }));
+        }
+    }
+
     let mut item = json!({
         "type": "message",
         "role": "assistant",
@@ -57,7 +72,8 @@ fn build_assistant_input_item(line: &AssistantLine) -> Value {
         item["phase"] = Value::String(phase.as_str().to_string());
     }
 
-    item
+    items.push(item);
+    items
 }
 
 fn build_tool_input_items(line: &ToolLine) -> Vec<Value> {

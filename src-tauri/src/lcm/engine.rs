@@ -906,6 +906,39 @@ impl LcmEngine {
     pub fn context_to_provider_items(&self, entries: &[ContextEntry]) -> Vec<serde_json::Value> {
         let mut items = Vec::with_capacity(entries.len());
 
+        // ── Pre-load reasoning chains for assistant messages ──────────
+        // Reasoning (thinking) content is stored in a separate table and
+        // referenced via metadata["reasoning_id"]. Batch-load all of them
+        // so we can rehydrate thinking chains into the context — this is
+        // required for CoT models (DeepSeek R1, etc.) to maintain chain-of-thought
+        // continuity across turns.
+        let reasoning_ids: Vec<String> = entries
+            .iter()
+            .filter_map(|entry| {
+                if let ContextEntry::RawMessage { role, metadata, .. } = entry {
+                    if *role == crate::lcm::types::MessageRole::Assistant {
+                        return metadata
+                            .get("reasoning_id")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                    }
+                }
+                None
+            })
+            .collect();
+
+        let reasoning_map: std::collections::HashMap<String, crate::lcm::types::ReasoningChain> =
+            if !reasoning_ids.is_empty() {
+                self.store
+                    .get_reasoning_batch(&reasoning_ids)
+                    .unwrap_or_else(|e| {
+                        log::warn!("LCM: failed to load reasoning chains for context: {e}");
+                        std::collections::HashMap::new()
+                    })
+            } else {
+                std::collections::HashMap::new()
+            };
+
         for entry in entries {
             match entry {
                 ContextEntry::RawMessage { role, content, metadata, .. } => {
@@ -953,6 +986,26 @@ impl LcmEngine {
                             _ => {
                                 // Unknown message_type — fall through to
                                 // role-based fallback below.
+                            }
+                        }
+                    }
+
+                    // ── Rehydrate reasoning chain for assistant messages ──
+                    // Must come BEFORE the output text so the model sees its
+                    // prior thinking when continuing the conversation.
+                    if *role == crate::lcm::types::MessageRole::Assistant {
+                        if let Some(reasoning_id) = metadata
+                            .get("reasoning_id")
+                            .and_then(|v| v.as_str())
+                        {
+                            if let Some(chain) = reasoning_map.get(reasoning_id) {
+                                let trimmed = chain.text.trim();
+                                if !trimmed.is_empty() {
+                                    items.push(serde_json::json!({
+                                        "type": "reasoning",
+                                        "text": trimmed,
+                                    }));
+                                }
                             }
                         }
                     }

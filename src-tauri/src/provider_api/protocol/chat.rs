@@ -225,6 +225,21 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
                     "content": item.get("output").and_then(Value::as_str).unwrap_or(""),
                 }));
             }
+            "reasoning" => {
+                // Reasoning / thinking content from CoT models (DeepSeek R1,
+                // OpenAI o-series). Map to the standard Chat Completions
+                // `reasoning_content` field on an assistant message. The
+                // content field is set to empty string — the API requires
+                // content to be present even when only reasoning is emitted.
+                let text = item.get("text").and_then(Value::as_str).unwrap_or("");
+                if !text.trim().is_empty() {
+                    messages.push(json!({
+                        "role": "assistant",
+                        "content": "",
+                        "reasoning_content": text,
+                    }));
+                }
+            }
             _ => {
                 let role = match item.get("role").and_then(Value::as_str) {
                     Some("assistant") => "assistant",
