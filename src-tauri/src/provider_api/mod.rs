@@ -155,8 +155,17 @@ pub async fn fetch_remote_models(
         return protocol::fetch_remote_models(&provider, &endpoint, config.request_timeout_seconds).await;
     }
 
-    // Fall back to JS plugin path
-    plugin::fetch_remote_models(config, provider_key).await
+    // Fall back to JS plugin path only if a plugin is registered for this kind
+    if crate::provider_api::registry::provider_plugin_package(&provider.kind).is_some() {
+        plugin::fetch_remote_models(config, provider_key).await
+    } else {
+        log::debug!(
+            "No protocol or plugin for provider '{}' (kind: {}), skip model fetch",
+            provider_key,
+            provider.kind
+        );
+        Ok(Vec::new())
+    }
 }
 
 // ── Provider Metadata ──────────────────────────────────────────────────────
@@ -204,8 +213,7 @@ fn resolve_protocol(
 
     // 3. Hardcoded fallback for legacy plugin kinds
     match provider_kind {
-        "openai-responses" => Some("responses".to_string()),
-        "chat-completions" => Some("chat_completions".to_string()),
+
         "openai" => Some("responses".to_string()),
         _ => None,
     }

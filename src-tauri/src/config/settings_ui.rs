@@ -143,6 +143,16 @@ pub fn build_dynamic_options(
             .collect(),
     );
     dynamic_options.insert(
+        "api_protocol".to_string(),
+        ["chat_completions", "embeddings", "responses"]
+            .into_iter()
+            .map(|entry| SettingsOption {
+                label: entry.to_string(),
+                value: entry.to_string(),
+            })
+            .collect(),
+    );
+    dynamic_options.insert(
         "stream_transport".to_string(),
         ["websocket", "sse"]
             .into_iter()

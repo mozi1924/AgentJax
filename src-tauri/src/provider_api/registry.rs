@@ -235,10 +235,9 @@ fn parse_capabilities(value: &Value) -> Option<ProviderCapabilities> {
 
 fn parse_tool_schema_format(value: &str) -> Option<ToolSchemaFormat> {
     match value.trim().to_ascii_lowercase().replace('-', "_").as_str() {
-        "responses" | "openai_responses" => Some(ToolSchemaFormat::Responses),
-        "chat_completions" | "openai_chat_completions" => Some(ToolSchemaFormat::ChatCompletions),
-        "gemini" => Some(ToolSchemaFormat::Gemini),
-        "anthropic" | "claude" => Some(ToolSchemaFormat::Anthropic),
+        "responses" => Some(ToolSchemaFormat::Responses),
+        "chat_completions" => Some(ToolSchemaFormat::ChatCompletions),
+
         _ => None,
     }
 }

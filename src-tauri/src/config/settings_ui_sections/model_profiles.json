@@ -19,22 +19,21 @@
         "kind": "openai",
         "apiEndpoint": "https://api.openai.com/v1",
         "modelsEndpointCandidates": [],
-        "queryParams": {},
-        "httpHeaders": {},
-        "envHttpHeaders": {},
-        "realtimeEndpoint": null,
-        "supportsWebsockets": true,
-        "streamTransport": "sse",
         "credential": null,
         "credentialEnv": "OPENAI_API_KEY",
         "requestTimeoutSeconds": null,
-        "requestMaxRetries": null,
-        "streamMaxRetries": null,
-        "streamIdleTimeoutMs": null,
-        "websocketConnectTimeoutMs": null,
         "models": {}
       },
       "children": [
+        {
+          "kind": "field",
+          "id": "provider-kind",
+          "title": "settings.providers.kind.title",
+          "path": "kind",
+          "valueType": "enum",
+          "control": "select",
+          "optionSourceKey": "provider_kind"
+        },
         {
           "kind": "collection",
           "id": "provider-models",
@@ -48,7 +47,7 @@
           "defaultItem": {
             "name": null,
             "enabled": true,
-            "api_protocol": null,
+            "apiProtocol": null,
             "request": {
               "temperature": null,
               "top_p": null,
@@ -78,6 +77,16 @@
               "path": "enabled",
               "valueType": "boolean",
               "control": "switch"
+            },
+            {
+              "kind": "field",
+              "id": "profile-api-protocol",
+              "title": "settings.model_profiles.api_protocol.title",
+              "description": "settings.model_profiles.api_protocol.description",
+              "path": "apiProtocol",
+              "valueType": "enum",
+              "control": "select",
+              "optionSourceKey": "api_protocol"
             },
             {
               "kind": "group",

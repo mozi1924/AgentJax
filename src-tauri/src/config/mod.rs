@@ -235,32 +235,6 @@ mod tests {
         assert_eq!(provider.stream_transport(), "sse");
     }
 
-    #[test]
-    #[allow(clippy::field_reassign_with_default)]
-    fn provider_normalize_accepts_legacy_snake_case_custom_settings() {
-        let mut provider = ProviderConfig::default();
-        provider.kind = "openai".to_string();
-        provider.custom_settings.insert(
-            "api_endpoint".to_string(),
-            serde_json::Value::String("https://gateway.example.test/v1/".to_string()),
-        );
-        provider.custom_settings.insert(
-            "credential_env".to_string(),
-            serde_json::Value::String("TEST_AGENTJAX_GATEWAY_KEY".to_string()),
-        );
-        provider.custom_settings.insert(
-            "stream_transport".to_string(),
-            serde_json::Value::String("websocket".to_string()),
-        );
-
-        let normalized = provider.normalize_for_key("gateway");
-
-        assert_eq!(normalized.api_endpoint(), "https://gateway.example.test/v1");
-        assert_eq!(normalized.credential_env(), "TEST_AGENTJAX_GATEWAY_KEY");
-        assert_eq!(normalized.stream_transport(), "websocket");
-        assert!(!normalized.custom_settings.contains_key("api_endpoint"));
-        assert!(!normalized.custom_settings.contains_key("credential_env"));
-    }
 
     #[test]
     fn provider_resolved_http_headers_merges_env_values() {

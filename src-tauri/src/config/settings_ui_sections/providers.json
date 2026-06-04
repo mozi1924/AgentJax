@@ -20,19 +20,9 @@
         "kind": "openai",
         "apiEndpoint": "https://api.openai.com/v1",
         "modelsEndpointCandidates": [],
-        "queryParams": {},
-        "httpHeaders": {},
-        "envHttpHeaders": {},
-        "realtimeEndpoint": null,
-        "supportsWebsockets": true,
-        "streamTransport": "sse",
         "credential": null,
         "credentialEnv": "OPENAI_API_KEY",
         "requestTimeoutSeconds": null,
-        "requestMaxRetries": null,
-        "streamMaxRetries": null,
-        "streamIdleTimeoutMs": null,
-        "websocketConnectTimeoutMs": null,
         "models": {}
       },
       "children": [
@@ -65,61 +55,6 @@
         },
         {
           "kind": "field",
-          "id": "provider-query-params",
-          "title": "settings.providers.query_params.title",
-          "description": "settings.providers.query_params.description",
-          "path": "queryParams",
-          "valueType": "string_map",
-          "control": "key_value"
-        },
-        {
-          "kind": "field",
-          "id": "provider-http-headers",
-          "title": "settings.providers.http_headers.title",
-          "description": "settings.providers.http_headers.description",
-          "path": "httpHeaders",
-          "valueType": "string_map",
-          "control": "key_value"
-        },
-        {
-          "kind": "field",
-          "id": "provider-env-http-headers",
-          "title": "settings.providers.env_http_headers.title",
-          "description": "settings.providers.env_http_headers.description",
-          "path": "envHttpHeaders",
-          "valueType": "string_map",
-          "control": "key_value"
-        },
-        {
-          "kind": "field",
-          "id": "provider-realtime-endpoint",
-          "title": "settings.providers.realtime_endpoint.title",
-          "description": "settings.providers.realtime_endpoint.description",
-          "path": "realtimeEndpoint",
-          "valueType": "string",
-          "control": "text",
-          "placeholder": "wss://api.example.com/v1/realtime"
-        },
-        {
-          "kind": "field",
-          "id": "provider-supports-websockets",
-          "title": "settings.providers.supports_websockets.title",
-          "description": "settings.providers.supports_websockets.description",
-          "path": "supportsWebsockets",
-          "valueType": "boolean",
-          "control": "switch"
-        },
-        {
-          "kind": "field",
-          "id": "provider-stream-transport",
-          "title": "settings.providers.stream_transport.title",
-          "path": "streamTransport",
-          "valueType": "enum",
-          "control": "select",
-          "optionSourceKey": "stream_transport"
-        },
-        {
-          "kind": "field",
           "id": "provider-credential",
           "title": "settings.providers.credential.title",
           "description": "settings.providers.credential.description",
@@ -148,54 +83,6 @@
           "min": 1,
           "max": 3600,
           "step": 1
-        },
-        {
-          "kind": "field",
-          "id": "provider-request-max-retries",
-          "title": "settings.providers.request_max_retries.title",
-          "description": "settings.providers.request_max_retries.description",
-          "path": "requestMaxRetries",
-          "valueType": "integer",
-          "control": "number",
-          "min": 0,
-          "max": 20,
-          "step": 1
-        },
-        {
-          "kind": "field",
-          "id": "provider-stream-max-retries",
-          "title": "settings.providers.stream_max_retries.title",
-          "description": "settings.providers.stream_max_retries.description",
-          "path": "streamMaxRetries",
-          "valueType": "integer",
-          "control": "number",
-          "min": 0,
-          "max": 20,
-          "step": 1
-        },
-        {
-          "kind": "field",
-          "id": "provider-stream-idle-timeout-ms",
-          "title": "settings.providers.stream_idle_timeout.title",
-          "description": "settings.providers.stream_idle_timeout.description",
-          "path": "streamIdleTimeoutMs",
-          "valueType": "integer",
-          "control": "number",
-          "min": 1000,
-          "max": 3600000,
-          "step": 1000
-        },
-        {
-          "kind": "field",
-          "id": "provider-websocket-connect-timeout-ms",
-          "title": "settings.providers.websocket_connect_timeout.title",
-          "description": "settings.providers.websocket_connect_timeout.description",
-          "path": "websocketConnectTimeoutMs",
-          "valueType": "integer",
-          "control": "number",
-          "min": 1000,
-          "max": 3600000,
-          "step": 1000
         }
       ]
     }
