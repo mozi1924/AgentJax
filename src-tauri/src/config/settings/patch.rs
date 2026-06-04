@@ -148,35 +148,36 @@ fn apply_delete(root: &mut Value, segments: &[String]) -> AgentJaxResult<()> {
 }
 
 fn validate_path_semantics(segments: &[String], root: &Value) -> AgentJaxResult<()> {
-    if segments.is_empty() {
-        return Ok(());
-    }
+    // Delegate to the unified schema-backed path registry.
+    // This replaces the old ad-hoc validation with a single source of truth.
+    crate::config::path_registry::validate_patch_path(segments, None)?;
 
-    if segments[0] == "providers" && segments.len() >= 2 {
-        validate_key(&segments[1], "provider key")?;
-        if segments.len() >= 4 && segments[2] == "models" {
-            validate_key(&segments[3], "model profile key")?;
-        }
-    }
+    // Post-patch validation of collection keys in the result.
+    // After applying the patch, check that all keys in the config match
+    // the expected patterns (this catches invalid keys added by set operations).
+    validate_root_keys(root)?;
+    Ok(())
+}
 
-    if segments[0] == "mcp" && segments.len() >= 3 && segments[1] == "servers" {
-        validate_key(&segments[1], "MCP server key")?;
-    }
-
-    if segments[0] == "tool_manager" {
-        validate_tool_manager_path(segments)?;
-    }
-
+/// Post-patch key validation — ensures all collection keys in the final
+/// config value match the expected format.
+fn validate_root_keys(root: &Value) -> AgentJaxResult<()> {
     if let Some(Value::Object(providers)) = root.get("providers") {
         for provider_key in providers.keys() {
-            validate_key(provider_key, "provider key")?;
+            crate::config::path_registry::validate_patch_path(
+                &["providers".to_string(), provider_key.clone(), "enabled".to_string()],
+                None,
+            )?;
         }
     }
 
     if let Some(mcp_value) = root.get("mcp") {
         if let Some(servers_map) = mcp_value.get("servers").and_then(|s| s.as_object()) {
             for server_key in servers_map.keys() {
-                validate_key(server_key, "MCP server key")?;
+                crate::config::path_registry::validate_patch_path(
+                    &["mcp".to_string(), "servers".to_string(), server_key.clone(), "enabled".to_string()],
+                    None,
+                )?;
             }
         }
     }
@@ -185,22 +186,6 @@ fn validate_path_semantics(segments: &[String], root: &Value) -> AgentJaxResult<
         validate_tool_manager_keys(tool_manager)?;
     }
 
-    Ok(())
-}
-
-fn validate_tool_manager_path(segments: &[String]) -> AgentJaxResult<()> {
-    if segments.len() >= 3 {
-        match segments[1].as_str() {
-            "native_tools" => validate_key(&segments[2], "native tool key")?,
-            "context_tools" => validate_key(&segments[2], "context tool key")?,
-            "plugin_tools" => validate_key(&segments[2], "plugin id")?,
-            "mcp_tools" => validate_key(&segments[2], "MCP server key")?,
-            _ => {}
-        }
-    }
-    if segments.len() >= 5 && segments[3] == "tools" {
-        validate_key(&segments[4], "tool key")?;
-    }
     Ok(())
 }
 
@@ -214,35 +199,30 @@ fn validate_tool_manager_keys(tool_manager: &Map<String, Value>) -> AgentJaxResu
         let Some(Value::Object(sources)) = tool_manager.get(section) else {
             continue;
         };
-        for (source_key, source_value) in sources {
-            validate_key(source_key, label)?;
-            let Some(source_object) = source_value.as_object() else {
+        for source_key in sources.keys() {
+            crate::config::path_registry::validate_patch_path(
+                &[
+                    "tool_manager".to_string(),
+                    section.to_string(),
+                    source_key.clone(),
+                    "enabled".to_string(),
+                ],
+                None,
+            )?;
+            let Some(source_object) = sources.get(source_key).and_then(|v| v.as_object()) else {
                 continue;
             };
             let Some(Value::Object(tools)) = source_object.get("tools") else {
                 continue;
             };
             for tool_key in tools.keys() {
-                validate_key(tool_key, "tool key")?;
+                // Tool keys use a simpler validation since they're not full paths
+                let trimmed = tool_key.trim();
+                if trimmed.is_empty() {
+                    return Err(agentjax_err!(format!("{label} tool key cannot be empty"), Config));
+                }
             }
         }
-    }
-    Ok(())
-}
-
-fn validate_key(key: &str, label: &str) -> AgentJaxResult<()> {
-    let trimmed = key.trim();
-    if trimmed.is_empty() {
-        return Err(agentjax_err!(format!("{label} cannot be empty"), Config));
-    }
-    if !trimmed
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '.')
-    {
-        return Err(agentjax_err!(
-            format!("{label} '{}' contains unsupported characters. Use letters, digits, '-', '_' or '.' only.", trimmed),
-            Config
-        ));
     }
     Ok(())
 }

@@ -6,6 +6,7 @@ mod io;
 mod model_ref;
 mod prompt_composer;
 mod schema;
+mod path_registry;
 mod path_validator;
 mod section_generator;
 mod settings;

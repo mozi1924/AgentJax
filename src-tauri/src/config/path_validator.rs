@@ -54,7 +54,7 @@ pub fn validate_settings_paths(sections: &[Value]) -> AgentJaxResult<()> {
 
 // ── Schema loading ─────────────────────────────────────────────────────────
 
-fn build_app_config_schema() -> Value {
+pub(crate) fn build_app_config_schema() -> Value {
     let schema = schemars::schema_for!(super::AppConfig);
     serde_json::to_value(&schema).expect("AppConfig schemars schema must serialise to JSON")
 }
@@ -173,7 +173,7 @@ fn validate_field_path(
     let segments: Vec<&str> = path.split('.').collect();
     let mut errors = Vec::new();
     let mut current = ctx_schema;
-    let mut empty_obj = Value::Object(Default::default());
+    let empty_obj = Value::Object(Default::default());
 
     for (i, segment) in segments.iter().enumerate() {
         // schema_for!() serialized to JSON produces properties at the top level
@@ -278,7 +278,7 @@ fn resolve_collection_item_schema(
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-fn follow_ref<'a>(schema: &'a Value, root_schema: &'a Value) -> &'a Value {
+pub(crate) fn follow_ref<'a>(schema: &'a Value, root_schema: &'a Value) -> &'a Value {
     if let Some(ref_str) = schema.get("$ref").and_then(Value::as_str) {
         if let Some(def_path) = ref_str.strip_prefix("#/$defs/") {
             if let Some(defs) = root_schema.get("$defs").and_then(|d| d.as_object()) {
@@ -291,7 +291,7 @@ fn follow_ref<'a>(schema: &'a Value, root_schema: &'a Value) -> &'a Value {
     schema
 }
 
-fn resolve_schema_property<'a>(
+pub(crate) fn resolve_schema_property<'a>(
     schema: &'a Value,
     segment: &str,
     root_schema: &'a Value,
