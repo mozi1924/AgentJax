@@ -39,7 +39,7 @@ pub(super) fn snapshot_from_config(
         config_path: config_path.display().to_string(),
         revision: compute_revision(raw),
         values,
-        dynamic_options: settings_ui::build_dynamic_options(config)?,
+        dynamic_options: config::build_dynamic_options(config)?,
         secret_statuses,
     })
 }

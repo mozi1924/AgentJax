@@ -1,5 +1,6 @@
 mod app_config;
 mod constants;
+mod dynamic_options;
 mod io;
 mod model_ref;
 mod prompt_composer;
@@ -29,7 +30,8 @@ pub use settings::{
     apply_settings_patch, get_settings_snapshot, get_settings_ui_snapshot,
 };
 #[allow(unused_imports)]
-pub use settings_ui::{SettingsUiSnapshot, build_dynamic_options, build_settings_sections};
+pub use dynamic_options::build_dynamic_options;
+pub use settings_ui::SettingsUiSnapshot;
 
 #[cfg(test)]
 pub(crate) fn test_env_lock() -> &'static tokio::sync::Mutex<()> {
