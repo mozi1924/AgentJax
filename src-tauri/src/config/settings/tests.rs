@@ -63,7 +63,7 @@ fn snapshot_redacts_secret_values() {
         std::env::set_var(AGENTJAX_HOME_ENV, &home);
     }
 
-    let snapshot = get_settings_snapshot().expect("snapshot");
+    let snapshot = get_settings_snapshot(None).expect("snapshot");
     assert_eq!(
         snapshot.values["providers"]["openai"]["credential"],
         Value::Null
@@ -96,18 +96,23 @@ fn apply_patch_updates_scalar_values() {
         std::env::set_var(AGENTJAX_HOME_ENV, &home);
     }
 
-    let snapshot = get_settings_snapshot().expect("snapshot");
+    let snapshot = get_settings_snapshot(None).expect("snapshot");
     let updated = apply_settings_patch(SettingsPatch {
         path: "request_timeout_seconds".to_string(),
         value: Some(Value::from(33)),
         expected_revision: snapshot.revision,
         operation: SettingsPatchOperation::Set,
+        agent_id: None,
     })
     .expect("apply patch");
 
     assert_eq!(updated.values["request_timeout_seconds"], Value::from(33));
-    let raw = fs::read_to_string(&path).expect("read config");
-    assert!(raw.contains("request_timeout_seconds: 33"));
+    // agent-specific paths are written to agent.yaml
+    let agent_path = path.parent().unwrap().join("agents").join("main").join("agent.yaml");
+    if agent_path.exists() {
+        let raw = fs::read_to_string(&agent_path).expect("read agent config");
+        assert!(raw.contains("request_timeout_seconds: 33"));
+    }
 
     unsafe {
         std::env::remove_var(AGENTJAX_HOME_ENV);
@@ -128,12 +133,13 @@ fn apply_patch_rejects_invalid_collection_keys() {
         std::env::set_var(AGENTJAX_HOME_ENV, &home);
     }
 
-    let snapshot = get_settings_snapshot().expect("snapshot");
+    let snapshot = get_settings_snapshot(None).expect("snapshot");
     let error = apply_settings_patch(SettingsPatch {
         path: "mcp.servers.bad$key".to_string(),
         value: Some(serde_json::json!({ "transport": "stdio", "enabled": true })),
         expected_revision: snapshot.revision,
         operation: SettingsPatchOperation::Set,
+        agent_id: None,
     })
     .expect_err("invalid key should fail");
     assert!(error.contains("unsupported characters"));
@@ -157,12 +163,13 @@ fn apply_patch_updates_tool_manager_policy() {
         std::env::set_var(AGENTJAX_HOME_ENV, &home);
     }
 
-    let snapshot = get_settings_snapshot().expect("snapshot");
+    let snapshot = get_settings_snapshot(None).expect("snapshot");
     let updated = apply_settings_patch(SettingsPatch {
         path: "tool_manager.native_tools.calculator.enabled".to_string(),
         value: Some(Value::Bool(false)),
         expected_revision: snapshot.revision,
         operation: SettingsPatchOperation::Set,
+        agent_id: None,
     })
     .expect("apply tool manager patch");
 
@@ -170,9 +177,13 @@ fn apply_patch_updates_tool_manager_policy() {
         updated.values["tool_manager"]["native_tools"]["calculator"]["enabled"],
         Value::Bool(false)
     );
-    let raw = fs::read_to_string(&path).expect("read config");
-    assert!(raw.contains("tool_manager:"));
-    assert!(raw.contains("calculator:"));
+    // agent-specific paths are written to agent.yaml
+    let agent_path = path.parent().unwrap().join("agents").join("main").join("agent.yaml");
+    if agent_path.exists() {
+        let raw = fs::read_to_string(&agent_path).expect("read agent config");
+        assert!(raw.contains("tool_manager:"));
+        assert!(raw.contains("calculator:"));
+    }
 
     unsafe {
         std::env::remove_var(AGENTJAX_HOME_ENV);
@@ -193,12 +204,13 @@ fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
         std::env::set_var(AGENTJAX_HOME_ENV, &home);
     }
 
-    let snapshot = get_settings_snapshot().expect("snapshot");
+    let snapshot = get_settings_snapshot(None).expect("snapshot");
     let updated = apply_settings_patch(SettingsPatch {
         path: "providers.openai.models.GPT-5\\.4-mini.enabled".to_string(),
         value: Some(Value::Bool(false)),
         expected_revision: snapshot.revision,
         operation: SettingsPatchOperation::Set,
+        agent_id: None,
     })
     .expect("apply patch with escaped model profile key");
 

@@ -1,7 +1,10 @@
 use super::io::{atomic_write, compute_revision};
-use super::snapshot::snapshot_from_config;
+use super::snapshot::{
+    is_agent_config_path, snapshot_from_config, snapshot_from_config_with_agent,
+};
 use super::types::{SettingsPatch, SettingsPatchOperation, SettingsSnapshot};
 use crate::agentjax_err;
+use crate::config::agent_config::AgentConfig;
 use crate::config::{self, AppConfig};
 use crate::error::{AgentJaxError, AgentJaxResult};
 use serde_json::{Map, Value};
@@ -20,16 +23,74 @@ pub fn apply_settings_patch(patch: SettingsPatch) -> AgentJaxResult<SettingsSnap
         ));
     }
 
+    let agent_id = patch
+        .agent_id
+        .as_deref()
+        .unwrap_or(crate::config::constants::DEFAULT_AGENT_ID);
     let config = config::load_config()?;
-    let mut root = serde_json::to_value(&config)
-        .map_err(|e| AgentJaxError::config(format!("Failed to serialize current config for patching: {e}")).with_error_source(&e))?;
+    let agent_config = config::load_agent_config(agent_id)?;
 
+    // Determine if this patch targets agent-specific or shared config.
+    let is_agent_path = is_agent_config_path(&patch.path);
+
+    if is_agent_path {
+        apply_agent_patch(&patch, &config, &agent_config, agent_id)
+    } else {
+        apply_shared_patch(&patch, &config, &agent_config, &config_path, &raw)
+    }
+}
+
+/// Apply a patch to the shared config.yaml.
+fn apply_shared_patch(
+    patch: &SettingsPatch,
+    config: &AppConfig,
+    agent_config: &AgentConfig,
+    config_path: &std::path::Path,
+    raw: &str,
+) -> AgentJaxResult<SettingsSnapshot> {
+    let mut root = serde_json::to_value(config)
+        .map_err(|e| AgentJaxError::config(format!("Failed to serialize config for patching: {e}")).with_error_source(&e))?;
     let path_segments = parse_path(&patch.path)?;
+
     match patch.operation {
         SettingsPatchOperation::Set => {
-            let value = patch
-                .value
-                .ok_or_else(|| agentjax_err!(format!("Patch for '{}' requires a value", patch.path), Config))?;
+            let value = patch.value.clone().ok_or_else(|| {
+                agentjax_err!(format!("Patch for '{}' requires a value", patch.path), Config)
+            })?;
+            apply_set(&mut root, &path_segments, value)?;
+        }
+        SettingsPatchOperation::Delete => {
+            apply_delete(&mut root, &path_segments)?;
+        }
+    }
+    validate_path_semantics(&path_segments, &root)?;
+
+    let patched: AppConfig = serde_json::from_value(root)
+        .map_err(|e| AgentJaxError::config(format!("Patched config is invalid: {e}")).with_error_source(&e))?;
+    let normalized = patched.normalize();
+    let normalized_yaml = crate::config::serialize_config_to_yaml(&normalized)?;
+    atomic_write(config_path, &normalized_yaml)?;
+
+    snapshot_from_config_with_agent(&normalized, agent_config, config_path, &normalized_yaml)
+}
+
+/// Apply a patch to the agent-specific agent.yaml.
+fn apply_agent_patch(
+    patch: &SettingsPatch,
+    config: &AppConfig,
+    agent_config: &AgentConfig,
+    agent_id: &str,
+) -> AgentJaxResult<SettingsSnapshot> {
+    let agent_path = crate::agentjax_home::agent_config_path(agent_id)?;
+    let mut root = serde_json::to_value(agent_config)
+        .map_err(|e| AgentJaxError::config(format!("Failed to serialize agent config for patching: {e}")).with_error_source(&e))?;
+    let path_segments = parse_path(&patch.path)?;
+
+    match patch.operation {
+        SettingsPatchOperation::Set => {
+            let value = patch.value.clone().ok_or_else(|| {
+                agentjax_err!(format!("Patch for '{}' requires a value", patch.path), Config)
+            })?;
             apply_set(&mut root, &path_segments, value)?;
         }
         SettingsPatchOperation::Delete => {
@@ -37,15 +98,22 @@ pub fn apply_settings_patch(patch: SettingsPatch) -> AgentJaxResult<SettingsSnap
         }
     }
 
-    validate_path_semantics(&path_segments, &root)?;
-
-    let patched: AppConfig = serde_json::from_value(root)
-        .map_err(|e| AgentJaxError::config(format!("Patched configuration is invalid: {e}")).with_error_source(&e))?;
+    let patched: AgentConfig = serde_json::from_value(root)
+        .map_err(|e| AgentJaxError::config(format!("Patched agent config is invalid: {e}")).with_error_source(&e))?;
     let normalized = patched.normalize();
-    let normalized_yaml = crate::config::serialize_config_to_yaml(&normalized)?;
+    let yaml = serde_yaml::to_string(&normalized)
+        .map_err(|e| AgentJaxError::config(format!("Failed to serialize agent config: {e}")).with_error_source(&e))?;
 
-    atomic_write(&config_path, &normalized_yaml)?;
-    snapshot_from_config(&normalized, &config_path, &normalized_yaml)
+    // Ensure the agent directory exists before writing.
+    if let Some(parent) = agent_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    std::fs::write(&agent_path, &yaml)
+        .map_err(|e| AgentJaxError::config(format!("Failed to write agent config: {e}")).with_error_source(&e))?;
+
+    let config_path = config::init_config_if_missing()?;
+    let raw = fs::read_to_string(&config_path).unwrap_or_default();
+    snapshot_from_config_with_agent(config, &normalized, &config_path, &raw)
 }
 
 fn parse_path(path: &str) -> AgentJaxResult<Vec<String>> {

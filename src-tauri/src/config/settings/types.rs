@@ -47,4 +47,7 @@ pub struct SettingsPatch {
     pub expected_revision: String,
     #[serde(default = "default_patch_operation")]
     pub operation: SettingsPatchOperation,
+    /// Agent profile to apply the patch to. Defaults to "main".
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }

@@ -46,8 +46,9 @@ pub fn upgrade_config_file() -> Result<ConfigUpgradeResult, String> {
 #[tauri::command]
 pub fn get_settings_snapshot(
     event_state: State<'_, Arc<ConfigEventState>>,
+    agent_id: Option<String>,
 ) -> Result<SettingsSnapshot, String> {
-    let snapshot = config::get_settings_snapshot()?;
+    let snapshot = config::get_settings_snapshot(agent_id.as_deref())?;
     event_state.remember_revision(&snapshot.revision);
     Ok(snapshot)
 }
@@ -55,8 +56,9 @@ pub fn get_settings_snapshot(
 #[tauri::command]
 pub fn get_settings_ui_snapshot(
     event_state: State<'_, Arc<ConfigEventState>>,
+    agent_id: Option<String>,
 ) -> Result<SettingsUiSnapshot, String> {
-    let payload = config::get_settings_ui_snapshot()?;
+    let payload = config::get_settings_ui_snapshot(agent_id.as_deref())?;
     event_state.remember_revision(&payload.snapshot.revision);
     Ok(payload)
 }
@@ -133,7 +135,7 @@ pub fn start_config_watcher(
             std::thread::sleep(Duration::from_millis(220));
             while rx.try_recv().is_ok() {}
 
-            match config::get_settings_snapshot() {
+            match config::get_settings_snapshot(Some(crate::config::constants::DEFAULT_AGENT_ID)) {
                 Ok(snapshot) => {
                     if !event_state.should_emit_external(&snapshot.revision) {
                         continue;

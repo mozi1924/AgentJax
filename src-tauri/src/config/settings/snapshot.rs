@@ -1,6 +1,7 @@
 use super::io::compute_revision;
 use super::types::{SecretStatus, SettingsSnapshot};
 use crate::agentjax_err;
+use crate::config::agent_config::AgentConfig;
 use crate::config::settings_ui;
 use crate::config::{self, AppConfig};
 use crate::error::{AgentJaxError, AgentJaxResult};
@@ -9,16 +10,51 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-pub fn get_settings_snapshot() -> AgentJaxResult<SettingsSnapshot> {
+/// Agent-specific config paths that should be read/written from agent.yaml.
+/// All other paths are shared and go to config.yaml.
+const AGENT_CONFIG_PATHS: &[&str] = &[
+    "active_provider",
+    "default_model",
+    "utility_small_model",
+    "request_timeout_seconds",
+    "show_advanced_request_options",
+    "enable_developer_tools",
+    "prompt_composer",
+    "context_management",
+    "sub_agent",
+    "memory",
+    "rag",
+    "tool_manager",
+];
+
+/// Determine whether a settings path belongs to the agent config or shared config.
+pub fn is_agent_config_path(path: &str) -> bool {
+    let root_segment = path.split('.').next().unwrap_or("");
+    AGENT_CONFIG_PATHS.contains(&root_segment)
+}
+
+/// Get the effective agent_id for settings (from argument or default).
+fn resolve_settings_agent_id(agent_id: Option<&str>) -> String {
+    agent_id
+        .filter(|s| !s.is_empty())
+        .unwrap_or(crate::config::constants::DEFAULT_AGENT_ID)
+        .to_string()
+}
+
+pub fn get_settings_snapshot(agent_id: Option<&str>) -> AgentJaxResult<SettingsSnapshot> {
+    let agent_id = resolve_settings_agent_id(agent_id);
+
     let config_path = config::init_config_if_missing()?;
     let raw = fs::read_to_string(&config_path)
         .map_err(|e| AgentJaxError::config(format!("Failed to read config file {}: {e}", config_path.display())).with_error_source(&e))?;
     let config = config::load_config()?;
-    snapshot_from_config(&config, &config_path, &raw)
+    let agent_config = config::load_agent_config(&agent_id)?;
+
+    snapshot_from_config_with_agent(&config, &agent_config, &config_path, &raw)
 }
 
-pub fn get_settings_ui_snapshot() -> AgentJaxResult<settings_ui::SettingsUiSnapshot> {
-    let snapshot = get_settings_snapshot()?;
+pub fn get_settings_ui_snapshot(agent_id: Option<&str>) -> AgentJaxResult<settings_ui::SettingsUiSnapshot> {
+    let snapshot = get_settings_snapshot(agent_id)?;
     Ok(settings_ui::SettingsUiSnapshot {
         snapshot,
         sections: settings_ui::build_settings_sections()?,
@@ -30,8 +66,32 @@ pub(super) fn snapshot_from_config(
     config_path: &Path,
     raw: &str,
 ) -> AgentJaxResult<SettingsSnapshot> {
+    let agent_config = AgentConfig::default();
+    snapshot_from_config_with_agent(config, &agent_config, config_path, raw)
+}
+
+pub(super) fn snapshot_from_config_with_agent(
+    config: &AppConfig,
+    agent_config: &AgentConfig,
+    config_path: &Path,
+    raw: &str,
+) -> AgentJaxResult<SettingsSnapshot> {
     let mut values = serde_json::to_value(config)
         .map_err(|e| AgentJaxError::config(format!("Failed to serialize config snapshot: {e}")).with_error_source(&e))?;
+
+    // Merge agent config fields into the values object so the frontend
+    // sees a unified view of both shared and agent-specific settings.
+    if let Ok(agent_values) = serde_json::to_value(agent_config) {
+        if let (Some(root_obj), Some(agent_obj)) =
+            (values.as_object_mut(), agent_values.as_object())
+        {
+            for (key, val) in agent_obj {
+                // Agent values override shared values for the same key.
+                root_obj.insert(key.clone(), val.clone());
+            }
+        }
+    }
+
     let mut secret_statuses = BTreeMap::new();
     redact_secret_values(config, &mut values, &mut secret_statuses)?;
 
