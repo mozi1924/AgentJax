@@ -329,7 +329,7 @@ export function DataSourceRenderer({
     const items = asArray(data);
     const containerClass = classNames(
       'min-h-0 min-w-0 flex flex-col',
-      node.variant === 'sidebar' && 'border-r border-[#242426]/50 bg-[#171719]/40',
+      node.variant === 'sidebar' && 'border-r border-[#242426]/50',
       node.variant === 'content' && 'border-r border-[#242426]/50'
     );
     const listStatus = dataContext.getStatus?.(node.dataSource);
@@ -340,7 +340,7 @@ export function DataSourceRenderer({
           containerClassName="flex-1 min-h-0"
           className={classNames(
             "min-h-[220px] flex-1 p-2 xl:min-h-0",
-            node.variant === 'sidebar' && 'pl-6 pr-2 py-2 xl:pl-6'
+            node.variant === 'sidebar' && 'px-3 py-2'
           )}
         >
           {listStatus?.loading ? (
@@ -411,7 +411,7 @@ export function DataSourceRenderer({
     const record = asRecord(data);
     if (!record || Object.keys(record).length === 0) {
       return (
-        <section className="min-w-0 border-t border-[#242426]/50 bg-[#171719]/20 xl:border-l xl:border-t-0">
+        <section className="min-w-0 border-t border-[#242426]/50 xl:border-l xl:border-t-0">
           <div className="flex h-40 items-center justify-center text-xs text-neutral-500 xl:h-full">
             {node.emptyText ? t(node.emptyText) : ''}
           </div>
@@ -442,7 +442,7 @@ export function DataSourceRenderer({
     const detailItemRequired = bindings.detailItemRequired || 'required';
     const requiredLabel = bindings.requiredLabel ? t(bindings.requiredLabel) : 'required';
     return (
-      <section className="min-w-0 border-t border-[#242426]/50 bg-[#171719]/20 xl:border-l xl:border-t-0 flex flex-col h-full">
+      <section className="min-w-0 border-t border-[#242426]/50 xl:border-l xl:border-t-0 flex flex-col h-full">
         <OverlayScrollArea
           containerClassName="flex-1 min-h-0"
           className="h-[min(52vh,520px)] xl:h-full p-3 pr-6"
