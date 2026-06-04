@@ -211,10 +211,5 @@ fn resolve_protocol(
         return protocols.first().cloned();
     }
 
-    // 3. Hardcoded fallback for legacy plugin kinds
-    match provider_kind {
-
-        "openai" => Some("responses".to_string()),
-        _ => None,
-    }
+    None
 }

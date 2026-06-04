@@ -21,7 +21,6 @@ const GENERAL_SECTION_JSON: &str = include_str!("settings_ui_sections/general.js
 const PROMPT_COMPOSER_SECTION_JSON: &str =
     include_str!("settings_ui_sections/prompt_composer.json");
 const PROVIDERS_SECTION_JSON: &str = include_str!("settings_ui_sections/providers.json");
-const MODEL_PROFILES_SECTION_JSON: &str = include_str!("settings_ui_sections/model_profiles.json");
 const MCP_RUNTIME_SECTION_JSON: &str = include_str!("settings_ui_sections/mcp_runtime.json");
 const MCP_SERVERS_SECTION_JSON: &str = include_str!("settings_ui_sections/mcp_servers.json");
 const TOOLS_SECTION_JSON: &str = include_str!("settings_ui_sections/tools.json");
@@ -56,7 +55,6 @@ fn build_builtin_settings_sections() -> AgentJaxResult<Vec<Value>> {
         GENERAL_SECTION_JSON,
         PROMPT_COMPOSER_SECTION_JSON,
         PROVIDERS_SECTION_JSON,
-        MODEL_PROFILES_SECTION_JSON,
         MCP_RUNTIME_SECTION_JSON,
         MCP_SERVERS_SECTION_JSON,
         TOOLS_SECTION_JSON,

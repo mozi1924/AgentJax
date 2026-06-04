@@ -18,7 +18,6 @@ impl ProviderConfig {
             self.kind = provider_key.to_string();
         }
 
-
         // Auto-complete custom_settings fields dynamically using registered config schema
         if let Some(definition) = registry::provider_definition(&self.kind) {
             if let Some(obj) = definition.config_schema.as_object()

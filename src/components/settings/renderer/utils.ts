@@ -27,10 +27,6 @@ export const createDefaultItem = (collection: SettingsCollectionSchema, key: str
     next.credential_env = `${key.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()}_API_KEY`;
   }
 
-  if (collection.path === 'models' && typeof next.model === 'string' && !next.model) {
-    next.model = key;
-  }
-
   return next;
 };
 

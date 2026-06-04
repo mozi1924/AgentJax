@@ -83,6 +83,154 @@
           "min": 1,
           "max": 3600,
           "step": 1
+        },
+        {
+          "kind": "collection",
+          "id": "provider-models",
+          "title": "settings.model_profiles.profiles.title",
+          "path": "models",
+          "valueType": "object_collection",
+          "addLabel": "settings.model_profiles.profiles.add_label",
+          "keyLabel": "settings.model_profiles.profiles.key_label",
+          "itemLabel": "settings.model_profiles.profiles.item_label",
+          "keyPattern": "^[A-Za-z0-9_.-]+$",
+          "defaultItem": {
+            "name": null,
+            "enabled": true,
+            "api_protocol": null,
+            "request": {
+              "temperature": null,
+              "top_p": null,
+              "top_k": null,
+              "max_output_tokens": null,
+              "frequency_penalty": null,
+              "presence_penalty": null,
+              "reasoning_effort": null,
+              "extra_body": {}
+            }
+          },
+          "children": [
+            {
+              "kind": "field",
+              "id": "profile-name",
+              "title": "settings.model_profiles.name.title",
+              "description": "settings.model_profiles.name.description",
+              "path": "name",
+              "valueType": "string",
+              "control": "text",
+              "placeholder": "GPT-5.4-Mini"
+            },
+            {
+              "kind": "field",
+              "id": "profile-enabled",
+              "title": "settings.model_profiles.enabled.title",
+              "path": "enabled",
+              "valueType": "boolean",
+              "control": "switch"
+            },
+            {
+              "kind": "field",
+              "id": "profile-api-protocol",
+              "title": "settings.model_profiles.api_protocol.title",
+              "description": "settings.model_profiles.api_protocol.description",
+              "path": "api_protocol",
+              "valueType": "enum",
+              "control": "select",
+              "optionSourceKey": "api_protocol"
+            },
+            {
+              "kind": "group",
+              "id": "profile-request-group",
+              "title": "settings.model_profiles.request_overrides.title",
+              "children": [
+                {
+                  "kind": "field",
+                  "id": "profile-temperature",
+                  "title": "settings.model_profiles.temperature.title",
+                  "path": "request.temperature",
+                  "valueType": "float",
+                  "control": "number",
+                  "min": 0,
+                  "max": 2,
+                  "step": 0.1
+                },
+                {
+                  "kind": "field",
+                  "id": "profile-top-p",
+                  "title": "settings.model_profiles.top_p.title",
+                  "path": "request.top_p",
+                  "valueType": "float",
+                  "control": "number",
+                  "min": 0,
+                  "max": 1,
+                  "step": 0.05
+                },
+                {
+                  "kind": "field",
+                  "id": "profile-top-k",
+                  "title": "settings.model_profiles.top_k.title",
+                  "path": "request.top_k",
+                  "valueType": "integer",
+                  "control": "number",
+                  "min": 1,
+                  "max": 999999,
+                  "step": 1
+                },
+                {
+                  "kind": "field",
+                  "id": "profile-max-output-tokens",
+                  "title": "settings.model_profiles.max_output_tokens.title",
+                  "path": "request.max_output_tokens",
+                  "valueType": "integer",
+                  "control": "number",
+                  "min": 1,
+                  "max": 999999,
+                  "step": 1
+                },
+                {
+                  "kind": "field",
+                  "id": "profile-frequency-penalty",
+                  "title": "settings.model_profiles.frequency_penalty.title",
+                  "path": "request.frequency_penalty",
+                  "valueType": "float",
+                  "control": "number",
+                  "min": -2,
+                  "max": 2,
+                  "step": 0.1
+                },
+                {
+                  "kind": "field",
+                  "id": "profile-presence-penalty",
+                  "title": "settings.model_profiles.presence_penalty.title",
+                  "path": "request.presence_penalty",
+                  "valueType": "float",
+                  "control": "number",
+                  "min": -2,
+                  "max": 2,
+                  "step": 0.1
+                },
+                {
+                  "kind": "field",
+                  "id": "profile-reasoning-effort",
+                  "title": "settings.model_profiles.reasoning_effort.title",
+                  "description": "settings.model_profiles.reasoning_effort.description",
+                  "path": "request.reasoning_effort",
+                  "valueType": "enum",
+                  "control": "select",
+                  "optionSourceKey": "reasoning_effort"
+                },
+                {
+                  "kind": "field",
+                  "id": "profile-extra-body",
+                  "title": "settings.model_profiles.extra_body.title",
+                  "description": "settings.model_profiles.extra_body.description",
+                  "path": "request.extra_body",
+                  "valueType": "json_map",
+                  "control": "key_value"
+                }
+              ]
+            }
+          ]
         }
       ]
     }
