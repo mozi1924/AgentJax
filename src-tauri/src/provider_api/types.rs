@@ -40,6 +40,17 @@ pub struct ModelReasoningCapability {
 #[serde(tag = "type", content = "data")]
 pub enum ProviderStreamEvent {
     ReasoningStarted,
+    /// Incremental reasoning / thinking content delta.
+    /// Emitted for APIs that stream reasoning tokens separately
+    /// (e.g. DeepSeek-R1 `delta.reasoning_content`, OpenAI o-series).
+    ReasoningDelta {
+        delta: String,
+    },
+    /// Reasoning phase complete. Carries optional token count for the
+    /// thinking block when the provider reports it.
+    ReasoningCompleted {
+        total_tokens: Option<usize>,
+    },
     OutputTextStarted,
     OutputTextDelta {
         delta: String,
@@ -115,6 +126,22 @@ pub struct ProviderTurnRequest {
     pub generate: Option<bool>,
     pub tools: Option<Vec<Value>>,
     pub tool_choice: Option<Value>,
+
+    // ── Sampling parameters (Chat Completions native; Responses ignores unsupported) ──
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    #[serde(default)]
+    pub top_p: Option<f32>,
+    #[serde(default)]
+    pub presence_penalty: Option<f32>,
+    #[serde(default)]
+    pub frequency_penalty: Option<f32>,
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    #[serde(default, alias = "max_completion_tokens")]
+    pub max_completion_tokens: Option<u32>,
+    #[serde(default)]
+    pub reasoning_budget_tokens: Option<u32>,
 }
 
 pub type ResponseStreamRequest = ProviderTurnRequest;

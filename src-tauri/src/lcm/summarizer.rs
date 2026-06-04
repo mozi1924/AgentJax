@@ -130,6 +130,7 @@ impl Summarizer for ProviderSummarizer {
             generate: None,
             tools: None,
             tool_choice: None,
+            ..Default::default()
         };
 
         // ── Retry with backoff on empty/incomplete responses ──

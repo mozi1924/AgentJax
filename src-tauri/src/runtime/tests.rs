@@ -88,6 +88,13 @@ async fn run_real_gateway_turn_with_config(
         client_metadata: None,
         generate: None,
         request_id: Some(format!("req-real-gateway-{}", Uuid::new_v4())),
+        temperature: None,
+        top_p: None,
+        presence_penalty: None,
+        frequency_penalty: None,
+        max_tokens: None,
+        max_completion_tokens: None,
+        reasoning_budget_tokens: None,
     };
 
     let (_cancel_tx, mut cancel_rx) = watch::channel(false);
@@ -491,6 +498,13 @@ async fn run_real_gateway_turn_with_full_catalog(
         client_metadata: None,
         generate: None,
         request_id: Some(format!("req-smoke-sa-{}", Uuid::new_v4())),
+        temperature: None,
+        top_p: None,
+        presence_penalty: None,
+        frequency_penalty: None,
+        max_tokens: None,
+        max_completion_tokens: None,
+        reasoning_budget_tokens: None,
     };
 
     let (_cancel_tx, mut cancel_rx) = watch::channel(false);

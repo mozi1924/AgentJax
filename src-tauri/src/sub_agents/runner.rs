@@ -113,6 +113,13 @@ pub async fn run_sub_agent(
         client_metadata: None,
         generate: None,
         request_id: Some(format!("sub-agent-{}", agent_id)),
+        temperature: None,
+        top_p: None,
+        presence_penalty: None,
+        frequency_penalty: None,
+        max_tokens: None,
+        max_completion_tokens: None,
+        reasoning_budget_tokens: None,
     };
 
     // ── Run the agent loop ────────────────────────────────────────────────
@@ -327,6 +334,7 @@ pub async fn run_memory_agent(
                     generate: None,
                     tools: None,
                     tool_choice: None,
+                    ..Default::default()
                 };
 
                 let (_cancel_tx, mut cancel_rx) = tokio::sync::watch::channel(false);

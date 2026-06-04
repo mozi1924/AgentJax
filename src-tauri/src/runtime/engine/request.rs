@@ -38,6 +38,13 @@ pub(super) fn build_request(
         generate: req.generate,
         tools: Some(tools_schemas),
         tool_choice: Some(serde_json::Value::String("auto".to_string())),
+        temperature: req.temperature,
+        top_p: req.top_p,
+        presence_penalty: req.presence_penalty,
+        frequency_penalty: req.frequency_penalty,
+        max_tokens: req.max_tokens,
+        max_completion_tokens: req.max_completion_tokens,
+        reasoning_budget_tokens: req.reasoning_budget_tokens,
     }
 }
 

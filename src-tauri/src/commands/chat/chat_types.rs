@@ -15,6 +15,22 @@ pub struct ChatRequest {
     pub client_metadata: Option<Value>,
     pub generate: Option<bool>,
     pub request_id: Option<String>,
+
+    // ── Sampling parameters ──
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    #[serde(default)]
+    pub top_p: Option<f32>,
+    #[serde(default)]
+    pub presence_penalty: Option<f32>,
+    #[serde(default)]
+    pub frequency_penalty: Option<f32>,
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    #[serde(default, alias = "max_completion_tokens")]
+    pub max_completion_tokens: Option<u32>,
+    #[serde(default)]
+    pub reasoning_budget_tokens: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]

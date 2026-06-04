@@ -335,6 +335,7 @@ async fn call_llm_for_item(prompt: &str, model_ref: &str) -> AgentJaxResult<Valu
         generate: None,
         tools: None,
         tool_choice: None,
+        ..Default::default()
     };
 
     let config = crate::config::load_config()

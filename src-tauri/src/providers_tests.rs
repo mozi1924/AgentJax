@@ -175,6 +175,7 @@ mod tests {
             generate: None,
             tools: None,
             tool_choice: None,
+            ..Default::default()
         };
 
         let (_cancel_tx, mut cancel_rx) = watch::channel(false);

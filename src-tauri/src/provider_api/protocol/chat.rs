@@ -146,10 +146,45 @@ fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
     if let Some(ref tool_choice) = req.tool_choice { payload["tool_choice"] = tool_choice.clone(); }
     if let Some(ref text) = req.text {
         if let Some(format) = text.get("format") {
-            if format.get("type").and_then(Value::as_str) == Some("json_object") {
-                payload["response_format"] = json!({"type": "json_object"});
+            match format.get("type").and_then(Value::as_str) {
+                Some("json_object") => {
+                    payload["response_format"] = json!({"type": "json_object"});
+                }
+                Some("json_schema") => {
+                    let name = format.get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("response");
+                    let schema = format.get("schema")
+                        .cloned()
+                        .unwrap_or_else(|| json!({"type": "object"}));
+                    let strict = format.get("strict")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true);
+                    payload["response_format"] = json!({
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": name,
+                            "strict": strict,
+                            "schema": schema,
+                        }
+                    });
+                }
+                _ => {}
             }
         }
+    }
+    // ── Sampling parameters ──
+    if let Some(temperature) = req.temperature { payload["temperature"] = json!(temperature); }
+    if let Some(top_p) = req.top_p { payload["top_p"] = json!(top_p); }
+    if let Some(presence_penalty) = req.presence_penalty { payload["presence_penalty"] = json!(presence_penalty); }
+    if let Some(frequency_penalty) = req.frequency_penalty { payload["frequency_penalty"] = json!(frequency_penalty); }
+    if let Some(max_tokens) = req.max_tokens { payload["max_tokens"] = json!(max_tokens); }
+    if let Some(max_completion_tokens) = req.max_completion_tokens { payload["max_completion_tokens"] = json!(max_completion_tokens); }
+    if let Some(reasoning_budget) = req.reasoning_budget_tokens {
+        // Chat Completions may not have a standard field for reasoning budget tokens.
+        // Some providers (e.g. OpenAI o-series) accept it via reasoning_effort only.
+        // We set it as a top-level field; gateways/vLLM may forward it.
+        payload["reasoning_budget_tokens"] = json!(reasoning_budget);
     }
     payload
 }
@@ -180,14 +215,30 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
                 let role = match item.get("role").and_then(Value::as_str) {
                     Some("assistant") => "assistant",
                     Some("system") => "system",
+                    Some("developer") => "developer",
                     _ => "user",
                 };
-                let content = item.get("content")
-                    .and_then(Value::as_array)
-                    .map(|content| content.iter().filter_map(|part| part.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join(""))
-                    .unwrap_or_default();
-                if !content.trim().is_empty() {
-                    messages.push(json!({"role": role, "content": content}));
+                let content_value = item.get("content").cloned().unwrap_or(Value::Null);
+                if content_value.is_null() { continue; }
+                if let Some(arr) = content_value.as_array() {
+                    let has_non_text = arr.iter().any(|part| {
+                        !matches!(part.get("type").and_then(Value::as_str), Some("text") | None)
+                    });
+                    if has_non_text {
+                        messages.push(json!({"role": role, "content": arr}));
+                    } else {
+                        let text = arr.iter()
+                            .filter_map(|part| part.get("text").and_then(Value::as_str))
+                            .collect::<Vec<_>>()
+                            .join("");
+                        if !text.trim().is_empty() {
+                            messages.push(json!({"role": role, "content": text}));
+                        }
+                    }
+                } else if let Some(text) = content_value.as_str() {
+                    if !text.trim().is_empty() {
+                        messages.push(json!({"role": role, "content": text}));
+                    }
                 }
             }
         }
@@ -230,8 +281,24 @@ fn process_chat_event(
         for choice in choices {
             let delta = choice.get("delta").and_then(Value::as_object).cloned().unwrap_or_default();
 
+            if let Some(content) = delta.get("reasoning_content").and_then(Value::as_str) {
+                if !content.is_empty() {
+                    if !state.reasoning_started {
+                        state.reasoning_started = true;
+                        on_delta(ProviderStreamEvent::ReasoningStarted)?;
+                    }
+                    on_delta(ProviderStreamEvent::ReasoningDelta { delta: content.to_string() })?;
+                }
+            }
+
             if let Some(content) = delta.get("content").and_then(Value::as_str) {
                 if !content.is_empty() {
+                    // If reasoning was streaming and now regular content begins,
+                    // emit ReasoningCompleted before the first output text.
+                    if state.reasoning_started {
+                        state.reasoning_started = false;
+                        on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None })?;
+                    }
                     if !state.emitted_output_started {
                         state.emitted_output_started = true;
                         on_delta(ProviderStreamEvent::OutputTextStarted)?;
@@ -284,7 +351,7 @@ fn process_chat_event(
                         output_items.push(json!({"type": "function_call", "id": item_id, "call_id": call_id, "name": name, "arguments": arguments}));
                     }
                 }
-                return Ok(finish_reason == "stop" || finish_reason == "length");
+                return Ok(matches!(finish_reason, "stop" | "length" | "content_filter"));
             }
         }
     }
@@ -298,6 +365,7 @@ fn parse_chat_usage(value: &Value) -> Option<ProviderUsage> {
 
 struct ChatStreamState {
     emitted_output_started: bool,
+    reasoning_started: bool,
     tool_calls: BTreeMap<usize, ChatToolCallEntry>,
 }
 
@@ -311,5 +379,5 @@ struct ChatToolCallEntry {
 }
 
 impl ChatStreamState {
-    fn new() -> Self { Self { emitted_output_started: false, tool_calls: BTreeMap::new() } }
+    fn new() -> Self { Self { emitted_output_started: false, reasoning_started: false, tool_calls: BTreeMap::new() } }
 }

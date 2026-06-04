@@ -77,6 +77,13 @@ pub fn emit_mapped_stream_event(
         ProviderStreamEvent::ReasoningStarted => {
             chat_event.kind = "thinking".to_string();
         }
+        ProviderStreamEvent::ReasoningDelta { delta } => {
+            chat_event.kind = "thinking_delta".to_string();
+            chat_event.delta = Some(delta);
+        }
+        ProviderStreamEvent::ReasoningCompleted { .. } => {
+            chat_event.kind = "thinking_completed".to_string();
+        }
         ProviderStreamEvent::OutputTextStarted => {
             chat_event.kind = "output_started".to_string();
         }
