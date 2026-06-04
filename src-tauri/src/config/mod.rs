@@ -1,5 +1,6 @@
 mod app_config;
 mod constants;
+mod default_items;
 mod dynamic_options;
 mod io;
 mod model_ref;

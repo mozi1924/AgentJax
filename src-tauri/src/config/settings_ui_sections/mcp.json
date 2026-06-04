@@ -60,23 +60,6 @@
       "keyLabel": "settings.mcp.servers.key_label",
       "itemLabel": "settings.mcp.servers.item_label",
       "keyPattern": "^[A-Za-z0-9_-]+$",
-      "defaultItem": {
-        "transport": "stdio",
-        "command": "",
-        "args": [],
-        "env": {},
-        "cwd": null,
-        "use_global_stdio_env": true,
-        "inherit_parent_env": null,
-        "uri": null,
-        "auth_header": null,
-        "headers": {},
-        "allow_stateless": true,
-        "channel_buffer_capacity": null,
-        "reinit_on_expired_session": true,
-        "enabled": true,
-        "unfolded": false
-      },
       "children": [
         {
           "kind": "field",

@@ -4,6 +4,8 @@ use crate::plugin_runtime::{PluginPackage, discover_all_plugin_packages};
 use serde::Serialize;
 use serde_json::Value;
 
+use super::default_items::inject_default_items;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsUiSnapshot {
@@ -56,8 +58,11 @@ fn build_builtin_settings_sections() -> AgentJaxResult<Vec<Value>> {
 
     let mut sections = Vec::with_capacity(section_sources.len());
     for source in section_sources {
-        let section: Value = serde_json::from_str(source)
+        let mut section: Value = serde_json::from_str(source)
             .map_err(|error| AgentJaxError::config(format!("Failed to parse settings section JSON: {error}")).with_error_source(&error))?;
+        // Inject defaultItem from Rust struct Default impls so JSON schema
+        // files don't need to duplicate default values.
+        inject_default_items(&mut section);
         sections.push(section);
     }
 

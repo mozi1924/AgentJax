@@ -16,15 +16,6 @@
       "keyLabel": "settings.providers.collection.key_label",
       "itemLabel": "settings.providers.collection.item_label",
       "keyPattern": "^[A-Za-z0-9_-]+$",
-      "defaultItem": {
-        "kind": "openai",
-        "apiEndpoint": "https://api.openai.com/v1",
-        "modelsEndpointCandidates": [],
-        "credential": null,
-        "credentialEnv": "OPENAI_API_KEY",
-        "requestTimeoutSeconds": null,
-        "models": {}
-      },
       "children": [
         {
           "kind": "field",
@@ -94,21 +85,6 @@
           "keyLabel": "settings.model_profiles.profiles.key_label",
           "itemLabel": "settings.model_profiles.profiles.item_label",
           "keyPattern": "^[A-Za-z0-9_.-]+$",
-          "defaultItem": {
-            "name": null,
-            "enabled": true,
-            "api_protocol": null,
-            "request": {
-              "temperature": null,
-              "top_p": null,
-              "top_k": null,
-              "max_output_tokens": null,
-              "frequency_penalty": null,
-              "presence_penalty": null,
-              "reasoning_effort": null,
-              "extra_body": {}
-            }
-          },
           "children": [
             {
               "kind": "field",
