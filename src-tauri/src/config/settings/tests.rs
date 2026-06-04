@@ -7,9 +7,9 @@ use std::path::Path;
 fn write_test_config(home: &Path) -> std::path::PathBuf {
     let path = home.join("config.yaml");
     let raw = [
-        "active_provider: \"openai-responses\"",
-        "default_model: \"openai-responses/gpt-5-mini\"",
-        "utility_small_model: \"openai-responses/gpt-5-mini\"",
+        "active_provider: \"openai\"",
+        "default_model: \"openai/gpt-5-mini\"",
+        "utility_small_model: \"openai/gpt-5-mini\"",
         "request_timeout_seconds: 120",
         "prompt_composer:",
         "  blocks:",
@@ -22,8 +22,8 @@ fn write_test_config(home: &Path) -> std::path::PathBuf {
         "      source_id: null",
         "      locked: false",
         "providers:",
-        "  openai-responses:",
-        "    kind: \"openai-responses\"",
+        "  openai:",
+        "    kind: \"openai\"",
         "    apiEndpoint: \"https://api.openai.com/v1\"",
         "    realtimeEndpoint: \"\"",
         "    streamTransport: \"websocket\"",
@@ -65,13 +65,13 @@ fn snapshot_redacts_secret_values() {
 
     let snapshot = get_settings_snapshot().expect("snapshot");
     assert_eq!(
-        snapshot.values["providers"]["openai-responses"]["credential"],
+        snapshot.values["providers"]["openai"]["credential"],
         Value::Null
     );
     assert_eq!(
         snapshot
             .secret_statuses
-            .get("providers.openai-responses.credential")
+            .get("providers.openai.credential")
             .expect("secret status")
             .source,
         "inline"
@@ -195,7 +195,7 @@ fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
 
     let snapshot = get_settings_snapshot().expect("snapshot");
     let updated = apply_settings_patch(SettingsPatch {
-        path: "providers.openai-responses.models.GPT-5\\.4-mini.enabled".to_string(),
+        path: "providers.openai.models.GPT-5\\.4-mini.enabled".to_string(),
         value: Some(Value::Bool(false)),
         expected_revision: snapshot.revision,
         operation: SettingsPatchOperation::Set,
@@ -203,7 +203,7 @@ fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
     .expect("apply patch with escaped model profile key");
 
     assert_eq!(
-        updated.values["providers"]["openai-responses"]["models"]["GPT-5.4-mini"]["enabled"],
+        updated.values["providers"]["openai"]["models"]["GPT-5.4-mini"]["enabled"],
         Value::Bool(false)
     );
     let raw = fs::read_to_string(&path).expect("read config");

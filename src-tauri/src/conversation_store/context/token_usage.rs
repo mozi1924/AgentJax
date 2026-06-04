@@ -195,7 +195,7 @@ mod tests {
         ];
 
         let usage =
-            count_conversation_context_tokens("openai-responses/gpt-5-mini", &lines).unwrap();
+            count_conversation_context_tokens("openai/gpt-5-mini", &lines).unwrap();
         assert!(usage.context_tokens > 0);
         assert_eq!(usage.context_tokens, usage.prompt_tokens);
     }
@@ -248,7 +248,7 @@ mod tests {
         })];
 
         let usage = count_conversation_prompt_tokens(
-            "openai-responses/gpt-5-mini",
+            "openai/gpt-5-mini",
             Some("You are a helpful assistant."),
             &developer_items,
             None,
@@ -284,7 +284,7 @@ mod tests {
             },
         ];
 
-        let tokens = count_messages_tokens("openai-responses/gpt-5-mini", &messages).unwrap();
+        let tokens = count_messages_tokens("openai/gpt-5-mini", &messages).unwrap();
         assert!(tokens > 0);
     }
 

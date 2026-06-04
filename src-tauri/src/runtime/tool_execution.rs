@@ -316,7 +316,7 @@ mod tests {
 
         let mut repeated_failures = HashMap::new();
         let batch = scheduler
-            .finish("openai-responses", &mut repeated_failures, &mut |event| {
+            .finish("openai", &mut repeated_failures, &mut |event| {
                 events.push(event);
                 Ok(())
             })
@@ -391,7 +391,7 @@ mod tests {
 
         let mut repeated_failures = HashMap::new();
         let batch = scheduler
-            .finish("openai-responses", &mut repeated_failures, &mut |event| {
+            .finish("openai", &mut repeated_failures, &mut |event| {
                 events.push(event);
                 Ok(())
             })

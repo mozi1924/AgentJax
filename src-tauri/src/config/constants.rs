@@ -40,8 +40,8 @@ Background tool protocol:
 - Prefer short awaiter checkpoints. If `background_task` with `action: "wait"` reports `timedOut: true` or `decision: continue_other_work_or_wait_again`, decide whether to continue other useful work, wait again later, list jobs, or cancel.
 - Do not immediately use a long wait after starting a background job unless there is truly nothing else useful to do."#;
 pub const DEFAULT_TIMEOUT_SECONDS: u64 = 120;
-pub const DEFAULT_DEFAULT_MODEL_REF: &str = "openai-responses/gpt-5-mini";
-pub const DEFAULT_UTILITY_SMALL_MODEL_REF: &str = "openai-responses/gpt-5-mini";
+pub const DEFAULT_DEFAULT_MODEL_REF: &str = "openai/gpt-5-mini";
+pub const DEFAULT_UTILITY_SMALL_MODEL_REF: &str = "openai/gpt-5-mini";
 
 pub const fn default_true() -> bool {
     true

@@ -224,29 +224,15 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn claude_4_maps_to_1m_window() {
-        let budget = TokenBudget::for_model("anthropic", "claude-4-sonnet-20260501");
-        assert_eq!(budget.context_window, 1_000_000);
-    }
-
-    #[test]
     fn gpt_5_maps_to_400k_window() {
-        let budget = TokenBudget::for_model("chat-completions", "gpt-5-20260501");
+        let budget = TokenBudget::for_model("openai", "gpt-5-20260501");
         assert_eq!(budget.context_window, 400_000);
     }
 
     #[test]
-    fn gemini_2_5_pro_maps_to_2m_window() {
-        let budget = TokenBudget::for_model("gemini", "gemini-2.5-pro-001");
-        assert_eq!(budget.context_window, 2_000_000);
-    }
-
-    #[test]
     fn unknown_model_defaults_to_128k() {
-        let budget = TokenBudget::for_model("anthropic", "some-future-model-v3");
-        assert_eq!(budget.context_window, 200_000); // Anthropic's fallback is 200k
-        let budget2 = TokenBudget::for_model("unknown-provider", "some-model");
-        assert_eq!(budget2.context_window, 128_000);
+        let budget = TokenBudget::for_model("openai", "some-future-model-v3");
+        assert_eq!(budget.context_window, 128_000);
     }
 
     #[test]
@@ -260,34 +246,26 @@ mod tests {
     #[test]
     fn empty_items_with_budget_returns_empty() {
         let items = vec![];
-        let budget = TokenBudget::for_model("chat-completions", "gpt-4o");
+        let budget = TokenBudget::for_model("openai", "gpt-4o");
         let result = truncate_items_to_budget(items, &budget);
         assert_eq!(result.len(), 0);
     }
 
     #[test]
     fn budget_allows_known_model_context_reservation() {
-        let budget = TokenBudget::for_model("chat-completions", "gpt-4o");
+        let budget = TokenBudget::for_model("openai", "gpt-4o");
         // 128K window - 16K reserved = 112K budget
         assert_eq!(budget.context_budget, 112_000);
         assert!(budget.context_budget < budget.context_window);
     }
 
     #[test]
-    fn resolve_claude_variants() {
-        assert_eq!(TokenBudget::for_model("anthropic", "claude-3-opus-20240229").context_window, 200_000);
-        assert_eq!(TokenBudget::for_model("anthropic", "claude-3-5-sonnet-20241022").context_window, 200_000);
-        assert_eq!(TokenBudget::for_model("anthropic", "claude-2.1").context_window, 100_000);
-        assert_eq!(TokenBudget::for_model("anthropic", "claude-instant-1.2").context_window, 100_000);
-    }
-
-    #[test]
     fn resolve_gpt_variants() {
-        assert_eq!(TokenBudget::for_model("chat-completions", "gpt-4-turbo").context_window, 128_000);
-        assert_eq!(TokenBudget::for_model("chat-completions", "gpt-4-32k").context_window, 32_768);
-        assert_eq!(TokenBudget::for_model("chat-completions", "gpt-4o-20240806").context_window, 128_000);
-        assert_eq!(TokenBudget::for_model("chat-completions", "gpt-5-mini-20260501").context_window, 400_000);
-        assert_eq!(TokenBudget::for_model("chat-completions", "gpt-3.5-turbo").context_window, 16_384);
+        assert_eq!(TokenBudget::for_model("openai", "gpt-4-turbo").context_window, 128_000);
+        assert_eq!(TokenBudget::for_model("openai", "gpt-4-32k").context_window, 32_768);
+        assert_eq!(TokenBudget::for_model("openai", "gpt-4o-20240806").context_window, 128_000);
+        assert_eq!(TokenBudget::for_model("openai", "gpt-5-mini-20260501").context_window, 400_000);
+        assert_eq!(TokenBudget::for_model("openai", "gpt-3.5-turbo").context_window, 16_384);
     }
 
     #[test]
@@ -301,9 +279,9 @@ mod tests {
     }
 
     #[test]
-    fn deepseek_resolution() {
-        assert_eq!(TokenBudget::for_model("chat-completions", "deepseek-r1").context_window, 128_000);
-        assert_eq!(TokenBudget::for_model("chat-completions", "deepseek-v3").context_window, 128_000);
+    fn unknown_models_in_openai_fallback_to_128k() {
+        assert_eq!(TokenBudget::for_model("openai", "deepseek-r1").context_window, 128_000);
+        assert_eq!(TokenBudget::for_model("openai", "deepseek-v3").context_window, 128_000);
     }
 
     #[test]

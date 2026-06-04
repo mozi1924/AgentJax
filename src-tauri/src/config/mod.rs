@@ -49,18 +49,18 @@ mod tests {
     fn resolves_model_with_provider_scoped_reference() {
         let cfg = AppConfig::default().normalize();
         let resolved = cfg
-            .resolve_model_profile(Some("openai-responses/gpt-5"))
+            .resolve_model_profile(Some("openai/gpt-5"))
             .expect("resolve model");
-        assert_eq!(resolved.provider_key, "openai-responses");
+        assert_eq!(resolved.provider_key, "openai");
         assert_eq!(resolved.model_id, "gpt-5");
-        assert_eq!(resolved.model_ref, "openai-responses/gpt-5");
+        assert_eq!(resolved.model_ref, "openai/gpt-5");
     }
 
     #[test]
     fn falls_back_to_default_when_requested_model_invalid() {
         let cfg = AppConfig::default().normalize();
         let resolved = cfg
-            .resolve_model_profile(Some("openai-responses/not-exist"))
+            .resolve_model_profile(Some("openai/not-exist"))
             .expect("fallback to default");
         assert_eq!(resolved.model_ref, cfg.default_model);
     }
@@ -216,8 +216,8 @@ mod tests {
         let mut cfg = AppConfig::default();
         let provider = cfg
             .providers
-            .get_mut("openai-responses")
-            .expect("openai-responses provider exists");
+            .get_mut("openai")
+            .expect("openai provider exists");
         provider.custom_settings.insert(
             "supportsWebsockets".to_string(),
             serde_json::Value::Bool(false),
@@ -230,7 +230,7 @@ mod tests {
         let normalized = cfg.normalize();
         let provider = normalized
             .providers
-            .get("openai-responses")
+            .get("openai")
             .expect("normalized provider exists");
         assert_eq!(provider.stream_transport(), "sse");
     }
@@ -239,7 +239,7 @@ mod tests {
     #[allow(clippy::field_reassign_with_default)]
     fn provider_normalize_accepts_legacy_snake_case_custom_settings() {
         let mut provider = ProviderConfig::default();
-        provider.kind = "openai-responses".to_string();
+        provider.kind = "openai".to_string();
         provider.custom_settings.insert(
             "api_endpoint".to_string(),
             serde_json::Value::String("https://gateway.example.test/v1/".to_string()),
