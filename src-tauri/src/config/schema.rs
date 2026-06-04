@@ -156,16 +156,6 @@ impl ContextManagementConfig {
         }
     }
 
-    pub fn with_dynamic_thresholds(mut self, context_window: usize) -> Self {
-        if !self.dynamic_thresholds {
-            return self;
-        }
-        let cw = context_window as u32;
-        self.soft_token_threshold = cw / 2;
-        self.hard_token_threshold = (cw as f64 * 0.85) as u32;
-        self.large_file_token_threshold = (cw / 10).min(100_000);
-        self
-    }
 }
 
 // ── AppConfig ─────────────────────────────────────────────────────────────────

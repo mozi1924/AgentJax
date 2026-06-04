@@ -3,11 +3,22 @@
 //! Each protocol is a self-contained Rust implementation of a standard API
 //! format (Responses, Chat Completions, Embeddings). Provider plugins declare
 //! which protocols they support; the framework routes requests accordingly.
+//!
+//! # Protocol Trait & Registry
+//!
+//! Phase 1 introduces the [`Protocol`] trait and [`ProtocolRegistry`] as a
+//! new skeleton alongside the existing free-function dispatch. Protocols are
+//! stateless, reusable, and belong to no specific provider. The registry is
+//! populated at startup with built-in implementations.
+//!
+//! See [`builtin_protocols`] for the global registry accessor.
 
 pub(crate) mod responses;
 pub(crate) mod chat;
 pub(crate) mod embeddings;
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::config::{AppConfig, ProviderConfig};
@@ -230,4 +241,257 @@ pub fn protocol_capabilities(protocol: &str) -> Option<ProviderCapabilities> {
         "chat_completions" => Some(ProviderCapabilities::chat_completions()),
         _ => None,
     }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Phase 1: Protocol Trait & Registry
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// A stateless, reusable protocol implementation.
+///
+/// Protocols implement a standard API shape (e.g. Chat Completions, Responses,
+/// Embeddings) and are not tied to any specific provider. They are registered
+/// in the [`ProtocolRegistry`] and dispatched by name.
+///
+/// All methods are async so implementations can perform HTTP I/O. The trait
+/// is `Send + Sync` so protocols can be stored in a global registry.
+#[allow(dead_code)]
+#[async_trait::async_trait]
+pub trait Protocol: Send + Sync {
+    /// Canonical protocol name (e.g., `"chat_completions"`, `"responses"`,
+    /// `"embeddings"`).
+    fn name(&self) -> &str;
+
+    /// Stream a chat completion response from a model via this protocol.
+    async fn stream_response(
+        &self,
+        config: &AppConfig,
+        provider_key: &str,
+        provider_config: &ProviderConfig,
+        model_id: &str,
+        req: &ResponseStreamRequest,
+        cancel_rx: &mut watch::Receiver<bool>,
+        on_delta: &mut (dyn FnMut(ProviderStreamEvent) -> AgentJaxResult<()> + Send + '_),
+    ) -> AgentJaxResult<ResponseStreamResult>;
+
+    /// Embed text into vector representations.
+    async fn embed(
+        &self,
+        provider_config: &ProviderConfig,
+        model_id: &str,
+        input: &EmbeddingRequest,
+    ) -> AgentJaxResult<EmbeddingResponse>;
+
+    /// Capabilities advertised by this protocol.
+    fn capabilities(&self) -> ProviderCapabilities;
+}
+
+// ── Protocol Registry ──────────────────────────────────────────────────────
+
+/// A thread-safe registry of protocol implementations.
+///
+/// Protocols are registered by name and can be looked up dynamically.
+/// Populated at startup with built-in protocol implementations via
+/// [`builtin_protocols`]. External registrations may be added in the
+/// future for plugin-provided protocols.
+#[allow(dead_code)]
+pub struct ProtocolRegistry {
+    protocols: HashMap<String, Box<dyn Protocol>>,
+}
+
+#[allow(dead_code)]
+impl ProtocolRegistry {
+    /// Create an empty registry.
+    pub fn new() -> Self {
+        Self {
+            protocols: HashMap::new(),
+        }
+    }
+
+    /// Register a protocol implementation.
+    ///
+    /// If a protocol with the same name is already registered, it is replaced.
+    pub fn register(&mut self, protocol: Box<dyn Protocol>) {
+        self.protocols
+            .insert(protocol.name().to_string(), protocol);
+    }
+
+    /// Look up a protocol by name.
+    pub fn get(&self, name: &str) -> Option<&dyn Protocol> {
+        self.protocols.get(name).map(|p| p.as_ref())
+    }
+
+    /// Return all registered protocol names.
+    pub fn names(&self) -> impl Iterator<Item = &str> + '_ {
+        self.protocols.keys().map(|s| s.as_str())
+    }
+
+    /// Returns `true` if a protocol with the given name is registered.
+    pub fn has(&self, name: &str) -> bool {
+        self.protocols.contains_key(name)
+    }
+}
+
+impl Default for ProtocolRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ── Built-in Protocol Wrappers ─────────────────────────────────────────────
+//
+// Each wrapper delegates to the existing free-function implementation. This
+// keeps old dispatch paths working while establishing the new trait interface.
+
+#[allow(dead_code)]
+struct ResponsesProtocol;
+
+#[async_trait::async_trait]
+impl Protocol for ResponsesProtocol {
+    fn name(&self) -> &str {
+        "responses"
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::openai_responses()
+    }
+
+    async fn stream_response(
+        &self,
+        config: &AppConfig,
+        provider_key: &str,
+        provider_config: &ProviderConfig,
+        model_id: &str,
+        req: &ResponseStreamRequest,
+        cancel_rx: &mut watch::Receiver<bool>,
+        on_delta: &mut (dyn FnMut(ProviderStreamEvent) -> AgentJaxResult<()> + Send + '_),
+    ) -> AgentJaxResult<ResponseStreamResult> {
+        let cb = |event| on_delta(event);
+        responses::stream_response(
+            config, provider_key, provider_config, model_id, req, cancel_rx, cb,
+        )
+        .await
+    }
+
+    async fn embed(
+        &self,
+        _provider_config: &ProviderConfig,
+        _model_id: &str,
+        _input: &EmbeddingRequest,
+    ) -> AgentJaxResult<EmbeddingResponse> {
+        Err(AgentJaxError::config(
+            "Responses protocol does not support embedding",
+        ))
+    }
+}
+
+#[allow(dead_code)]
+struct ChatCompletionsProtocol;
+
+#[async_trait::async_trait]
+impl Protocol for ChatCompletionsProtocol {
+    fn name(&self) -> &str {
+        "chat_completions"
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::chat_completions()
+    }
+
+    async fn stream_response(
+        &self,
+        config: &AppConfig,
+        provider_key: &str,
+        provider_config: &ProviderConfig,
+        model_id: &str,
+        req: &ResponseStreamRequest,
+        cancel_rx: &mut watch::Receiver<bool>,
+        on_delta: &mut (dyn FnMut(ProviderStreamEvent) -> AgentJaxResult<()> + Send + '_),
+    ) -> AgentJaxResult<ResponseStreamResult> {
+        let cb = |event| on_delta(event);
+        chat::stream_response(
+            config, provider_key, provider_config, model_id, req, cancel_rx, cb,
+        )
+        .await
+    }
+
+    async fn embed(
+        &self,
+        _provider_config: &ProviderConfig,
+        _model_id: &str,
+        _input: &EmbeddingRequest,
+    ) -> AgentJaxResult<EmbeddingResponse> {
+        Err(AgentJaxError::config(
+            "Chat Completions protocol does not support embedding",
+        ))
+    }
+}
+
+#[allow(dead_code)]
+struct EmbeddingsProtocol;
+
+#[async_trait::async_trait]
+impl Protocol for EmbeddingsProtocol {
+    fn name(&self) -> &str {
+        "embeddings"
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        // Embeddings have minimal capabilities — no chat, no tools.
+        ProviderCapabilities {
+            requires_instructions: false,
+            requires_stream_true_in_websocket: false,
+            supports_stored_responses: false,
+            supports_cross_socket_continuation: false,
+            supports_generate_false: false,
+            supports_json_mode: false,
+            supports_json_schema: false,
+            supports_parallel_tool_calls: false,
+            supports_built_in_web_search: false,
+            emits_final_output_items: false,
+            emits_incremental_tool_call_arguments: false,
+        }
+    }
+
+    async fn stream_response(
+        &self,
+        _config: &AppConfig,
+        _provider_key: &str,
+        _provider_config: &ProviderConfig,
+        _model_id: &str,
+        _req: &ResponseStreamRequest,
+        _cancel_rx: &mut watch::Receiver<bool>,
+        _on_delta: &mut (dyn FnMut(ProviderStreamEvent) -> AgentJaxResult<()> + Send + '_),
+    ) -> AgentJaxResult<ResponseStreamResult> {
+        Err(AgentJaxError::config(
+            "Embeddings protocol does not support streaming",
+        ))
+    }
+
+    async fn embed(
+        &self,
+        provider_config: &ProviderConfig,
+        model_id: &str,
+        input: &EmbeddingRequest,
+    ) -> AgentJaxResult<EmbeddingResponse> {
+        embeddings::embed(provider_config, model_id, input).await
+    }
+}
+
+// ── Global Registry ────────────────────────────────────────────────────────
+
+/// Return the global built-in protocol registry.
+///
+/// Populated once at first access with all built-in protocol implementations.
+/// This is the primary entry point for looking up protocols at runtime.
+#[allow(dead_code)]
+pub fn builtin_protocols() -> &'static ProtocolRegistry {
+    static BUILTIN: OnceLock<ProtocolRegistry> = OnceLock::new();
+    BUILTIN.get_or_init(|| {
+        let mut registry = ProtocolRegistry::new();
+        registry.register(Box::new(ResponsesProtocol));
+        registry.register(Box::new(ChatCompletionsProtocol));
+        registry.register(Box::new(EmbeddingsProtocol));
+        registry
+    })
 }
