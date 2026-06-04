@@ -57,11 +57,7 @@ export function useAppConfig() {
     const available =
       Array.isArray(catalog.modelOptions) && catalog.modelOptions.length > 0
         ? catalog.modelOptions.map(normalizeModelOption).filter(isModelOption)
-        : (
-            Array.isArray(catalog.effectiveModels) && catalog.effectiveModels.length > 0
-              ? catalog.effectiveModels
-              : [DEFAULT_MODEL_PROFILE]
-          ).map(buildFallbackModelOption);
+        : [];
     const configuredDefault = (catalog.defaultModel || '').trim();
     const configuredDefaultProfileKey = resolveConfiguredDefaultOptionProfileKey(
       configuredDefault,
@@ -74,7 +70,7 @@ export function useAppConfig() {
       preservedSelection ||
       configuredDefaultProfileKey ||
       available[0]?.profileKey ||
-      DEFAULT_MODEL_PROFILE;
+      '';
     const nextModelOption =
       available.find((option) => option.profileKey === nextModel) || null;
     const preservedReasoning = selectedReasoningModeRef.current;

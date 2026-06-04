@@ -169,6 +169,7 @@ pub async fn fetch_remote_models(
                     Some(ProviderModelDescriptor {
                         id: id.to_string(),
                         supported_reasoning_levels: levels,
+                        kind: None,
                     })
                 })
                 .collect::<Vec<_>>()

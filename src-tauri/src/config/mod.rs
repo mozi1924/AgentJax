@@ -45,9 +45,40 @@ mod tests {
     use crate::config::constants::{BUILTIN_CORE_SYSTEM_BLOCK_ID, BUILTIN_CORE_SYSTEM_TITLE};
     use std::fs;
 
+    /// Helper: build a minimal AppConfig with an openai provider and two models.
+    fn test_config_with_openai() -> AppConfig {
+        let mut cfg = AppConfig::default();
+        let mut custom_settings = serde_json::Map::new();
+        custom_settings.insert(
+            "apiEndpoint".to_string(),
+            serde_json::Value::String("https://api.openai.com/v1".to_string()),
+        );
+        let mut models = std::collections::BTreeMap::new();
+        models.insert(
+            "gpt-5".to_string(),
+            ProviderModelConfig { enabled: true, ..Default::default() },
+        );
+        models.insert(
+            "gpt-5-mini".to_string(),
+            ProviderModelConfig { enabled: true, ..Default::default() },
+        );
+        cfg.providers.insert(
+            "openai".to_string(),
+            ProviderConfig {
+                kind: "openai".to_string(),
+                models,
+                custom_settings,
+            },
+        );
+        cfg.active_provider = "openai".to_string();
+        cfg.default_model = "openai/gpt-5-mini".to_string();
+        cfg.utility_small_model = "openai/gpt-5-mini".to_string();
+        cfg
+    }
+
     #[test]
     fn resolves_model_with_provider_scoped_reference() {
-        let cfg = AppConfig::default().normalize();
+        let cfg = test_config_with_openai().normalize();
         let resolved = cfg
             .resolve_model_profile(Some("openai/gpt-5"))
             .expect("resolve model");
@@ -58,7 +89,7 @@ mod tests {
 
     #[test]
     fn falls_back_to_default_when_requested_model_invalid() {
-        let cfg = AppConfig::default().normalize();
+        let cfg = test_config_with_openai().normalize();
         let resolved = cfg
             .resolve_model_profile(Some("openai/not-exist"))
             .expect("fallback to default");
@@ -80,15 +111,11 @@ mod tests {
 
     #[test]
     fn resolve_profile_falls_back_to_first_enabled_model_when_defaults_are_unresolved() {
-        let cfg = AppConfig {
-            default_model: "cm/gpt-5.4-mini".to_string(),
-            utility_small_model: "cm/gpt-5.4-mini".to_string(),
-            ..Default::default()
-        };
+        let cfg = test_config_with_openai();
 
         let normalized = cfg.normalize();
         let resolved = normalized
-            .resolve_model_profile(None)
+            .resolve_model_profile(Some("openai/nonexistent-model-xyz"))
             .expect("fallback to first enabled model");
 
         assert!(
@@ -103,7 +130,7 @@ mod tests {
 
     #[test]
     fn resolved_profile_uses_built_in_agent_prompt() {
-        let cfg = AppConfig::default().normalize();
+        let cfg = test_config_with_openai().normalize();
         let resolved = cfg.resolve_model_profile(None).expect("resolve");
         assert!(resolved.system_prompt.contains("agentic coding assistant"));
         assert!(resolved.system_prompt.contains("Commentary protocol"));
@@ -112,7 +139,7 @@ mod tests {
 
     #[test]
     fn resolved_profile_compiles_user_system_and_developer_blocks() {
-        let mut cfg = AppConfig::default();
+        let mut cfg = test_config_with_openai();
         cfg.prompt_composer.blocks.push(PromptBlock {
             id: "user-system".to_string(),
             title: "User system".to_string(),
@@ -212,7 +239,7 @@ mod tests {
 
     #[test]
     fn provider_normalize_forces_sse_when_websocket_not_supported() {
-        let mut cfg = AppConfig::default();
+        let mut cfg = test_config_with_openai();
         let provider = cfg
             .providers
             .get_mut("openai")
@@ -484,9 +511,15 @@ mod tests {
         // Register the provider
         register_plugin_provider(plugin_provider);
 
-        // Create an AppConfig where the provider config is registered but custom_settings is empty
+        // Create an AppConfig with the provider and explicit model config
+        let mut models = std::collections::BTreeMap::new();
+        models.insert(
+            "custom-model-1".to_string(),
+            ProviderModelConfig { enabled: true, ..Default::default() },
+        );
         let provider_cfg = ProviderConfig {
             kind: "custom-oauth-llm".to_string(),
+            models,
             ..Default::default()
         };
         let cfg = AppConfig {

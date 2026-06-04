@@ -65,6 +65,7 @@ export const normalizeModelOption = (
           .filter(Boolean)
       : [],
     configuredReasoningEffort: configuredReasoningEffort || null,
+    kind: (option as any)?.kind || undefined,
   };
 };
 

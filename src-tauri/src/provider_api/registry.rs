@@ -152,10 +152,6 @@ pub fn provider_kind_options() -> Vec<(String, String)> {
         .collect()
 }
 
-pub fn default_provider_config() -> ProviderConfig {
-    default_provider_definition().default_config
-}
-
 pub fn provider_capabilities(provider_kind: &str) -> Option<ProviderCapabilities> {
     provider_definition(provider_kind).map(|definition| definition.capabilities)
 }

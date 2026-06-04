@@ -1,5 +1,5 @@
 use crate::config::constants::{
-    DEFAULT_DEFAULT_MODEL_REF, DEFAULT_TIMEOUT_SECONDS, DEFAULT_UTILITY_SMALL_MODEL_REF,
+    DEFAULT_TIMEOUT_SECONDS,
     default_mcp_startup_timeout_ms, default_mcp_tool_timeout_ms, default_true,
 };
 use crate::config::prompt_composer::{CompiledPromptAssembly, PromptComposerConfig};
@@ -525,20 +525,43 @@ pub struct ProviderModelConfig {
     /// uses this protocol instead of auto-detecting from the provider kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_protocol: Option<String>,
+    #[serde(default, skip_serializing_if = "ModelRequestConfig::is_default")]
     pub request: ModelRequestConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct ModelRequestConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub top_k: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub frequency_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub presence_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub extra_body: BTreeMap<String, Value>,
+}
+
+impl ModelRequestConfig {
+    /// Returns true if all fields are default/empty, meaning nothing was overridden.
+    pub fn is_default(&self) -> bool {
+        self.temperature.is_none()
+            && self.top_p.is_none()
+            && self.top_k.is_none()
+            && self.max_output_tokens.is_none()
+            && self.frequency_penalty.is_none()
+            && self.presence_penalty.is_none()
+            && self.reasoning_effort.is_none()
+            && self.extra_body.is_empty()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -557,22 +580,15 @@ pub struct ResolvedModelConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        let mut providers = BTreeMap::new();
-        let default_provider = registry::default_provider_definition();
-        providers.insert(
-            default_provider.kind.to_string(),
-            registry::default_provider_config(),
-        );
-
         Self {
             language: default_language(),
-            active_provider: default_provider.kind.to_string(),
-            default_model: DEFAULT_DEFAULT_MODEL_REF.to_string(),
-            utility_small_model: DEFAULT_UTILITY_SMALL_MODEL_REF.to_string(),
+            active_provider: String::new(),
+            default_model: String::new(),
+            utility_small_model: String::new(),
             request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
             show_advanced_request_options: false,
             enable_developer_tools: false,
-            providers,
+            providers: BTreeMap::new(),
             prompt_composer: PromptComposerConfig::default(),
             lcm: crate::lcm::LcmConfig::default(),
             sub_agent: SubAgentConfig::default(),

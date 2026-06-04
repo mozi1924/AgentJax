@@ -10,12 +10,16 @@ pub struct ProviderModelDescriptor {
     pub id: String,
     #[serde(default, alias = "supported_reasoning_levels")]
     pub supported_reasoning_levels: Vec<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderModelMetadata {
     pub context_window: Option<usize>,
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

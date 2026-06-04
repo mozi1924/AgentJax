@@ -58,6 +58,8 @@ pub struct ModelCatalogEntry {
     pub supports_reasoning: bool,
     pub supported_reasoning_levels: Vec<String>,
     pub configured_reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -90,15 +92,7 @@ pub async fn get_model_catalog(sync_if_stale: bool) -> AgentJaxResult<ModelCatal
     let cached_models = load_cached_models_for_active(&cfg)?;
     let all_cached_models = load_all_provider_caches(&cfg)?;
 
-    let mut effective_models = if configured_models.is_empty() {
-        cached_models.clone()
-    } else {
-        configured_models.clone()
-    };
-
-    if !effective_models.iter().any(|m| m == &cfg.default_model) {
-        effective_models.insert(0, cfg.default_model.clone());
-    }
+    let effective_models = configured_models.clone();
 
     let active_cache_entry = all_cached_models
         .providers
@@ -281,6 +275,7 @@ fn parse_raw_models_response(raw: &Value) -> Vec<ProviderModelDescriptor> {
                             .collect()
                     })
                     .unwrap_or_default(),
+                kind: None,
             })
         })
         .collect()
@@ -378,6 +373,20 @@ fn build_model_catalog_entries(
                 continue;
             }
 
+            // Resolve the model kind from the plugin's metadata table.
+            let model_kind = provider_api::get_model_metadata(&provider.kind, model_key)
+                .ok()
+                .and_then(|meta| meta.kind)
+                .filter(|k| !k.is_empty());
+
+            // Skip non-chat models (e.g. embeddings) in the chat model selector.
+            // Models without a declared kind are treated as chat for backward compat.
+            if let Some(ref kind) = model_kind {
+                if kind != "chat" {
+                    continue;
+                }
+            }
+
             let cached_levels = all_cached
                 .providers
                 .get(provider_key)
@@ -417,6 +426,7 @@ fn build_model_catalog_entries(
                 supports_reasoning: reasoning.supports_reasoning,
                 supported_reasoning_levels: reasoning.supported_reasoning_levels,
                 configured_reasoning_effort,
+                kind: model_kind,
             });
         }
     }

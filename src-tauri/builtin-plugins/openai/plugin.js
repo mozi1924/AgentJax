@@ -10,27 +10,27 @@
 // ── OpenAI Model Registry ───────────────────────────────────────────
 const OPENAI_MODELS = {
   // GPT-5.5 / 5.0 series
-  "gpt-5": { contextWindow: 400000 },
-  "gpt-5.5": { contextWindow: 1000000 },
-  "gpt-5-mini": { contextWindow: 400000 },
+  "gpt-5": { contextWindow: 400000, kind: "chat" },
+  "gpt-5.5": { contextWindow: 1000000, kind: "chat" },
+  "gpt-5-mini": { contextWindow: 400000, kind: "chat" },
   // o3-mini
-  "o3-mini": { contextWindow: 200000 },
+  "o3-mini": { contextWindow: 200000, kind: "chat" },
   // o1 series
-  "o1": { contextWindow: 128000 },
-  "o1-mini": { contextWindow: 128000 },
-  "o1-preview": { contextWindow: 128000 },
+  "o1": { contextWindow: 128000, kind: "chat" },
+  "o1-mini": { contextWindow: 128000, kind: "chat" },
+  "o1-preview": { contextWindow: 128000, kind: "chat" },
   // gpt-4o series
-  "gpt-4o": { contextWindow: 128000 },
-  "gpt-4o-mini": { contextWindow: 128000 },
+  "gpt-4o": { contextWindow: 128000, kind: "chat" },
+  "gpt-4o-mini": { contextWindow: 128000, kind: "chat" },
   // legacy GPT-4 / GPT-3.5
-  "gpt-4-turbo": { contextWindow: 128000 },
-  "gpt-4": { contextWindow: 8192 },
-  "gpt-4-32k": { contextWindow: 32768 },
-  "gpt-3.5-turbo": { contextWindow: 16384 },
+  "gpt-4-turbo": { contextWindow: 128000, kind: "chat" },
+  "gpt-4": { contextWindow: 8192, kind: "chat" },
+  "gpt-4-32k": { contextWindow: 32768, kind: "chat" },
+  "gpt-3.5-turbo": { contextWindow: 16384, kind: "chat" },
   // Embedding models
-  "text-embedding-3-small": { contextWindow: 8191 },
-  "text-embedding-3-large": { contextWindow: 8191 },
-  "text-embedding-ada-002": { contextWindow: 8191 },
+  "text-embedding-3-small": { contextWindow: 8191, kind: "embedding" },
+  "text-embedding-3-large": { contextWindow: 8191, kind: "embedding" },
+  "text-embedding-ada-002": { contextWindow: 8191, kind: "embedding" },
 };
 
 function resolveModelMetadata(modelId) {
@@ -44,15 +44,16 @@ function resolveModelMetadata(modelId) {
   if (normalized.startsWith("o1")) return OPENAI_MODELS["o1"];
   if (normalized.includes("gpt-4o-mini")) return OPENAI_MODELS["gpt-4o-mini"];
   if (normalized.includes("gpt-4o")) return OPENAI_MODELS["gpt-4o"];
-  if (normalized.includes("gpt-4-32k")) return { contextWindow: 32768 };
+  if (normalized.includes("gpt-4-32k")) return { contextWindow: 32768, kind: "chat" };
   if (normalized.includes("gpt-4-turbo")) return OPENAI_MODELS["gpt-4-turbo"];
   if (normalized.includes("gpt-4")) return OPENAI_MODELS["gpt-4"];
   if (normalized.includes("gpt-3.5")) return OPENAI_MODELS["gpt-3.5-turbo"];
   if (normalized.includes("text-embedding-3-small")) return OPENAI_MODELS["text-embedding-3-small"];
   if (normalized.includes("text-embedding-3-large")) return OPENAI_MODELS["text-embedding-3-large"];
   if (normalized.includes("text-embedding")) return OPENAI_MODELS["text-embedding-ada-002"];
+  if (normalized.includes("embedding")) return { contextWindow: 8191, kind: "embedding" };
 
-  return { contextWindow: 128000 };
+  return { contextWindow: 128000, kind: "chat" };
 }
 
 // ── Provider Definition (declarative only) ────────────────────────────

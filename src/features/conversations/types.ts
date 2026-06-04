@@ -83,6 +83,8 @@ export interface ModelOption {
   supportsReasoning: boolean;
   supportedReasoningLevels: string[];
   configuredReasoningEffort: string | null;
+  /** Model kind from provider plugin: "chat", "embedding", etc. */
+  kind?: string;
 }
 
 export interface ModelCatalogResponse {

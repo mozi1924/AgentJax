@@ -1,5 +1,5 @@
 use crate::agentjax_err;
-use crate::config::constants::{DEFAULT_DEFAULT_MODEL_REF, DEFAULT_TIMEOUT_SECONDS};
+use crate::config::constants::DEFAULT_TIMEOUT_SECONDS;
 use crate::config::model_ref::{model_ref, parse_model_ref};
 use crate::config::prompt_composer::{compile_prompt_composer, normalize_prompt_composer};
 use crate::config::schema::{
@@ -18,35 +18,22 @@ impl ProviderConfig {
             self.kind = provider_key.to_string();
         }
 
-        // Auto-complete custom_settings fields dynamically using registered config schema
+        // Auto-complete custom_settings fields dynamically from registered config schema.
+        // Only insert keys that have a non-null default value.
         if let Some(definition) = registry::provider_definition(&self.kind) {
             if let Some(obj) = definition.config_schema.as_object()
                 && let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {
                     for (key, property_schema) in properties {
                         if !self.custom_settings.contains_key(key) {
-                            let default_val = property_schema
-                                .get("default")
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null);
-                            self.custom_settings.insert(key.clone(), default_val);
+                            if let Some(default_val) = property_schema.get("default") {
+                                if !default_val.is_null() {
+                                    self.custom_settings
+                                        .insert(key.clone(), default_val.clone());
+                                }
+                            }
                         }
                     }
                 }
-
-            // Auto-complete models if completely empty
-            if self.models.is_empty() {
-                for model_id in &definition.default_model_ids {
-                    self.models.insert(
-                        model_id.clone(),
-                        ProviderModelConfig {
-                            name: None,
-                            api_protocol: None,
-                            enabled: true,
-                            request: ModelRequestConfig::default(),
-                        },
-                    );
-                }
-            }
         }
 
         // Perform custom settings self-healing and normalization
@@ -131,6 +118,10 @@ impl ProviderConfig {
             normalized_models.insert(model_key, model_cfg);
         }
         self.models = normalized_models;
+
+        // Remove null-valued custom_settings keys to keep the config file clean.
+        self.custom_settings
+            .retain(|_, v| !v.is_null());
 
         self
     }
@@ -395,47 +386,17 @@ impl AppConfig {
             );
         }
 
-        if normalized_providers.is_empty() {
-            let default_provider = registry::default_provider_definition();
-            normalized_providers.insert(
-                default_provider.kind.clone(),
-                default_provider.default_config.clone(),
-            );
-        }
         self.providers = normalized_providers;
 
-        if self.active_provider.is_empty() || !self.providers.contains_key(&self.active_provider) {
+        if !self.active_provider.is_empty() && !self.providers.contains_key(&self.active_provider) {
             self.active_provider = self
                 .providers
                 .first_key_value()
                 .map(|(k, _)| k.clone())
-                .unwrap_or_else(|| registry::default_provider_kind().to_string());
+                .unwrap_or_default();
         }
-
-        let has_any_model = self
-            .providers
-            .values()
-            .any(|provider| provider.models.values().any(|model| model.enabled));
-        if !has_any_model
-            && let Some(provider) = self.providers.get_mut(&self.active_provider) {
-                let fallback_model_id = registry::provider_definition(&provider.kind)
-                    .and_then(|definition| definition.default_model_ids.first().cloned())
-                    .unwrap_or_else(|| "gpt-5-mini".to_string());
-                provider.models.insert(
-                    fallback_model_id.to_string(),
-                    ProviderModelConfig {
-                        name: None,
-                        api_protocol: None,
-                        enabled: true,
-                        request: ModelRequestConfig::default(),
-                    },
-                );
-            }
 
         self.default_model = self.default_model.trim().to_string();
-        if self.default_model.is_empty() {
-            self.default_model = DEFAULT_DEFAULT_MODEL_REF.to_string();
-        }
 
         self.utility_small_model = self.utility_small_model.trim().to_string();
         if self.utility_small_model.is_empty() {
