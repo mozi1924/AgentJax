@@ -149,20 +149,61 @@ pub async fn fetch_remote_models(
     config: &crate::config::AppConfig,
     provider_key: &str,
 ) -> AgentJaxResult<Vec<ProviderModelDescriptor>> {
-    // Try protocol-based model fetching first
     let provider = config.resolved_provider(provider_key)?;
+
+    // Collect builtin_models from the provider definition (Phase 2).
+    let builtin_models: Vec<ProviderModelDescriptor> =
+        registry::provider_definition(&provider.kind)
+            .map(|def| {
+                def.builtin_models
+                    .iter()
+                    .map(|m| ProviderModelDescriptor {
+                        id: m.id.clone(),
+                        supported_reasoning_levels: m
+                            .supported_reasoning_levels
+                            .clone()
+                            .unwrap_or_default(),
+                        kind: m.kind.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+    // Try protocol-based model fetching (generic HTTP GET).
     let protocol = resolve_protocol(&provider.kind, "", None);
-    if protocol.is_some() {
+    let mut fetched_models: Vec<ProviderModelDescriptor> = if protocol.is_some() {
         let endpoint = format!("{}/models", provider.api_endpoint().trim_end_matches('/'));
-        return protocol::fetch_remote_models(&provider, &endpoint, config.request_timeout_seconds).await;
+        protocol::fetch_remote_models(&provider, &endpoint, config.request_timeout_seconds)
+            .await
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    // Merge builtin_models into the result. Remote-fetched models take
+    // precedence (they may have more up-to-date info), but builtin_models
+    // fill in models that aren't returned by the endpoint.
+    let fetched_ids: std::collections::HashSet<String> =
+        fetched_models.iter().map(|m| m.id.clone()).collect();
+
+    for builtin in &builtin_models {
+        if !fetched_ids.contains(&builtin.id) {
+            fetched_models.push(builtin.clone());
+        }
     }
 
-    // Fall back to JS plugin path only if a plugin is registered for this kind
+    // If we have models from either source, return them.
+    if !fetched_models.is_empty() {
+        return Ok(fetched_models);
+    }
+
+    // Fall back to JS plugin path for legacy providers that have a plugin
+    // but no builtin_models and no protocol-based endpoint.
     if crate::provider_api::registry::provider_plugin_package(&provider.kind).is_some() {
         plugin::fetch_remote_models(config, provider_key).await
     } else {
         log::debug!(
-            "No protocol or plugin for provider '{}' (kind: {}), skip model fetch",
+            "No protocol, builtin_models, or plugin for provider '{}' (kind: {}), skip model fetch",
             provider_key,
             provider.kind
         );
@@ -252,11 +293,47 @@ pub fn get_model_metadata(
 
 // ── Internal Helpers ───────────────────────────────────────────────────────
 
+/// Match a model ID against a glob pattern used in `ModelRoutingRule`.
+///
+/// Supports the subset of glob needed for model routing:
+/// - `*` — matches everything (catch-all)
+/// - `prefix*` — starts with prefix
+/// - `*suffix` — ends with suffix
+/// - `*substring*` — contains substring
+/// - Literal — exact match
+fn glob_match(pattern: &str, model_id: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    if let Some(prefix) = pattern.strip_suffix('*') {
+        // prefix* or *prefix* pattern
+        if let Some(suffix) = prefix.strip_prefix('*') {
+            // *suffix or *substring*
+            if pattern.starts_with('*') {
+                // *substring* — contains
+                model_id.contains(suffix)
+            } else {
+                // *suffix — ends with (starts_with('*') is false but prefix[0]=='*')
+                model_id.ends_with(suffix)
+            }
+        } else {
+            // prefix* — simple starts-with
+            model_id.starts_with(prefix)
+        }
+    } else if let Some(suffix) = pattern.strip_prefix('*') {
+        // *suffix — starts with * but doesn't end with *
+        model_id.ends_with(suffix)
+    } else {
+        model_id == pattern
+    }
+}
+
 /// Map a provider kind and optional model ID to a known protocol.
 ///
-/// The protocol determines which native Rust implementation to use for
-/// the API call. Returns `None` for plugin-based providers without a
-/// native protocol implementation.
+/// Resolution order:
+/// 1. `api_protocol` override (per-model config)
+/// 2. `model_routing` glob matching from the provider definition (Phase 3)
+/// 3. Legacy `supports_protocols` heuristic (for providers without model_routing)
 fn resolve_protocol(
     provider_kind: &str,
     model_id: &str,
@@ -270,34 +347,47 @@ fn resolve_protocol(
         }
     }
 
-    // 2. Check the registry for protocol declarations
+    // 2. Check model_routing from the provider definition (Phase 3)
+    if let Some(def) = crate::provider_api::registry::provider_definition(provider_kind) {
+        if !def.model_routing.is_empty() {
+            let normalized = model_id.trim().to_lowercase();
+            for rule in &def.model_routing {
+                if glob_match(&rule.pattern, &normalized) {
+                    return Some(rule.protocol.clone());
+                }
+            }
+        }
+    }
+
+    // 3. Fall back to supports_protocols heuristic (legacy providers)
     let protocols = crate::provider_api::registry::provider_supports_protocols(provider_kind);
     if protocols.is_empty() {
         return None;
     }
+    if protocols.len() == 1 {
+        return protocols.first().cloned();
+    }
 
-    // 3. If the provider supports multiple protocols, use model ID heuristics
-    //    to pick the best one. Known OpenAI-native models default to Responses;
-    //    unknown / third-party models default to Chat Completions for maximum
-    //    compatibility (DeepSeek, Ollama, vLLM, LM Studio, OpenRouter, etc.).
-    if protocols.len() > 1 {
-        let normalized = model_id.trim().to_lowercase();
-        if normalized.contains("embedding") || normalized.starts_with("text-embedding-") {
-            return protocols.iter().find(|p| *p == "embeddings").cloned()
-                .or_else(|| protocols.first().cloned());
-        }
+    // Multiple protocols — use model ID heuristics.
+    let normalized = model_id.trim().to_lowercase();
+    if normalized.contains("embedding") || normalized.starts_with("text-embedding-") {
+        return protocols
+            .iter()
+            .find(|p| *p == "embeddings")
+            .cloned()
+            .or_else(|| protocols.first().cloned());
+    }
 
-        // Known OpenAI first-party model prefixes that support the Responses API.
-        let has_responses = protocols.iter().any(|p| p == "responses");
-        let has_chat = protocols.iter().any(|p| p == "chat_completions");
-        if has_responses && has_chat && !normalized.is_empty() {
-            let is_openai_native = [
-                "gpt-5", "gpt-4", "gpt-3.5",
-                "o1-", "o1 ", "o3-", "o3 ", "o4-", "o4 ",
-            ].iter().any(|prefix| normalized.starts_with(prefix));
-            if !is_openai_native {
-                return Some("chat_completions".to_string());
-            }
+    let has_responses = protocols.iter().any(|p| p == "responses");
+    let has_chat = protocols.iter().any(|p| p == "chat_completions");
+    if has_responses && has_chat && !normalized.is_empty() {
+        let is_openai_native = [
+            "gpt-5", "gpt-4", "gpt-3.5", "o1-", "o1 ", "o3-", "o3 ", "o4-", "o4 ",
+        ]
+        .iter()
+        .any(|prefix| normalized.starts_with(prefix));
+        if !is_openai_native {
+            return Some("chat_completions".to_string());
         }
     }
 
