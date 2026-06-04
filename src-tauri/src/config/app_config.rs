@@ -20,21 +20,18 @@ impl ProviderConfig {
 
         // Auto-complete custom_settings fields dynamically from registered config schema.
         // Only insert keys that have a non-null default value.
-        if let Some(definition) = registry::provider_definition(&self.kind) {
-            if let Some(obj) = definition.config_schema.as_object()
-                && let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {
-                    for (key, property_schema) in properties {
-                        if !self.custom_settings.contains_key(key) {
-                            if let Some(default_val) = property_schema.get("default") {
-                                if !default_val.is_null() {
-                                    self.custom_settings
-                                        .insert(key.clone(), default_val.clone());
-                                }
-                            }
-                        }
+        if let Some(definition) = registry::provider_definition(&self.kind)
+            && let Some(obj) = definition.config_schema.as_object()
+            && let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {
+                for (key, property_schema) in properties {
+                    if !self.custom_settings.contains_key(key)
+                        && let Some(default_val) = property_schema.get("default")
+                        && !default_val.is_null() {
+                            self.custom_settings
+                                .insert(key.clone(), default_val.clone());
                     }
                 }
-        }
+            }
 
         // Perform custom settings self-healing and normalization
         if let Some(serde_json::Value::String(api_endpoint)) =

@@ -156,35 +156,35 @@ fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
         let trimmed = effort.trim().to_lowercase();
         if !trimmed.is_empty() { payload["reasoning_effort"] = json!(trimmed); }
     }
-    if let Some(ref tools) = req.tools { if !tools.is_empty() { payload["tools"] = Value::Array(tools.clone()); } }
+    if let Some(ref tools) = req.tools && !tools.is_empty() { payload["tools"] = Value::Array(tools.clone()); }
     if let Some(ref tool_choice) = req.tool_choice { payload["tool_choice"] = tool_choice.clone(); }
-    if let Some(ref text) = req.text {
-        if let Some(format) = text.get("format") {
-            match format.get("type").and_then(Value::as_str) {
-                Some("json_object") => {
-                    payload["response_format"] = json!({"type": "json_object"});
-                }
-                Some("json_schema") => {
-                    let name = format.get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or("response");
-                    let schema = format.get("schema")
-                        .cloned()
-                        .unwrap_or_else(|| json!({"type": "object"}));
-                    let strict = format.get("strict")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(true);
-                    payload["response_format"] = json!({
-                        "type": "json_schema",
-                        "json_schema": {
-                            "name": name,
-                            "strict": strict,
-                            "schema": schema,
-                        }
-                    });
-                }
-                _ => {}
+    if let Some(ref text) = req.text
+        && let Some(format) = text.get("format")
+    {
+        match format.get("type").and_then(Value::as_str) {
+            Some("json_object") => {
+                payload["response_format"] = json!({"type": "json_object"});
             }
+            Some("json_schema") => {
+                let name = format.get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("response");
+                let schema = format.get("schema")
+                    .cloned()
+                    .unwrap_or_else(|| json!({"type": "object"}));
+                let strict = format.get("strict")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true);
+                payload["response_format"] = json!({
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": name,
+                        "strict": strict,
+                        "schema": schema,
+                    }
+                });
+            }
+            _ => {}
         }
     }
     // ── Sampling parameters ──
@@ -264,10 +264,10 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
                             messages.push(json!({"role": role, "content": text}));
                         }
                     }
-                } else if let Some(text) = content_value.as_str() {
-                    if !text.trim().is_empty() {
-                        messages.push(json!({"role": role, "content": text}));
-                    }
+                } else if let Some(text) = content_value.as_str()
+                    && !text.trim().is_empty()
+                {
+                    messages.push(json!({"role": role, "content": text}));
                 }
             }
         }
@@ -318,40 +318,40 @@ fn process_chat_event(
         for choice in choices {
             let delta = choice.get("delta").and_then(Value::as_object).cloned().unwrap_or_default();
 
-            if let Some(content) = delta.get("reasoning_content").and_then(Value::as_str) {
-                if !content.is_empty() {
-                    if !state.reasoning_started {
-                        state.reasoning_started = true;
-                        on_delta(ProviderStreamEvent::ReasoningStarted)?;
-                    }
-                    on_delta(ProviderStreamEvent::ReasoningDelta { delta: content.to_string() })?;
-                    state.reasoning_buffer.push_str(content);
+            if let Some(content) = delta.get("reasoning_content").and_then(Value::as_str)
+                && !content.is_empty()
+            {
+                if !state.reasoning_started {
+                    state.reasoning_started = true;
+                    on_delta(ProviderStreamEvent::ReasoningStarted)?;
                 }
+                on_delta(ProviderStreamEvent::ReasoningDelta { delta: content.to_string() })?;
+                state.reasoning_buffer.push_str(content);
             }
 
-            if let Some(content) = delta.get("content").and_then(Value::as_str) {
-                if !content.is_empty() {
-                    // If reasoning was streaming and now regular content begins,
-                    // emit ReasoningCompleted before the first output text.
-                    if state.reasoning_started {
-                        state.reasoning_started = false;
-                        on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None })?;
-                        // Flush accumulated reasoning into output_items.
-                        if !state.reasoning_buffer.is_empty() {
-                            output_items.push(json!({
-                                "type": "reasoning",
-                                "text": state.reasoning_buffer.clone(),
-                            }));
-                            state.reasoning_buffer.clear();
-                        }
+            if let Some(content) = delta.get("content").and_then(Value::as_str)
+                && !content.is_empty()
+            {
+                // If reasoning was streaming and now regular content begins,
+                // emit ReasoningCompleted before the first output text.
+                if state.reasoning_started {
+                    state.reasoning_started = false;
+                    on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None })?;
+                    // Flush accumulated reasoning into output_items.
+                    if !state.reasoning_buffer.is_empty() {
+                        output_items.push(json!({
+                            "type": "reasoning",
+                            "text": state.reasoning_buffer.clone(),
+                        }));
+                        state.reasoning_buffer.clear();
                     }
-                    if !state.emitted_output_started {
-                        state.emitted_output_started = true;
-                        on_delta(ProviderStreamEvent::OutputTextStarted)?;
-                    }
-                    output_text.push_str(content);
-                    on_delta(ProviderStreamEvent::OutputTextDelta { delta: content.to_string(), phase: None })?;
                 }
+                if !state.emitted_output_started {
+                    state.emitted_output_started = true;
+                    on_delta(ProviderStreamEvent::OutputTextStarted)?;
+                }
+                output_text.push_str(content);
+                on_delta(ProviderStreamEvent::OutputTextDelta { delta: content.to_string(), phase: None })?;
             }
 
             if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {

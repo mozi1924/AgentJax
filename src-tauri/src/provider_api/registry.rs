@@ -26,6 +26,7 @@ pub struct DynamicProviderDefinition {
     pub config_schema: Value,
     pub capabilities: ProviderCapabilities,
     pub tool_schema_format: ToolSchemaFormat,
+    #[allow(dead_code)]
     pub default_model_ids: Vec<String>,
     pub default_config: ProviderConfig,
     pub supports_protocols: Vec<String>,
@@ -133,14 +134,6 @@ pub fn provider_definition(provider_kind: &str) -> Option<DynamicProviderDefinit
         .iter()
         .find(|definition| definition.kind == normalized)
         .cloned()
-}
-
-pub fn default_provider_definition() -> DynamicProviderDefinition {
-    get_registry().read().unwrap().first().unwrap().clone()
-}
-
-pub fn default_provider_kind() -> String {
-    default_provider_definition().kind
 }
 
 pub fn provider_kind_options() -> Vec<(String, String)> {

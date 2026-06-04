@@ -338,32 +338,6 @@ impl LcmStore {
         Ok(())
     }
 
-    /// Retrieve a single reasoning chain by ID.
-    pub fn get_reasoning(&self, id: &str) -> Result<Option<ReasoningChain>, LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, conversation_id, response_id, text, token_count, timestamp_unix_ms
-                 FROM reasoning_chains WHERE id = ?1",
-            )
-            .map_err(|e| LcmError::Store(format!("Failed to prepare reasoning query: {e}")))?;
-
-        stmt.query_row(rusqlite::params![id], |row| {
-            Ok(ReasoningChain {
-                id: row.get(0)?,
-                conversation_id: row.get(1)?,
-                response_id: row.get(2)?,
-                text: row.get(3)?,
-                token_count: row.get(4)?,
-                timestamp_unix_ms: row.get(5)?,
-            })
-        })
-        .optional()
-        .map_err(|e| LcmError::Store(format!("Failed to query reasoning {id}: {e}")))
-    }
-
     /// Batch-load reasoning chains for multiple IDs.
     pub fn get_reasoning_batch(
         &self,

@@ -915,13 +915,13 @@ impl LcmEngine {
         let reasoning_ids: Vec<String> = entries
             .iter()
             .filter_map(|entry| {
-                if let ContextEntry::RawMessage { role, metadata, .. } = entry {
-                    if *role == crate::lcm::types::MessageRole::Assistant {
-                        return metadata
-                            .get("reasoning_id")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-                    }
+                if let ContextEntry::RawMessage { role, metadata, .. } = entry
+                    && *role == crate::lcm::types::MessageRole::Assistant
+                {
+                    return metadata
+                        .get("reasoning_id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                 }
                 None
             })
@@ -993,20 +993,18 @@ impl LcmEngine {
                     // ── Rehydrate reasoning chain for assistant messages ──
                     // Must come BEFORE the output text so the model sees its
                     // prior thinking when continuing the conversation.
-                    if *role == crate::lcm::types::MessageRole::Assistant {
-                        if let Some(reasoning_id) = metadata
+                    if *role == crate::lcm::types::MessageRole::Assistant
+                        && let Some(reasoning_id) = metadata
                             .get("reasoning_id")
                             .and_then(|v| v.as_str())
-                        {
-                            if let Some(chain) = reasoning_map.get(reasoning_id) {
-                                let trimmed = chain.text.trim();
-                                if !trimmed.is_empty() {
-                                    items.push(serde_json::json!({
-                                        "type": "reasoning",
-                                        "text": trimmed,
-                                    }));
-                                }
-                            }
+                        && let Some(chain) = reasoning_map.get(reasoning_id)
+                    {
+                        let trimmed = chain.text.trim();
+                        if !trimmed.is_empty() {
+                            items.push(serde_json::json!({
+                                "type": "reasoning",
+                                "text": trimmed,
+                            }));
                         }
                     }
 

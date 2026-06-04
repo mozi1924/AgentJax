@@ -145,10 +145,10 @@ fn build_response_payload(model_id: &str, req: &ResponseStreamRequest) -> Value 
             payload["reasoning"] = json!({ "effort": trimmed });
         }
     }
-    if let Some(ref tools) = req.tools { if !tools.is_empty() { payload["tools"] = Value::Array(tools.clone()); } }
+    if let Some(ref tools) = req.tools && !tools.is_empty() { payload["tools"] = Value::Array(tools.clone()); }
     if let Some(ref tool_choice) = req.tool_choice { payload["tool_choice"] = tool_choice.clone(); }
     if let Some(ref text) = req.text { payload["text"] = text.clone(); }
-    if let Some(ref include) = req.include { if !include.is_empty() { payload["include"] = Value::Array(include.iter().map(|s| json!(s)).collect()); } }
+    if let Some(ref include) = req.include && !include.is_empty() { payload["include"] = Value::Array(include.iter().map(|s| json!(s)).collect()); }
     payload
 }
 
@@ -210,27 +210,27 @@ fn process_responses_event(
 
     match type_str {
         "response.output_text.delta" => {
-            if let Some(delta) = value.get("delta").and_then(Value::as_str) {
-                if !delta.is_empty() {
-                    if !state.emitted_output_started {
-                        state.emitted_output_started = true;
-                        on_delta(ProviderStreamEvent::OutputTextStarted)?;
-                    }
-                    output_text.push_str(delta);
-                    on_delta(ProviderStreamEvent::OutputTextDelta { delta: delta.to_string(), phase: None })?;
+            if let Some(delta) = value.get("delta").and_then(Value::as_str)
+                && !delta.is_empty()
+            {
+                if !state.emitted_output_started {
+                    state.emitted_output_started = true;
+                    on_delta(ProviderStreamEvent::OutputTextStarted)?;
                 }
+                output_text.push_str(delta);
+                on_delta(ProviderStreamEvent::OutputTextDelta { delta: delta.to_string(), phase: None })?;
             }
         }
         "response.output_item.added" => {
-            if let Some(item) = value.get("item") {
-                if item.get("type").and_then(Value::as_str) == Some("function_call") {
-                    on_delta(ProviderStreamEvent::ToolCallStarted {
-                        item_id: item.get("id").and_then(Value::as_str).unwrap_or("").to_string(),
-                        call_id: item.get("call_id").and_then(Value::as_str).unwrap_or("").to_string(),
-                        name: item.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
-                        presentation: None,
-                    })?;
-                }
+            if let Some(item) = value.get("item")
+                && item.get("type").and_then(Value::as_str) == Some("function_call")
+            {
+                on_delta(ProviderStreamEvent::ToolCallStarted {
+                    item_id: item.get("id").and_then(Value::as_str).unwrap_or("").to_string(),
+                    call_id: item.get("call_id").and_then(Value::as_str).unwrap_or("").to_string(),
+                    name: item.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+                    presentation: None,
+                })?;
             }
         }
         "response.function_call_arguments.delta" => {
@@ -255,62 +255,62 @@ fn process_responses_event(
             }
         }
         "response.output_item.done" => {
-            if let Some(item) = value.get("item") {
-                if item.get("type").and_then(Value::as_str) == Some("message") {
-                    let text = item.get("content")
-                        .and_then(Value::as_array)
-                        .map(|content| content.iter().filter_map(|part| part.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join(""))
-                        .unwrap_or_default();
-                    if !text.trim().is_empty() {
-                        on_delta(ProviderStreamEvent::AssistantMessageCompleted {
-                            text, phase: None, response_id: response_id.clone(),
-                        })?;
-                    }
+            if let Some(item) = value.get("item")
+                && item.get("type").and_then(Value::as_str) == Some("message")
+            {
+                let text = item.get("content")
+                    .and_then(Value::as_array)
+                    .map(|content| content.iter().filter_map(|part| part.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join(""))
+                    .unwrap_or_default();
+                if !text.trim().is_empty() {
+                    on_delta(ProviderStreamEvent::AssistantMessageCompleted {
+                        text, phase: None, response_id: response_id.clone(),
+                    })?;
                 }
             }
         }
         // ── Reasoning / thinking events ──────────────────────────
-        "response.reasoning.summary_part.added" => {
-            if !state.reasoning_started {
-                state.reasoning_started = true;
-                on_delta(ProviderStreamEvent::ReasoningStarted)?;
-            }
+        "response.reasoning.summary_part.added"
+            if !state.reasoning_started =>
+        {
+            state.reasoning_started = true;
+            on_delta(ProviderStreamEvent::ReasoningStarted)?;
         }
         "response.reasoning.summary_text.delta" => {
-            if let Some(delta) = value.get("delta").and_then(Value::as_str) {
-                if !delta.is_empty() {
-                    if !state.reasoning_started {
-                        state.reasoning_started = true;
-                        on_delta(ProviderStreamEvent::ReasoningStarted)?;
-                    }
-                    state.reasoning_buffer.push_str(delta);
-                    on_delta(ProviderStreamEvent::ReasoningDelta { delta: delta.to_string() })?;
+            if let Some(delta) = value.get("delta").and_then(Value::as_str)
+                && !delta.is_empty()
+            {
+                if !state.reasoning_started {
+                    state.reasoning_started = true;
+                    on_delta(ProviderStreamEvent::ReasoningStarted)?;
                 }
+                state.reasoning_buffer.push_str(delta);
+                on_delta(ProviderStreamEvent::ReasoningDelta { delta: delta.to_string() })?;
             }
         }
-        "response.reasoning.summary_part.done" => {
-            if state.reasoning_started && !state.reasoning_buffer.is_empty() {
-                state.reasoning_started = false;
-                let total_tokens = value.get("total_tokens")
-                    .and_then(|v| v.as_u64()).map(|v| v as usize);
-                on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens })?;
-                output_items.push(json!({
-                    "type": "reasoning",
-                    "text": state.reasoning_buffer.clone(),
-                }));
-                state.reasoning_buffer.clear();
-            }
+        "response.reasoning.summary_part.done"
+            if state.reasoning_started && !state.reasoning_buffer.is_empty() =>
+        {
+            state.reasoning_started = false;
+            let total_tokens = value.get("total_tokens")
+                .and_then(|v| v.as_u64()).map(|v| v as usize);
+            on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens })?;
+            output_items.push(json!({
+                "type": "reasoning",
+                "text": state.reasoning_buffer.clone(),
+            }));
+            state.reasoning_buffer.clear();
         }
-        "response.completed" | "response.done" => {
-            if state.reasoning_started && !state.reasoning_buffer.is_empty() {
-                state.reasoning_started = false;
-                on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None })?;
-                output_items.push(json!({
-                    "type": "reasoning",
-                    "text": state.reasoning_buffer.clone(),
-                }));
-                state.reasoning_buffer.clear();
-            }
+        "response.completed" | "response.done"
+            if state.reasoning_started && !state.reasoning_buffer.is_empty() =>
+        {
+            state.reasoning_started = false;
+            on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None })?;
+            output_items.push(json!({
+                "type": "reasoning",
+                "text": state.reasoning_buffer.clone(),
+            }));
+            state.reasoning_buffer.clear();
         }
         _ => {}
     }

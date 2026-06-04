@@ -18,6 +18,7 @@ use std::time::Duration;
 ///
 /// Builds the HTTP request body, sends it to `{apiEndpoint}/v1/embeddings`,
 /// and returns the embedding vectors with usage statistics.
+#[allow(dead_code)]
 pub async fn embed(
     provider_config: &ProviderConfig,
     model_id: &str,
@@ -79,7 +80,7 @@ pub async fn embed(
     parse_embedding_response(&response_body, model_id)
 }
 
-/// Parse the OpenAI Embeddings API response into our internal format.
+#[allow(dead_code)]
 fn parse_embedding_response(response_body: &Value, default_model: &str) -> AgentJaxResult<EmbeddingResponse> {
     let data = response_body["data"]
         .as_array()

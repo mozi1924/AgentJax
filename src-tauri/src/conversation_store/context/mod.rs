@@ -140,22 +140,19 @@ fn load_context_from_lcm(
     let lines: Vec<ConversationLine> = lines
         .into_iter()
         .map(|line| {
-            if let ConversationLine::Assistant(ref a) = line {
-                if let Some(msg) = messages.iter().find(|m| m.id.as_str() == a.id) {
-                    if let Some(rid) = msg
-                        .metadata
-                        .get("reasoning_id")
-                        .and_then(|v| v.as_str())
-                    {
-                        if let Some(chain) = reasoning_map.get(rid) {
-                            return ConversationLine::Assistant(AssistantLine {
-                                thinking: Some(chain.text.clone()),
-                                thinking_token_count: Some(chain.token_count),
-                                ..a.clone()
-                            });
-                        }
-                    }
-                }
+            if let ConversationLine::Assistant(ref a) = line
+                && let Some(msg) = messages.iter().find(|m| m.id.as_str() == a.id)
+                && let Some(rid) = msg
+                    .metadata
+                    .get("reasoning_id")
+                    .and_then(|v| v.as_str())
+                && let Some(chain) = reasoning_map.get(rid)
+            {
+                return ConversationLine::Assistant(AssistantLine {
+                    thinking: Some(chain.text.clone()),
+                    thinking_token_count: Some(chain.token_count),
+                    ..a.clone()
+                });
             }
             line
         })

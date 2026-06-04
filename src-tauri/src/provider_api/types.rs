@@ -255,11 +255,13 @@ pub struct ResponseStreamResult {
 // ── Embedding Types ──────────────────────────────────────────────────────────
 
 /// A single embedding vector.
+#[allow(dead_code)]
 pub type Embedding = Vec<f32>;
 
 /// Request to embed one or more text inputs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct EmbeddingRequest {
     /// Text strings to embed. The provider may restrict batch size.
     pub input: Vec<String>,
@@ -269,6 +271,7 @@ pub struct EmbeddingRequest {
     pub dimensions: Option<usize>,
 }
 
+#[allow(dead_code)]
 impl EmbeddingRequest {
     /// Create a request for a single text string.
     pub fn single(text: impl Into<String>) -> Self {
@@ -292,6 +295,7 @@ impl EmbeddingRequest {
 /// Usage statistics for an embedding request.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct EmbeddingUsage {
     /// Tokens consumed by the input prompt.
     pub prompt_tokens: Option<u32>,
@@ -302,6 +306,7 @@ pub struct EmbeddingUsage {
 /// The result of an embedding request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct EmbeddingResponse {
     /// The embedding vectors, one per input text in the same order.
     pub embeddings: Vec<Embedding>,

@@ -120,6 +120,7 @@ where
 ///
 /// Dispatches to the native protocol implementation for known embedding
 /// protocols, or returns an error for unsupported provider kinds.
+#[allow(dead_code)]
 pub async fn embed_text(
     config: &crate::config::AppConfig,
     provider_key: &str,

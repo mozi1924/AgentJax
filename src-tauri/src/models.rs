@@ -43,7 +43,6 @@ pub struct ProviderCache {
 #[derive(Debug, Clone)]
 pub struct ParsedProviderCache {
     pub last_synced_unix: i64,
-    pub source_api_endpoint: String,
     pub models: Vec<ProviderModelDescriptor>,
 }
 
@@ -220,7 +219,6 @@ fn load_all_provider_caches(cfg: &AppConfig) -> AgentJaxResult<AllProviderCaches
             key,
             ParsedProviderCache {
                 last_synced_unix: raw_cache.last_synced_unix,
-                source_api_endpoint: raw_cache.source_api_endpoint,
                 models,
             },
         );
@@ -381,10 +379,10 @@ fn build_model_catalog_entries(
 
             // Skip non-chat models (e.g. embeddings) in the chat model selector.
             // Models without a declared kind are treated as chat for backward compat.
-            if let Some(ref kind) = model_kind {
-                if kind != "chat" {
-                    continue;
-                }
+            if let Some(ref kind) = model_kind
+                && kind != "chat"
+            {
+                continue;
             }
 
             let cached_levels = all_cached

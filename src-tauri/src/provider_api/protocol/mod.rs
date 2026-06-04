@@ -35,6 +35,7 @@ static CIRCUIT_BREAKERS: std::sync::LazyLock<
 /// Stream a response using a native protocol implementation.
 ///
 /// `F` must be `Send` because the future may cross `tokio::spawn` boundaries.
+#[allow(clippy::too_many_arguments)]
 pub async fn stream_response<F>(
     protocol: &str,
     config: &AppConfig,
@@ -85,6 +86,7 @@ where
 // ── Embedding Dispatch ──────────────────────────────────────────────────────
 
 /// Embed text using a native protocol implementation.
+#[allow(dead_code)]
 pub async fn embed(
     protocol: &str,
     provider_config: &ProviderConfig,
@@ -221,6 +223,7 @@ pub(crate) async fn send_and_check(
 }
 
 /// Protocol-level capabilities.
+#[allow(dead_code)]
 pub fn protocol_capabilities(protocol: &str) -> Option<ProviderCapabilities> {
     match protocol {
         "responses" => Some(ProviderCapabilities::openai_responses()),
