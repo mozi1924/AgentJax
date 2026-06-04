@@ -1,4 +1,7 @@
 pub const CONFIG_FILE_NAME: &str = "config.yaml";
+pub const AGENT_CONFIG_FILE_NAME: &str = "agent.yaml";
+pub const DEFAULT_AGENT_ID: &str = "main";
+pub const AGENTS_DIR_NAME: &str = "agents";
 pub const BUILTIN_CORE_SYSTEM_BLOCK_ID: &str = "builtin-core-system";
 pub const BUILTIN_CORE_SYSTEM_SOURCE_ID: &str = "agentjax/core/system";
 pub const BUILTIN_CORE_SYSTEM_TITLE: &str = "AgentJax Core System";

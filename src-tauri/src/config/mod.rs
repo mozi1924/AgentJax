@@ -1,8 +1,9 @@
+pub(crate) mod agent_config;
 mod app_config;
-mod constants;
+pub(crate) mod constants;
 mod default_items;
 mod dynamic_options;
-mod io;
+pub(crate) mod io;
 mod model_ref;
 mod prompt_composer;
 mod schema;
@@ -12,6 +13,7 @@ mod section_generator;
 mod settings;
 mod settings_ui;
 
+pub use agent_config::{AgentConfig, AgentId, AgentRegistry, FullConfig};
 pub use io::{
     ConfigInfo, ConfigUpgradeResult, config_dir_path, get_config_info, init_config_if_missing,
     load_config, serialize_config_to_yaml, upgrade_config_file,

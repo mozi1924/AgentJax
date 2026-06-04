@@ -356,6 +356,16 @@ fn normalize_mcp_tool_source_policy_map(
     normalized
 }
 
+use crate::config::agent_config::AgentConfig;
+
+impl AgentConfig {
+    pub fn compile_prompt_assembly(
+        &self,
+    ) -> crate::config::prompt_composer::CompiledPromptAssembly {
+        compile_prompt_composer(&self.prompt_composer)
+    }
+}
+
 impl AppConfig {
     pub fn compile_prompt_assembly(
         &self,
@@ -496,6 +506,49 @@ impl AppConfig {
             prompt_assembly,
             request: model_cfg.request.clone(),
             timeout_seconds: provider.resolved_timeout_seconds(self.request_timeout_seconds),
+            api_protocol: model_cfg.api_protocol.clone(),
+        })
+    }
+
+    /// Resolve a model profile using shared providers + agent-specific settings.
+    ///
+    /// This is the bridge method used by `FullConfig` — it uses `AppConfig`
+    /// for provider resolution but reads model references and prompt composer
+    /// from the `AgentConfig`.
+    pub fn resolve_model_profile_with_agent(
+        &self,
+        requested: Option<&str>,
+        agent: &AgentConfig,
+    ) -> AgentJaxResult<ResolvedModelConfig> {
+        let requested_ref = requested.map(str::trim).filter(|s| !s.is_empty());
+        let chosen_ref = requested_ref.unwrap_or(&agent.default_model).to_string();
+
+        let resolved = requested_ref
+            .and_then(|value| self.resolve_model_ref(value))
+            .or_else(|| self.resolve_model_ref(&agent.default_model))
+            .or_else(|| self.resolve_model_ref(&agent.utility_small_model))
+            .or_else(|| self.first_enabled_model_ref())
+            .ok_or_else(|| {
+                agentjax_err!(
+                    format!("Model '{}' not found or disabled. Expected format: {{provider}}/{{model_id}}", chosen_ref),
+                    Config
+                )
+            })?;
+
+        let (provider_key, provider, model_key, model_cfg) = resolved;
+        let prompt_assembly = agent.compile_prompt_assembly();
+
+        let resolved_ref = model_ref(&provider_key, &model_key);
+        Ok(ResolvedModelConfig {
+            profile_key: resolved_ref.clone(),
+            provider_key,
+            provider: provider.clone(),
+            model_id: model_key.clone(),
+            model_ref: resolved_ref,
+            system_prompt: prompt_assembly.instructions_text.clone(),
+            prompt_assembly,
+            request: model_cfg.request.clone(),
+            timeout_seconds: provider.resolved_timeout_seconds(agent.request_timeout_seconds),
             api_protocol: model_cfg.api_protocol.clone(),
         })
     }
