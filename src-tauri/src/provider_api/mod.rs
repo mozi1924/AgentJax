@@ -194,7 +194,7 @@ pub fn get_model_metadata(
 /// native protocol implementation.
 fn resolve_protocol(
     provider_kind: &str,
-    _model_id: &str,
+    model_id: &str,
     api_protocol_override: Option<&str>,
 ) -> Option<String> {
     // 1. Explicit per-model apiProtocol takes highest precedence
@@ -207,9 +207,34 @@ fn resolve_protocol(
 
     // 2. Check the registry for protocol declarations
     let protocols = crate::provider_api::registry::provider_supports_protocols(provider_kind);
-    if !protocols.is_empty() {
-        return protocols.first().cloned();
+    if protocols.is_empty() {
+        return None;
     }
 
-    None
+    // 3. If the provider supports multiple protocols, use model ID heuristics
+    //    to pick the best one. Known OpenAI-native models default to Responses;
+    //    unknown / third-party models default to Chat Completions for maximum
+    //    compatibility (DeepSeek, Ollama, vLLM, LM Studio, OpenRouter, etc.).
+    if protocols.len() > 1 {
+        let normalized = model_id.trim().to_lowercase();
+        if normalized.contains("embedding") || normalized.starts_with("text-embedding-") {
+            return protocols.iter().find(|p| *p == "embeddings").cloned()
+                .or_else(|| protocols.first().cloned());
+        }
+
+        // Known OpenAI first-party model prefixes that support the Responses API.
+        let has_responses = protocols.iter().any(|p| p == "responses");
+        let has_chat = protocols.iter().any(|p| p == "chat_completions");
+        if has_responses && has_chat && !normalized.is_empty() {
+            let is_openai_native = [
+                "gpt-5", "gpt-4", "gpt-3.5",
+                "o1-", "o1 ", "o3-", "o3 ", "o4-", "o4 ",
+            ].iter().any(|prefix| normalized.starts_with(prefix));
+            if !is_openai_native {
+                return Some("chat_completions".to_string());
+            }
+        }
+    }
+
+    protocols.first().cloned()
 }

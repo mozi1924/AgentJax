@@ -231,8 +231,9 @@ function AssistantFinalCard({
           {lines.map((line) => {
             const isDraft = line.status === 'draft';
             const isEmpty = !line.text || !line.text.trim();
+            const hasThinking = line.thinking && line.thinking.trim();
 
-            if (isEmpty && !isDraft) {
+            if (isEmpty && !isDraft && !hasThinking) {
               return null;
             }
 
@@ -241,12 +242,31 @@ function AssistantFinalCard({
                 key={line.id}
                 className="bg-transparent py-0.5 text-slate-100"
               >
+                {hasThinking && (
+                  <details className="mb-2" open={isDraft}>
+                    <summary className="cursor-pointer text-xs font-medium text-slate-400 hover:text-slate-300 transition-colors select-none">
+                      {isDraft ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          {t('chat.thinking')}
+                        </span>
+                      ) : (
+                        t('chat.thinking')
+                      )}
+                    </summary>
+                    <div className="mt-1.5 border-l-2 border-indigo-500/30 pl-3 text-xs text-slate-400 leading-relaxed whitespace-pre-wrap">
+                      {line.thinking}
+                    </div>
+                  </details>
+                )}
                 <div className={createAssistantTextClassName(false)}>
                   {isEmpty ? (
-                    <span className="inline-flex items-center gap-1.5 text-sm text-slate-500">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      {t('chat.thinking')}
-                    </span>
+                    hasThinking ? null : (
+                      <span className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {t('chat.thinking')}
+                      </span>
+                    )
                   ) : (
                     renderMarkdown(
                       line.text === 'chat.stopped' ? t('chat.stopped') : String(line.text),

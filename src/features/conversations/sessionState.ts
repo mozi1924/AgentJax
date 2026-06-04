@@ -307,6 +307,39 @@ export const applyAssistantDelta = (
     return { ...conversation, lines };
   });
 
+/** Append reasoning / thinking content to the current draft assistant line. */
+export const applyThinkingDelta = (
+  conversations: Conversation[],
+  conversationId: string,
+  requestId: string,
+  deltaText: string,
+  eventIndex?: number
+): Conversation[] =>
+  updateConversation(conversations, conversationId, (conversation) => {
+    const lines = [...conversation.lines];
+    const reusableDraftIndex = findReusableDraftAssistantIndex(lines, requestId, null);
+    if (reusableDraftIndex >= 0) {
+      const draft = lines[reusableDraftIndex] as AssistantLine;
+      lines[reusableDraftIndex] = {
+        ...draft,
+        thinking: (draft.thinking ?? '') + deltaText,
+      } as AssistantLine;
+    } else {
+      lines.push({
+        kind: 'assistant' as const,
+        id: `asst-${requestId}-${eventIndex || Date.now()}`,
+        ts: Date.now(),
+        requestId,
+        responseId: '',
+        phase: null,
+        text: '',
+        thinking: deltaText,
+        status: 'draft' as const,
+      });
+    }
+    return { ...conversation, lines };
+  });
+
 export const applyAssistantMessage = (
   conversations: Conversation[],
   conversationId: string,

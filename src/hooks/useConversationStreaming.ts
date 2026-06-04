@@ -8,6 +8,7 @@ import {
   applyAssistantMessage,
   applyCompletedRequest,
   applyConversationTitleUpdate,
+  applyThinkingDelta,
   applyToolDelta,
   applyToolExecution,
   applyToolProgress,
@@ -225,6 +226,23 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
 
           if (payload.kind === 'thinking') {
             markConversationThinking(mapping.conversationId, true);
+            return;
+          }
+
+          if (payload.kind === 'thinking_delta' && payload.delta) {
+            setConversations((prev) =>
+              applyThinkingDelta(
+                prev,
+                mapping.conversationId,
+                requestId || '',
+                String(payload.delta),
+                payload.eventIndex
+              )
+            );
+            return;
+          }
+
+          if (payload.kind === 'thinking_completed') {
             return;
           }
 

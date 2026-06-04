@@ -39,6 +39,9 @@ export interface AssistantLine {
   phase: AssistantPhase | null;
   text: string;
   status: 'draft' | 'done';
+  /** Reasoning / thinking content streamed before the final response.
+   *  Rendered as a collapsible "Thinking..." section in the UI. */
+  thinking?: string;
 }
 
 // ── Conversation model ────────────────────────────────────────────────────

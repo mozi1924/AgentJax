@@ -102,15 +102,33 @@ const openaiProvider = {
   // ── Model Protocol Mapping ───────────────────────────────────────
   // Tells the framework which protocol to use for a given model.
   // This is used by resolve_protocol() in the Rust registry.
+  //
+  // Resolution strategy:
+  //   1. Embedding models → "embeddings"
+  //   2. Known OpenAI first-party models → "responses" (native API)
+  //   3. Unknown / third-party / self-hosted models → "chat_completions"
+  //      (most open-source and compatible APIs use Chat Completions)
+  //
+  // Users can override this per-model via the apiProtocol config field.
   getModelProtocol(modelId) {
     const normalized = (modelId || "").trim().toLowerCase();
     if (normalized.includes("embedding") || normalized.startsWith("text-embedding-")) {
       return "embeddings";
     }
-    // Chat Completions protocol for non-OpenAI models (e.g. custom endpoints)
-    // that don't support the Responses API. Default to "responses" for
-    // genuine OpenAI models.
-    return "responses";
+
+    // Known OpenAI first-party model prefixes that support the Responses API.
+    const openaiNativePrefixes = [
+      "gpt-5", "gpt-4", "gpt-3.5",
+      "o1", "o3", "o4",
+    ];
+    const isOpenaiNative = openaiNativePrefixes.some((prefix) => normalized.startsWith(prefix));
+    if (isOpenaiNative) {
+      return "responses";
+    }
+
+    // Default to Chat Completions for all other models:
+    // DeepSeek, Ollama, vLLM, LM Studio, OpenRouter, custom fine-tunes, etc.
+    return "chat_completions";
   },
 
   // ── Model Metadata ───────────────────────────────────────────────

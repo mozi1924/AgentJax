@@ -50,8 +50,15 @@ impl AgentRuntime {
         let resolved_model = config.resolve_model_profile(req.model.as_deref())?;
         let provider_capabilities =
             crate::provider_api::get_capabilities(&resolved_model.provider.kind)?;
-        let tool_schema_format =
-            crate::provider_api::get_tool_schema_format(&resolved_model.provider.kind)?;
+        // When a model explicitly overrides the API protocol to chat_completions,
+        // tool schemas must follow the Chat Completions format (wrapped in "function" key).
+        // Otherwise, use the provider's default tool schema format.
+        let tool_schema_format = match resolved_model.api_protocol.as_deref() {
+            Some(p) if p.trim().eq_ignore_ascii_case("chat_completions") => {
+                crate::tools::ToolSchemaFormat::ChatCompletions
+            }
+            _ => crate::provider_api::get_tool_schema_format(&resolved_model.provider.kind)?,
+        };
         let provider_kind = &resolved_model.provider.kind;
         let mut developer_items = resolved_model.prompt_assembly.developer_items.clone();
         let request_started_at_unix_ms = crate::conversation_store_utils::now_unix_ms();

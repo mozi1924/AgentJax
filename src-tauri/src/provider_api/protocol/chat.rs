@@ -275,7 +275,15 @@ fn process_chat_event(
     if let Some(id) = value.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
         *response_id = id.to_string();
     }
-    if let Some(u) = parse_chat_usage(&value) { *usage = Some(u); }
+    if let Some(u) = parse_chat_usage(&value) {
+        // Emit usage in real-time so the UI can show live token counts.
+        on_delta(ProviderStreamEvent::UsageUpdated {
+            response_id: response_id.clone(),
+            usage: u.clone(),
+            aggregate_usage: u.clone(),
+        })?;
+        *usage = Some(u);
+    }
 
     if let Some(choices) = value.get("choices").and_then(Value::as_array) {
         for choice in choices {
