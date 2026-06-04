@@ -6,6 +6,7 @@ use crate::message_phase::AssistantPhase;
 use serde_json::Value;
 
 pub struct ToolProgressPersistInput<'a> {
+    pub agent_id: &'a str,
     pub conversation_id: &'a str,
     pub request_id: &'a str,
     pub event_kind: &'a str,
@@ -45,6 +46,7 @@ pub fn persist_tool_progress_event(
     jsonl_backup_enabled: bool,
 ) -> Result<(), String> {
     let ToolProgressPersistInput {
+        agent_id,
         conversation_id,
         request_id,
         event_kind,
@@ -81,11 +83,11 @@ pub fn persist_tool_progress_event(
                 .unwrap_or(Value::Null);
 
             if event_kind == "tool_call_started"
-                || !conversation_store::conversation_line_exists(conversation_id, &line_id)?
+                || !conversation_store::conversation_line_exists(agent_id, conversation_id, &line_id)?
             {
                 // First write is append-only so crashes still leave an
                 // in-progress tool marker. Later updates merge arguments.
-                conversation_store::append_line(conversation_store::AppendLineInput {
+                conversation_store::append_line(agent_id, conversation_store::AppendLineInput {
                     conversation_id: conversation_id.to_string(),
                     line: ConversationLine::Tool(ToolLine {
                         id: line_id.clone(),
@@ -106,7 +108,7 @@ pub fn persist_tool_progress_event(
             }
 
             if event_kind == "tool_call_done" {
-                conversation_store::update_line(conversation_store::UpdateLineInput {
+                conversation_store::update_line(agent_id, conversation_store::UpdateLineInput {
                     conversation_id: conversation_id.to_string(),
                     line_id,
                     line: ConversationLine::Tool(ToolLine {
@@ -139,7 +141,7 @@ pub fn persist_tool_progress_event(
                 ToolStatus::Failed
             };
 
-            conversation_store::update_line(conversation_store::UpdateLineInput {
+            conversation_store::update_line(agent_id, conversation_store::UpdateLineInput {
                 conversation_id: conversation_id.to_string(),
                 line_id,
                 line: ConversationLine::Tool(ToolLine {
@@ -170,6 +172,7 @@ pub fn persist_tool_progress_event(
 
 /// Persist a completed assistant message item in provider order.
 pub fn persist_assistant_line(
+    agent_id: &str,
     conversation_id: &str,
     request_id: &str,
     response_id: &str,
@@ -196,7 +199,7 @@ pub fn persist_assistant_line(
         thinking_token_count: None,
         status: AssistantStatus::Done,
     });
-    conversation_store::append_line(conversation_store::AppendLineInput {
+    conversation_store::append_line(agent_id, conversation_store::AppendLineInput {
         conversation_id: conversation_id.to_string(),
         line,
     })

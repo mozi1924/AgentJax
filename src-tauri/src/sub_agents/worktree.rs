@@ -31,7 +31,7 @@ impl Worktree {
         let branch = format!("sub-agent/{parent_conv_id}/{agent_id}");
 
         // Build the worktree path.
-        let session_dir = crate::conversation_store::conversation_workspace_path(parent_conv_id)
+        let session_dir = crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, parent_conv_id)
             .map_err(|e| AgentJaxError::internal(format!("Failed to get workspace path: {e}")))?;
         let worktree_path = session_dir.join("sub_agents").join(agent_id).join("worktree");
 
@@ -145,7 +145,7 @@ mod tests {
         let parent = "test-conv";
         let agent = "agent-wt-test";
         let session_dir =
-            crate::conversation_store::conversation_workspace_path(parent)
+            crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, parent)
                 .expect("workspace path");
         let worktree_path = session_dir
             .join("sub_agents")

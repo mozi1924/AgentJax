@@ -113,6 +113,7 @@ pub async fn run_sub_agent(
         client_metadata: None,
         generate: None,
         request_id: Some(format!("sub-agent-{}", agent_id)),
+        agent_id: Some(crate::config::constants::DEFAULT_AGENT_ID.to_string()),
         temperature: None,
         top_p: None,
         presence_penalty: None,
@@ -544,7 +545,7 @@ fn load_conversation_context(parent_conv_id: &str) -> Option<String> {
 
     // Open the parent conversation's LCM store
     let lcm_config = LcmConfig::default();
-    let store_path = match crate::lcm::lcm_store_path(parent_conv_id) {
+    let store_path = match crate::lcm::lcm_store_path(crate::config::constants::DEFAULT_AGENT_ID, parent_conv_id) {
         Ok(p) => p,
         Err(e) => {
             log::warn!("Memory agent: failed to get LCM store path for '{}': {e}", parent_conv_id);

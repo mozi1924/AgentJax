@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// Persists provider stream side effects and maintains local token estimates.
 #[derive(Clone)]
 pub(super) struct ChatStreamObserver {
+    agent_id: String,
     conversation_id: String,
     request_id: String,
     model_id: Option<String>,
@@ -19,6 +20,7 @@ pub(super) struct ChatStreamObserver {
 
 impl ChatStreamObserver {
     pub(super) fn new(
+        agent_id: String,
         conversation_id: String,
         request_id: String,
         model_id: Option<String>,
@@ -26,6 +28,7 @@ impl ChatStreamObserver {
         jsonl_backup_enabled: bool,
     ) -> Self {
         Self {
+            agent_id,
             conversation_id,
             request_id,
             model_id,
@@ -46,6 +49,7 @@ impl ChatStreamObserver {
                 ..
             } => {
                 let _ = persist_tool_progress_event(ToolProgressPersistInput {
+                    agent_id: &self.agent_id,
                     conversation_id: &self.conversation_id,
                     request_id: &self.request_id,
                     event_kind: "tool_call_started",
@@ -67,6 +71,7 @@ impl ChatStreamObserver {
                 ..
             } => {
                 let _ = persist_tool_progress_event(ToolProgressPersistInput {
+                    agent_id: &self.agent_id,
                     conversation_id: &self.conversation_id,
                     request_id: &self.request_id,
                     event_kind: "tool_call_done",
@@ -91,6 +96,7 @@ impl ChatStreamObserver {
                 ..
             } => {
                 let _ = persist_tool_progress_event(ToolProgressPersistInput {
+                    agent_id: &self.agent_id,
                     conversation_id: &self.conversation_id,
                     request_id: &self.request_id,
                     event_kind: "tool_call_exec",
@@ -111,8 +117,7 @@ impl ChatStreamObserver {
                 response_id,
             }
                 if *phase == Some(crate::message_phase::AssistantPhase::Commentary) => {
-                    let _ = persist_assistant_line(
-                        &self.conversation_id,
+                    let _ = persist_assistant_line(                        &self.agent_id,                        &self.conversation_id,
                         &self.request_id,
                         response_id,
                         *phase,
@@ -127,6 +132,7 @@ impl ChatStreamObserver {
                 response_id,
             } => {
                 let _ = persist_assistant_line(
+                    &self.agent_id,
                     &self.conversation_id,
                     &self.request_id,
                     response_id,
@@ -153,6 +159,7 @@ impl ChatStreamObserver {
                 .store(latest_usage_record.usage.total_tokens, Ordering::Relaxed);
             if self.jsonl_backup_enabled
                 && let Err(err) = conversation_store::update_conversation_token_usage(
+                    &self.agent_id,
                     &self.conversation_id,
                     &self.request_id,
                     &latest_usage_record.response_id,
@@ -179,6 +186,7 @@ impl ChatStreamObserver {
             };
             if self.jsonl_backup_enabled
                 && let Err(err) = conversation_store::update_conversation_token_usage(
+                    &self.agent_id,
                     &self.conversation_id,
                     &self.request_id,
                     &response.response_id,

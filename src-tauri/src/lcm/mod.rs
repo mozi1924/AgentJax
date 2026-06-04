@@ -54,10 +54,10 @@ use crate::error::{AgentJaxError, AgentJaxResult};
 
 /// Return the path to the LCM SQLite database for a conversation.
 ///
-/// The database lives alongside the existing JSONL messages file:
-/// `~/.agentjax/sessions/{conversation_id}/lcm.db`
-pub fn lcm_store_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
-    let dir = crate::conversation_store::conversation_workspace_path(conversation_id)
+/// The database lives in the agent-scoped session directory:
+/// `~/.agentjax/agents/{agent_id}/sessions/{conversation_id}/lcm.db`
+pub fn lcm_store_path(agent_id: &str, conversation_id: &str) -> AgentJaxResult<PathBuf> {
+    let dir = crate::conversation_store::conversation_workspace_path(agent_id, conversation_id)
         .map_err(|e| AgentJaxError::internal(format!("Failed to get workspace path: {e}")))?
         .parent()
         .ok_or_else(|| {
@@ -78,10 +78,11 @@ pub fn lcm_store_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
 /// Currently only used in tests; production uses `open_lcm_engine_with_summarizer`.
 #[allow(dead_code)]
 pub fn open_lcm_engine(
+    agent_id: &str,
     conversation_id: &str,
     lcm_config: &LcmConfig,
 ) -> AgentJaxResult<Arc<LcmEngine>> {
-    let db_path = lcm_store_path(conversation_id)?;
+    let db_path = lcm_store_path(agent_id, conversation_id)?;
     let store = Arc::new(
         LcmStore::open(&db_path, lcm_config.clone())
             .map_err(|e| AgentJaxError::internal(format!("Failed to open LCM store: {e}")))?,
@@ -104,11 +105,12 @@ pub fn open_lcm_engine(
 /// Resolves the summarization model from `LcmConfig.summarization_model`
 /// (or falls back to `AppConfig.utility_small_model`).
 pub fn open_lcm_engine_with_summarizer(
+    agent_id: &str,
     conversation_id: &str,
     lcm_config: &LcmConfig,
     app_config: &crate::config::AppConfig,
 ) -> AgentJaxResult<Arc<LcmEngine>> {
-    let db_path = lcm_store_path(conversation_id)?;
+    let db_path = lcm_store_path(agent_id, conversation_id)?;
     let store = Arc::new(
         LcmStore::open(&db_path, lcm_config.clone())
             .map_err(|e| AgentJaxError::internal(format!("Failed to open LCM store: {e}")))?,

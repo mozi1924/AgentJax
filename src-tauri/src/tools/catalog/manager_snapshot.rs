@@ -448,7 +448,7 @@ impl ToolCatalog {
             .conversation_id
             .as_deref()
             .and_then(|conversation_id| {
-                crate::conversation_store::load_conversation_dynamic_tools(conversation_id).ok()
+                crate::conversation_store::load_conversation_dynamic_tools(context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID), conversation_id).ok()
             })
             .unwrap_or_default()
             .into_iter()

@@ -49,7 +49,6 @@ pub fn agents_dir() -> AgentJaxResult<PathBuf> {
     Ok(agentjax_home_dir()?.join(AGENTS_DIR_NAME))
 }
 
-#[allow(dead_code)]
 /// `~/.agentjax/agents/{agent_id}/` — the directory for a specific agent.
 pub fn agent_dir(agent_id: &str) -> AgentJaxResult<PathBuf> {
     Ok(agents_dir()?.join(sanitize_agent_id(agent_id)))
@@ -123,8 +122,7 @@ pub fn cache_dir() -> AgentJaxResult<PathBuf> {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-#[allow(dead_code)]
-fn sanitize_agent_id(agent_id: &str) -> String {
+pub(crate) fn sanitize_agent_id(agent_id: &str) -> String {
     agent_id
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')

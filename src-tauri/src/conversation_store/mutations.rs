@@ -8,7 +8,7 @@ use super::locks::{
     replace_cached_line_ids, replace_cached_summary, with_conversation_lock,
 };
 use super::paths::{
-    conversation_dir_path, conversation_messages_path, conversation_metadata_path,
+    conversation_messages_path, conversation_metadata_path,
     ensure_session_layout,
 };
 use super::types::{
@@ -26,15 +26,15 @@ use std::fs;
 
 // ── Ensure existence ──────────────────────────────────────────────────────
 
-pub fn ensure_conversation(conversation_id: &str) -> crate::error::AgentJaxResult<ConversationMeta> {
+pub fn ensure_conversation(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<ConversationMeta> {
     with_conversation_lock(conversation_id, || {
-        ensure_conversation_inner(conversation_id)
+        ensure_conversation_inner(agent_id, conversation_id)
     })
 }
 
-fn ensure_conversation_inner(conversation_id: &str) -> crate::error::AgentJaxResult<ConversationMeta> {
-    let metadata_path = conversation_metadata_path(conversation_id)?;
-    let messages_path = conversation_messages_path(conversation_id)?;
+fn ensure_conversation_inner(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<ConversationMeta> {
+    let metadata_path = conversation_metadata_path(agent_id, conversation_id)?;
+    let messages_path = conversation_messages_path(agent_id, conversation_id)?;
     if let Some(mut data) = read_conversation_file(&metadata_path, &messages_path)? {
         let mut changed = false;
         if data.meta.title.trim().is_empty() {
@@ -69,19 +69,19 @@ fn ensure_conversation_inner(conversation_id: &str) -> crate::error::AgentJaxRes
         lines: Vec::new(),
     };
 
-    ensure_session_layout(conversation_id)?;
+    ensure_session_layout(agent_id, conversation_id)?;
     write_conversation_file(&metadata_path, &messages_path, &data)?;
     replace_cached_summary(conversation_id, summary_from_meta(&data.meta))?;
 
     // Also ensure LCM conversation metadata exists (immutable store).
-    let _ = ensure_lcm_conversation_meta(conversation_id);
+    let _ = ensure_lcm_conversation_meta(agent_id, conversation_id);
 
     Ok(data.meta)
 }
 
 /// Ensure LCM conversation_meta row exists for this conversation.
-fn ensure_lcm_conversation_meta(conversation_id: &str) -> crate::error::AgentJaxResult<()> {
-    let db_path = match crate::conversation_store::paths::conversation_lcm_db_path(conversation_id) {
+fn ensure_lcm_conversation_meta(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<()> {
+    let db_path = match crate::conversation_store::paths::conversation_lcm_db_path(agent_id, conversation_id) {
         Ok(p) => p,
         Err(_) => return Ok(()),
     };
@@ -96,27 +96,31 @@ fn ensure_lcm_conversation_meta(conversation_id: &str) -> crate::error::AgentJax
 
 // ── Append line ───────────────────────────────────────────────────────────
 
-pub fn append_line(input: AppendLineInput) -> crate::error::AgentJaxResult<()> {
+pub fn append_line(agent_id: &str, input: AppendLineInput) -> crate::error::AgentJaxResult<()> {
     let conversation_id = input.conversation_id.clone();
-    with_conversation_lock(&conversation_id, move || append_line_inner(input))
+    let agent_id = agent_id.to_string();
+    with_conversation_lock(&conversation_id, move || append_line_inner(&agent_id, input))
 }
 
 // ── Update existing line (in-place replace by id) ─────────────────────────
 
-pub fn update_line(input: UpdateLineInput) -> crate::error::AgentJaxResult<()> {
+pub fn update_line(agent_id: &str, input: UpdateLineInput) -> crate::error::AgentJaxResult<()> {
     let conversation_id = input.conversation_id.clone();
-    with_conversation_lock(&conversation_id, move || update_line_inner(input))
+    let agent_id = agent_id.to_string();
+    with_conversation_lock(&conversation_id, move || update_line_inner(&agent_id, input))
 }
 
-pub fn conversation_line_exists(conversation_id: &str, line_id: &str) -> crate::error::AgentJaxResult<bool> {
+pub fn conversation_line_exists(agent_id: &str, conversation_id: &str, line_id: &str) -> crate::error::AgentJaxResult<bool> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        let messages_path = conversation_messages_path(conversation_id)?;
+        let messages_path = conversation_messages_path(&agent_id, conversation_id)?;
         line_id_exists(conversation_id, &messages_path, line_id)
     })
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn update_conversation_token_usage(
+    agent_id: &str,
     conversation_id: &str,
     request_id: &str,
     response_id: &str,
@@ -126,10 +130,11 @@ pub fn update_conversation_token_usage(
     aggregate_usage: Option<&ProviderUsage>,
     usage_hops: &[ProviderUsageRecord],
 ) -> crate::error::AgentJaxResult<()> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        let metadata_path = conversation_metadata_path(conversation_id)?;
-        let messages_path = conversation_messages_path(conversation_id)?;
-        let mut meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
+        let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
+        let messages_path = conversation_messages_path(&agent_id, conversation_id)?;
+        let mut meta = load_or_create_meta(&agent_id, conversation_id, &metadata_path, &messages_path)?;
 
         let aggregate_usage = aggregate_usage.unwrap_or(latest_usage);
 
@@ -170,10 +175,10 @@ pub fn update_conversation_token_usage(
     })
 }
 
-fn append_line_inner(input: AppendLineInput) -> crate::error::AgentJaxResult<()> {
-    let metadata_path = conversation_metadata_path(&input.conversation_id)?;
-    let messages_path = conversation_messages_path(&input.conversation_id)?;
-    let mut meta = load_or_create_meta(&input.conversation_id, &metadata_path, &messages_path)?;
+fn append_line_inner(agent_id: &str, input: AppendLineInput) -> crate::error::AgentJaxResult<()> {
+    let metadata_path = conversation_metadata_path(agent_id, &input.conversation_id)?;
+    let messages_path = conversation_messages_path(agent_id, &input.conversation_id)?;
+    let mut meta = load_or_create_meta(agent_id, &input.conversation_id, &metadata_path, &messages_path)?;
 
     // Deduplicate: skip if line with same id already exists.
     if line_id_exists(&input.conversation_id, &messages_path, input.line.id())? {
@@ -198,10 +203,10 @@ fn append_line_inner(input: AppendLineInput) -> crate::error::AgentJaxResult<()>
     insert_cached_line_id(&input.conversation_id, input.line.id())
 }
 
-fn update_line_inner(input: UpdateLineInput) -> crate::error::AgentJaxResult<()> {
-    let metadata_path = conversation_metadata_path(&input.conversation_id)?;
-    let messages_path = conversation_messages_path(&input.conversation_id)?;
-    let current_meta = load_or_create_meta(&input.conversation_id, &metadata_path, &messages_path)?;
+fn update_line_inner(agent_id: &str, input: UpdateLineInput) -> crate::error::AgentJaxResult<()> {
+    let metadata_path = conversation_metadata_path(agent_id, &input.conversation_id)?;
+    let messages_path = conversation_messages_path(agent_id, &input.conversation_id)?;
+    let current_meta = load_or_create_meta(agent_id, &input.conversation_id, &metadata_path, &messages_path)?;
     let replacement = input.line.clone();
     let line_id = input.line_id.clone();
 
@@ -222,21 +227,24 @@ fn update_line_inner(input: UpdateLineInput) -> crate::error::AgentJaxResult<()>
 // ── Rename ────────────────────────────────────────────────────────────────
 
 pub fn rename_conversation(
+    agent_id: &str,
     conversation_id: &str,
     title: &str,
 ) -> crate::error::AgentJaxResult<ConversationSummary> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        rename_conversation_inner(conversation_id, title)
+        rename_conversation_inner(&agent_id, conversation_id, title)
     })
 }
 
 fn rename_conversation_inner(
+    agent_id: &str,
     conversation_id: &str,
     title: &str,
 ) -> crate::error::AgentJaxResult<ConversationSummary> {
-    let metadata_path = conversation_metadata_path(conversation_id)?;
-    let messages_path = conversation_messages_path(conversation_id)?;
-    let mut meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
+    let metadata_path = conversation_metadata_path(agent_id, conversation_id)?;
+    let messages_path = conversation_messages_path(agent_id, conversation_id)?;
+    let mut meta = load_or_create_meta(agent_id, conversation_id, &metadata_path, &messages_path)?;
 
     meta.title = normalize_title(title);
     meta.title_source = "manual".to_string();
@@ -250,32 +258,37 @@ fn rename_conversation_inner(
 // ── Auto-title update ─────────────────────────────────────────────────────
 
 pub fn update_auto_title(
+    agent_id: &str,
     conversation_id: &str,
     title: &str,
 ) -> crate::error::AgentJaxResult<Option<ConversationSummary>> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        update_auto_title_inner(conversation_id, title)
+        update_auto_title_inner(&agent_id, conversation_id, title)
     })
 }
 
 // ── Conversation-scoped dynamic tools ────────────────────────────────────
 
 pub fn update_conversation_dynamic_tools(
+    agent_id: &str,
     conversation_id: &str,
     tools: Vec<ConversationDynamicTool>,
 ) -> crate::error::AgentJaxResult<()> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        update_conversation_dynamic_tools_inner(conversation_id, tools)
+        update_conversation_dynamic_tools_inner(&agent_id, conversation_id, tools)
     })
 }
 
 fn update_conversation_dynamic_tools_inner(
+    agent_id: &str,
     conversation_id: &str,
     tools: Vec<ConversationDynamicTool>,
 ) -> crate::error::AgentJaxResult<()> {
-    let metadata_path = conversation_metadata_path(conversation_id)?;
-    let messages_path = conversation_messages_path(conversation_id)?;
-    let mut meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
+    let metadata_path = conversation_metadata_path(agent_id, conversation_id)?;
+    let messages_path = conversation_messages_path(agent_id, conversation_id)?;
+    let mut meta = load_or_create_meta(agent_id, conversation_id, &metadata_path, &messages_path)?;
 
     if tools.is_empty() {
         meta.metadata
@@ -293,13 +306,15 @@ fn update_conversation_dynamic_tools_inner(
 }
 
 pub fn upsert_conversation_dynamic_tool(
+    agent_id: &str,
     conversation_id: &str,
     tool: ConversationDynamicTool,
 ) -> crate::error::AgentJaxResult<()> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        let metadata_path = conversation_metadata_path(conversation_id)?;
-        let messages_path = conversation_messages_path(conversation_id)?;
-        let meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
+        let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
+        let messages_path = conversation_messages_path(&agent_id, conversation_id)?;
+        let meta = load_or_create_meta(&agent_id, conversation_id, &metadata_path, &messages_path)?;
         let mut tools = meta
             .metadata
             .get(CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY)
@@ -315,18 +330,20 @@ pub fn upsert_conversation_dynamic_tool(
             tools.push(tool);
         }
 
-        update_conversation_dynamic_tools_inner(conversation_id, tools)
+        update_conversation_dynamic_tools_inner(&agent_id, conversation_id, tools)
     })
 }
 
 pub fn remove_conversation_dynamic_tool(
+    agent_id: &str,
     conversation_id: &str,
     tool_name: &str,
 ) -> crate::error::AgentJaxResult<()> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        let metadata_path = conversation_metadata_path(conversation_id)?;
-        let messages_path = conversation_messages_path(conversation_id)?;
-        let meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
+        let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
+        let messages_path = conversation_messages_path(&agent_id, conversation_id)?;
+        let meta = load_or_create_meta(&agent_id, conversation_id, &metadata_path, &messages_path)?;
         let mut tools = meta
             .metadata
             .get(CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY)
@@ -337,18 +354,20 @@ pub fn remove_conversation_dynamic_tool(
             .unwrap_or_default();
 
         tools.retain(|tool| tool.name != tool_name);
-        update_conversation_dynamic_tools_inner(conversation_id, tools)
+        update_conversation_dynamic_tools_inner(&agent_id, conversation_id, tools)
     })
 }
 
 pub fn update_conversation_mounted_tool_sources(
+    agent_id: &str,
     conversation_id: &str,
     sources: Vec<ConversationMountedToolSource>,
 ) -> crate::error::AgentJaxResult<()> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        let metadata_path = conversation_metadata_path(conversation_id)?;
-        let messages_path = conversation_messages_path(conversation_id)?;
-        let mut meta = load_or_create_meta(conversation_id, &metadata_path, &messages_path)?;
+        let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
+        let messages_path = conversation_messages_path(&agent_id, conversation_id)?;
+        let mut meta = load_or_create_meta(&agent_id, conversation_id, &metadata_path, &messages_path)?;
 
         meta.metadata
             .remove(CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY);
@@ -374,12 +393,13 @@ pub fn update_conversation_mounted_tool_sources(
 }
 
 fn update_auto_title_inner(
+    agent_id: &str,
     conversation_id: &str,
     title: &str,
 ) -> crate::error::AgentJaxResult<Option<ConversationSummary>> {
-    let metadata_path = conversation_metadata_path(conversation_id)?;
-    let messages_path = conversation_messages_path(conversation_id)?;
-    let Some(mut meta) = load_existing_meta(conversation_id, &metadata_path, &messages_path)?
+    let metadata_path = conversation_metadata_path(agent_id, conversation_id)?;
+    let messages_path = conversation_messages_path(agent_id, conversation_id)?;
+    let Some(mut meta) = load_existing_meta(agent_id, conversation_id, &metadata_path, &messages_path)?
     else {
         return Ok(None);
     };
@@ -401,14 +421,15 @@ fn update_auto_title_inner(
 
 // ── Delete ────────────────────────────────────────────────────────────────
 
-pub fn delete_conversation(conversation_id: &str) -> crate::error::AgentJaxResult<bool> {
+pub fn delete_conversation(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<bool> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        delete_conversation_inner(conversation_id)
+        delete_conversation_inner(&agent_id, conversation_id)
     })
 }
 
-fn delete_conversation_inner(conversation_id: &str) -> crate::error::AgentJaxResult<bool> {
-    let dir = conversation_dir_path(conversation_id)?;
+fn delete_conversation_inner(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<bool> {
+    let dir = crate::conversation_store::paths::conversation_dir_path(agent_id, conversation_id)?;
     if !dir.exists() {
         invalidate_cached_conversation_index(conversation_id)?;
         return Ok(false);
@@ -421,6 +442,7 @@ fn delete_conversation_inner(conversation_id: &str) -> crate::error::AgentJaxRes
 }
 
 fn load_or_create_meta(
+    agent_id: &str,
     conversation_id: &str,
     metadata_path: &std::path::Path,
     messages_path: &std::path::Path,
@@ -431,15 +453,16 @@ fn load_or_create_meta(
 
     if messages_path.exists() {
         let Some(data) = read_conversation_file(metadata_path, messages_path)? else {
-            return ensure_conversation_inner(conversation_id);
+            return ensure_conversation_inner(agent_id, conversation_id);
         };
         return Ok(data.meta);
     }
 
-    ensure_conversation_inner(conversation_id)
+    ensure_conversation_inner(agent_id, conversation_id)
 }
 
 fn load_existing_meta(
+    agent_id: &str,
     conversation_id: &str,
     metadata_path: &std::path::Path,
     messages_path: &std::path::Path,
@@ -455,7 +478,7 @@ fn load_existing_meta(
         return Ok(Some(data.meta));
     }
 
-    let _ = conversation_id;
+    let _ = (agent_id, conversation_id);
     Ok(None)
 }
 

@@ -146,7 +146,7 @@ struct SubAgentArgs {
         rt.block_on(async {
             let conv_id = format!("conv_batch_test_{}", uuid::Uuid::new_v4());
             // Create the conversation workspace directory
-            let workspace_dir = crate::conversation_store::conversation_workspace_path(&conv_id).unwrap();
+            let workspace_dir = crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, &conv_id).unwrap();
             std::fs::create_dir_all(&workspace_dir).unwrap();
             let input_path = workspace_dir.join("items.jsonl");
             std::fs::write(&input_path, r#"{"item": 1}
@@ -427,7 +427,7 @@ async fn execute_batch(
     let workspace_dir = context
         .conversation_id
         .as_deref()
-        .and_then(|id| crate::conversation_store::conversation_workspace_path(id).ok())
+        .and_then(|id| crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, id).ok())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let full_path = workspace_dir.join(input_path);
 

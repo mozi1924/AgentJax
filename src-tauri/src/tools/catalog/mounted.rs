@@ -19,7 +19,9 @@ impl ToolCatalog {
             return MountedToolSourceSessions::new();
         };
 
+        let agent_id = context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID);
         let stored_sources = match crate::conversation_store::load_conversation_mounted_tool_sources(
+            agent_id,
             conversation_id,
         ) {
             Ok(sources) => sources,
@@ -90,6 +92,7 @@ impl ToolCatalog {
 
     pub fn persist_mounted_servers(
         &self,
+        agent_id: &str,
         conversation_id: &str,
         mounted_servers: &MountedToolSourceSessions,
     ) -> crate::error::AgentJaxResult<()> {
@@ -116,6 +119,7 @@ impl ToolCatalog {
             )
             .collect::<Vec<_>>();
         crate::conversation_store::update_conversation_mounted_tool_sources(
+            agent_id,
             conversation_id,
             persisted_sources,
         )?;
@@ -141,7 +145,7 @@ impl ToolCatalog {
         };
 
         let workspace =
-            match crate::conversation_store::conversation_workspace_path(conversation_id) {
+            match crate::conversation_store::conversation_workspace_path(context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID), conversation_id) {
                 Ok(path) => path,
                 Err(err) => {
                     log::warn!(

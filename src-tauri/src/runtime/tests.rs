@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 fn lcm_engine_for_test(conversation_id: &str) -> Arc<crate::lcm::LcmEngine> {
     let config = crate::lcm::LcmConfig::default();
-    crate::lcm::open_lcm_engine(conversation_id, &config)
+    crate::lcm::open_lcm_engine(crate::config::constants::DEFAULT_AGENT_ID, conversation_id, &config)
         .expect("Failed to open LCM engine for test")
 }
 

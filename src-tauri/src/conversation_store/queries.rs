@@ -1,6 +1,9 @@
 use super::file_io::{read_conversation_file, read_conversation_meta, summary_from_meta};
 use super::locks::{cached_summary, replace_cached_summary, with_conversation_lock};
-use super::paths::{conversation_messages_path, conversation_metadata_path, list_conversation_ids};
+use super::paths::{
+    conversation_messages_path, conversation_metadata_path, list_conversation_ids,
+    conversation_lcm_db_path,
+};
 use super::types::{
     CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY, CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
     CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY, CONVERSATION_TOKEN_USAGE_METADATA_KEY,
@@ -9,6 +12,7 @@ use super::types::{
     ConversationMountedToolSource, ConversationSummary, TitleGenerationCandidate,
 };
 use serde_json::Value;
+use std::path::Path;
 
 fn token_count_from_usage_value(value: &Value) -> Option<usize> {
     value
@@ -41,9 +45,10 @@ fn token_usage_count_from_meta(meta: &ConversationMeta) -> Option<usize> {
         })
 }
 
-pub fn load_conversation_token_usage_count(conversation_id: &str) -> crate::error::AgentJaxResult<Option<usize>> {
+pub fn load_conversation_token_usage_count(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<Option<usize>> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        let metadata_path = conversation_metadata_path(conversation_id)?;
+        let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
         let Some(meta) = read_conversation_meta(&metadata_path)? else {
             return Ok(None);
         };
@@ -53,19 +58,19 @@ pub fn load_conversation_token_usage_count(conversation_id: &str) -> crate::erro
 
 // ── List all conversations ────────────────────────────────────────────────
 
-pub fn list_conversations() -> crate::error::AgentJaxResult<Vec<ConversationSummary>> {
+pub fn list_conversations(agent_id: &str) -> crate::error::AgentJaxResult<Vec<ConversationSummary>> {
     let mut out = Vec::new();
 
-    for conversation_id in list_conversation_ids()? {
+    for conversation_id in list_conversation_ids(agent_id)? {
         if let Some(summary) = with_conversation_lock(&conversation_id, || {
             if let Some(summary) = cached_summary(&conversation_id)? {
                 return Ok(Some(summary));
             }
 
-            let metadata_path = conversation_metadata_path(&conversation_id)?;
+            let metadata_path = conversation_metadata_path(agent_id, &conversation_id)?;
             let meta = if let Some(meta) = read_conversation_meta(&metadata_path)? {
                 meta
-            } else if let Some(meta) = try_load_meta_from_lcm(&conversation_id, &metadata_path)? {
+            } else if let Some(meta) = try_load_meta_from_lcm(agent_id, &conversation_id, &metadata_path)? {
                 meta
             } else {
                 return Ok(None);
@@ -85,13 +90,11 @@ pub fn list_conversations() -> crate::error::AgentJaxResult<Vec<ConversationSumm
 /// Try to load conversation metadata from the LCM store when `metadata.json`
 /// does not exist (LCM-only conversations).
 fn try_load_meta_from_lcm(
+    agent_id: &str,
     conversation_id: &str,
-    metadata_path: &std::path::Path,
+    _metadata_path: &std::path::Path,
 ) -> crate::error::AgentJaxResult<Option<ConversationMeta>> {
-    let db_path = metadata_path
-        .parent()
-        .ok_or_else(|| "Invalid metadata path".to_string())?
-        .join("lcm.db");
+    let db_path = crate::conversation_store::paths::conversation_lcm_db_path(agent_id, conversation_id)?;
 
     if !db_path.exists() {
         return Ok(None);
@@ -108,17 +111,18 @@ fn try_load_meta_from_lcm(
 
 // ── Load full conversation detail ─────────────────────────────────────────
 
-pub fn load_conversation(conversation_id: &str) -> crate::error::AgentJaxResult<Option<ConversationDetail>> {
+pub fn load_conversation(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<Option<ConversationDetail>> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        let metadata_path = conversation_metadata_path(conversation_id)?;
+        let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
 
         // ── Try LCM store first (single source of truth) ──────────────
-        if let Ok(Some(detail)) = try_load_from_lcm(conversation_id, &metadata_path) {
+        if let Ok(Some(detail)) = try_load_from_lcm(&agent_id, conversation_id, &metadata_path) {
             return Ok(Some(detail));
         }
 
         // ── Fall back to legacy JSONL ─────────────────────────────────
-        let messages_path = conversation_messages_path(conversation_id)?;
+        let messages_path = conversation_messages_path(&agent_id, conversation_id)?;
         let Some(data) = read_conversation_file(&metadata_path, &messages_path)? else {
             return Ok(None);
         };
@@ -136,13 +140,11 @@ pub fn load_conversation(conversation_id: &str) -> crate::error::AgentJaxResult<
 
 /// Try to load conversation detail from the LCM immutable store.
 fn try_load_from_lcm(
+    agent_id: &str,
     conversation_id: &str,
     metadata_path: &std::path::Path,
 ) -> crate::error::AgentJaxResult<Option<ConversationDetail>> {
-    let db_path = metadata_path
-        .parent()
-        .ok_or_else(|| "Invalid metadata path".to_string())?
-        .join("lcm.db");
+    let db_path = crate::conversation_store::paths::conversation_lcm_db_path(agent_id, conversation_id)?;
 
     if !db_path.exists() {
         return Ok(None);
@@ -234,11 +236,13 @@ fn try_load_from_lcm(
 // ── Load title generation candidate ───────────────────────────────────────
 
 pub fn load_title_generation_candidate(
+    agent_id: &str,
     conversation_id: &str,
 ) -> crate::error::AgentJaxResult<Option<TitleGenerationCandidate>> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        let metadata_path = conversation_metadata_path(conversation_id)?;
-        let messages_path = conversation_messages_path(conversation_id)?;
+        let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
+        let messages_path = conversation_messages_path(&agent_id, conversation_id)?;
         let Some(data) = read_conversation_file(&metadata_path, &messages_path)? else {
             return Ok(None);
         };
@@ -289,10 +293,12 @@ pub fn load_title_generation_candidate(
 // ── Load conversation-scoped dynamic tools ───────────────────────────────
 
 pub fn load_conversation_dynamic_tools(
+    agent_id: &str,
     conversation_id: &str,
 ) -> crate::error::AgentJaxResult<Vec<ConversationDynamicTool>> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        let metadata_path = conversation_metadata_path(conversation_id)?;
+        let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
         let Some(meta) = read_conversation_meta(&metadata_path)? else {
             return Ok(Vec::new());
         };
@@ -307,10 +313,12 @@ pub fn load_conversation_dynamic_tools(
 }
 
 pub fn load_conversation_mounted_tool_sources(
+    agent_id: &str,
     conversation_id: &str,
 ) -> crate::error::AgentJaxResult<Vec<ConversationMountedToolSource>> {
+    let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
-        let metadata_path = conversation_metadata_path(conversation_id)?;
+        let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
         let Some(meta) = read_conversation_meta(&metadata_path)? else {
             return Ok(Vec::new());
         };

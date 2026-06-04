@@ -16,6 +16,10 @@ pub struct ChatRequest {
     pub generate: Option<bool>,
     pub request_id: Option<String>,
 
+    /// Agent profile to use for this request. Defaults to "main".
+    #[serde(default)]
+    pub agent_id: Option<String>,
+
     // ── Sampling parameters ──
     #[serde(default)]
     pub temperature: Option<f32>,
@@ -44,6 +48,8 @@ pub struct CancelChatRequest {
 pub struct LoadConversationRequest {
     pub conversation_id: String,
     pub model: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,18 +57,24 @@ pub struct LoadConversationRequest {
 pub struct RenameConversationRequest {
     pub conversation_id: String,
     pub title: String,
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteConversationRequest {
     pub conversation_id: String,
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoadConversationDynamicToolsRequest {
     pub conversation_id: String,
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,6 +82,8 @@ pub struct LoadConversationDynamicToolsRequest {
 pub struct ReplaceConversationDynamicToolsRequest {
     pub conversation_id: String,
     pub tools: Vec<crate::conversation_store::ConversationDynamicTool>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,6 +91,8 @@ pub struct ReplaceConversationDynamicToolsRequest {
 pub struct UpsertConversationDynamicToolRequest {
     pub conversation_id: String,
     pub tool: crate::conversation_store::ConversationDynamicTool,
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,6 +100,8 @@ pub struct UpsertConversationDynamicToolRequest {
 pub struct RemoveConversationDynamicToolRequest {
     pub conversation_id: String,
     pub tool_name: String,
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

@@ -89,7 +89,7 @@ fn delete_conversation_removes_session_directory() {
     let _h = setup_test_home();
     let cid = format!("td-{}", Uuid::new_v4());
     let p = conversation_dir_path(&cid).expect("path");
-    ensure_conversation(&cid).expect("ensure");
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
     assert!(p.exists());
     assert!(delete_conversation(&cid).expect("del"));
     assert!(!p.exists());
@@ -101,13 +101,13 @@ fn load_context_merges_user_and_assistant() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tc-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: u("u1", "r1", "hi"),
     })
     .expect("u");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: a(
             "a1",
@@ -119,7 +119,7 @@ fn load_context_merges_user_and_assistant() {
         ),
     })
     .expect("a");
-    let ctx = load_context_for_request(&cid, None).expect("ctx");
+    let ctx = load_context_for_request(crate::config::constants::DEFAULT_AGENT_ID, &cid, None).expect("ctx");
     assert!(ctx.input_items.len() >= 2);
     assert!(
         ctx.input_items
@@ -139,8 +139,8 @@ fn load_context_replays_commentary_and_final_with_phase() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tphase-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: a(
             "a1",
@@ -152,7 +152,7 @@ fn load_context_replays_commentary_and_final_with_phase() {
         ),
     })
     .expect("commentary");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: a(
             "a2",
@@ -165,7 +165,7 @@ fn load_context_replays_commentary_and_final_with_phase() {
     })
     .expect("final");
 
-    let ctx = load_context_for_request(&cid, None).expect("ctx");
+    let ctx = load_context_for_request(crate::config::constants::DEFAULT_AGENT_ID, &cid, None).expect("ctx");
     let assistant_phases: Vec<&str> = ctx
         .input_items
         .iter()
@@ -182,14 +182,14 @@ fn load_context_omits_phase_field_for_unknown_assistant_phase() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tphase-unknown-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: a("a1", "r1", "resp1", None, "done", AssistantStatus::Done),
     })
     .expect("assistant");
 
-    let ctx = load_context_for_request(&cid, None).expect("ctx");
+    let ctx = load_context_for_request(crate::config::constants::DEFAULT_AGENT_ID, &cid, None).expect("ctx");
     let assistant_item = ctx
         .input_items
         .iter()
@@ -205,13 +205,13 @@ fn load_context_includes_tool_calls_with_outputs() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tt-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: u("u1", "r1", "calc"),
     })
     .expect("u");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: t(
             "t1",
@@ -224,7 +224,7 @@ fn load_context_includes_tool_calls_with_outputs() {
         ),
     })
     .expect("t");
-    let ctx = load_context_for_request(&cid, None).expect("ctx");
+    let ctx = load_context_for_request(crate::config::constants::DEFAULT_AGENT_ID, &cid, None).expect("ctx");
     assert!(
         ctx.input_items
             .iter()
@@ -247,8 +247,8 @@ fn update_line_preserves_existing_tool_args_when_exec_event_omits_them() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tmerge-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: t(
             "t1",
@@ -276,7 +276,7 @@ fn update_line_preserves_existing_tool_args_when_exec_event_omits_them() {
     })
     .expect("done");
 
-    let ctx = load_context_for_request(&cid, None).expect("ctx");
+    let ctx = load_context_for_request(crate::config::constants::DEFAULT_AGENT_ID, &cid, None).expect("ctx");
     let args = ctx
         .input_items
         .iter()
@@ -296,13 +296,13 @@ fn update_line_refreshes_summary_metadata_after_streaming_rewrite() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tsummary-update-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: u("u1", "r1", "original user"),
     })
     .expect("user");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: a(
             "a1",
@@ -346,13 +346,13 @@ fn commentary_is_excluded_from_summary_metadata() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tsummary-commentary-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: u("u1", "r1", "需要修一个旁白问题"),
     })
     .expect("user");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: a(
             "a1",
@@ -364,7 +364,7 @@ fn commentary_is_excluded_from_summary_metadata() {
         ),
     })
     .expect("commentary");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: a(
             "a2",
@@ -397,13 +397,13 @@ fn summary_refresh_rebuild_still_excludes_commentary_preview() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("trefresh-commentary-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: u("u1", "r1", "请继续"),
     })
     .expect("user");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: a(
             "a1",
@@ -436,15 +436,15 @@ fn duplicate_append_is_skipped_with_cached_line_ids() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tdup-cache-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
 
     let first_line = u("u-dup", "r1", "hello once");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: first_line.clone(),
     })
     .expect("first append");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: first_line,
     })
@@ -462,16 +462,16 @@ fn delete_conversation_clears_line_id_cache_for_recreated_session() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tcache-reset-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: u("u-reset", "r1", "first life"),
     })
     .expect("append");
     assert!(delete_conversation(&cid).expect("delete"));
 
-    ensure_conversation(&cid).expect("recreate");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("recreate");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: u("u-reset", "r2", "second life"),
     })
@@ -494,7 +494,7 @@ fn delete_conversation_clears_cached_summary_for_recreated_session() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tsummary-reset-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
     rename_conversation(&cid, "旧标题").expect("rename");
 
     let initial_summary = list_conversations()
@@ -505,7 +505,7 @@ fn delete_conversation_clears_cached_summary_for_recreated_session() {
     assert_eq!(initial_summary.title, "旧标题");
 
     assert!(delete_conversation(&cid).expect("delete"));
-    ensure_conversation(&cid).expect("recreate");
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("recreate");
 
     let recreated_summary = list_conversations()
         .expect("list after recreate")
@@ -526,8 +526,8 @@ fn load_context_filters_orphan_tool_calls() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("to-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: t(
             "t1",
@@ -540,7 +540,7 @@ fn load_context_filters_orphan_tool_calls() {
         ),
     })
     .expect("ok");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: t(
             "t2",
@@ -553,7 +553,7 @@ fn load_context_filters_orphan_tool_calls() {
         ),
     })
     .expect("orphan");
-    let ctx = load_context_for_request(&cid, None).expect("ctx");
+    let ctx = load_context_for_request(crate::config::constants::DEFAULT_AGENT_ID, &cid, None).expect("ctx");
     assert!(
         ctx.input_items
             .iter()
@@ -573,15 +573,15 @@ fn load_context_truncates_without_splitting_tool_pairs() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("ttrunc-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
     for i in 0..260 {
-        append_line(AppendLineInput {
+        append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
             conversation_id: cid.clone(),
             line: u(&format!("u{i}"), "r1", &format!("m{i}")),
         })
         .expect("u");
     }
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: t(
             "ttail",
@@ -594,7 +594,7 @@ fn load_context_truncates_without_splitting_tool_pairs() {
         ),
     })
     .expect("t");
-    let ctx = load_context_for_request(&cid, None).expect("ctx");
+    let ctx = load_context_for_request(crate::config::constants::DEFAULT_AGENT_ID, &cid, None).expect("ctx");
     assert!(ctx.input_items.len() <= TEST_MAX_CONTEXT_ITEMS_PER_REQUEST);
     assert!(
         ctx.input_items
@@ -610,13 +610,13 @@ fn build_recovery_note_for_unfinished_turn() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("trec-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: u("u1", "req-rec", "go"),
     })
     .expect("u");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: t(
             "t1",
@@ -651,13 +651,13 @@ fn load_conversation_returns_all_lines() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tld-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: u("u1", "r1", "hi"),
     })
     .expect("u");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: t(
             "t1",
@@ -670,7 +670,7 @@ fn load_conversation_returns_all_lines() {
         ),
     })
     .expect("t");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: a(
             "a1",
@@ -698,15 +698,15 @@ fn fault_injection_recovery_clears_after_completion() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tfault-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
 
     // crash mid-turn: user + pending tool
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: u("u1", "req-f", "call tool"),
     })
     .expect("u");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: t(
             "t1",
@@ -748,7 +748,7 @@ fn fault_injection_recovery_clears_after_completion() {
         ),
     })
     .expect("upd");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: a(
             "a1",
@@ -776,13 +776,13 @@ fn recovery_treats_unknown_assistant_phase_as_completed_answer() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("trecovery-unknown-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: u("u1", "req-1", "hello"),
     })
     .expect("user");
-    append_line(AppendLineInput {
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: a("a1", "req-1", "resp-1", None, "done", AssistantStatus::Done),
     })
@@ -802,7 +802,7 @@ fn conversation_dynamic_tools_round_trip_through_metadata() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tdyntools-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
 
     update_conversation_dynamic_tools(
         &cid,
@@ -848,7 +848,7 @@ fn conversation_mounted_tool_sources_round_trip_through_metadata() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tmountedtools-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
 
     update_conversation_mounted_tool_sources(
         &cid,
@@ -896,8 +896,8 @@ fn load_conversation_uses_token_usage_metadata() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("ttokenmeta-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
-    append_line(AppendLineInput {
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
+    append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
         conversation_id: cid.clone(),
         line: u("u1", "req-1", "hello"),
     })
@@ -939,7 +939,7 @@ fn conversation_mounted_mcp_servers_legacy_fallback() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tlegacyfallback-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
 
     // Manually insert legacy format under old key in metadata
     let metadata_path = conversation_metadata_path(&cid).expect("metadata path");
@@ -984,13 +984,13 @@ fn concurrent_appends_preserve_all_lines_for_same_conversation() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("tconcurrent-{}", Uuid::new_v4());
-    ensure_conversation(&cid).expect("ensure");
+    ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
 
     let mut handles = Vec::new();
     for idx in 0..12 {
         let conversation_id = cid.clone();
         handles.push(std::thread::spawn(move || {
-            append_line(AppendLineInput {
+            append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
                 conversation_id,
                 line: u(
                     &format!("u{idx}"),

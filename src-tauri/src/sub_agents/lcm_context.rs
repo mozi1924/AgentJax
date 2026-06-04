@@ -104,7 +104,7 @@ fn sub_agent_lcm_store_path(
     parent_conv_id: &str,
     agent_id: &str,
 ) -> AgentJaxResult<PathBuf> {
-    let session_dir = crate::conversation_store::conversation_workspace_path(parent_conv_id)
+    let session_dir = crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, parent_conv_id)
         .map_err(|e| {
             AgentJaxError::internal(format!("Failed to get workspace path: {e}"))
         })?

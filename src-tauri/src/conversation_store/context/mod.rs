@@ -39,19 +39,22 @@ pub use types::ConversationContext;
 /// When `budget` is provided, the context is truncated to fit the model's
 /// token budget in addition to the hard item-count limit. If `budget` is
 /// `None`, only the hard count limit is applied.
+///
+/// `agent_id` scopes the session directory: `agents/{agent_id}/sessions/{conv}/`.
 pub fn load_context_for_request(
+    agent_id: &str,
     conversation_id: &str,
     budget: Option<&TokenBudget>,
 ) -> crate::error::AgentJaxResult<ConversationContext> {
     with_conversation_lock(conversation_id, || {
         // ── Try LCM immutable store first ──────────────────────────
-        if let Ok(Some(ctx)) = load_context_from_lcm(conversation_id, budget) {
+        if let Ok(Some(ctx)) = load_context_from_lcm(agent_id, conversation_id, budget) {
             return Ok(ctx);
         }
 
         // ── Fall back to legacy JSONL ──────────────────────────────
-        let metadata_path = conversation_metadata_path(conversation_id)?;
-        let messages_path = conversation_messages_path(conversation_id)?;
+        let metadata_path = conversation_metadata_path(agent_id, conversation_id)?;
+        let messages_path = conversation_messages_path(agent_id, conversation_id)?;
         let Some(data) = read_conversation_file(&metadata_path, &messages_path)? else {
             return Ok(ConversationContext::default());
         };
@@ -88,12 +91,13 @@ pub fn load_context_for_request(
 
 /// Load context from LCM store and convert to input items.
 fn load_context_from_lcm(
+    agent_id: &str,
     conversation_id: &str,
     budget: Option<&TokenBudget>,
 ) -> crate::error::AgentJaxResult<Option<ConversationContext>> {
     use crate::conversation_store::paths::conversation_lcm_db_path;
 
-    let db_path = conversation_lcm_db_path(conversation_id)?;
+    let db_path = conversation_lcm_db_path(agent_id, conversation_id)?;
     if !db_path.exists() {
         return Ok(None);
     }

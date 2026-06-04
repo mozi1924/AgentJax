@@ -284,7 +284,7 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-file-paths-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         snapshot
@@ -323,7 +323,7 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-directory-tools-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         snapshot
@@ -381,7 +381,7 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-read-truncation-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         let content = "0123456789abcdef".repeat(4_096);
@@ -423,7 +423,7 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-content-sniffing-text-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         snapshot
@@ -454,7 +454,7 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-list-truncation-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         for index in 0..400 {
@@ -498,10 +498,10 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-content-sniffing-binary-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
-        let workspace = conversation_store::conversation_workspace_path(&conversation_id).unwrap();
+        let workspace = conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
         let disguised_binary = workspace.join("assets/fake-notes.txt");
         std::fs::create_dir_all(disguised_binary.parent().unwrap()).unwrap();
         std::fs::write(
@@ -529,10 +529,10 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-binary-guards-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
-        let workspace = conversation_store::conversation_workspace_path(&conversation_id).unwrap();
+        let workspace = conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
         let binary_path = workspace.join("assets/image.bin");
         std::fs::create_dir_all(binary_path.parent().unwrap()).unwrap();
         std::fs::write(&binary_path, [0_u8, 159, 146, 150, 0]).unwrap();
@@ -583,7 +583,7 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-text-edits-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         snapshot
@@ -709,7 +709,7 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-apply-patch-atomic-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(&conversation_id).unwrap();
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         snapshot
@@ -1069,7 +1069,7 @@ mod tests {
             .lock().await;
         let _home = setup_test_home();
         let conversation_id = format!("test-dynamic-tools-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(&conversation_id).expect("ensure conversation");
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).expect("ensure conversation");
         conversation_store::update_conversation_dynamic_tools(
             &conversation_id,
             vec![conversation_store::ConversationDynamicTool {
@@ -1127,7 +1127,7 @@ mod tests {
             .lock().await;
         let _home = setup_test_home();
         let conversation_id = format!("test-dynamic-mcp-tools-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(&conversation_id).expect("ensure conversation");
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).expect("ensure conversation");
         conversation_store::update_conversation_dynamic_tools(
             &conversation_id,
             vec![conversation_store::ConversationDynamicTool {
@@ -1373,7 +1373,7 @@ globalThis.AgentJaxPlugin = {
             .lock().await;
         let _home = setup_test_home();
         let conversation_id = format!("test-mounted-mcp-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(&conversation_id).expect("ensure conversation");
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).expect("ensure conversation");
         conversation_store::update_conversation_mounted_tool_sources(
             &conversation_id,
             vec![conversation_store::ConversationMountedToolSource {

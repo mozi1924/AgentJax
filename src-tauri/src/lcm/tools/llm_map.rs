@@ -307,7 +307,7 @@ fn get_workspace_dir(context: &ToolExecutionContext) -> AgentJaxResult<PathBuf> 
     let conv_id = context.conversation_id.as_deref().ok_or_else(|| {
         AgentJaxError::tool("llm_map requires a conversation context".to_string())
     })?;
-    let path = crate::conversation_store::conversation_workspace_path(conv_id)
+    let path = crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, conv_id)
         .map_err(|e| AgentJaxError::internal(format!("Failed to resolve workspace: {e}")))?;
     Ok(path)
 }

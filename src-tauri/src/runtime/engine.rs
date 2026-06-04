@@ -511,7 +511,7 @@ impl AgentRuntime {
                 .extend(executed_batch.timeline_events);
             apply_tool_state_changes(&mut mounted_mcp_servers, executed_batch.state_changes);
             if let Err(err) =
-                tools_catalog.persist_mounted_servers(conversation_id, &mounted_mcp_servers)
+                tools_catalog.persist_mounted_servers(crate::config::constants::DEFAULT_AGENT_ID, conversation_id, &mounted_mcp_servers)
             {
                 log::warn!(
                     "Failed to persist mounted MCP servers for conversation '{}': {}",

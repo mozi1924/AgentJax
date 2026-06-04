@@ -28,10 +28,15 @@ pub(super) fn resolve_prompt_counting_model(
 
 async fn tool_snapshot_for_conversation(
     tools_catalog: &ToolCatalog,
+    agent_id: &str,
     conversation_id: &str,
     provider_kind: &str,
 ) -> Result<ToolCatalogSnapshot, String> {
-    let tool_context = ToolExecutionContext::with_conversation_id(conversation_id.to_string());
+    let tool_context = ToolExecutionContext {
+        agent_id: Some(agent_id.to_string()),
+        conversation_id: Some(conversation_id.to_string()),
+        ..Default::default()
+    };
     let tool_schema_format = get_tool_schema_format(provider_kind)?;
     let mounted_mcp_servers = tools_catalog.load_persisted_mounted_servers(&tool_context);
     Ok(tools_catalog
@@ -45,6 +50,7 @@ async fn tool_snapshot_for_conversation(
 
 /// Estimate prompt tokens when stored provider usage is not available yet.
 pub(super) async fn load_conversation_prompt_token_count(
+    agent_id: &str,
     conversation_id: &str,
     model: Option<&str>,
     mcp_manager: std::sync::Arc<crate::mcp::McpManager>,
@@ -64,6 +70,7 @@ pub(super) async fn load_conversation_prompt_token_count(
     let tools_catalog = ToolCatalog::new_with_home_plugins(mcp_manager, &cfg);
     let tool_snapshot = match tool_snapshot_for_conversation(
         &tools_catalog,
+        agent_id,
         conversation_id,
         &resolved_model.provider.kind,
     )
@@ -80,11 +87,11 @@ pub(super) async fn load_conversation_prompt_token_count(
         }
     };
 
-    let recovery_note = conversation_store::build_recovery_developer_note(conversation_id)
+    let recovery_note = conversation_store::build_recovery_developer_note(agent_id, conversation_id)
         .ok()
         .flatten();
 
-    match conversation_store::load_context_for_request(conversation_id, None) {
+    match conversation_store::load_context_for_request(agent_id, conversation_id, None) {
         Ok(context) => {
             let archived_context_items =
                 crate::runtime::tool_archiving::archive_unavailable_historical_tool_calls(

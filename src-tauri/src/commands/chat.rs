@@ -41,6 +41,7 @@ pub async fn chat_stream(
     req: ChatRequest,
 ) -> Result<ChatResponse, String> {
     let config = config::load_config()?;
+    let agent_id = req.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID).to_string();
     let jsonl_backup_enabled = config.context_management.jsonl_backup_enabled;
     let (sanitized_client_metadata, local_dynamic_tools) =
         split_local_client_metadata(req.client_metadata.clone())?;
@@ -74,18 +75,21 @@ pub async fn chat_stream(
 
     registry.clear_conversation_deleted(&conversation_id)?;
 
+    let closure_agent_id = agent_id.clone();
     let mut context = {
         let conversation_id = conversation_id.clone();
         let local_dynamic_tools = local_dynamic_tools.clone();
+        let agent_id = agent_id.clone();
         run_blocking(move || {
-            conversation_store::ensure_conversation(&conversation_id)?;
+            conversation_store::ensure_conversation(&agent_id, &conversation_id)?;
             if let Some(dynamic_tools) = local_dynamic_tools {
                 conversation_store::update_conversation_dynamic_tools(
+                    &agent_id,
                     &conversation_id,
                     dynamic_tools,
                 )?;
             }
-            conversation_store::load_context_for_request(&conversation_id, None)
+            conversation_store::load_context_for_request(&agent_id, &conversation_id, None)
                 .map_err(|e| e.to_string())
         })
     }
@@ -96,7 +100,8 @@ pub async fn chat_stream(
 
     let recovery_note = {
         let conversation_id = conversation_id.clone();
-        run_blocking(move || conversation_store::build_recovery_developer_note(&conversation_id).map_err(|e| e.to_string()))
+        let agent_id = agent_id.clone();
+        run_blocking(move || conversation_store::build_recovery_developer_note(&agent_id, &conversation_id).map_err(|e| e.to_string()))
             .await
             .ok()
             .flatten()
@@ -140,7 +145,7 @@ pub async fn chat_stream(
 
     // ── LCM: Initialize context management (always on) ──────────────────
     let lcm_engine =
-        crate::lcm::open_lcm_engine_with_summarizer(&conversation_id, &effective_lcm_config, &config)?;
+        crate::lcm::open_lcm_engine_with_summarizer(&agent_id, &conversation_id, &effective_lcm_config, &config)?;
     tools_catalog.set_context_tools(lcm_engine.store().clone());
 
     // Ensure LCM conversation metadata exists.
@@ -167,8 +172,9 @@ pub async fn chat_stream(
         let conversation_id = conversation_id.clone();
         let request_id = request_id.clone();
         let input_text = input_text.clone();
+        let agent_id = agent_id.clone();
         run_blocking(move || {
-            conversation_store::append_line(conversation_store::AppendLineInput {
+            conversation_store::append_line(&agent_id, conversation_store::AppendLineInput {
                 conversation_id,
                 line: conversation_store::ConversationLine::User(conversation_store::UserLine {
                     id: format!("msg-user-{request_id}"),
@@ -195,7 +201,11 @@ pub async fn chat_stream(
     }
 
     let context_token_count = if let Some(resolved_model) = resolved_model.as_ref() {
-        let tool_context = ToolExecutionContext::with_conversation_id(conversation_id.clone());
+        let tool_context = ToolExecutionContext {
+            agent_id: Some(agent_id.clone()),
+            conversation_id: Some(conversation_id.clone()),
+            ..Default::default()
+        };
         let tool_schema_format = match get_tool_schema_format(&resolved_model.provider.kind) {
             Ok(format) => format,
             Err(err) => {
@@ -271,6 +281,7 @@ pub async fn chat_stream(
     let closure_conversation_id = conversation_id.clone();
 
     let stream_observer = ChatStreamObserver::new(
+        agent_id.clone(),
         conversation_id.clone(),
         request_id.clone(),
         model_id,
@@ -488,6 +499,7 @@ pub async fn chat_stream(
             window.clone(),
             window.app_handle().clone(),
             config.clone(),
+            agent_id.clone(),
             conversation_id.clone(),
             request_id.clone(),
         );
@@ -532,9 +544,20 @@ pub async fn chat_stream(
     })
 }
 
+/// Resolve the effective agent_id from a request, falling back to the default.
+fn resolve_agent_id(agent_id: Option<&str>) -> String {
+    agent_id
+        .filter(|s| !s.is_empty())
+        .unwrap_or(crate::config::constants::DEFAULT_AGENT_ID)
+        .to_string()
+}
+
 #[tauri::command]
-pub fn list_conversations() -> Result<Vec<conversation_store::ConversationSummary>, String> {
-    conversation_store::list_conversations().map_err(|e| e.to_string())
+pub fn list_conversations(
+    agent_id: Option<String>,
+) -> Result<Vec<conversation_store::ConversationSummary>, String> {
+    let agent_id = resolve_agent_id(agent_id.as_deref());
+    conversation_store::list_conversations(&agent_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -542,14 +565,16 @@ pub async fn load_conversation(
     mcp_manager: State<'_, std::sync::Arc<crate::mcp::McpManager>>,
     req: LoadConversationRequest,
 ) -> Result<Option<conversation_store::ConversationDetail>, String> {
+    let agent_id = resolve_agent_id(req.agent_id.as_deref());
     let conversation_id = req.conversation_id.clone();
-    let mut detail = conversation_store::load_conversation(&req.conversation_id)?;
+    let mut detail = conversation_store::load_conversation(&agent_id, &req.conversation_id)?;
     if let Some(detail_ref) = detail.as_mut() {
         detail_ref.context_token_count =
-            match conversation_store::load_conversation_token_usage_count(&conversation_id)? {
+            match conversation_store::load_conversation_token_usage_count(&agent_id, &conversation_id)? {
                 Some(count) => count,
                 None => {
                     load_conversation_prompt_token_count(
+                        &agent_id,
                         &conversation_id,
                         req.model.as_deref(),
                         mcp_manager.inner().clone(),
@@ -565,40 +590,44 @@ pub async fn load_conversation(
 pub fn load_conversation_dynamic_tools(
     req: LoadConversationDynamicToolsRequest,
 ) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
-    conversation_store::load_conversation_dynamic_tools(&req.conversation_id).map_err(|e| e.to_string())
+    let agent_id = resolve_agent_id(req.agent_id.as_deref());
+    conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn replace_conversation_dynamic_tools(
     req: ReplaceConversationDynamicToolsRequest,
 ) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
+    let agent_id = resolve_agent_id(req.agent_id.as_deref());
     validate_conversation_dynamic_tools(&req.tools)?;
-    conversation_store::ensure_conversation(&req.conversation_id)?;
-    conversation_store::update_conversation_dynamic_tools(&req.conversation_id, req.tools)?;
-    conversation_store::load_conversation_dynamic_tools(&req.conversation_id).map_err(|e| e.to_string())
+    conversation_store::ensure_conversation(&agent_id, &req.conversation_id)?;
+    conversation_store::update_conversation_dynamic_tools(&agent_id, &req.conversation_id, req.tools)?;
+    conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn upsert_conversation_dynamic_tool(
     req: UpsertConversationDynamicToolRequest,
 ) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
+    let agent_id = resolve_agent_id(req.agent_id.as_deref());
     validate_conversation_dynamic_tools(std::slice::from_ref(&req.tool))?;
-    conversation_store::ensure_conversation(&req.conversation_id)?;
-    conversation_store::upsert_conversation_dynamic_tool(&req.conversation_id, req.tool)?;
-    conversation_store::load_conversation_dynamic_tools(&req.conversation_id).map_err(|e| e.to_string())
+    conversation_store::ensure_conversation(&agent_id, &req.conversation_id)?;
+    conversation_store::upsert_conversation_dynamic_tool(&agent_id, &req.conversation_id, req.tool)?;
+    conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn remove_conversation_dynamic_tool(
     req: RemoveConversationDynamicToolRequest,
 ) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
+    let agent_id = resolve_agent_id(req.agent_id.as_deref());
     let tool_name = req.tool_name.trim();
     if tool_name.is_empty() {
         return Err("toolName cannot be empty".to_string());
     }
-    conversation_store::ensure_conversation(&req.conversation_id)?;
-    conversation_store::remove_conversation_dynamic_tool(&req.conversation_id, tool_name)?;
-    conversation_store::load_conversation_dynamic_tools(&req.conversation_id).map_err(|e| e.to_string())
+    conversation_store::ensure_conversation(&agent_id, &req.conversation_id)?;
+    conversation_store::remove_conversation_dynamic_tool(&agent_id, &req.conversation_id, tool_name)?;
+    conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -606,9 +635,10 @@ pub fn rename_conversation(
     registry: State<'_, ChatRequestRegistry>,
     req: RenameConversationRequest,
 ) -> Result<conversation_store::ConversationSummary, String> {
+    let agent_id = resolve_agent_id(req.agent_id.as_deref());
     let _ = registry.cancel_title_request(&req.conversation_id)?;
 
-    conversation_store::rename_conversation(&req.conversation_id, &req.title).map_err(|e| e.to_string())
+    conversation_store::rename_conversation(&agent_id, &req.conversation_id, &req.title).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -616,10 +646,11 @@ pub fn delete_conversation(
     registry: State<'_, ChatRequestRegistry>,
     req: DeleteConversationRequest,
 ) -> Result<bool, String> {
+    let agent_id = resolve_agent_id(req.agent_id.as_deref());
     registry.mark_conversation_deleted(&req.conversation_id)?;
     registry.cancel_conversation_tasks(&req.conversation_id)?;
 
-    conversation_store::delete_conversation(&req.conversation_id).map_err(|e| e.to_string())
+    conversation_store::delete_conversation(&agent_id, &req.conversation_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -727,6 +758,7 @@ mod tests {
         let conversation_id = format!("conv-dtool-cmd-{}", Uuid::new_v4());
 
         let replaced = replace_conversation_dynamic_tools(ReplaceConversationDynamicToolsRequest {
+            agent_id: Some(crate::config::constants::DEFAULT_AGENT_ID.to_string()),
             conversation_id: conversation_id.clone(),
             tools: vec![ConversationDynamicTool {
                 name: "math_alias".to_string(),
@@ -746,6 +778,7 @@ mod tests {
         assert_eq!(replaced.len(), 1);
 
         let upserted = upsert_conversation_dynamic_tool(UpsertConversationDynamicToolRequest {
+            agent_id: Some(crate::config::constants::DEFAULT_AGENT_ID.to_string()),
             conversation_id: conversation_id.clone(),
             tool: ConversationDynamicTool {
                 name: "time_alias".to_string(),
@@ -765,12 +798,14 @@ mod tests {
         assert_eq!(upserted.len(), 2);
 
         let loaded = load_conversation_dynamic_tools(LoadConversationDynamicToolsRequest {
+            agent_id: Some(crate::config::constants::DEFAULT_AGENT_ID.to_string()),
             conversation_id: conversation_id.clone(),
         })
         .expect("load dynamic tools");
         assert_eq!(loaded.len(), 2);
 
         let after_remove = remove_conversation_dynamic_tool(RemoveConversationDynamicToolRequest {
+            agent_id: Some(crate::config::constants::DEFAULT_AGENT_ID.to_string()),
             conversation_id: conversation_id.clone(),
             tool_name: "math_alias".to_string(),
         })

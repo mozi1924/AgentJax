@@ -130,6 +130,9 @@ pub trait Tool: Send + Sync {
 pub struct ToolExecutionContext {
     pub conversation_id: Option<String>,
 
+    /// The agent profile this execution is scoped to.
+    pub agent_id: Option<String>,
+
     /// The model identifier being used for this request.
     pub model_id: Option<String>,
 
@@ -174,6 +177,7 @@ impl std::fmt::Debug for ToolExecutionContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ToolExecutionContext")
             .field("conversation_id", &self.conversation_id)
+            .field("agent_id", &self.agent_id)
             .field("model_id", &self.model_id)
             .field("turn_id", &self.turn_id)
             .field("hop_index", &self.hop_index)
@@ -192,6 +196,7 @@ impl ToolExecutionContext {
     pub fn with_conversation_id(conversation_id: impl Into<String>) -> Self {
         Self {
             conversation_id: Some(conversation_id.into()),
+            agent_id: None,
             model_id: None,
             turn_id: None,
             hop_index: None,

@@ -55,14 +55,14 @@ pub fn get_workspace_dir(context: &ToolExecutionContext) -> AgentJaxResult<PathB
         && let Some(spec) = crate::sub_agents::manager::SubAgentManager::get_spec(agent_id) {
             let parent_id = &spec.parent_conversation_id;
             let dir = if spec.use_worktree {
-                conversation_store::conversation_workspace_path(parent_id)?
+                conversation_store::conversation_workspace_path(context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID), parent_id)?
                     .parent()
                     .ok_or_else(|| agentjax_err!("Invalid parent workspace path", ToolExecution))?
                     .join("sub_agents")
                     .join(agent_id)
                     .join("worktree")
             } else {
-                conversation_store::conversation_workspace_path(parent_id)?
+                conversation_store::conversation_workspace_path(context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID), parent_id)?
             };
 
             if !dir.exists() {
@@ -83,7 +83,7 @@ pub fn get_workspace_dir(context: &ToolExecutionContext) -> AgentJaxResult<PathB
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        conversation_store::conversation_workspace_path(conversation_id)?
+        conversation_store::conversation_workspace_path(context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID), conversation_id)?
     } else {
         return Err(agentjax_err!(
             "Missing conversation context for file tool. File tools require a conversation workspace.",
