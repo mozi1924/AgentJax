@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { AlertTriangle, CheckCircle, LoaderCircle, Search, Settings2, X } from 'lucide-react';
 import { useI18n } from '../features/i18n';
 import SettingsRenderer from './settings/SettingsRenderer';
-import { MemoryList } from './settings/MemoryList';
+
 import type {
   SettingsSectionSchema,
   SettingsSnapshot,
@@ -473,14 +473,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 }
               />
             )}
-            {!loading && snapshot && activeSection?.id === 'memory' && (
-              <div className="mt-4 border-t border-zinc-200 dark:border-zinc-700 pt-4 px-2">
-                <h3 className="text-sm font-medium mb-2 text-zinc-800 dark:text-zinc-200">
-                  Memory Entries
-                </h3>
-                <MemoryList />
-              </div>
-            )}
+
           </OverlayScrollArea>
 
           {(() => {

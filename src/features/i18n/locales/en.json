@@ -365,10 +365,21 @@
   "settings.memory.auto_inject.description": "At the start of each conversation, inject the memory index. Use memory_search / memory_recall to retrieve contents.",
   "settings.memory.max_index_tokens.title": "Max Index Tokens",
   "settings.memory.max_index_tokens.description": "Maximum token budget used by the auto-injected MEMORY.md index.",
-
-
-
-
+  "settings.memory.loading": "Loading memories...",
+  "settings.memory.error": "Failed to load memories: {message}",
+  "settings.memory.entries.title": "Memory Entries",
+  "settings.memory.entries.description": "Browse and manage persistent memories created by the background memory sub-agent.",
+  "settings.memory.entries.empty": "No memories stored yet.",
+  "settings.memory.entries.select_hint": "Select a memory entry to view details.",
+  "settings.memory.entries.open": "Open",
+  "settings.memory.entries.delete": "Delete",
+  "settings.memory.entries.refresh": "Refresh",
+  "settings.memory.entries.actions": "Actions",
+  "settings.memory.entries.metadata": "Metadata",
+  "settings.memory.entries.no_tags": "No tags.",
+  "settings.memory.entries.property.name": "Name",
+  "settings.memory.entries.property.type": "Type",
+  "settings.memory.entries.property.filename": "File",
 
   "settings.context_management.title": "Context Management",
   "settings.context_management.description": "Context compression, notifications, and conversation storage settings.",

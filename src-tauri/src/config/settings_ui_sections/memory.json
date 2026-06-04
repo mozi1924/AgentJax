@@ -43,6 +43,125 @@
           "visibleWhen": [{ "path": "memory.enabled", "truthy": true }]
         }
       ]
+    },
+    {
+      "kind": "layout",
+      "id": "memory-list-manager",
+      "title": "settings.memory.entries.title",
+      "description": "settings.memory.entries.description",
+      "dataSource": "memoryManager",
+      "layout": "vertical",
+      "variant": "workbench",
+      "children": [
+        {
+          "kind": "split",
+          "id": "memory-list-layout",
+          "layout": "two-pane",
+          "children": [
+            {
+              "kind": "list",
+              "id": "memory-entry-list",
+              "dataSource": "memoryManager.memories",
+              "action": "selectMemory",
+              "variant": "sidebar",
+              "emptyText": "settings.memory.entries.empty",
+              "scroll": "y",
+              "itemTemplate": {
+                "kind": "detail",
+                "id": "memory-entry-list-item-template",
+                "bindings": {
+                  "id": "name",
+                  "activeKey": "selectedItem",
+                  "title": "name",
+                  "description": "description",
+                  "meta": "memoryType",
+                  "secondaryMeta": "tags"
+                },
+                "actions": [
+                  {
+                    "id": "openMemory",
+                    "variant": "button",
+                    "icon": "ExternalLink",
+                    "label": "settings.memory.entries.open"
+                  },
+                  {
+                    "id": "deleteMemory",
+                    "variant": "button",
+                    "icon": "Trash2",
+                    "label": "settings.memory.entries.delete"
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "detail",
+              "id": "memory-entry-detail",
+              "dataSource": "memoryManager.selectedMemory",
+              "emptyText": "settings.memory.entries.select_hint",
+              "scroll": "y",
+              "itemTemplate": {
+                "kind": "detail",
+                "id": "memory-entry-detail-template",
+                "defaultExpanded": true,
+                "bindings": {
+                  "title": "name",
+                  "description": "description",
+                  "actionsTitle": "settings.memory.entries.actions",
+                  "detailItemsTitle": "settings.memory.entries.metadata",
+                  "detailItems": "tags",
+                  "detailItemsEmptyText": "settings.memory.entries.no_tags",
+                  "detailItemName": "name",
+                  "detailItemType": "type",
+                  "detailItemDescription": "description"
+                },
+                "properties": [
+                  {
+                    "id": "memory-name",
+                    "label": "settings.memory.entries.property.name",
+                    "value": "name",
+                    "variant": "code"
+                  },
+                  {
+                    "id": "memory-type",
+                    "label": "settings.memory.entries.property.type",
+                    "value": "memoryType",
+                    "variant": "badge"
+                  },
+                  {
+                    "id": "memory-filename",
+                    "label": "settings.memory.entries.property.filename",
+                    "value": "fileName",
+                    "variant": "text"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "openMemory",
+                    "variant": "button",
+                    "icon": "ExternalLink",
+                    "label": "settings.memory.entries.open",
+                    "action": "openMemory"
+                  },
+                  {
+                    "id": "deleteMemory",
+                    "variant": "button",
+                    "icon": "Trash2",
+                    "label": "settings.memory.entries.delete",
+                    "action": "deleteMemory"
+                  },
+                  {
+                    "id": "refreshMemories",
+                    "variant": "button",
+                    "icon": "RefreshCcw",
+                    "label": "settings.memory.entries.refresh",
+                    "action": "refreshMemories"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

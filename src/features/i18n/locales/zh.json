@@ -363,10 +363,21 @@
   "settings.memory.auto_inject.description": "每次对话开始时，注入记忆索引。使用 memory_search / memory_recall 获取完整内容。",
   "settings.memory.max_index_tokens.title": "最大索引 Token 数",
   "settings.memory.max_index_tokens.description": "自动注入的 MEMORY.md 索引的最大 token 预算。",
-
-
-
-
+  "settings.memory.loading": "正在加载记忆...",
+  "settings.memory.error": "加载记忆失败：{message}",
+  "settings.memory.entries.title": "记忆条目",
+  "settings.memory.entries.description": "浏览和管理由后台记忆子代理创建的持久记忆。",
+  "settings.memory.entries.empty": "暂无存储的记忆。",
+  "settings.memory.entries.select_hint": "选择一个记忆条目以查看详情。",
+  "settings.memory.entries.open": "打开",
+  "settings.memory.entries.delete": "删除",
+  "settings.memory.entries.refresh": "刷新",
+  "settings.memory.entries.actions": "操作",
+  "settings.memory.entries.metadata": "元数据",
+  "settings.memory.entries.no_tags": "无标签。",
+  "settings.memory.entries.property.name": "名称",
+  "settings.memory.entries.property.type": "类型",
+  "settings.memory.entries.property.filename": "文件",
 
   "settings.context_management.title": "上下文管理",
   "settings.context_management.description": "上下文压缩、通知和对话存储设置。",
