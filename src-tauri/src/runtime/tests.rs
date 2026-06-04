@@ -72,7 +72,7 @@ async fn run_real_gateway_turn_with_config(
     );
 
     let conversation_id = format!("test-real-gateway-{}", Uuid::new_v4());
-    crate::conversation_store::ensure_conversation(&conversation_id)
+    crate::conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id)
         .expect("ensure conversation workspace");
 
     let tools_catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
@@ -87,6 +87,7 @@ async fn run_real_gateway_turn_with_config(
         prompt_cache_key: None,
         client_metadata: None,
         generate: None,
+        agent_id: Some(crate::config::constants::DEFAULT_AGENT_ID.to_string()),
         request_id: Some(format!("req-real-gateway-{}", Uuid::new_v4())),
         temperature: None,
         top_p: None,
@@ -474,7 +475,7 @@ async fn run_real_gateway_turn_with_full_catalog(
     );
 
     let conversation_id = format!("test-smoke-subagent-{}", Uuid::new_v4());
-    crate::conversation_store::ensure_conversation(&conversation_id)
+    crate::conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id)
         .expect("ensure conversation workspace");
 
     let tools_catalog = ToolCatalog::new_with_home_plugins(
@@ -497,6 +498,7 @@ async fn run_real_gateway_turn_with_full_catalog(
         prompt_cache_key: None,
         client_metadata: None,
         generate: None,
+        agent_id: Some(crate::config::constants::DEFAULT_AGENT_ID.to_string()),
         request_id: Some(format!("req-smoke-sa-{}", Uuid::new_v4())),
         temperature: None,
         top_p: None,

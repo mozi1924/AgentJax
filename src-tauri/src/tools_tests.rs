@@ -250,8 +250,8 @@ mod tests {
         let conversation_a = format!("test-workspace-a-{}", uuid::Uuid::new_v4());
         let conversation_b = format!("test-workspace-b-{}", uuid::Uuid::new_v4());
 
-        conversation_store::ensure_conversation(&conversation_a).unwrap();
-        conversation_store::ensure_conversation(&conversation_b).unwrap();
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_a).unwrap();
+        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_b).unwrap();
 
         let ctx_a = ToolExecutionContext::with_conversation_id(conversation_a.clone());
         let ctx_b = ToolExecutionContext::with_conversation_id(conversation_b.clone());
@@ -269,8 +269,8 @@ mod tests {
         assert_eq!(read_a["content"], "from-a");
         assert_eq!(read_b["content"], "from-b");
 
-        conversation_store::delete_conversation(&conversation_a).unwrap();
-        conversation_store::delete_conversation(&conversation_b).unwrap();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_a).unwrap();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_b).unwrap();
     }
 
     #[tokio::test]
@@ -309,7 +309,7 @@ mod tests {
             .unwrap_err();
         assert!(err.contains("escapes the conversation workspace"));
 
-        conversation_store::delete_conversation(&conversation_id).unwrap();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
     }
 
     #[tokio::test]
@@ -367,7 +367,7 @@ mod tests {
                 .any(|entry| entry["path"] == "src/components/Button.tsx")
         );
 
-        conversation_store::delete_conversation(&conversation_id).unwrap();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
     }
 
     #[tokio::test]
@@ -409,7 +409,7 @@ mod tests {
         assert_eq!(preview_content.len(), 1024);
         assert_eq!(preview_content, &"0123456789abcdef".repeat(64));
 
-        conversation_store::delete_conversation(&conversation_id).unwrap();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
     }
 
     #[tokio::test]
@@ -440,7 +440,7 @@ mod tests {
         assert_eq!(read["contentKind"], "text");
         assert_eq!(read["mediaType"], "text/plain");
 
-        conversation_store::delete_conversation(&conversation_id).unwrap();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
     }
 
     #[tokio::test]
@@ -484,7 +484,7 @@ mod tests {
         assert!(reasons.iter().any(|reason| reason == "max_output_chars"));
         assert!(listing["approxOutputChars"].as_u64().unwrap() > 0);
 
-        conversation_store::delete_conversation(&conversation_id).unwrap();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
     }
 
     #[tokio::test]
@@ -515,7 +515,7 @@ mod tests {
             .unwrap_err();
         assert!(read_err.contains("Portable Network Graphics"));
 
-        conversation_store::delete_conversation(&conversation_id).unwrap();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
     }
 
     #[tokio::test]
@@ -569,7 +569,7 @@ mod tests {
             .unwrap_err();
         assert!(write_err.contains("Refusing to write"));
 
-        conversation_store::delete_conversation(&conversation_id).unwrap();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
     }
 
     #[tokio::test]
@@ -695,7 +695,7 @@ mod tests {
             "fn main() {\n    let value = 3;\n    // greeting\n    println!(\"hi\");\n    println!(\"done\");\n}\n"
         );
 
-        conversation_store::delete_conversation(&conversation_id).unwrap();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
     }
 
     #[tokio::test]
@@ -751,7 +751,7 @@ mod tests {
             .unwrap();
         assert_eq!(final_file["content"], "alpha\nbeta\ngamma\n");
 
-        conversation_store::delete_conversation(&conversation_id).unwrap();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
     }
 
     #[tokio::test]
@@ -1070,7 +1070,7 @@ mod tests {
         let _home = setup_test_home();
         let conversation_id = format!("test-dynamic-tools-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).expect("ensure conversation");
-        conversation_store::update_conversation_dynamic_tools(
+        conversation_store::update_conversation_dynamic_tools(crate::config::constants::DEFAULT_AGENT_ID, 
             &conversation_id,
             vec![conversation_store::ConversationDynamicTool {
                 name: "math_alias".to_string(),
@@ -1118,7 +1118,7 @@ mod tests {
             .expect("execute aliased tool");
         assert_eq!(result["result"].as_f64(), Some(19.0));
 
-        conversation_store::delete_conversation(&conversation_id).ok();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).ok();
     }
 
     #[tokio::test]
@@ -1128,7 +1128,7 @@ mod tests {
         let _home = setup_test_home();
         let conversation_id = format!("test-dynamic-mcp-tools-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).expect("ensure conversation");
-        conversation_store::update_conversation_dynamic_tools(
+        conversation_store::update_conversation_dynamic_tools(crate::config::constants::DEFAULT_AGENT_ID, 
             &conversation_id,
             vec![conversation_store::ConversationDynamicTool {
                 name: "docs_search".to_string(),
@@ -1164,7 +1164,7 @@ mod tests {
             Some("LayoutGrid")
         );
 
-        conversation_store::delete_conversation(&conversation_id).ok();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).ok();
     }
 
     #[tokio::test]
@@ -1374,7 +1374,7 @@ globalThis.AgentJaxPlugin = {
         let _home = setup_test_home();
         let conversation_id = format!("test-mounted-mcp-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).expect("ensure conversation");
-        conversation_store::update_conversation_mounted_tool_sources(
+        conversation_store::update_conversation_mounted_tool_sources(crate::config::constants::DEFAULT_AGENT_ID, 
             &conversation_id,
             vec![conversation_store::ConversationMountedToolSource {
                 source_id: "openai_docs".to_string(),
@@ -1413,7 +1413,7 @@ globalThis.AgentJaxPlugin = {
                 .contains("mcp__openai_docs__search_openai_docs")
         );
 
-        conversation_store::delete_conversation(&conversation_id).ok();
+        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).ok();
     }
 
     #[tokio::test]

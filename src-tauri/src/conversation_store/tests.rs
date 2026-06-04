@@ -88,10 +88,10 @@ fn delete_conversation_removes_session_directory() {
         .blocking_lock();
     let _h = setup_test_home();
     let cid = format!("td-{}", Uuid::new_v4());
-    let p = conversation_dir_path(&cid).expect("path");
+    let p = conversation_dir_path(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("path");
     ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
     assert!(p.exists());
-    assert!(delete_conversation(&cid).expect("del"));
+    assert!(delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("del"));
     assert!(!p.exists());
 }
 
@@ -130,7 +130,7 @@ fn load_context_merges_user_and_assistant() {
         i.get("role").and_then(|v| v.as_str()) == Some("assistant")
             && i.get("phase").and_then(|v| v.as_str()) == Some("final_answer")
     }));
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -173,7 +173,7 @@ fn load_context_replays_commentary_and_final_with_phase() {
         .filter_map(|item| item.get("phase").and_then(|v| v.as_str()))
         .collect();
     assert_eq!(assistant_phases, vec!["commentary", "final_answer"]);
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -196,7 +196,7 @@ fn load_context_omits_phase_field_for_unknown_assistant_phase() {
         .find(|item| item.get("role").and_then(|v| v.as_str()) == Some("assistant"))
         .expect("assistant input item");
     assert!(assistant_item.get("phase").is_none());
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn load_context_includes_tool_calls_with_outputs() {
             .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c1")
                 && i.get("type").and_then(|v| v.as_str()) == Some("function_call_output"))
     );
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -261,7 +261,7 @@ fn update_line_preserves_existing_tool_args_when_exec_event_omits_them() {
         ),
     })
     .expect("pending");
-    update_line(UpdateLineInput {
+    update_line(crate::config::constants::DEFAULT_AGENT_ID, UpdateLineInput {
         conversation_id: cid.clone(),
         line_id: "t1".into(),
         line: t(
@@ -287,7 +287,7 @@ fn update_line_preserves_existing_tool_args_when_exec_event_omits_them() {
         .and_then(|item| item.get("arguments"))
         .and_then(|v| v.as_str());
     assert_eq!(args, Some("{\"expression\":\"2+2\"}"));
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -315,7 +315,7 @@ fn update_line_refreshes_summary_metadata_after_streaming_rewrite() {
     })
     .expect("assistant");
 
-    update_line(UpdateLineInput {
+    update_line(crate::config::constants::DEFAULT_AGENT_ID, UpdateLineInput {
         conversation_id: cid.clone(),
         line_id: "a1".into(),
         line: a(
@@ -329,7 +329,7 @@ fn update_line_refreshes_summary_metadata_after_streaming_rewrite() {
     })
     .expect("update");
 
-    let summaries = list_conversations().expect("list conversations");
+    let summaries = list_conversations(crate::config::constants::DEFAULT_AGENT_ID).expect("list conversations");
     let summary = summaries
         .into_iter()
         .find(|item| item.conversation_id == cid)
@@ -337,7 +337,7 @@ fn update_line_refreshes_summary_metadata_after_streaming_rewrite() {
     assert_eq!(summary.message_count, 2);
     assert_eq!(summary.last_message_preview, "new assistant preview");
 
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -377,7 +377,7 @@ fn commentary_is_excluded_from_summary_metadata() {
     })
     .expect("final");
 
-    let summary = list_conversations()
+    let summary = list_conversations(crate::config::constants::DEFAULT_AGENT_ID)
         .expect("list conversations")
         .into_iter()
         .find(|item| item.conversation_id == cid)
@@ -388,7 +388,7 @@ fn commentary_is_excluded_from_summary_metadata() {
         "已经定位到问题并完成第一轮修复。"
     );
 
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -416,10 +416,10 @@ fn summary_refresh_rebuild_still_excludes_commentary_preview() {
     })
     .expect("commentary");
 
-    let detail = load_conversation(&cid).expect("load").expect("detail");
+    let detail = load_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("load").expect("detail");
     assert_eq!(detail.lines.len(), 2);
 
-    let summary = list_conversations()
+    let summary = list_conversations(crate::config::constants::DEFAULT_AGENT_ID)
         .expect("list conversations")
         .into_iter()
         .find(|item| item.conversation_id == cid)
@@ -427,7 +427,7 @@ fn summary_refresh_rebuild_still_excludes_commentary_preview() {
     assert_eq!(summary.message_count, 1);
     assert_eq!(summary.last_message_preview, "请继续");
 
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -450,10 +450,10 @@ fn duplicate_append_is_skipped_with_cached_line_ids() {
     })
     .expect("duplicate append");
 
-    let detail = load_conversation(&cid).expect("load").expect("detail");
+    let detail = load_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("load").expect("detail");
     assert_eq!(detail.lines.len(), 1);
 
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -468,7 +468,7 @@ fn delete_conversation_clears_line_id_cache_for_recreated_session() {
         line: u("u-reset", "r1", "first life"),
     })
     .expect("append");
-    assert!(delete_conversation(&cid).expect("delete"));
+    assert!(delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("delete"));
 
     ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("recreate");
     append_line(crate::config::constants::DEFAULT_AGENT_ID, AppendLineInput {
@@ -477,7 +477,7 @@ fn delete_conversation_clears_line_id_cache_for_recreated_session() {
     })
     .expect("append after recreate");
 
-    let detail = load_conversation(&cid).expect("load").expect("detail");
+    let detail = load_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("load").expect("detail");
     assert_eq!(detail.lines.len(), 1);
     let text = match &detail.lines[0] {
         ConversationLine::User(line) => line.text.as_str(),
@@ -485,7 +485,7 @@ fn delete_conversation_clears_line_id_cache_for_recreated_session() {
     };
     assert_eq!(text, "second life");
 
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -495,19 +495,19 @@ fn delete_conversation_clears_cached_summary_for_recreated_session() {
     let _h = setup_test_home();
     let cid = format!("tsummary-reset-{}", Uuid::new_v4());
     ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
-    rename_conversation(&cid, "旧标题").expect("rename");
+    rename_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid, "旧标题").expect("rename");
 
-    let initial_summary = list_conversations()
+    let initial_summary = list_conversations(crate::config::constants::DEFAULT_AGENT_ID)
         .expect("list before delete")
         .into_iter()
         .find(|item| item.conversation_id == cid)
         .expect("initial summary");
     assert_eq!(initial_summary.title, "旧标题");
 
-    assert!(delete_conversation(&cid).expect("delete"));
+    assert!(delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("delete"));
     ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("recreate");
 
-    let recreated_summary = list_conversations()
+    let recreated_summary = list_conversations(crate::config::constants::DEFAULT_AGENT_ID)
         .expect("list after recreate")
         .into_iter()
         .find(|item| item.conversation_id == cid)
@@ -517,7 +517,7 @@ fn delete_conversation_clears_cached_summary_for_recreated_session() {
         crate::conversation_store::types::DEFAULT_CONVERSATION_TITLE
     );
 
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -564,7 +564,7 @@ fn load_context_filters_orphan_tool_calls() {
             .iter()
             .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("c_orphan"))
     );
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -601,7 +601,7 @@ fn load_context_truncates_without_splitting_tool_pairs() {
             .iter()
             .any(|i| i.get("call_id").and_then(|v| v.as_str()) == Some("call_tail"))
     );
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -629,7 +629,7 @@ fn build_recovery_note_for_unfinished_turn() {
         ),
     })
     .expect("t");
-    let note = build_recovery_developer_note(&cid)
+    let note = build_recovery_developer_note(crate::config::constants::DEFAULT_AGENT_ID, &cid)
         .expect("note")
         .expect("some");
     let txt = note
@@ -642,7 +642,7 @@ fn build_recovery_note_for_unfinished_turn() {
     assert!(txt.contains("RECOVERY_CONTEXT"));
     assert!(txt.contains("req-rec"));
     assert!(txt.contains("call_rec_1"));
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -682,14 +682,14 @@ fn load_conversation_returns_all_lines() {
         ),
     })
     .expect("a");
-    let d = load_conversation(&cid).expect("load").expect("detail");
+    let d = load_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("load").expect("detail");
     assert_eq!(d.lines.len(), 3);
     assert!(
         d.lines
             .iter()
             .any(|l| matches!(l, ConversationLine::Tool(tl) if tl.call_id == "c1"))
     );
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -720,7 +720,7 @@ fn fault_injection_recovery_clears_after_completion() {
     })
     .expect("t");
 
-    let note = build_recovery_developer_note(&cid)
+    let note = build_recovery_developer_note(crate::config::constants::DEFAULT_AGENT_ID, &cid)
         .expect("note")
         .expect("some");
     let txt = note
@@ -734,7 +734,7 @@ fn fault_injection_recovery_clears_after_completion() {
     assert!(txt.contains("unresolved"));
 
     // resume: update tool → done, then assistant
-    update_line(UpdateLineInput {
+    update_line(crate::config::constants::DEFAULT_AGENT_ID, UpdateLineInput {
         conversation_id: cid.clone(),
         line_id: "t1".into(),
         line: t(
@@ -761,13 +761,13 @@ fn fault_injection_recovery_clears_after_completion() {
     })
     .expect("a");
 
-    let note2 = build_recovery_developer_note(&cid).expect("note2");
+    let note2 = build_recovery_developer_note(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("note2");
     assert!(
         note2.is_none(),
         "recovery note should be None after completion"
     );
 
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -788,12 +788,12 @@ fn recovery_treats_unknown_assistant_phase_as_completed_answer() {
     })
     .expect("assistant");
 
-    let note = build_recovery_developer_note(&cid).expect("recovery note");
+    let note = build_recovery_developer_note(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("recovery note");
     assert!(
         note.is_none(),
         "unknown assistant phase should count as completed"
     );
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -804,7 +804,7 @@ fn conversation_dynamic_tools_round_trip_through_metadata() {
     let cid = format!("tdyntools-{}", Uuid::new_v4());
     ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
 
-    update_conversation_dynamic_tools(
+    update_conversation_dynamic_tools(crate::config::constants::DEFAULT_AGENT_ID, 
         &cid,
         vec![ConversationDynamicTool {
             name: "math_alias".to_string(),
@@ -824,7 +824,7 @@ fn conversation_dynamic_tools_round_trip_through_metadata() {
     )
     .expect("persist dynamic tools");
 
-    let loaded = load_conversation_dynamic_tools(&cid).expect("load dynamic tools");
+    let loaded = load_conversation_dynamic_tools(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("load dynamic tools");
     assert_eq!(loaded.len(), 1);
     assert_eq!(loaded[0].name, "math_alias");
     assert_eq!(
@@ -834,9 +834,9 @@ fn conversation_dynamic_tools_round_trip_through_metadata() {
         }
     );
 
-    update_conversation_dynamic_tools(&cid, Vec::new()).expect("clear dynamic tools");
+    update_conversation_dynamic_tools(crate::config::constants::DEFAULT_AGENT_ID, &cid, Vec::new()).expect("clear dynamic tools");
     assert!(
-        load_conversation_dynamic_tools(&cid)
+        load_conversation_dynamic_tools(crate::config::constants::DEFAULT_AGENT_ID, &cid)
             .expect("reload dynamic tools")
             .is_empty()
     );
@@ -850,7 +850,7 @@ fn conversation_mounted_tool_sources_round_trip_through_metadata() {
     let cid = format!("tmountedtools-{}", Uuid::new_v4());
     ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
 
-    update_conversation_mounted_tool_sources(
+    update_conversation_mounted_tool_sources(crate::config::constants::DEFAULT_AGENT_ID, 
         &cid,
         vec![ConversationMountedToolSource {
             source_id: "openai_docs".to_string(),
@@ -871,16 +871,16 @@ fn conversation_mounted_tool_sources_round_trip_through_metadata() {
     )
     .expect("persist mounted tool sources");
 
-    let loaded = load_conversation_mounted_tool_sources(&cid).expect("load mounted tool sources");
+    let loaded = load_conversation_mounted_tool_sources(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("load mounted tool sources");
     assert_eq!(loaded.len(), 1);
     assert_eq!(loaded[0].source_id, "openai_docs");
     assert_eq!(loaded[0].source_type, "mcp");
     assert_eq!(loaded[0].tools.len(), 1);
     assert_eq!(loaded[0].tools[0].tool_name, "search_openai_docs");
 
-    update_conversation_mounted_tool_sources(&cid, Vec::new()).expect("clear mounted tool sources");
+    update_conversation_mounted_tool_sources(crate::config::constants::DEFAULT_AGENT_ID, &cid, Vec::new()).expect("clear mounted tool sources");
     assert!(
-        load_conversation_mounted_tool_sources(&cid)
+        load_conversation_mounted_tool_sources(crate::config::constants::DEFAULT_AGENT_ID, &cid)
             .expect("reload mounted tool sources")
             .is_empty()
     );
@@ -903,7 +903,7 @@ fn load_conversation_uses_token_usage_metadata() {
     })
     .expect("append user");
 
-    let metadata_path = conversation_metadata_path(&cid).expect("metadata path");
+    let metadata_path = conversation_metadata_path(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("metadata path");
     let mut meta = read_conversation_meta(&metadata_path)
         .expect("read meta")
         .expect("meta exists");
@@ -918,16 +918,16 @@ fn load_conversation_uses_token_usage_metadata() {
     );
     write_conversation_metadata(&metadata_path, &meta).expect("write meta");
 
-    let detail = load_conversation(&cid)
+    let detail = load_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid)
         .expect("load conversation")
         .expect("conversation exists");
     assert_eq!(detail.context_token_count, 2333);
     assert_eq!(
-        load_conversation_token_usage_count(&cid).expect("load token usage"),
+        load_conversation_token_usage_count(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("load token usage"),
         Some(2333)
     );
 
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
 
 #[test]
@@ -942,7 +942,7 @@ fn conversation_mounted_mcp_servers_legacy_fallback() {
     ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("ensure");
 
     // Manually insert legacy format under old key in metadata
-    let metadata_path = conversation_metadata_path(&cid).expect("metadata path");
+    let metadata_path = conversation_metadata_path(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("metadata path");
     let mut meta = read_conversation_meta(&metadata_path)
         .expect("read meta")
         .expect("meta exists");
@@ -970,7 +970,7 @@ fn conversation_mounted_mcp_servers_legacy_fallback() {
     write_conversation_metadata(&metadata_path, &meta).expect("write legacy meta");
 
     // Load using generic loader and assert mapped fields
-    let loaded = load_conversation_mounted_tool_sources(&cid).expect("load mounted tool sources");
+    let loaded = load_conversation_mounted_tool_sources(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("load mounted tool sources");
     assert_eq!(loaded.len(), 1);
     assert_eq!(loaded[0].source_id, "openai_docs");
     assert_eq!(loaded[0].source_type, "mcp");
@@ -1005,7 +1005,7 @@ fn concurrent_appends_preserve_all_lines_for_same_conversation() {
         handle.join().expect("join").expect("append");
     }
 
-    let detail = load_conversation(&cid).expect("load").expect("detail");
+    let detail = load_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).expect("load").expect("detail");
     let user_count = detail
         .lines
         .iter()
@@ -1013,5 +1013,5 @@ fn concurrent_appends_preserve_all_lines_for_same_conversation() {
         .count();
     assert_eq!(user_count, 12);
 
-    delete_conversation(&cid).ok();
+    delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &cid).ok();
 }
