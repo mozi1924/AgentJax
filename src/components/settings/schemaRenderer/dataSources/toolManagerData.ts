@@ -179,7 +179,10 @@ export const isSourcePolicyEditable = (source: ToolManagerSourceSnapshot) =>
   source.sourceType === 'plugin' || source.sourceType === 'mcp';
 
 export const isToolPolicyEditable = (source: ToolManagerSourceSnapshot) =>
-  source.sourceType === 'native' || source.sourceType === 'plugin' || source.sourceType === 'mcp';
+  source.sourceType === 'native' ||
+  source.sourceType === 'context' ||
+  source.sourceType === 'plugin' ||
+  source.sourceType === 'mcp';
 
 export const isMcpExposureEditable = (source: ToolManagerSourceSnapshot) =>
   source.sourceType === 'mcp';

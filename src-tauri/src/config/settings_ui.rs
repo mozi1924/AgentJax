@@ -5,6 +5,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::default_items::inject_default_items;
+use super::section_generator::{SectionMeta, generate_simple_section};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,6 +64,35 @@ fn build_builtin_settings_sections() -> AgentJaxResult<Vec<Value>> {
         // Inject defaultItem from Rust struct Default impls so JSON schema
         // files don't need to duplicate default values.
         inject_default_items(&mut section);
+        sections.push(section);
+    }
+
+    // Append auto-generated sections for config types with simple layouts.
+    // These are generated from Rust struct schemas so they stay in sync.
+    let generated_sections: [Option<Value>; 2] = [
+        Some(generate_simple_section::<super::SubAgentConfig>(
+            &SectionMeta {
+                id: "sub_agent",
+                title_key: "settings.sub_agent.title",
+                icon: "Bot",
+                order: 30,
+                description_key: "settings.sub_agent.description",
+            },
+            "sub_agent",
+        )?),
+        Some(generate_simple_section::<super::RagConfig>(
+            &SectionMeta {
+                id: "rag",
+                title_key: "settings.rag.title",
+                icon: "Library",
+                order: 70,
+                description_key: "settings.rag.description",
+            },
+            "rag",
+        )?),
+    ];
+
+    for section in generated_sections.into_iter().flatten() {
         sections.push(section);
     }
 

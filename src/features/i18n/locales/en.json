@@ -418,5 +418,11 @@
   "settings.context_management.street_auto_trigger.description": "Minimum priority level to automatically start a new agent turn when a notification arrives.",
   "settings.context_management.storage.title": "Storage",
   "settings.context_management.jsonl_backup.title": "JSONL Backup",
-  "settings.context_management.jsonl_backup.description": "Write a plain-text JSONL backup alongside the primary store for resilience."
+  "settings.context_management.jsonl_backup.description": "Write a plain-text JSONL backup alongside the primary store for resilience.",
+
+  "settings.sub_agent.title": "Sub-Agents",
+  "settings.sub_agent.description": "Configuration for sub-agents: secondary agents that work in parallel on independent tasks.",
+
+  "settings.rag.title": "RAG (Retrieval)",
+  "settings.rag.description": "Retrieval-Augmented Generation settings for document indexing and semantic search."
 }
