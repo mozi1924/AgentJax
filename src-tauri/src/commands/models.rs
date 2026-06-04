@@ -1,5 +1,5 @@
 use crate::models::ModelCatalog;
-use crate::{config, models};
+use crate::models;
 
 #[tauri::command]
 pub async fn get_model_catalog() -> Result<ModelCatalog, String> {
@@ -8,7 +8,6 @@ pub async fn get_model_catalog() -> Result<ModelCatalog, String> {
 
 #[tauri::command]
 pub async fn force_sync_model_cache() -> Result<ModelCatalog, String> {
-    let cfg = config::load_config()?;
-    let _ = models::sync_remote_model_cache_with_config(&cfg).await?;
+    let _ = models::sync_remote_model_cache().await?;
     models::get_model_catalog(false).await.map_err(|e| e.to_string())
 }

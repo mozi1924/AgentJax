@@ -254,6 +254,7 @@ fn build_default_config(
             model_id.clone(),
             ProviderModelConfig {
                 name: None,
+                api_protocol: None,
                 enabled: true,
                 request: ModelRequestConfig::default(),
             },

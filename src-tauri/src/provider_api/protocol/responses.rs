@@ -170,7 +170,7 @@ fn process_responses_event(
     state: &mut ResponsesStreamState,
     response_id: &mut String,
     output_text: &mut String,
-    output_items: &mut Vec<Value>,
+    _output_items: &mut Vec<Value>,
     usage: &mut Option<ProviderUsage>,
     on_delta: &mut dyn FnMut(ProviderStreamEvent) -> AgentJaxResult<()>,
 ) -> AgentJaxResult<bool> {

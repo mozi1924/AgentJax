@@ -520,6 +520,11 @@ pub struct ProviderModelConfig {
     /// When absent, the model ID (map key) is shown instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Optional protocol override for this model.
+    /// When set (e.g., "chat_completions", "embeddings"), the framework
+    /// uses this protocol instead of auto-detecting from the provider kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_protocol: Option<String>,
     pub request: ModelRequestConfig,
 }
 
@@ -547,6 +552,7 @@ pub struct ResolvedModelConfig {
     pub prompt_assembly: CompiledPromptAssembly,
     pub request: ModelRequestConfig,
     pub timeout_seconds: u64,
+    pub api_protocol: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -655,6 +661,7 @@ impl Default for ProviderModelConfig {
         Self {
             enabled: true,
             name: None,
+            api_protocol: None,
             request: ModelRequestConfig::default(),
         }
     }

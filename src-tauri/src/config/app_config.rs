@@ -42,6 +42,7 @@ impl ProviderConfig {
                         model_id.clone(),
                         ProviderModelConfig {
                             name: None,
+                            api_protocol: None,
                             enabled: true,
                             request: ModelRequestConfig::default(),
                         },
@@ -457,6 +458,7 @@ impl AppConfig {
                     fallback_model_id.to_string(),
                     ProviderModelConfig {
                         name: None,
+                        api_protocol: None,
                         enabled: true,
                         request: ModelRequestConfig::default(),
                     },
@@ -566,6 +568,7 @@ impl AppConfig {
             prompt_assembly,
             request: model_cfg.request.clone(),
             timeout_seconds: provider.resolved_timeout_seconds(self.request_timeout_seconds),
+            api_protocol: model_cfg.api_protocol.clone(),
         })
     }
 

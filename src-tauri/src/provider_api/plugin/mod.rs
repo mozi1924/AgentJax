@@ -252,6 +252,7 @@ pub async fn fetch_remote_models(
         provider,
         model_id: String::new(),
         request: Default::default(),
+        api_protocol: None,
     };
     let package = registry::provider_plugin_package(&resolved.provider.kind).ok_or_else(|| {
         AgentJaxError::config(format!(

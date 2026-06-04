@@ -94,7 +94,7 @@ where
     let resolved = config.resolve_model_profile(req.model.as_deref())?;
 
     // Determine which protocol to use
-    let protocol = resolve_protocol(&resolved.provider.kind, &resolved.model_id);
+    let protocol = resolve_protocol(&resolved.provider.kind, &resolved.model_id, resolved.api_protocol.as_deref());
     if let Some(ref protocol) = protocol {
         let mut on_delta = on_delta;
         protocol::stream_response(
@@ -127,7 +127,7 @@ pub async fn embed_text(
     input: &EmbeddingRequest,
 ) -> AgentJaxResult<EmbeddingResponse> {
     let provider = config.resolved_provider(provider_key)?;
-    let protocol = resolve_protocol(&provider.kind, model_id);
+    let protocol = resolve_protocol(&provider.kind, model_id, None);
     match protocol.as_deref() {
         Some("embeddings") => protocol::embed("embeddings", &provider, model_id, input).await  /* protocol already known to be "embeddings" */,
         Some(other) => Err(AgentJaxError::config(format!(
@@ -149,7 +149,7 @@ pub async fn fetch_remote_models(
 ) -> AgentJaxResult<Vec<ProviderModelDescriptor>> {
     // Try protocol-based model fetching first
     let provider = config.resolved_provider(provider_key)?;
-    let protocol = resolve_protocol(&provider.kind, "");
+    let protocol = resolve_protocol(&provider.kind, "", None);
     if protocol.is_some() {
         let endpoint = format!("{}/models", provider.api_endpoint().trim_end_matches('/'));
         return protocol::fetch_remote_models(&provider, &endpoint, config.request_timeout_seconds).await;
@@ -183,14 +183,26 @@ pub fn get_model_metadata(
 /// The protocol determines which native Rust implementation to use for
 /// the API call. Returns `None` for plugin-based providers without a
 /// native protocol implementation.
-fn resolve_protocol(provider_kind: &str, _model_id: &str) -> Option<String> {
-    // Check the registry for protocol declarations first
+fn resolve_protocol(
+    provider_kind: &str,
+    _model_id: &str,
+    api_protocol_override: Option<&str>,
+) -> Option<String> {
+    // 1. Explicit per-model apiProtocol takes highest precedence
+    if let Some(proto) = api_protocol_override {
+        let trimmed = proto.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string().to_lowercase());
+        }
+    }
+
+    // 2. Check the registry for protocol declarations
     let protocols = crate::provider_api::registry::provider_supports_protocols(provider_kind);
     if !protocols.is_empty() {
         return protocols.first().cloned();
     }
 
-    // Hardcoded fallback for legacy plugin kinds
+    // 3. Hardcoded fallback for legacy plugin kinds
     match provider_kind {
         "openai-responses" => Some("responses".to_string()),
         "chat-completions" => Some("chat_completions".to_string()),
