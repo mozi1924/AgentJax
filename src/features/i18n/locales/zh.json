@@ -168,6 +168,11 @@
   "settings.mcp.servers.unfolded.title": "工具不折叠",
   "settings.mcp.servers.unfolded.description": "直接激活该服务器提供的所有工具，不生成单独的挂载/卸载管理工具。",
 
+  "settings.renderer.unknown_error": "未知错误",
+  "settings.renderer.error_in_section": "在“{label}”中遇到错误",
+  "settings.renderer.error_occurred": "设置部分遇到错误",
+  "settings.renderer.unsupported_control": "不支持的控件类型“{control}”",
+  "settings.renderer.unsupported": "不支持",
   "settings.renderer.advanced": "高级",
   "settings.renderer.secret.configured": "当前密钥已存储在 {source} 中。留空以保持不变。",
   "settings.renderer.secret.not_configured": "暂未配置任何密钥。",

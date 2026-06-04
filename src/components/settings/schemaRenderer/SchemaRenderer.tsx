@@ -1,4 +1,5 @@
 import { Fragment, useMemo } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { isNodeVisible } from '../../../features/settings/utils';
 import type { SettingsSchemaNode, SettingsUiSchemaNode } from '../../../features/settings/types';
 import {
@@ -8,8 +9,44 @@ import {
 import { FieldRenderer } from './FieldControlRegistry';
 import { DataSourceRenderer } from './DataSourceRenderer';
 import { CollectionLayoutRenderer, GroupRenderer, UiLayoutRenderer } from './LayoutRenderer';
+import { SettingsErrorBoundary } from './SettingsErrorBoundary';
+import { safeValidateNode } from './validateSettingsSchema';
 import type { SchemaRendererProps } from './types';
 import type { NodeListProps } from '../renderer/types';
+
+/** Fallback shown when a single schema node fails validation. */
+function InvalidNodeFallback({ nodeId, kind }: { nodeId: string; kind: string }) {
+  return (
+    <div className="rounded-lg border border-amber-500/15 bg-amber-950/5 px-3 py-2">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-400" />
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium text-amber-300">Invalid schema node</p>
+          <p className="mt-0.5 truncate text-[10px] text-amber-400/60">
+            id=&ldquo;{nodeId}&rdquo; kind=&ldquo;{kind}&rdquo;
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Wrap a single rendered node so a crash in one does not break the whole section. */
+function SafeNodeRenderer({
+  node,
+  contextLabel,
+  children,
+}: {
+  node: SettingsSchemaNode;
+  contextLabel?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <SettingsErrorBoundary contextLabel={`${contextLabel ? `${contextLabel} > ` : ''}${node.kind} "${node.id}"`}>
+      {children}
+    </SettingsErrorBoundary>
+  );
+}
 
 // Recursive UI schema dispatcher. V1 field/group/collection nodes are handled as compatibility nodes.
 export function SchemaRenderer(props: SchemaRendererProps) {
@@ -50,14 +87,25 @@ export function SchemaRenderer(props: SchemaRendererProps) {
 
   const renderedNodes = visibleNodes.map((node) => {
         const key = `${props.contextPath || 'root'}:${node.kind}:${node.id}`;
+        const contextLabel = props.contextPath || 'root';
 
-        const renderKind = getSchemaRenderKind(node);
-
-        if (renderKind === 'field' && node.kind === 'field') {
+        // Validate node before rendering — catch structural issues early.
+        const validated = safeValidateNode(node, contextLabel);
+        if (!validated) {
           return (
             <div key={key} className="flex flex-col">
+              <InvalidNodeFallback nodeId={node.id} kind={node.kind} />
+            </div>
+          );
+        }
+
+        const renderKind = getSchemaRenderKind(validated);
+
+        if (renderKind === 'field' && validated.kind === 'field') {
+          const content = (
+            <div key={key} className="flex flex-col">
               <FieldRenderer
-                field={node}
+                field={validated}
                 snapshot={props.snapshot}
                 savingPath={props.savingPath}
                 fieldErrors={props.fieldErrors}
@@ -66,24 +114,26 @@ export function SchemaRenderer(props: SchemaRendererProps) {
               />
             </div>
           );
+          return <SafeNodeRenderer key={key} node={validated} contextLabel={contextLabel}>{content}</SafeNodeRenderer>;
         }
 
-        if (renderKind === 'group' && node.kind === 'group') {
-          return (
+        if (renderKind === 'group' && validated.kind === 'group') {
+          const content = (
             <GroupRenderer
               key={key}
-              node={node}
+              node={validated}
               contextPath={props.contextPath}
               renderChildren={renderChildren}
             />
           );
+          return <SafeNodeRenderer key={key} node={validated} contextLabel={contextLabel}>{content}</SafeNodeRenderer>;
         }
 
-        if (renderKind === 'collection' && node.kind === 'collection') {
-          return (
+        if (renderKind === 'collection' && validated.kind === 'collection') {
+          const content = (
             <CollectionLayoutRenderer
               key={key}
-              node={node}
+              node={validated}
               props={{
                 snapshot: props.snapshot,
                 savingPath: props.savingPath,
@@ -97,11 +147,12 @@ export function SchemaRenderer(props: SchemaRendererProps) {
               renderNodeList={renderNodeList}
             />
           );
+          return <SafeNodeRenderer key={key} node={validated} contextLabel={contextLabel}>{content}</SafeNodeRenderer>;
         }
 
-        const uiNode = node as SettingsUiSchemaNode;
+        const uiNode = validated as SettingsUiSchemaNode;
         if (props.dataContext && shouldUseDataContextRenderer(uiNode)) {
-          return (
+          const content = (
             <Fragment key={key}>
               <DataSourceRenderer
                 node={uiNode}
@@ -110,8 +161,10 @@ export function SchemaRenderer(props: SchemaRendererProps) {
               />
             </Fragment>
           );
+          return <SafeNodeRenderer key={key} node={validated} contextLabel={contextLabel}>{content}</SafeNodeRenderer>;
         }
-        return (
+
+        const content = (
           <Fragment key={key}>
             <UiLayoutRenderer
               node={uiNode}
@@ -121,6 +174,7 @@ export function SchemaRenderer(props: SchemaRendererProps) {
             />
           </Fragment>
         );
+        return <SafeNodeRenderer key={key} node={validated} contextLabel={contextLabel}>{content}</SafeNodeRenderer>;
       });
 
   if (props.container === 'fragment') {

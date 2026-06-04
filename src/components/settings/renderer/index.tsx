@@ -1,5 +1,6 @@
 import type { SettingsRendererProps } from './types';
 import { SchemaRenderer } from '../schemaRenderer';
+import { SettingsErrorBoundary } from '../schemaRenderer/SettingsErrorBoundary';
 import { useSchemaDataContext } from '../schemaRenderer/dataSources/useSchemaDataContext';
 import { filterSchemaNodesForSearch } from '../../../features/settings/schemaRendererView';
 import { useI18n } from '../../../features/i18n';
@@ -26,18 +27,20 @@ export default function SettingsRenderer(props: SettingsRendererProps) {
   }
 
   return (
-    <SchemaRenderer
-      nodes={nodes}
-      snapshot={props.snapshot}
-      savingPath={props.savingPath}
-      fieldErrors={props.fieldErrors}
-      queryState={props.queryState}
-      actions={{
-        saveField: props.onSaveField,
-        deletePath: props.onDeletePath,
-        addCollectionItem: props.onAddCollectionItem,
-      }}
-      dataContext={dataContext}
-    />
+    <SettingsErrorBoundary contextLabel={props.section.id}>
+      <SchemaRenderer
+        nodes={nodes}
+        snapshot={props.snapshot}
+        savingPath={props.savingPath}
+        fieldErrors={props.fieldErrors}
+        queryState={props.queryState}
+        actions={{
+          saveField: props.onSaveField,
+          deletePath: props.onDeletePath,
+          addCollectionItem: props.onAddCollectionItem,
+        }}
+        dataContext={dataContext}
+      />
+    </SettingsErrorBoundary>
   );
 }

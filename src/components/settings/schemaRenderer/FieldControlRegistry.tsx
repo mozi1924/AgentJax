@@ -85,7 +85,20 @@ export function FieldRenderer({
 
   const Control = getRegisteredFieldControl(field.control);
   if (!Control) {
-    return null;
+    return (
+      <FieldShell
+        field={field}
+        resolvedPath={resolvedPath}
+        secretStatus={secretStatus}
+        helperText={t('settings.renderer.unsupported_control', { control: field.control })}
+        hasError={false}
+        fullWidth={false}
+      >
+        <span className="rounded bg-amber-950/30 px-2 py-1 text-[11px] text-amber-400">
+          {t('settings.renderer.unsupported')}
+        </span>
+      </FieldShell>
+    );
   }
 
   const commit = async (nextValue: unknown) => {

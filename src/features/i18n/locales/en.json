@@ -168,6 +168,11 @@
   "settings.mcp.servers.unfolded.title": "Unfolded",
   "settings.mcp.servers.unfolded.description": "Directly expose all tools from this server without a separate mount/unmount tool.",
 
+  "settings.renderer.unknown_error": "Unknown error",
+  "settings.renderer.error_in_section": "Error in “{label}”",
+  "settings.renderer.error_occurred": "A settings section encountered an error",
+  "settings.renderer.unsupported_control": "Unsupported control type “{control}”",
+  "settings.renderer.unsupported": "Not supported",
   "settings.renderer.advanced": "Advanced",
   "settings.renderer.secret.configured": "Current secret stored via {source}. Leave blank to keep it unchanged.",
   "settings.renderer.secret.not_configured": "No secret configured yet.",

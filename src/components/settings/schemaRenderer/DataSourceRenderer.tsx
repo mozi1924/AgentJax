@@ -27,6 +27,7 @@ import {
   DataSourceProperties,
   DataSourceSearchInput,
 } from './dataSources/ui';
+import { applySplitLayoutStrategy } from './layoutStrategies';
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
@@ -121,13 +122,11 @@ export function DataSourceRenderer({
     let layout = node.layout;
     let children = node.children;
 
-    if (node.id === 'tool-manager-layout') {
-      const queryState = asRecord(dataContext.getDataSource('toolManager.query'));
-      const activeTab = queryState.activeTab;
-      if (activeTab === 'native' || activeTab === 'session' || activeTab === 'context') {
-        layout = 'two-pane';
-        children = children?.filter((child) => child.id !== 'tool-source-list');
-      }
+    // Apply registered split-layout strategies (e.g., tool-manager-layout).
+    const strategyOverride = applySplitLayoutStrategy(node, dataContext);
+    if (strategyOverride) {
+      if (strategyOverride.layout) layout = strategyOverride.layout;
+      if (strategyOverride.children) children = strategyOverride.children;
     }
 
     return (
