@@ -487,6 +487,18 @@ pub fn provider_definitions_for_package(
 ) -> PluginRuntimeResult<Vec<PluginProviderDefinition>> {
     let mut providers = package.manifest.providers.clone();
 
+    // If the manifest already defines one or more providers with `model_routing`
+    // or `builtin_models` (Phase 2 declarative schema), the JS step is skipped.
+    // This avoids creating a JsRuntime for purely declarative provider plugins.
+    let is_fully_declarative = providers.iter().any(|p| {
+        !p.model_routing.is_empty() || !p.builtin_models.is_empty()
+    });
+
+    if is_fully_declarative {
+        return Ok(providers);
+    }
+
+    // Legacy path: extract additional provider definitions from JS.
     let mut instance = create_temp_plugin_instance(package)?;
     let js_providers = instance.extract_provider_definitions()?;
     providers.extend(js_providers);

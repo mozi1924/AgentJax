@@ -23,6 +23,7 @@ pub(crate) mod plugin;
 pub mod types;
 
 use crate::error::{AgentJaxError, AgentJaxResult};
+use crate::plugin_runtime::BuiltinModelDescriptor;
 use serde_json::Value;
 
 pub use capabilities::ProviderCapabilities;
@@ -176,13 +177,76 @@ pub fn get_reasoning_capability(
     model_id: &str,
     cached_levels: Option<&[String]>,
 ) -> AgentJaxResult<ModelReasoningCapability> {
+    // Phase 2: check builtin_models first — no JS needed.
+    if let Some(def) = registry::provider_definition(provider_kind) {
+        if let Some(model) = lookup_builtin_model(&def.builtin_models, model_id) {
+            if let Some(levels) = &model.supported_reasoning_levels {
+                return Ok(ModelReasoningCapability {
+                    supports_reasoning: !levels.is_empty(),
+                    supported_reasoning_levels: levels.clone(),
+                });
+            }
+        }
+        // If provider has builtin_models but this specific model wasn't found,
+        // return a sensible default rather than falling through to JS.
+        if !def.builtin_models.is_empty() {
+            return Ok(ModelReasoningCapability {
+                supports_reasoning: false,
+                supported_reasoning_levels: Vec::new(),
+            });
+        }
+    }
+
+    // Fall back to JS plugin for providers that still use the legacy path.
     plugin::get_reasoning_capability(provider_kind, model_id, cached_levels)
+}
+
+/// Look up a model in `builtin_models` using exact match first, then
+/// prefix/substring fallback (matching the heuristic that the old JS
+/// `resolveModelMetadata` used).
+fn lookup_builtin_model<'a>(
+    builtin_models: &'a [BuiltinModelDescriptor],
+    model_id: &str,
+) -> Option<&'a BuiltinModelDescriptor> {
+    let normalized = model_id.trim().to_lowercase();
+
+    // 1. Exact match
+    if let Some(m) = builtin_models.iter().find(|m| m.id == normalized) {
+        return Some(m);
+    }
+
+    // 2. Substring / prefix fallback (longest-id-first to prefer specificity)
+    let mut candidates: Vec<&BuiltinModelDescriptor> = builtin_models
+        .iter()
+        .filter(|m| normalized.contains(&m.id) || m.id.contains(&normalized))
+        .collect();
+    candidates.sort_by(|a, b| b.id.len().cmp(&a.id.len()));
+    candidates.into_iter().next()
 }
 
 pub fn get_model_metadata(
     provider_kind: &str,
     model_id: &str,
 ) -> AgentJaxResult<ProviderModelMetadata> {
+    // Phase 2: check builtin_models first — no JS needed.
+    if let Some(def) = registry::provider_definition(provider_kind) {
+        if let Some(model) = lookup_builtin_model(&def.builtin_models, model_id) {
+            return Ok(ProviderModelMetadata {
+                context_window: model.context_window,
+                kind: model.kind.clone(),
+            });
+        }
+        // If provider has builtin_models but no match was found, return
+        // a default rather than falling through to JS.
+        if !def.builtin_models.is_empty() {
+            return Ok(ProviderModelMetadata {
+                context_window: None,
+                kind: None,
+            });
+        }
+    }
+
+    // Fall back to JS plugin path for legacy providers.
     plugin::get_model_metadata(provider_kind, model_id)
 }
 

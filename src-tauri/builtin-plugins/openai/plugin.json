@@ -4,11 +4,90 @@
   "version": "0.0.0",
   "apiVersion": 1,
   "entrypoint": "plugin.js",
-  "description": "Declarative provider plugin for OpenAI-compatible APIs. Supports Responses, Chat Completions, and Embeddings protocols — protocol handling is done natively in Rust.",
+  "description": "OpenAI API provider — fully declarative. Protocol handling (Responses, Chat Completions, Embeddings) is done natively in Rust.",
   "sandbox": {
     "allowNetwork": false,
     "allowFileRead": false,
     "allowFileWrite": false,
     "maxExecutionMs": 30000
-  }
+  },
+  "providers": [
+    {
+      "kind": "openai",
+      "displayName": "OpenAI",
+      "defaultPriority": 0,
+      "defaultModelIds": ["gpt-5-mini", "gpt-5"],
+      "toolSchemaFormat": "responses",
+      "capabilities": {
+        "requiresInstructions": true,
+        "requiresStreamTrueInWebsocket": true,
+        "supportsStoredResponses": false,
+        "supportsCrossSocketContinuation": false,
+        "supportsGenerateFalse": true,
+        "supportsJsonMode": true,
+        "supportsJsonSchema": true,
+        "supportsParallelToolCalls": true,
+        "supportsBuiltInWebSearch": false,
+        "emitsFinalOutputItems": true,
+        "emitsIncrementalToolCallArguments": true
+      },
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "apiEndpoint": { "type": "string", "default": "https://api.openai.com/v1", "title": "API Endpoint" },
+          "modelsEndpointCandidates": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "queryParams": { "type": "object", "additionalProperties": { "type": "string" }, "default": {} },
+          "httpHeaders": { "type": "object", "additionalProperties": { "type": "string" }, "default": {} },
+          "envHttpHeaders": { "type": "object", "additionalProperties": { "type": "string" }, "default": {} },
+          "realtimeEndpoint": { "type": ["string", "null"], "default": null },
+          "supportsWebsockets": { "type": "boolean", "default": true },
+          "streamTransport": { "type": "string", "default": "sse" },
+          "credential": { "type": ["string", "null"], "default": null, "sensitive": true },
+          "credentialEnv": { "type": "string", "default": "OPENAI_API_KEY" },
+          "requestTimeoutSeconds": { "type": ["integer", "null"], "default": null },
+          "requestMaxRetries": { "type": ["integer", "null"], "default": null },
+          "streamMaxRetries": { "type": ["integer", "null"], "default": null },
+          "streamIdleTimeoutMs": { "type": ["integer", "null"], "default": null },
+          "websocketConnectTimeoutMs": { "type": ["integer", "null"], "default": null }
+        }
+      },
+      "modelRouting": [
+        { "pattern": "text-embedding*", "protocol": "embeddings", "path": "/v1/embeddings" },
+        { "pattern": "gpt-5*", "protocol": "responses", "path": "/v1/responses" },
+        { "pattern": "gpt-4*", "protocol": "responses", "path": "/v1/responses" },
+        { "pattern": "gpt-3.5*", "protocol": "responses", "path": "/v1/responses" },
+        { "pattern": "o1*", "protocol": "responses", "path": "/v1/responses" },
+        { "pattern": "o3*", "protocol": "responses", "path": "/v1/responses" },
+        { "pattern": "o4*", "protocol": "responses", "path": "/v1/responses" },
+        { "pattern": "*", "protocol": "chat_completions", "path": "/v1/chat/completions" }
+      ],
+      "builtinModels": [
+        { "id": "gpt-5", "kind": "chat", "contextWindow": 400000, "supportedReasoningLevels": ["minimal", "low", "medium", "high"] },
+        { "id": "gpt-5.5", "kind": "chat", "contextWindow": 1000000, "supportedReasoningLevels": ["minimal", "low", "medium", "high"] },
+        { "id": "gpt-5-mini", "kind": "chat", "contextWindow": 400000, "supportedReasoningLevels": ["minimal", "low", "medium", "high"] },
+        { "id": "o3-mini", "kind": "chat", "contextWindow": 200000, "supportedReasoningLevels": ["minimal", "low", "medium", "high"] },
+        { "id": "o1", "kind": "chat", "contextWindow": 128000, "supportedReasoningLevels": ["minimal", "low", "medium", "high"] },
+        { "id": "o1-mini", "kind": "chat", "contextWindow": 128000, "supportedReasoningLevels": ["minimal", "low", "medium", "high"] },
+        { "id": "o1-preview", "kind": "chat", "contextWindow": 128000, "supportedReasoningLevels": ["minimal", "low", "medium", "high"] },
+        { "id": "gpt-4o", "kind": "chat", "contextWindow": 128000 },
+        { "id": "gpt-4o-mini", "kind": "chat", "contextWindow": 128000 },
+        { "id": "gpt-4-turbo", "kind": "chat", "contextWindow": 128000 },
+        { "id": "gpt-4", "kind": "chat", "contextWindow": 8192 },
+        { "id": "gpt-4-32k", "kind": "chat", "contextWindow": 32768 },
+        { "id": "gpt-3.5-turbo", "kind": "chat", "contextWindow": 16384 },
+        { "id": "text-embedding-3-small", "kind": "embedding", "contextWindow": 8191 },
+        { "id": "text-embedding-3-large", "kind": "embedding", "contextWindow": 8191 },
+        { "id": "text-embedding-ada-002", "kind": "embedding", "contextWindow": 8191 }
+      ],
+      "auth": {
+        "authType": "api_key",
+        "credentialEnv": "OPENAI_API_KEY",
+        "placement": {
+          "in": "header",
+          "key": "Authorization",
+          "format": "Bearer {key}"
+        }
+      }
+    }
+  ]
 }

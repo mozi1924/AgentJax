@@ -1,8 +1,8 @@
 use crate::agentjax_err;
 use crate::config::{ModelRequestConfig, ProviderConfig, ProviderModelConfig};
 use crate::plugin_runtime::{
-    PluginPackage, PluginProviderDefinition, builtin_plugin_packages,
-    provider_definitions_for_package,
+    BuiltinModelDescriptor, ModelRoutingRule, PluginPackage, PluginProviderDefinition,
+    builtin_plugin_packages, provider_definitions_for_package,
 };
 use crate::tools::ToolSchemaFormat;
 use serde_json::Value;
@@ -30,6 +30,13 @@ pub struct DynamicProviderDefinition {
     pub default_model_ids: Vec<String>,
     pub default_config: ProviderConfig,
     pub supports_protocols: Vec<String>,
+
+    // ── Phase 2: declarative fields ─────────────────────────────────────
+    /// Ordered glob-based model routing rules.
+    #[allow(dead_code)]
+    pub model_routing: Vec<ModelRoutingRule>,
+    /// Built-in model descriptors.
+    pub builtin_models: Vec<BuiltinModelDescriptor>,
 }
 
 pub fn builtin_provider_definitions() -> Vec<DynamicProviderDefinition> {
@@ -173,7 +180,10 @@ fn dynamic_provider_definition_from_plugin(
     }
     let display_name = plugin_provider.display_name.trim().to_string();
     if display_name.is_empty() {
-        return Err(agentjax_err!(format!("provider '{kind}' must have a display name"), Config));
+        return Err(agentjax_err!(
+            format!("provider '{kind}' must have a display name"),
+            Config
+        ));
     }
 
     let capabilities = plugin_provider
@@ -191,6 +201,22 @@ fn dynamic_provider_definition_from_plugin(
     let default_priority = plugin_provider.default_priority.unwrap_or(1000);
     let default_config = build_default_config(&kind, &default_model_ids, &config_schema);
 
+    // Derive supports_protocols from model_routing if available and not
+    // explicitly set, so downstream consumers (resolve_protocol fallback)
+    // continue to work without changes.
+    let supports_protocols = if !plugin_provider.supports_protocols.is_empty() {
+        plugin_provider.supports_protocols.clone()
+    } else {
+        let mut protocols: Vec<String> = plugin_provider
+            .model_routing
+            .iter()
+            .map(|r| r.protocol.clone())
+            .collect();
+        protocols.sort();
+        protocols.dedup();
+        protocols
+    };
+
     Ok(DynamicProviderDefinition {
         kind,
         display_name,
@@ -201,7 +227,9 @@ fn dynamic_provider_definition_from_plugin(
         tool_schema_format,
         default_model_ids,
         default_config,
-        supports_protocols: plugin_provider.supports_protocols.clone(),
+        supports_protocols,
+        model_routing: plugin_provider.model_routing,
+        builtin_models: plugin_provider.builtin_models,
     })
 }
 

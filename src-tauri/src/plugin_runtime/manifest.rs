@@ -33,7 +33,85 @@ pub enum PluginToolKind {
     Prompt,
 }
 
+// ── Glob-based Model Routing ───────────────────────────────────────────────
+
+/// A single rule mapping a model ID glob pattern to a protocol + API path.
+///
+/// Rules are evaluated in declaration order; the first match wins.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelRoutingRule {
+    /// Glob pattern to match against model ID (e.g. `"gpt-5*"`, `"text-embedding*"`, `"*"`).
+    pub pattern: String,
+    /// Protocol name to route to (e.g. `"chat_completions"`, `"responses"`, `"embeddings"`).
+    pub protocol: String,
+    /// API path suffix appended to the base URL (e.g. `"/v1/chat/completions"`).
+    pub path: String,
+}
+
+// ── Built-in Model Descriptor ─────────────────────────────────────────────
+
+/// Describes a model known to a provider at build time.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinModelDescriptor {
+    /// Model ID (e.g. `"gpt-5-mini"`).
+    pub id: String,
+    /// Model kind (`"chat"`, `"embedding"`, `"reasoning"`, etc.).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Context window size in tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<usize>,
+    /// Supported reasoning levels for this model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supported_reasoning_levels: Option<Vec<String>>,
+}
+
+// ── Auth Strategy Declaration ─────────────────────────────────────────────
+
+/// Authentication strategy that the host applies server-side.
+///
+/// The credential is injected by Rust after the JS plugin returns its HTTP
+/// request definition, so the raw API key never enters the V8 runtime.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthConfig {
+    /// Auth type: `"api_key"`, `"bearer"`, `"basic"`, `"custom_header"`.
+    #[serde(default = "default_auth_type")]
+    pub auth_type: String,
+    /// Environment variable name to read the credential from.
+    pub credential_env: String,
+    /// Where and how to place the credential in requests.
+    pub placement: AuthPlacement,
+}
+
+fn default_auth_type() -> String {
+    "api_key".to_string()
+}
+
+/// Describes where to place the credential in an HTTP request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthPlacement {
+    /// Location: `"header"` or `"query"`.
+    #[serde(default = "default_auth_in")]
+    pub in_field: String,
+    /// Header name or query parameter name.
+    pub key: String,
+    /// Format string with `"{key}"` placeholder (e.g. `"Bearer {key}"`, `"ApiKey {key}"`).
+    pub format: String,
+}
+
+fn default_auth_in() -> String {
+    "header".to_string()
+}
+
 /// Declarative provider definition exported by a model provider plugin.
+///
+/// All fields except `kind` and `display_name` are optional. The provider
+/// can be fully declared in JSON for standard API shapes; only providers
+/// requiring custom request/response logic need a JS entrypoint.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct PluginProviderDefinition {
@@ -51,6 +129,22 @@ pub struct PluginProviderDefinition {
     pub tool_schema_format: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub supports_protocols: Vec<String>,
+
+    // ── New Phase 2 fields (declarative, no JS needed) ──────────────────
+
+    /// Ordered glob-based model routing rules.
+    /// When non-empty, used instead of `supports_protocols` heuristics.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub model_routing: Vec<ModelRoutingRule>,
+
+    /// Built-in model descriptors known at build time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub builtin_models: Vec<BuiltinModelDescriptor>,
+
+    /// Authentication strategy declaration.
+    /// When present, the host applies credentials server-side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<AuthConfig>,
 }
 
 impl Default for PluginProviderDefinition {
@@ -64,6 +158,9 @@ impl Default for PluginProviderDefinition {
             capabilities: None,
             tool_schema_format: None,
             supports_protocols: Vec::new(),
+            model_routing: Vec::new(),
+            builtin_models: Vec::new(),
+            auth: None,
         }
     }
 }

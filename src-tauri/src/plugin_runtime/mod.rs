@@ -22,7 +22,12 @@ pub use builtin::builtin_plugin_packages;
 pub use discovery::{
     PluginPackage, discover_all_plugin_packages, discover_home_plugin_packages,
 };
-pub use manifest::{PluginManifest, PluginProviderDefinition, PluginToolDefinition};
+// AuthConfig/AuthPlacement re-exported for future phases (credential injection generalization).
+#[allow(unused_imports)]
+pub use manifest::{
+    AuthConfig, AuthPlacement, BuiltinModelDescriptor, ModelRoutingRule, PluginManifest,
+    PluginProviderDefinition, PluginToolDefinition,
+};
 pub use runtime::{
     PluginRuntimeError, PluginRuntimeResult, create_temp_plugin_instance,
     provider_definitions_for_package,
@@ -294,16 +299,11 @@ mod tests {
                         && properties.contains_key("credentialEnv")),
                 "built-in provider plugin should declare its required config fields"
             );
-            assert!(
-                package
-                    .entrypoint_source
-                    .as_deref()
-                    .unwrap_or_default()
-                    .contains("globalThis.AgentJaxPlugin"),
-                "built-in provider plugin should compile a JS entrypoint"
-            );
-            assert_eq!(package.manifest.providers.len(), 0);
-            assert_eq!(providers.len(), 1);
+            // Phase 2: provider definition is now in manifest (declarative JSON),
+            // not in JS. The JS entrypoint still exists for backward compat but
+            // the provider metadata comes from the manifest.
+            assert_eq!(package.manifest.providers.len(), 1, "provider definition should be in plugin.json");
+            assert_eq!(providers.len(), 1, "provider_definitions_for_package should yield 1 provider");
         }
     }
 
