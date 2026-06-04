@@ -64,14 +64,16 @@ export const resolvePath = (path: string, contextPath?: string) => {
   return `${contextPath}.${trimmed}`;
 };
 
-export const getValueAtPath = (root: unknown, path: string) => {
+/** Read a value from a nested object by dot-separated path.
+ *  Callers can specify the expected return type via the type parameter. */
+export const getValueAtPath = <T = unknown>(root: unknown, path: string): T | undefined => {
   const segments = splitPath(path).filter(Boolean);
-  if (segments.length === 0) return root;
+  if (segments.length === 0) return root as T;
 
   return segments.reduce<unknown>((current, segment) => {
     if (!current || typeof current !== 'object') return undefined;
     return (current as Record<string, unknown>)[segment];
-  }, root);
+  }, root) as T | undefined;
 };
 
 export const setValueAtPath = (root: unknown, path: string, value: unknown) => {

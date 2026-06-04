@@ -1,3 +1,5 @@
+import type { AppConfig } from './__generated__/config-types';
+
 export type SettingsValueType =
   | 'boolean'
   | 'integer'
@@ -58,7 +60,10 @@ export interface SecretStatus {
 export interface SettingsSnapshot {
   configPath: string;
   revision: string;
-  values: Record<string, unknown>;
+  /** Config values typed via codegen from Rust structs (snake_case fields).
+   *  The intersection with `Record<string, unknown>` preserves index access
+   *  for dynamic path-based lookups (`getValueAtPath`). */
+  values: AppConfig & Record<string, unknown>;
   dynamicOptions: Record<string, SettingsOption[]>;
   secretStatuses: Record<string, SecretStatus>;
 }
