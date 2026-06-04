@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Generated config type schemas (intermediate build artifact)
+gen/schemas/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -9,6 +9,7 @@ edition = "2024"
 # Keep this in sync with `src-tauri/rust-toolchain.toml` so local builds and
 # CI agree on the minimum supported compiler for the desktop runtime.
 rust-version = "1.95.0"
+default-run = "AgentJax"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -47,5 +48,6 @@ arrow-array = "53"
 arrow-schema = "53"
 
 rusqlite = { version = "0.36", features = ["bundled", "vtab"] }
+schemars = { version = "1", features = ["chrono04"] }
 thiserror = "2"
 async-trait = "0.1"

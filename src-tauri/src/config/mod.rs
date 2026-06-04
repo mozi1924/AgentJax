@@ -6,6 +6,7 @@ mod io;
 mod model_ref;
 mod prompt_composer;
 mod schema;
+mod path_validator;
 mod settings;
 mod settings_ui;
 
@@ -20,10 +21,11 @@ pub use prompt_composer::{
 };
 #[allow(unused_imports)]
 pub use schema::{
-    AppConfig, McpRuntimeConfig, McpServerConfig, McpToolSourcePolicyConfig, McpTransportKind,
-    MemoryConfig, ModelRequestConfig, PluginEntryConfig, PluginManagerConfig,
-    PluginPermissionOverride, ProviderConfig, ProviderModelConfig, ResolvedModelConfig,
-    RagConfig, EmbeddingProviderConfig, SubAgentConfig, ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
+    AppConfig, ContextManagementConfig, McpConfig, McpRuntimeConfig, McpServerConfig,
+    McpStdioRuntimeConfig, McpToolSourcePolicyConfig, McpTransportKind, MemoryConfig,
+    ModelRequestConfig, PluginEntryConfig, PluginManagerConfig, PluginPermissionOverride,
+    ProviderConfig, ProviderModelConfig, RagConfig, EmbeddingProviderConfig, ResolvedModelConfig,
+    SubAgentConfig, ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
 };
 #[allow(unused_imports)]
 pub use settings::{

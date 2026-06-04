@@ -3,6 +3,7 @@ use crate::config::constants::{
     default_mcp_startup_timeout_ms, default_mcp_tool_timeout_ms, default_true,
 };
 use crate::config::prompt_composer::{CompiledPromptAssembly, PromptComposerConfig};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -13,7 +14,7 @@ fn default_language() -> String {
 
 // ── Sub-Agent Config ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct SubAgentConfig {
     /// Maximum concurrent sub-agents allowed process-wide.
@@ -42,7 +43,7 @@ impl Default for SubAgentConfig {
 
 // ── Memory Config ─────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct MemoryConfig {
     /// Whether the memory system is enabled.
@@ -72,7 +73,7 @@ impl Default for MemoryConfig {
 /// Merges the former LCM (Lossless Context Management) settings, Street
 /// notification config, and conversation JSONL backup toggle into a single
 /// top-level `context_management` section.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ContextManagementConfig {
     // ── LCM fields (flattened at this level) ─────────────────────────────
@@ -165,7 +166,7 @@ impl ContextManagementConfig {
 /// Configuration for the embedding provider used by RAG.
 /// Credentials are resolved by referencing an existing provider config
 /// via `provider_key` (e.g., "openai-responses").
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct EmbeddingProviderConfig {
     /// Embedding provider implementation name (e.g., "openai").
@@ -193,7 +194,7 @@ impl Default for EmbeddingProviderConfig {
 }
 
 /// RAG (Retrieval-Augmented Generation) system configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct RagConfig {
     /// Whether the RAG system is enabled.
@@ -224,7 +225,7 @@ impl Default for RagConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct AppConfig {
     #[serde(default = "default_language")]
@@ -259,7 +260,7 @@ pub struct AppConfig {
 /// Unified MCP configuration merging runtime settings and server definitions.
 /// The outer (non-list) fields are the shared MCP runtime config; the
 /// `servers` list contains individual MCP server configurations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct McpConfig {
     pub stdio: McpStdioRuntimeConfig,
@@ -295,7 +296,7 @@ impl McpConfig {
 /// The first read-only Tools Manager surface uses this to report effective
 /// availability. Later management actions can patch the same structure without
 /// changing provider execution paths or source-specific config models.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 #[serde(default)]
 pub struct ToolManagerConfig {
     #[serde(default)]
@@ -313,14 +314,14 @@ pub struct ToolManagerConfig {
 /// Controls whether a plugin is enabled at the plugin-manager level and
 /// allows the user to override individual sandbox permissions declared in the
 /// plugin's manifest.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 #[serde(default)]
 pub struct PluginManagerConfig {
     #[serde(default)]
     pub plugins: BTreeMap<String, PluginEntryConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct PluginEntryConfig {
     /// Whether the plugin is enabled at the plugin-manager level.
@@ -347,7 +348,7 @@ impl Default for PluginEntryConfig {
 /// Each field is `Option<bool>` so we can distinguish between "user has not
 /// set an override" (`None`) and "user explicitly set to false" (`Some(false)`).
 /// When `None`, the effective permission falls back to the manifest-declared value.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 #[derive(Default)]
 pub struct PluginPermissionOverride {
@@ -364,13 +365,13 @@ pub struct PluginPermissionOverride {
 }
 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ToolEnabledConfig {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ToolSourcePolicyConfig {
     pub enabled: bool,
@@ -378,7 +379,7 @@ pub struct ToolSourcePolicyConfig {
     pub tools: BTreeMap<String, ToolEnabledConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct McpToolSourcePolicyConfig {
     pub enabled: bool,
@@ -387,7 +388,7 @@ pub struct McpToolSourcePolicyConfig {
     pub tools: BTreeMap<String, ToolEnabledConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct McpServerConfig {
     pub enabled: bool,
@@ -413,7 +414,7 @@ pub struct McpServerConfig {
     pub unfolded: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct McpRuntimeConfig {
     pub stdio: McpStdioRuntimeConfig,
@@ -421,7 +422,7 @@ pub struct McpRuntimeConfig {
     pub tool_timeout_ms: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 #[derive(Default)]
 pub struct McpStdioRuntimeConfig {
@@ -430,7 +431,7 @@ pub struct McpStdioRuntimeConfig {
     pub inherit_parent_env: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum McpTransportKind {
     #[default]
@@ -438,7 +439,7 @@ pub enum McpTransportKind {
     StreamableHttp,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ProviderConfig {
     pub kind: String,
@@ -589,7 +590,7 @@ impl ProviderConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ProviderModelConfig {
     #[serde(default = "default_true")]
@@ -607,7 +608,7 @@ pub struct ProviderModelConfig {
     pub request: ModelRequestConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 #[serde(default)]
 pub struct ModelRequestConfig {
     #[serde(skip_serializing_if = "Option::is_none")]

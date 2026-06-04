@@ -2,7 +2,7 @@
 
 mod agentjax_home;
 mod commands;
-mod config;
+pub mod config;
 mod conversation_store;
 mod conversation_store_utils;
 pub(crate) mod error;

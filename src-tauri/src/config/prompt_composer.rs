@@ -2,12 +2,13 @@ use crate::config::constants::{
     BUILTIN_CORE_SYSTEM_BLOCK_CONTENT, BUILTIN_CORE_SYSTEM_BLOCK_ID, BUILTIN_CORE_SYSTEM_SOURCE_ID,
     BUILTIN_CORE_SYSTEM_TITLE,
 };
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 // ── Enums ──────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PromptBlockRole {
     #[default]
@@ -25,7 +26,7 @@ impl PromptBlockRole {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PromptBlockSource {
     #[default]
@@ -47,7 +48,7 @@ impl PromptBlockSource {
 
 // ── Structs ────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(default)]
 pub struct PromptBlock {
     pub id: String,
@@ -67,7 +68,7 @@ pub struct PromptBlock {
 /// are abbreviated to only `{id, enabled}` — see
 /// [`Self::abbreviated_for_yaml`].  The abbreviated form is transparently
 /// expanded back during [`normalize_prompt_composer`].
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(default)]
 pub struct PromptComposerConfig {
     pub blocks: Vec<PromptBlock>,

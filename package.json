@@ -12,7 +12,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "dev:desktop": "tauri dev",
-    "build:desktop": "tauri build"
+    "build:desktop": "tauri build",
+    "gen:schemas": "cd src-tauri && cargo run --bin gen_schemas && cd .. && node scripts/generate-config-types.mjs",
+    "gen:types": "node scripts/generate-config-types.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

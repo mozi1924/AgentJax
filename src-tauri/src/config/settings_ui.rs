@@ -66,6 +66,10 @@ fn build_builtin_settings_sections() -> AgentJaxResult<Vec<Value>> {
         sections.push(section);
     }
 
+    // Validate that every `path` field in the builtin sections corresponds
+    // to a real Rust struct field in the config type hierarchy.
+    super::path_validator::validate_settings_paths(&sections)?;
+
     Ok(sections)
 }
 
