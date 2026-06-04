@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 /**
  * AgentJax SDK Bootstrap — evaluated into the global scope of every plugin's
  * JsRuntime before the plugin entrypoint runs.

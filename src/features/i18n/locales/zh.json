@@ -422,5 +422,27 @@
   "settings.sub_agent.description": "子代理的配置：可并行执行独立任务的辅助代理。",
 
   "settings.rag.title": "RAG（检索增强生成）",
-  "settings.rag.description": "检索增强生成的设置，用于文档索引和语义搜索。"
+  "settings.rag.description": "检索增强生成的设置，用于文档索引和语义搜索。",
+
+  "settings.sub_agent_max_concurrent.max_concurrent.title": "最大并发子代理数",
+  "settings.sub_agent_default_max_turns.default_max_turns.title": "默认最大轮数",
+  "settings.sub_agent_hard_max_turns.hard_max_turns.title": "硬性最大轮数",
+  "settings.sub_agent_timeout_secs.timeout_secs.title": "超时时间（秒）",
+  "settings.sub_agent_worktree_enabled.worktree_enabled.title": "启用 Git 工作区隔离",
+  "Maximum concurrent sub-agents allowed process-wide.": "全局允许的最大并发子代理数量。",
+  "Default maximum turns for a sub-agent.": "子代理默认执行的最大轮数限制。",
+  "Hard cap on sub-agent turns.": "子代理单次执行的硬性轮数上限。",
+  "Maximum time a sub-agent may run before being timed out (seconds).": "子代理运行的超时时间上限（秒）。",
+  "Whether git worktree isolation is enabled.": "是否启用 Git 工作区隔离以确保代码修改的隔离性。",
+
+  "settings.rag_enabled.enabled.title": "启用 RAG",
+  "settings.rag_storage_path.storage_path.title": "存储路径",
+  "settings.rag_chunk_size.chunk_size.title": "分块大小 (Chunk Size)",
+  "settings.rag_chunk_overlap.chunk_overlap.title": "分块重叠度 (Chunk Overlap)",
+  "settings.rag_top_k.top_k.title": "Top K",
+  "Whether the RAG system is enabled.": "是否启用 RAG（检索增强生成）系统。",
+  "Directory for vector store data (relative to agentjax home).": "向量数据库文件的存放目录（相对于 agentjax 主目录）。",
+  "Default chunk size in characters for text splitting.": "文本切分时的默认分块字符大小。",
+  "Chunk overlap in characters.": "相邻文本分块之间的重叠字符大小。",
+  "Default top-K results for searches.": "默认检索并返回的 Top-K 结果数量。"
 }

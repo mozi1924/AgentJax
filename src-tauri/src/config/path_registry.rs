@@ -257,6 +257,7 @@ fn resolve_collection_item_schema_fast<'a>(
 // ── Known-path helpers (for TypeScript codegen) ────────────────────────────
 
 /// All known top-level config paths (non-collection).
+#[allow(dead_code)]
 pub fn known_top_level_paths() -> BTreeSet<&'static str> {
     let mut paths = BTreeSet::new();
     paths.insert("language");
@@ -305,6 +306,7 @@ pub fn known_top_level_paths() -> BTreeSet<&'static str> {
 /// Collection-scoped field paths (resolved against the collection item type).
 /// The first segment is the collection name, the rest are field paths
 /// within the item type.
+#[allow(dead_code)]
 pub fn known_collection_paths() -> BTreeSet<&'static str> {
     let mut paths = BTreeSet::new();
     // Provider fields
