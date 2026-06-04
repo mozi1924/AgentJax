@@ -22,7 +22,11 @@ const resolveEnableDeveloperTools = (
   values: Record<string, unknown> | undefined
 ): boolean => values?.enable_developer_tools === true;
 
-export function useAppConfig() {
+interface UseAppConfigOptions {
+  agentId?: string;
+}
+
+export function useAppConfig({ agentId }: UseAppConfigOptions = {}) {
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL_PROFILE);
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [selectedReasoningMode, setSelectedReasoningMode] = useState(DEFAULT_REASONING_MODE);
@@ -112,7 +116,9 @@ export function useAppConfig() {
   useEffect(() => {
     let mounted = true;
 
-    invoke<SettingsSnapshot>('get_settings_snapshot')
+    invoke<SettingsSnapshot>('get_settings_snapshot', {
+      agentId: agentId || null,
+    })
       .then((snapshot) => {
         if (!mounted) {
           return;
@@ -127,7 +133,7 @@ export function useAppConfig() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [agentId]);
 
   useEffect(() => {
     let disposed = false;

@@ -199,9 +199,10 @@ function SaveStatusBanner({
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  agentId?: string;
 }
 
-export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+export default function SettingsModal({ isOpen, onClose, agentId }: SettingsModalProps) {
   const { t } = useI18n();
   const [sections, setSections] = useState<SettingsSectionSchema[]>([]);
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
@@ -249,7 +250,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setStatusMessage('');
     setStatusType('idle');
  
-    invoke<SettingsUiSnapshot>('get_settings_ui_snapshot')
+    invoke<SettingsUiSnapshot>('get_settings_ui_snapshot', {
+      agentId: agentId || null,
+    })
       .then((payload) => {
         if (disposed) return;
         setSections(Array.isArray(payload.sections) ? payload.sections : []);
@@ -345,6 +348,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           value,
           expectedRevision: previousSnapshot.revision,
           operation,
+          agentId: agentId || null,
         },
       });
       setSnapshot(nextSnapshot);

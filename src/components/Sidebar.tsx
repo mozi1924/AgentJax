@@ -3,8 +3,10 @@ import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react';
 import { Plus, Search, Settings } from 'lucide-react';
 import SidebarActionMenu from './sidebar/SidebarActionMenu';
 import SidebarConversationRow from './sidebar/SidebarConversationRow';
+import AgentSwitcher from './sidebar/AgentSwitcher';
 import { getConversationDisplayTitle } from '../features/conversations/conversationUtils';
 import type { Conversation } from '../features/conversations/types';
+import type { AgentSummary } from '../hooks/useActiveAgent';
 import { useI18n } from '../features/i18n';
 import { OverlayScrollArea } from './OverlayScrollArea';
 
@@ -25,6 +27,14 @@ interface SidebarProps {
   onRenameConversation: (conversationId: string, title: string) => Promise<void>;
   onDeleteConversation: (conversationId: string) => Promise<void> | void;
   generatingConversationIds: Set<string>;
+  // Agent management
+  agents: AgentSummary[];
+  activeAgentId: string;
+  activeAgent: AgentSummary | null;
+  agentsLoading: boolean;
+  onSwitchAgent: (agentId: string) => void;
+  onCreateAgent: (agentId: string, templateId?: string) => Promise<void>;
+  onDeleteAgent: (agentId: string) => Promise<void>;
 }
 
 export default function Sidebar({
@@ -37,6 +47,13 @@ export default function Sidebar({
   onRenameConversation,
   onDeleteConversation,
   generatingConversationIds,
+  agents,
+  activeAgentId,
+  activeAgent,
+  agentsLoading,
+  onSwitchAgent,
+  onCreateAgent,
+  onDeleteAgent,
 }: SidebarProps) {
   const { t } = useI18n();
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
@@ -225,6 +242,19 @@ export default function Sidebar({
       />
 
       <div className="h-12 shrink-0" />
+
+      {/* Agent switcher — always visible, collapses in icon mode */}
+      <div className="shrink-0 pt-1 pb-2">
+        <AgentSwitcher
+          agents={agents}
+          activeAgentId={activeAgentId}
+          activeAgent={activeAgent}
+          agentsLoading={agentsLoading}
+          onSwitchAgent={onSwitchAgent}
+          onCreateAgent={onCreateAgent}
+          onDeleteAgent={onDeleteAgent}
+        />
+      </div>
 
       <OverlayScrollArea containerClassName="flex-1" className="h-full space-y-6 px-3 py-2">
         <div className="space-y-2">

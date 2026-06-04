@@ -21,9 +21,10 @@ import {
 
 interface UseConversationRegistryOptions {
   selectedModelId: string;
+  agentId?: string;
 }
 
-export function useConversationRegistry({ selectedModelId }: UseConversationRegistryOptions) {
+export function useConversationRegistry({ selectedModelId, agentId }: UseConversationRegistryOptions) {
   const initialConversation = useMemo(() => createLocalConversation(), []);
   const [conversations, setConversations] = useState<Conversation[]>(() => [initialConversation]);
   const [conversationToDelete, setConversationToDelete] = useState<Conversation | null>(null);
@@ -54,7 +55,9 @@ export function useConversationRegistry({ selectedModelId }: UseConversationRegi
   useEffect(() => {
     let mounted = true;
 
-    invoke<ConversationSummary[]>('list_conversations')
+    invoke<ConversationSummary[]>('list_conversations', {
+      agentId: agentId || null,
+    })
       .then((storedConversations) => {
         if (!mounted || !Array.isArray(storedConversations) || storedConversations.length === 0) {
           return;
@@ -71,7 +74,7 @@ export function useConversationRegistry({ selectedModelId }: UseConversationRegi
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [agentId]);
 
   useEffect(() => {
     const selectedConversation = conversations.find(
@@ -83,7 +86,11 @@ export function useConversationRegistry({ selectedModelId }: UseConversationRegi
 
     let disposed = false;
     invoke<ConversationDetail>('load_conversation', {
-      req: { conversationId: selectedConversation.conversationId, model: selectedModelId },
+      req: {
+        conversationId: selectedConversation.conversationId,
+        model: selectedModelId,
+        agentId: agentId || null,
+      },
     })
       .then((detail) => {
         if (disposed || !detail) return;
@@ -137,6 +144,7 @@ export function useConversationRegistry({ selectedModelId }: UseConversationRegi
           req: {
             conversationId,
             title: nextTitle,
+            agentId: agentId || null,
           },
         });
 
@@ -157,7 +165,7 @@ export function useConversationRegistry({ selectedModelId }: UseConversationRegi
         );
       }
     },
-    [conversations]
+    [agentId, conversations]
   );
 
   const requestDeleteConversation = useCallback(
@@ -218,14 +226,16 @@ export function useConversationRegistry({ selectedModelId }: UseConversationRegi
 
     try {
       const deleted = await invoke<boolean>('delete_conversation', {
-        req: { conversationId },
+        req: { conversationId, agentId: agentId || null },
       });
 
       if (deleted === false) {
         console.warn('[delete_conversation] conversation file not found for id:', conversationId);
       }
 
-      const storedConversations = await invoke<ConversationSummary[]>('list_conversations');
+      const storedConversations = await invoke<ConversationSummary[]>('list_conversations', {
+        agentId: agentId || null,
+      });
       if (Array.isArray(storedConversations)) {
         let nextConversationIds = new Set<string>();
         let fallbackActiveId: string | null = null;
@@ -262,7 +272,7 @@ export function useConversationRegistry({ selectedModelId }: UseConversationRegi
       );
       console.error('[delete_conversation] invoke failed for id:', conversationId);
     }
-  }, [conversationToDelete]);
+  }, [agentId, conversationToDelete]);
 
   return {
     activeChatTitle,

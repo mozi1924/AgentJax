@@ -79,6 +79,10 @@ pub fn run() {
         .manage(std::sync::Arc::new(
             commands::config::ConfigEventState::default(),
         ))
+        .manage(
+            commands::agents::AgentRegistryState::new()
+                .expect("Failed to initialize agent registry"),
+        )
         .setup(move |app| {
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
@@ -103,6 +107,12 @@ pub fn run() {
                     upgrade_result.config_path
                 );
             }
+
+            // Ensure the default "main" agent profile exists on disk
+            if let Err(err) = config::ensure_default_agent_profile() {
+                log::warn!("Failed to ensure default agent profile: {}", err);
+            }
+
             let config_event_state =
                 app.state::<std::sync::Arc<commands::config::ConfigEventState>>();
             commands::config::start_config_watcher(
@@ -139,6 +149,10 @@ pub fn run() {
             commands::chat::remove_conversation_dynamic_tool,
             commands::chat::rename_conversation,
             commands::chat::delete_conversation,
+            commands::agents::list_agents,
+            commands::agents::create_agent,
+            commands::agents::delete_agent,
+            commands::agents::get_agent_config,
             commands::config::get_runtime_config,
             commands::config::get_config_file_path,
             commands::config::upgrade_config_file,

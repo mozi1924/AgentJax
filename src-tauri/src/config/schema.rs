@@ -12,6 +12,10 @@ fn default_language() -> String {
     "auto".to_string()
 }
 
+fn default_active_agent_id() -> String {
+    crate::config::constants::DEFAULT_AGENT_ID.to_string()
+}
+
 // ── Sub-Agent Config ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -230,6 +234,9 @@ impl Default for RagConfig {
 pub struct AppConfig {
     #[serde(default = "default_language")]
     pub language: String,
+    /// The currently active agent profile ID. Stored in shared config.yaml.
+    #[serde(default = "default_active_agent_id")]
+    pub active_agent_id: String,
     pub active_provider: String,
     pub default_model: String,
     pub utility_small_model: String,
@@ -661,6 +668,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             language: default_language(),
+            active_agent_id: default_active_agent_id(),
             active_provider: String::new(),
             default_model: String::new(),
             utility_small_model: String::new(),

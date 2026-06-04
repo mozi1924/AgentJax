@@ -443,6 +443,19 @@
   "Whether the RAG system is enabled.": "是否启用 RAG（检索增强生成）系统。",
   "Directory for vector store data (relative to agentjax home).": "向量数据库文件的存放目录（相对于 agentjax 主目录）。",
   "Default chunk size in characters for text splitting.": "文本切分时的默认分块字符大小。",
+
+  "agent.switcher.label": "切换 Agent",
+  "agent.switcher.loading": "加载中...",
+  "agent.switcher.new_agent": "新建 Agent",
+  "agent.switcher.create": "创建",
+  "agent.switcher.cancel": "取消",
+  "agent.switcher.create_placeholder": "新 Agent ID（如 coding）",
+  "agent.switcher.delete_confirm": "删除 Agent \"{label}\"?\\n这将永久删除其所有会话、记忆和设置。",
+  "agent.switcher.error_id_required": "Agent ID 不能为空",
+  "agent.switcher.error_id_invalid": "仅允许小写字母、数字、连字符和下划线",
+  "agent.switcher.error_id_exists": "Agent \"{id}\" 已存在",
+  "agent.switcher.error_create_failed": "创建 Agent 失败",
+  "agent.switcher.creating": "创建中...",
   "Chunk overlap in characters.": "相邻文本分块之间的重叠字符大小。",
   "Default top-K results for searches.": "默认检索并返回的 Top-K 结果数量。"
 }

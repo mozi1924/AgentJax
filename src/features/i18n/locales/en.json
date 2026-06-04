@@ -436,5 +436,18 @@
   "settings.rag_storage_path.storage_path.title": "Storage Path",
   "settings.rag_chunk_size.chunk_size.title": "Chunk Size",
   "settings.rag_chunk_overlap.chunk_overlap.title": "Chunk Overlap",
-  "settings.rag_top_k.top_k.title": "Top K"
+  "settings.rag_top_k.top_k.title": "Top K",
+
+  "agent.switcher.label": "Switch Agent",
+  "agent.switcher.loading": "Loading...",
+  "agent.switcher.new_agent": "New Agent",
+  "agent.switcher.create": "Create",
+  "agent.switcher.cancel": "Cancel",
+  "agent.switcher.create_placeholder": "New agent ID (e.g. coding)",
+  "agent.switcher.delete_confirm": "Delete agent \"{label}\"?\\nThis will permanently remove all its sessions, memories, and settings.",
+  "agent.switcher.error_id_required": "Agent ID is required",
+  "agent.switcher.error_id_invalid": "Only lowercase letters, numbers, hyphens, and underscores allowed",
+  "agent.switcher.error_id_exists": "Agent \"{id}\" already exists",
+  "agent.switcher.error_create_failed": "Failed to create agent",
+  "agent.switcher.creating": "Creating..."
 }

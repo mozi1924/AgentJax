@@ -33,7 +33,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     let mounted = true;
 
     // Load initial settings snapshot to read configuration language
-    invoke<SettingsSnapshot>('get_settings_snapshot')
+    invoke<SettingsSnapshot>('get_settings_snapshot', {
+      agentId: null,
+    })
       .then((snapshot) => {
         if (!mounted) return;
         const lang = (snapshot?.values as Record<string, unknown> | undefined)?.language;

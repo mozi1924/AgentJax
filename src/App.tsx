@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import AppHeader from './components/AppHeader';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
@@ -14,6 +14,7 @@ import { useComposerMeasurements } from './hooks/useComposerMeasurements';
 import { useContextMenuGuard } from './hooks/useContextMenuGuard';
 import { useTitlebarDragging } from './hooks/useTitlebarDragging';
 import { useAppConfig } from './hooks/useAppConfig';
+import { useActiveAgent } from './hooks/useActiveAgent';
 import { useChatSessions } from './hooks/useChatSessions';
 import { useDeveloperToolsShortcut } from './hooks/useDeveloperToolsShortcut';
 
@@ -27,6 +28,19 @@ export default function App() {
   const composerStageRef = useRef<HTMLDivElement | null>(null);
   const composerShellRef = useRef<HTMLDivElement | null>(null);
 
+  // ── Agent management ──────────────────────────────────────────────────
+  const {
+    agents,
+    activeAgentId,
+    activeAgent,
+    agentsLoading,
+    switchAgent,
+    createAgent,
+    deleteAgent,
+    refreshAgents,
+  } = useActiveAgent();
+
+  // ── App config (model catalog, etc.) ──────────────────────────────────
   const {
     cachePath,
     configPath,
@@ -38,8 +52,9 @@ export default function App() {
     selectReasoningMode,
     setSelectedModel,
     showAdvancedRequestOptionsButton,
-  } = useAppConfig();
+  } = useAppConfig({ agentId: activeAgentId });
 
+  // ── Chat sessions (agent-scoped) ──────────────────────────────────────
   const {
     activeChatTitle,
     activeConversation,
@@ -73,6 +88,7 @@ export default function App() {
     selectedModelOption,
     selectedReasoningMode,
     showAdvancedRequestOptionsButton,
+    agentId: activeAgentId,
   });
 
   const conversationViewKey = `${activeConversationId}-${isEmptyConversation ? 'empty' : 'messages'}`;
@@ -124,6 +140,13 @@ export default function App() {
         onRenameConversation={renameConversation}
         onDeleteConversation={requestDeleteConversation}
         generatingConversationIds={generatingConversationIds}
+        agents={agents}
+        activeAgentId={activeAgentId}
+        activeAgent={activeAgent}
+        agentsLoading={agentsLoading}
+        onSwitchAgent={switchAgent}
+        onCreateAgent={createAgent}
+        onDeleteAgent={deleteAgent}
       />
 
       <AppHeader
@@ -230,7 +253,11 @@ export default function App() {
         />
       )}
 
-      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        agentId={activeAgentId}
+      />
     </div>
   );
 }

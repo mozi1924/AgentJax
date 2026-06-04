@@ -27,6 +27,7 @@ interface UseChatSessionsOptions {
   selectedModelOption: ModelOption | null;
   selectedReasoningMode: string;
   showAdvancedRequestOptionsButton: boolean;
+  agentId?: string;
 }
 
 export function useChatSessions({
@@ -34,6 +35,7 @@ export function useChatSessions({
   selectedModelOption,
   selectedReasoningMode,
   showAdvancedRequestOptionsButton,
+  agentId,
 }: UseChatSessionsOptions) {
   const { t } = useI18n();
   const {
@@ -65,6 +67,7 @@ export function useChatSessions({
     sidebarConversations,
   } = useConversationRegistry({
     selectedModelId: selectedModelOption?.modelId || selectedModel,
+    agentId,
   });
 
   const {
@@ -151,6 +154,7 @@ export function useChatSessions({
             clientMetadata: advancedRequestOptions.clientMetadata,
             generate: advancedRequestOptions.generate,
             requestId,
+            agentId: agentId || null,
           },
         });
 
@@ -183,6 +187,7 @@ export function useChatSessions({
     },
     [
       activeConversation,
+      agentId,
       beginConversationRequest,
       clearComposerDraft,
       finishConversationRequest,
@@ -196,6 +201,7 @@ export function useChatSessions({
       selectedReasoningMode,
       setConversations,
       showAdvancedRequestOptionsButton,
+      t,
       wasRequestStopped,
     ]
   );
