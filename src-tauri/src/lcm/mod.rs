@@ -214,6 +214,8 @@ pub fn stored_messages_to_conversation_lines(
                         response_id,
                         phase,
                         text: msg.content.clone(),
+                        thinking: None,
+                        thinking_token_count: None,
                         status: AssistantStatus::Done,
                     }))
                 }

@@ -85,6 +85,18 @@ where
         )?;
     }
 
+    // Flush any remaining reasoning that wasn't terminated by a finish_reason
+    // or regular content (e.g. stream ended mid-reasoning).
+    if state.reasoning_started && !state.reasoning_buffer.is_empty() {
+        state.reasoning_started = false;
+        let _ = on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None });
+        output_items.push(json!({
+            "type": "reasoning",
+            "text": state.reasoning_buffer.clone(),
+        }));
+        state.reasoning_buffer.clear();
+    }
+
     let final_output_items = if !output_text.trim().is_empty() {
         let mut items = vec![json!({
             "type": "message", "role": "assistant",
@@ -120,6 +132,8 @@ where
         model_profile: format!("{provider_key}/{model_id}"),
         model_id: model_id.to_string(),
         capabilities: ProviderCapabilities::chat_completions(),
+        reasoning_text: None,
+        reasoning_tokens: None,
     })
 }
 
@@ -296,6 +310,7 @@ fn process_chat_event(
                         on_delta(ProviderStreamEvent::ReasoningStarted)?;
                     }
                     on_delta(ProviderStreamEvent::ReasoningDelta { delta: content.to_string() })?;
+                    state.reasoning_buffer.push_str(content);
                 }
             }
 
@@ -306,6 +321,14 @@ fn process_chat_event(
                     if state.reasoning_started {
                         state.reasoning_started = false;
                         on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None })?;
+                        // Flush accumulated reasoning into output_items.
+                        if !state.reasoning_buffer.is_empty() {
+                            output_items.push(json!({
+                                "type": "reasoning",
+                                "text": state.reasoning_buffer.clone(),
+                            }));
+                            state.reasoning_buffer.clear();
+                        }
                     }
                     if !state.emitted_output_started {
                         state.emitted_output_started = true;
@@ -345,6 +368,16 @@ fn process_chat_event(
             }
 
             if let Some(finish_reason) = choice.get("finish_reason").and_then(Value::as_str) {
+                // Flush any accumulated reasoning before processing tool_calls / stop.
+                if state.reasoning_started && !state.reasoning_buffer.is_empty() {
+                    state.reasoning_started = false;
+                    on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None })?;
+                    output_items.push(json!({
+                        "type": "reasoning",
+                        "text": state.reasoning_buffer.clone(),
+                    }));
+                    state.reasoning_buffer.clear();
+                }
                 if finish_reason == "tool_calls" {
                     let entries: Vec<(String, String, String, String)> = state.tool_calls.values()
                         .filter(|e| !e.completed && !e.name.is_empty())
@@ -374,6 +407,7 @@ fn parse_chat_usage(value: &Value) -> Option<ProviderUsage> {
 struct ChatStreamState {
     emitted_output_started: bool,
     reasoning_started: bool,
+    reasoning_buffer: String,
     tool_calls: BTreeMap<usize, ChatToolCallEntry>,
 }
 
@@ -387,5 +421,5 @@ struct ChatToolCallEntry {
 }
 
 impl ChatStreamState {
-    fn new() -> Self { Self { emitted_output_started: false, reasoning_started: false, tool_calls: BTreeMap::new() } }
+    fn new() -> Self { Self { emitted_output_started: false, reasoning_started: false, reasoning_buffer: String::new(), tool_calls: BTreeMap::new() } }
 }

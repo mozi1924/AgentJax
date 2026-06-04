@@ -348,6 +348,47 @@ impl AgentRuntime {
                     }
                 }
 
+                // ── Extract and persist reasoning from output_items ────────
+                {
+                    let reasoning_text_parts: Vec<&str> = collected
+                        .response_result
+                        .output_items
+                        .iter()
+                        .filter(|item| item.get("type").and_then(Value::as_str) == Some("reasoning"))
+                        .filter_map(|item| item.get("text").and_then(Value::as_str))
+                        .filter(|text| !text.trim().is_empty())
+                        .collect();
+
+                    if !reasoning_text_parts.is_empty() {
+                        let reasoning_text = reasoning_text_parts.join("\n");
+                        let reasoning_tokens = crate::lcm::types::estimate_tokens(&reasoning_text);
+                        let reasoning_id = format!("rc-{}", uuid::Uuid::new_v4());
+
+                        if let Err(e) = engine.store().persist_reasoning(
+                            &crate::lcm::types::ReasoningChain {
+                                id: reasoning_id.clone(),
+                                conversation_id: lcm_conv_id.clone(),
+                                response_id: response_id.clone(),
+                                text: reasoning_text,
+                                token_count: reasoning_tokens,
+                                timestamp_unix_ms: now_ms,
+                            },
+                        ) {
+                            log::warn!("LCM: failed to persist reasoning chain: {e}");
+                        }
+
+                        // Attach reasoning_id to all assistant messages in this batch.
+                        for msg in &mut batch_messages {
+                            if msg.role == crate::lcm::types::MessageRole::Assistant {
+                                msg.metadata.insert(
+                                    "reasoning_id".to_string(),
+                                    serde_json::Value::String(reasoning_id.clone()),
+                                );
+                            }
+                        }
+                    }
+                }
+
                 // ── Lossless invariant guard ─────────────────────────────
                 let fallback_text: Option<String> = if hop_messages_for_lcm.is_empty()
                     && !collected.response_result.output_text.trim().is_empty()
@@ -529,6 +570,8 @@ impl AgentRuntime {
             model_profile: resolved_model.profile_key.clone(),
             model_id: resolved_model.model_id.clone(),
             capabilities: provider_capabilities,
+            reasoning_text: None,
+            reasoning_tokens: None,
         };
 
         Ok((final_res, accumulator.timeline_events))

@@ -229,6 +229,13 @@ pub struct AssistantLine {
     pub phase: Option<AssistantPhase>,
     /// The assistant's text for this line.
     pub text: String,
+    /// Reasoning / thinking content for this assistant message.
+    /// Streamed from reasoning-capable models before the final output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
+    /// Estimated token count of the thinking content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_token_count: Option<u32>,
     #[serde(default = "default_assistant_status")]
     pub status: AssistantStatus,
 }

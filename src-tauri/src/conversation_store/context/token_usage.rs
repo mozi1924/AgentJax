@@ -175,6 +175,8 @@ mod tests {
                 response_id: "resp-1".to_string(),
                 phase: None,
                 text: "world".to_string(),
+                thinking: None,
+                thinking_token_count: None,
                 status: AssistantStatus::Done,
             }),
             ConversationLine::Tool(ToolLine {

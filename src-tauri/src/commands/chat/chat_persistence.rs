@@ -192,6 +192,8 @@ pub fn persist_assistant_line(
         response_id: response_id.to_string(),
         phase,
         text,
+        thinking: None,
+        thinking_token_count: None,
         status: AssistantStatus::Done,
     });
     conversation_store::append_line(conversation_store::AppendLineInput {

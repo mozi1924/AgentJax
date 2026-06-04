@@ -84,6 +84,17 @@ where
         )?;
     }
 
+    // Flush any remaining reasoning that wasn't terminated by an event.
+    if state.reasoning_started && !state.reasoning_buffer.is_empty() {
+        state.reasoning_started = false;
+        let _ = on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None });
+        output_items.push(json!({
+            "type": "reasoning",
+            "text": state.reasoning_buffer.clone(),
+        }));
+        state.reasoning_buffer.clear();
+    }
+
     let final_response_id = if response_id.is_empty() {
         ProviderIdFactory::new(provider_key).response_id().to_string()
     } else {
@@ -108,6 +119,8 @@ where
         model_profile: format!("{provider_key}/{model_id}"),
         model_id: model_id.to_string(),
         capabilities: ProviderCapabilities::openai_responses(),
+        reasoning_text: None,
+        reasoning_tokens: None,
     })
 }
 
@@ -170,7 +183,7 @@ fn process_responses_event(
     state: &mut ResponsesStreamState,
     response_id: &mut String,
     output_text: &mut String,
-    _output_items: &mut Vec<Value>,
+    output_items: &mut Vec<Value>,
     usage: &mut Option<ProviderUsage>,
     on_delta: &mut dyn FnMut(ProviderStreamEvent) -> AgentJaxResult<()>,
 ) -> AgentJaxResult<bool> {
@@ -256,6 +269,49 @@ fn process_responses_event(
                 }
             }
         }
+        // ── Reasoning / thinking events ──────────────────────────
+        "response.reasoning.summary_part.added" => {
+            if !state.reasoning_started {
+                state.reasoning_started = true;
+                on_delta(ProviderStreamEvent::ReasoningStarted)?;
+            }
+        }
+        "response.reasoning.summary_text.delta" => {
+            if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+                if !delta.is_empty() {
+                    if !state.reasoning_started {
+                        state.reasoning_started = true;
+                        on_delta(ProviderStreamEvent::ReasoningStarted)?;
+                    }
+                    state.reasoning_buffer.push_str(delta);
+                    on_delta(ProviderStreamEvent::ReasoningDelta { delta: delta.to_string() })?;
+                }
+            }
+        }
+        "response.reasoning.summary_part.done" => {
+            if state.reasoning_started && !state.reasoning_buffer.is_empty() {
+                state.reasoning_started = false;
+                let total_tokens = value.get("total_tokens")
+                    .and_then(|v| v.as_u64()).map(|v| v as usize);
+                on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens })?;
+                output_items.push(json!({
+                    "type": "reasoning",
+                    "text": state.reasoning_buffer.clone(),
+                }));
+                state.reasoning_buffer.clear();
+            }
+        }
+        "response.completed" | "response.done" => {
+            if state.reasoning_started && !state.reasoning_buffer.is_empty() {
+                state.reasoning_started = false;
+                on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None })?;
+                output_items.push(json!({
+                    "type": "reasoning",
+                    "text": state.reasoning_buffer.clone(),
+                }));
+                state.reasoning_buffer.clear();
+            }
+        }
         _ => {}
     }
     Ok(done)
@@ -279,9 +335,11 @@ fn parse_responses_usage(value: &Value) -> Option<ProviderUsage> {
 
 struct ResponsesStreamState {
     emitted_output_started: bool,
+    reasoning_started: bool,
+    reasoning_buffer: String,
     completed_tool_calls: Vec<String>,
 }
 
 impl ResponsesStreamState {
-    fn new() -> Self { Self { emitted_output_started: false, completed_tool_calls: Vec::new() } }
+    fn new() -> Self { Self { emitted_output_started: false, reasoning_started: false, reasoning_buffer: String::new(), completed_tool_calls: Vec::new() } }
 }

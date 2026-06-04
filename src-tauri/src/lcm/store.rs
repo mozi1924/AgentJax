@@ -20,8 +20,8 @@
 
 use crate::lcm::types::{
     ConversationMeta, DescribeResult, FileRefId, FileReference, GrepResult, LcmConfig, LcmError,
-    LcmId, MessageId, MessageRole, PaginatedGrepResults, StoredMessage, SummaryChild, SummaryId,
-    SummaryKind, SummaryNode,
+    LcmId, MessageId, MessageRole, PaginatedGrepResults, ReasoningChain, StoredMessage,
+    SummaryChild, SummaryId, SummaryKind, SummaryNode,
 };
 use crate::conversation_store_utils::normalize_title_source;
 use rusqlite::{Connection, params};
@@ -307,6 +307,110 @@ impl LcmStore {
             messages.push(row?);
         }
         Ok(messages)
+    }
+
+    // ── Reasoning Chain Persistence ────────────────────────────────────
+
+    /// Persist a reasoning chain to the store.
+    pub fn persist_reasoning(&self, chain: &ReasoningChain) -> Result<(), LcmError> {
+        let conn = self.conn.lock().map_err(|e| {
+            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
+        })?;
+        conn.execute(
+            "INSERT OR REPLACE INTO reasoning_chains
+             (id, conversation_id, response_id, text, token_count, timestamp_unix_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                chain.id,
+                chain.conversation_id,
+                chain.response_id,
+                chain.text,
+                chain.token_count,
+                chain.timestamp_unix_ms,
+            ],
+        )
+        .map_err(|e| {
+            LcmError::Store(format!(
+                "Failed to persist reasoning chain {}: {e}",
+                chain.id
+            ))
+        })?;
+        Ok(())
+    }
+
+    /// Retrieve a single reasoning chain by ID.
+    pub fn get_reasoning(&self, id: &str) -> Result<Option<ReasoningChain>, LcmError> {
+        let conn = self.conn.lock().map_err(|e| {
+            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
+        })?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, conversation_id, response_id, text, token_count, timestamp_unix_ms
+                 FROM reasoning_chains WHERE id = ?1",
+            )
+            .map_err(|e| LcmError::Store(format!("Failed to prepare reasoning query: {e}")))?;
+
+        stmt.query_row(rusqlite::params![id], |row| {
+            Ok(ReasoningChain {
+                id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                response_id: row.get(2)?,
+                text: row.get(3)?,
+                token_count: row.get(4)?,
+                timestamp_unix_ms: row.get(5)?,
+            })
+        })
+        .optional()
+        .map_err(|e| LcmError::Store(format!("Failed to query reasoning {id}: {e}")))
+    }
+
+    /// Batch-load reasoning chains for multiple IDs.
+    pub fn get_reasoning_batch(
+        &self,
+        ids: &[String],
+    ) -> Result<std::collections::HashMap<String, ReasoningChain>, LcmError> {
+        if ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let conn = self.conn.lock().map_err(|e| {
+            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
+        })?;
+        let placeholders: Vec<String> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
+        let sql = format!(
+            "SELECT id, conversation_id, response_id, text, token_count, timestamp_unix_ms
+             FROM reasoning_chains WHERE id IN ({})",
+            placeholders.join(", ")
+        );
+        let mut stmt = conn.prepare(&sql).map_err(|e| {
+            LcmError::Store(format!("Failed to prepare batch reasoning query: {e}"))
+        })?;
+        let params: Vec<&dyn rusqlite::types::ToSql> = ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
+        let rows = stmt
+            .query_map(params.as_slice(), |row| {
+                Ok(ReasoningChain {
+                    id: row.get(0)?,
+                    conversation_id: row.get(1)?,
+                    response_id: row.get(2)?,
+                    text: row.get(3)?,
+                    token_count: row.get(4)?,
+                    timestamp_unix_ms: row.get(5)?,
+                })
+            })
+            .map_err(|e| LcmError::Store(format!("Failed to query batch reasoning: {e}")))?;
+
+        let mut map = std::collections::HashMap::new();
+        for row in rows {
+            let chain = row?;
+            map.insert(chain.id.clone(), chain);
+        }
+        Ok(map)
     }
 
     // ── Full-Text Search (lcm_grep) ────────────────────────────────────
@@ -1043,6 +1147,12 @@ impl LcmStore {
         .map_err(|e| LcmError::Store(format!("Failed to delete file refs: {e}")))?;
 
         tx.execute(
+            "DELETE FROM reasoning_chains WHERE conversation_id = ?1",
+            params![conversation_id],
+        )
+        .map_err(|e| LcmError::Store(format!("Failed to delete reasoning chains: {e}")))?;
+
+        tx.execute(
             "DELETE FROM conversation_meta WHERE conversation_id = ?1",
             params![conversation_id],
         )
@@ -1161,6 +1271,25 @@ CREATE TABLE IF NOT EXISTS conversation_meta (
 CREATE INDEX IF NOT EXISTS idx_conv_meta_updated
     ON conversation_meta(updated_at_unix_ms);
 
+-- Reasoning chains: independent storage for model thinking / chain-of-thought.
+-- Kept separate from `messages` so large reasoning blocks don't bloat the
+-- main message table. Assistant messages reference their reasoning via
+-- `metadata_json.reasoning_id`.
+CREATE TABLE IF NOT EXISTS reasoning_chains (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    response_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    token_count INTEGER NOT NULL DEFAULT 0,
+    timestamp_unix_ms INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reasoning_conv
+    ON reasoning_chains(conversation_id);
+
+CREATE INDEX IF NOT EXISTS idx_reasoning_response
+    ON reasoning_chains(response_id);
+
 -- FTS5 virtual table for full-text search.
 -- Uses content= to keep FTS in sync with the messages table.
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
@@ -1189,6 +1318,16 @@ END;
 const SCHEMA_MIGRATIONS: &[&str] = &[
     "ALTER TABLE conversation_meta ADD COLUMN version INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE conversation_meta ADD COLUMN last_message_preview TEXT NOT NULL DEFAULT ''",
+    "CREATE TABLE IF NOT EXISTS reasoning_chains (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        response_id TEXT NOT NULL,
+        text TEXT NOT NULL,
+        token_count INTEGER NOT NULL DEFAULT 0,
+        timestamp_unix_ms INTEGER NOT NULL
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_reasoning_conv ON reasoning_chains(conversation_id)",
+    "CREATE INDEX IF NOT EXISTS idx_reasoning_response ON reasoning_chains(response_id)",
 ];
 
 fn parse_role(s: &str) -> Result<MessageRole, rusqlite::Error> {

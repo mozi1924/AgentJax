@@ -237,6 +237,12 @@ pub struct ResponseStreamResult {
     /// Final answer text (after all tool calls are complete).
     pub output_text: String,
     pub output_items: Vec<Value>,
+    /// Accumulated reasoning text from output_items of type "reasoning".
+    #[allow(dead_code)]
+    pub reasoning_text: Option<String>,
+    /// Token count of reasoning, if reported by the provider.
+    #[allow(dead_code)]
+    pub reasoning_tokens: Option<usize>,
     /// Provider-reported billing usage, preferred over local token estimates.
     pub usage: Option<ProviderUsage>,
     pub usage_hops: Vec<ProviderUsageRecord>,

@@ -50,6 +50,8 @@ fn a(
         response_id: resp.into(),
         phase,
         text: text.into(),
+        thinking: None,
+        thinking_token_count: None,
         status: st,
     })
 }
