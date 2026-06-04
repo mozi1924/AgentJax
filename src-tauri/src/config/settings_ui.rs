@@ -137,11 +137,11 @@ pub fn build_dynamic_options(
     );
     dynamic_options.insert(
         "api_protocol".to_string(),
-        ["chat_completions", "embeddings", "responses"]
-            .into_iter()
-            .map(|entry| SettingsOption {
-                label: entry.to_string(),
-                value: entry.to_string(),
+        crate::provider_api::protocol::builtin_protocols()
+            .names()
+            .map(|name| SettingsOption {
+                label: name.to_string(),
+                value: name.to_string(),
             })
             .collect(),
     );
