@@ -159,7 +159,7 @@ fn validate_path_semantics(segments: &[String], root: &Value) -> AgentJaxResult<
         }
     }
 
-    if segments[0] == "mcp_servers" && segments.len() >= 2 {
+    if segments[0] == "mcp" && segments.len() >= 3 && segments[1] == "servers" {
         validate_key(&segments[1], "MCP server key")?;
     }
 
@@ -173,9 +173,11 @@ fn validate_path_semantics(segments: &[String], root: &Value) -> AgentJaxResult<
         }
     }
 
-    if let Some(Value::Object(servers)) = root.get("mcp_servers") {
-        for server_key in servers.keys() {
-            validate_key(server_key, "MCP server key")?;
+    if let Some(mcp_value) = root.get("mcp") {
+        if let Some(servers_map) = mcp_value.get("servers").and_then(|s| s.as_object()) {
+            for server_key in servers_map.keys() {
+                validate_key(server_key, "MCP server key")?;
+            }
         }
     }
 

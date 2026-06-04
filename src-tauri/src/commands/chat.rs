@@ -41,7 +41,7 @@ pub async fn chat_stream(
     req: ChatRequest,
 ) -> Result<ChatResponse, String> {
     let config = config::load_config()?;
-    let jsonl_backup_enabled = config.conversation.jsonl_backup_enabled;
+    let jsonl_backup_enabled = config.context_management.jsonl_backup_enabled;
     let (sanitized_client_metadata, local_dynamic_tools) =
         split_local_client_metadata(req.client_metadata.clone())?;
     let request_id = req
@@ -110,7 +110,7 @@ pub async fn chat_stream(
 
     // ── Compute effective LCM thresholds (dynamic or manual) ────────────
     let effective_lcm_config = {
-        let base = config.lcm.clone();
+        let base = config.context_management.to_lcm_config();
         if base.dynamic_thresholds {
             if let Some(ref model) = resolved_model {
                 let budget = conversation_store::TokenBudget::for_model(
@@ -386,7 +386,7 @@ pub async fn chat_stream(
     }
 
     // ── Collect Street notifications ────────────────────────────────────
-    let street_dev_items: Vec<Value> = if config.street.enabled {
+    let street_dev_items: Vec<Value> = if config.context_management.street_enabled {
         let pending = crate::street::StreetManager::collect_pending(&conversation_id);
         if !pending.is_empty() {
             let count = pending.len();

@@ -31,13 +31,7 @@ export function CollectionEditor({
   const { t } = useI18n();
   const resolvedPath = resolvePath(collection.path, contextPath);
   const items = getCollectionItems(collection, snapshot, contextPath);
-  const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    if (items.length > 0) {
-      initial[items[0][0]] = true; // Expand first item by default
-    }
-    return initial;
-  });
+  const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>(() => ({}));
   const [adding, setAdding] = useState(false);
   const [newKey, setNewKey] = useState('');
   const [newKeyError, setNewKeyError] = useState('');

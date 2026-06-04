@@ -36,13 +36,13 @@ fn write_test_config(home: &Path) -> std::path::PathBuf {
         "        request:",
         "          reasoning_effort: null",
         "          extra_body: {}",
-        "mcp_runtime:",
+        "mcp:",
         "  stdio:",
         "    inherit_parent_env: false",
         "    env: {}",
         "  startup_timeout_ms: 15000",
         "  tool_timeout_ms: 60000",
-        "mcp_servers: {}",
+        "  servers: {}",
         "",
     ]
     .join("\n");
@@ -130,7 +130,7 @@ fn apply_patch_rejects_invalid_collection_keys() {
 
     let snapshot = get_settings_snapshot().expect("snapshot");
     let error = apply_settings_patch(SettingsPatch {
-        path: "mcp_servers.bad$key".to_string(),
+        path: "mcp.servers.bad$key".to_string(),
         value: Some(serde_json::json!({ "transport": "stdio", "enabled": true })),
         expected_revision: snapshot.revision,
         operation: SettingsPatchOperation::Set,

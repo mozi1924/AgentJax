@@ -21,15 +21,13 @@ const GENERAL_SECTION_JSON: &str = include_str!("settings_ui_sections/general.js
 const PROMPT_COMPOSER_SECTION_JSON: &str =
     include_str!("settings_ui_sections/prompt_composer.json");
 const PROVIDERS_SECTION_JSON: &str = include_str!("settings_ui_sections/providers.json");
-const MCP_RUNTIME_SECTION_JSON: &str = include_str!("settings_ui_sections/mcp_runtime.json");
-const MCP_SERVERS_SECTION_JSON: &str = include_str!("settings_ui_sections/mcp_servers.json");
+const MCP_SECTION_JSON: &str = include_str!("settings_ui_sections/mcp.json");
 const TOOLS_SECTION_JSON: &str = include_str!("settings_ui_sections/tools.json");
 const PLUGIN_MANAGER_SECTION_JSON: &str =
     include_str!("settings_ui_sections/plugin_manager.json");
-const LCM_SECTION_JSON: &str = include_str!("settings_ui_sections/lcm.json");
+const CONTEXT_MANAGEMENT_SECTION_JSON: &str =
+    include_str!("settings_ui_sections/context_management.json");
 const MEMORY_SECTION_JSON: &str = include_str!("settings_ui_sections/memory.json");
-const STREET_SECTION_JSON: &str = include_str!("settings_ui_sections/street.json");
-const CONVERSATION_SECTION_JSON: &str = include_str!("settings_ui_sections/conversation.json");
 
 pub fn build_settings_sections() -> AgentJaxResult<Vec<Value>> {
     let mut sections = build_builtin_settings_sections()?;
@@ -55,14 +53,11 @@ fn build_builtin_settings_sections() -> AgentJaxResult<Vec<Value>> {
         GENERAL_SECTION_JSON,
         PROMPT_COMPOSER_SECTION_JSON,
         PROVIDERS_SECTION_JSON,
-        MCP_RUNTIME_SECTION_JSON,
-        MCP_SERVERS_SECTION_JSON,
+        MCP_SECTION_JSON,
         TOOLS_SECTION_JSON,
         PLUGIN_MANAGER_SECTION_JSON,
-        LCM_SECTION_JSON,
+        CONTEXT_MANAGEMENT_SECTION_JSON,
         MEMORY_SECTION_JSON,
-        STREET_SECTION_JSON,
-        CONVERSATION_SECTION_JSON,
     ];
 
     let mut sections = Vec::with_capacity(section_sources.len());
@@ -119,7 +114,7 @@ pub fn build_dynamic_options(
 
     // Summarization model options: all model_refs + a "default" entry.
     let mut summarization_model_options: Vec<SettingsOption> = vec![SettingsOption {
-        label: "settings.lcm.summarization_model.default".to_string(),
+        label: "settings.context_management.summarization_model.default".to_string(),
         value: String::new(), // empty = use utility_small_model
     }];
     summarization_model_options.extend(config.configured_models().into_iter().map(|model_ref| {

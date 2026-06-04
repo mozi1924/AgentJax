@@ -400,12 +400,15 @@ impl AppConfig {
             self.utility_small_model = self.default_model.clone();
         }
 
-        self.mcp_runtime = self.mcp_runtime.normalize();
+        {
+            let rt = self.mcp.runtime().normalize();
+            self.mcp.stdio = rt.stdio;
+        }
         self.tool_manager = self.tool_manager.normalize();
         self.plugin_manager = self.plugin_manager.normalize();
 
         let mut normalized_mcp_servers = BTreeMap::new();
-        for (raw_key, mcp_server) in std::mem::take(&mut self.mcp_servers) {
+        for (raw_key, mcp_server) in std::mem::take(&mut self.mcp.servers) {
             let server_key = raw_key.trim().to_lowercase();
             if server_key.is_empty() {
                 continue;
@@ -413,7 +416,7 @@ impl AppConfig {
             let server = mcp_server.normalize();
             normalized_mcp_servers.insert(server_key, server);
         }
-        self.mcp_servers = normalized_mcp_servers;
+        self.mcp.servers = normalized_mcp_servers;
 
         self
     }

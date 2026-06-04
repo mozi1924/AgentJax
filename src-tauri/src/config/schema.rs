@@ -66,46 +66,105 @@ impl Default for MemoryConfig {
     }
 }
 
-// ── Street Config ──────────────────────────────────────────────────────────
+// ── Context Management Config ─────────────────────────────────────────────
 
+/// Combined configuration for the Context Management subsystem.
+/// Merges the former LCM (Lossless Context Management) settings, Street
+/// notification config, and conversation JSONL backup toggle into a single
+/// top-level `context_management` section.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct StreetConfig {
+pub struct ContextManagementConfig {
+    // ── LCM fields (flattened at this level) ─────────────────────────────
+    /// When true, the soft/hard/large-file thresholds are computed dynamically
+    /// from the active model's context window.
+    pub dynamic_thresholds: bool,
+    /// Soft token threshold for async compaction.
+    pub soft_token_threshold: u32,
+    /// Hard token threshold for blocking compaction.
+    pub hard_token_threshold: u32,
+    /// Large file token threshold.
+    pub large_file_token_threshold: u32,
+    /// Compaction timeout (seconds).
+    pub compaction_timeout_secs: u32,
+    /// Maximum messages in a single compact block.
+    pub max_compact_block_size: usize,
+    /// Maximum DAG summary depth.
+    pub max_summary_depth: u32,
+    /// Truncation max tokens.
+    pub truncation_max_tokens: u32,
+    /// Grep page size.
+    pub grep_page_size: usize,
+    /// Summarization model reference.
+    #[serde(default)]
+    pub summarization_model: String,
+    /// Tokenizer model ID for accurate token counting.
+    #[serde(default)]
+    pub tokenizer_model_id: Option<String>,
+
+    // ── Street ──────────────────────────────────────────────────────────
     /// Whether the Street notification system is enabled.
-    pub enabled: bool,
-    /// Minimum priority to auto-trigger a new turn ("never", "urgent", "high", "normal", "low").
-    pub auto_trigger_priority: String,
+    pub street_enabled: bool,
+    /// Minimum priority to auto-trigger a new turn.
+    pub street_auto_trigger_priority: String,
     /// Maximum Street items retained per conversation.
-    pub max_items_per_conversation: usize,
+    pub street_max_items_per_conversation: usize,
+
+    // ── JSONL backup ────────────────────────────────────────────────────
+    /// Whether to write a JSONL backup alongside the context store.
+    pub jsonl_backup_enabled: bool,
 }
 
-impl Default for StreetConfig {
+impl Default for ContextManagementConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            auto_trigger_priority: "urgent".to_string(),
-            max_items_per_conversation: 100,
+            dynamic_thresholds: true,
+            soft_token_threshold: 65536,
+            hard_token_threshold: 131072,
+            large_file_token_threshold: 25600,
+            compaction_timeout_secs: 25,
+            max_compact_block_size: 20,
+            max_summary_depth: 5,
+            truncation_max_tokens: 128,
+            grep_page_size: 20,
+            summarization_model: String::new(),
+            tokenizer_model_id: None,
+            street_enabled: true,
+            street_auto_trigger_priority: "urgent".to_string(),
+            street_max_items_per_conversation: 100,
+            jsonl_backup_enabled: true,
         }
     }
 }
 
-// ── Conversation Config ────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ConversationConfig {
-    /// Whether to write a JSONL backup alongside the LCM SQLite store.
-    /// JSONL is a plain-text fallback — more resilient to corruption than
-    /// binary SQLite, but adds I/O overhead. Disable for better performance
-    /// when LCM is the sole source of truth.
-    pub jsonl_backup_enabled: bool,
-}
-
-impl Default for ConversationConfig {
-    fn default() -> Self {
-        Self {
-            jsonl_backup_enabled: true,
+impl ContextManagementConfig {
+    /// Produce effective LCM thresholds, optionally auto-computed from the model's
+    /// context window when `dynamic_thresholds` is enabled.
+    pub fn to_lcm_config(&self) -> crate::lcm::LcmConfig {
+        crate::lcm::LcmConfig {
+            dynamic_thresholds: self.dynamic_thresholds,
+            soft_token_threshold: self.soft_token_threshold,
+            hard_token_threshold: self.hard_token_threshold,
+            large_file_token_threshold: self.large_file_token_threshold,
+            compaction_timeout_secs: self.compaction_timeout_secs,
+            max_compact_block_size: self.max_compact_block_size,
+            max_summary_depth: self.max_summary_depth,
+            truncation_max_tokens: self.truncation_max_tokens,
+            grep_page_size: self.grep_page_size,
+            summarization_model: self.summarization_model.clone(),
+            tokenizer_model_id: self.tokenizer_model_id.clone(),
         }
+    }
+
+    pub fn with_dynamic_thresholds(mut self, context_window: usize) -> Self {
+        if !self.dynamic_thresholds {
+            return self;
+        }
+        let cw = context_window as u32;
+        self.soft_token_threshold = cw / 2;
+        self.hard_token_threshold = (cw as f64 * 0.85) as u32;
+        self.large_file_token_threshold = (cw / 10).min(100_000);
+        self
     }
 }
 
@@ -190,25 +249,55 @@ pub struct AppConfig {
     #[serde(default)]
     pub prompt_composer: PromptComposerConfig,
     #[serde(default)]
-    pub lcm: crate::lcm::LcmConfig,
+    pub context_management: ContextManagementConfig,
     #[serde(default)]
     pub sub_agent: SubAgentConfig,
     #[serde(default)]
     pub memory: MemoryConfig,
     #[serde(default)]
-    pub street: StreetConfig,
-    #[serde(default)]
-    pub conversation: ConversationConfig,
-    #[serde(default)]
     pub rag: RagConfig,
     #[serde(default)]
-    pub mcp_runtime: McpRuntimeConfig,
-    #[serde(default)]
-    pub mcp_servers: BTreeMap<String, McpServerConfig>,
+    pub mcp: McpConfig,
     #[serde(default)]
     pub tool_manager: ToolManagerConfig,
     #[serde(default)]
     pub plugin_manager: PluginManagerConfig,
+}
+
+// ── MCP Config ─────────────────────────────────────────────────────────────
+
+/// Unified MCP configuration merging runtime settings and server definitions.
+/// The outer (non-list) fields are the shared MCP runtime config; the
+/// `servers` list contains individual MCP server configurations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct McpConfig {
+    pub stdio: McpStdioRuntimeConfig,
+    pub startup_timeout_ms: u64,
+    pub tool_timeout_ms: u64,
+    pub servers: BTreeMap<String, McpServerConfig>,
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            stdio: McpStdioRuntimeConfig::default(),
+            startup_timeout_ms: default_mcp_startup_timeout_ms(),
+            tool_timeout_ms: default_mcp_tool_timeout_ms(),
+            servers: BTreeMap::new(),
+        }
+    }
+}
+
+impl McpConfig {
+    /// Returns a reference to the runtime config portion.
+    pub fn runtime(&self) -> McpRuntimeConfig {
+        McpRuntimeConfig {
+            stdio: self.stdio.clone(),
+            startup_timeout_ms: self.startup_timeout_ms,
+            tool_timeout_ms: self.tool_timeout_ms,
+        }
+    }
 }
 
 /// User-facing tool exposure policy.
@@ -589,14 +678,11 @@ impl Default for AppConfig {
             enable_developer_tools: false,
             providers: BTreeMap::new(),
             prompt_composer: PromptComposerConfig::default(),
-            lcm: crate::lcm::LcmConfig::default(),
+            context_management: ContextManagementConfig::default(),
             sub_agent: SubAgentConfig::default(),
             memory: MemoryConfig::default(),
-            street: StreetConfig::default(),
-            conversation: ConversationConfig::default(),
             rag: RagConfig::default(),
-            mcp_runtime: McpRuntimeConfig::default(),
-            mcp_servers: BTreeMap::new(),
+            mcp: McpConfig::default(),
             tool_manager: ToolManagerConfig::default(),
             plugin_manager: PluginManagerConfig::default(),
         }

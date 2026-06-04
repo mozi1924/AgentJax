@@ -213,11 +213,13 @@ mod tests {
             "        request:",
             "          reasoning_effort: \"high\"",
             "          extra_body: {}",
-            "mcp_runtime:",
+            "mcp:",
             "  stdio:",
             "    inherit_parent_env: false",
             "    env: {}",
-            "mcp_servers: {}",
+            "  startup_timeout_ms: 30000",
+            "  tool_timeout_ms: 120000",
+            "  servers: {}",
             "",
         ]
         .join("\n");
@@ -316,7 +318,7 @@ mod tests {
     #[test]
     fn mcp_server_normalize_clears_stdio_fields_for_streamable_http() {
         let mut cfg = AppConfig::default();
-        cfg.mcp_servers.insert(
+        cfg.mcp.servers.insert(
             "remote-demo".to_string(),
             McpServerConfig {
                 transport: McpTransportKind::StreamableHttp,
@@ -333,7 +335,7 @@ mod tests {
 
         let normalized = cfg.normalize();
         let server = normalized
-            .mcp_servers
+            .mcp.servers
             .get("remote-demo")
             .expect("normalized mcp server exists");
 
@@ -348,7 +350,7 @@ mod tests {
     #[test]
     fn mcp_server_normalize_clears_streamable_http_fields_for_stdio() {
         let mut cfg = AppConfig::default();
-        cfg.mcp_servers.insert(
+        cfg.mcp.servers.insert(
             "local-demo".to_string(),
             McpServerConfig {
                 transport: McpTransportKind::Stdio,
@@ -368,7 +370,7 @@ mod tests {
 
         let normalized = cfg.normalize();
         let server = normalized
-            .mcp_servers
+            .mcp.servers
             .get("local-demo")
             .expect("normalized mcp server exists");
 

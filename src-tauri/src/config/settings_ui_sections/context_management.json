@@ -1,0 +1,191 @@
+{
+  "id": "context-management",
+  "title": "settings.context_management.title",
+  "icon": "MemoryStick",
+  "order": 87,
+  "description": "settings.context_management.description",
+  "children": [
+    {
+      "kind": "group",
+      "id": "cm-lcm",
+      "title": "settings.context_management.lcm.title",
+      "description": "settings.context_management.lcm.description",
+      "children": [
+        {
+          "kind": "group",
+          "id": "cm-thresholds",
+          "title": "settings.context_management.thresholds.title",
+          "description": "settings.context_management.thresholds.description",
+          "children": [
+            {
+              "kind": "field",
+              "id": "cm-dynamic-thresholds",
+              "title": "settings.context_management.dynamic_thresholds.title",
+              "description": "settings.context_management.dynamic_thresholds.description",
+              "path": "context_management.dynamic_thresholds",
+              "valueType": "boolean",
+              "control": "switch"
+            },
+            {
+              "kind": "field",
+              "id": "cm-soft-threshold",
+              "title": "settings.context_management.soft_token_threshold.title",
+              "description": "settings.context_management.soft_token_threshold.description",
+              "path": "context_management.soft_token_threshold",
+              "valueType": "integer",
+              "control": "number",
+              "min": 1024,
+              "max": 2097152,
+              "step": 1024,
+              "visibleWhen": [{"path": "context_management.dynamic_thresholds", "truthy": false}]
+            },
+            {
+              "kind": "field",
+              "id": "cm-hard-threshold",
+              "title": "settings.context_management.hard_token_threshold.title",
+              "description": "settings.context_management.hard_token_threshold.description",
+              "path": "context_management.hard_token_threshold",
+              "valueType": "integer",
+              "control": "number",
+              "min": 1024,
+              "max": 2097152,
+              "step": 1024,
+              "visibleWhen": [{"path": "context_management.dynamic_thresholds", "truthy": false}]
+            },
+            {
+              "kind": "field",
+              "id": "cm-large-file-threshold",
+              "title": "settings.context_management.large_file_threshold.title",
+              "description": "settings.context_management.large_file_threshold.description",
+              "path": "context_management.large_file_token_threshold",
+              "valueType": "integer",
+              "control": "number",
+              "min": 100,
+              "max": 102400,
+              "step": 100,
+              "visibleWhen": [{"path": "context_management.dynamic_thresholds", "truthy": false}]
+            }
+          ]
+        },
+        {
+          "kind": "group",
+          "id": "cm-compaction",
+          "title": "settings.context_management.compaction.title",
+          "description": "settings.context_management.compaction.description",
+          "children": [
+            {
+              "kind": "field",
+              "id": "cm-compaction-timeout",
+              "title": "settings.context_management.compaction_timeout.title",
+              "description": "settings.context_management.compaction_timeout.description",
+              "path": "context_management.compaction_timeout_secs",
+              "valueType": "integer",
+              "control": "number",
+              "min": 5,
+              "max": 300,
+              "step": 5
+            },
+            {
+              "kind": "field",
+              "id": "cm-max-compact-block",
+              "title": "settings.context_management.max_compact_block.title",
+              "description": "settings.context_management.max_compact_block.description",
+              "path": "context_management.max_compact_block_size",
+              "valueType": "integer",
+              "control": "number",
+              "min": 5,
+              "max": 100,
+              "step": 5
+            },
+            {
+              "kind": "field",
+              "id": "cm-max-summary-depth",
+              "title": "settings.context_management.max_summary_depth.title",
+              "description": "settings.context_management.max_summary_depth.description",
+              "path": "context_management.max_summary_depth",
+              "valueType": "integer",
+              "control": "number",
+              "min": 1,
+              "max": 20,
+              "step": 1
+            }
+          ]
+        },
+        {
+          "kind": "group",
+          "id": "cm-summarization",
+          "title": "settings.context_management.summarization.title",
+          "description": "settings.context_management.summarization.description",
+          "children": [
+            {
+              "kind": "field",
+              "id": "cm-summarization-model",
+              "title": "settings.context_management.summarization_model.title",
+              "description": "settings.context_management.summarization_model.description",
+              "path": "context_management.summarization_model",
+              "valueType": "string",
+              "control": "select",
+              "optionSourceKey": "summarization_model_refs"
+            },
+            {
+              "kind": "field",
+              "id": "cm-grep-page-size",
+              "title": "settings.context_management.grep_page_size.title",
+              "description": "settings.context_management.grep_page_size.description",
+              "path": "context_management.grep_page_size",
+              "valueType": "integer",
+              "control": "number",
+              "min": 5,
+              "max": 100,
+              "step": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "group",
+      "id": "cm-street",
+      "title": "settings.context_management.street.title",
+      "description": "settings.context_management.street.description",
+      "children": [
+        {
+          "kind": "field",
+          "id": "cm-street-enabled",
+          "title": "settings.context_management.street_enabled.title",
+          "description": "settings.context_management.street_enabled.description",
+          "path": "context_management.street_enabled",
+          "valueType": "boolean",
+          "control": "switch"
+        },
+        {
+          "kind": "field",
+          "id": "cm-street-auto-trigger",
+          "title": "settings.context_management.street_auto_trigger.title",
+          "description": "settings.context_management.street_auto_trigger.description",
+          "path": "context_management.street_auto_trigger_priority",
+          "valueType": "enum",
+          "control": "select",
+          "optionSourceKey": "street_auto_trigger_priorities",
+          "visibleWhen": [{ "path": "context_management.street_enabled", "truthy": true }]
+        }
+      ]
+    },
+    {
+      "kind": "group",
+      "id": "cm-storage",
+      "title": "settings.context_management.storage.title",
+      "children": [
+        {
+          "kind": "field",
+          "id": "cm-jsonl-backup",
+          "title": "settings.context_management.jsonl_backup.title",
+          "description": "settings.context_management.jsonl_backup.description",
+          "path": "context_management.jsonl_backup_enabled",
+          "valueType": "boolean",
+          "control": "switch"
+        }
+      ]
+    }
+  ]
+}

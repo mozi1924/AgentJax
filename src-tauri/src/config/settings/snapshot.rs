@@ -89,23 +89,25 @@ fn redact_secret_values(
         }
     }
 
-    if let Some(Value::Object(servers)) = root.get_mut("mcp_servers") {
-        for (server_key, server_value) in servers.iter_mut() {
-            if let Value::Object(server_object) = server_value {
-                let configured = server_object
-                    .get("auth_header")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .is_some();
-                server_object.insert("auth_header".to_string(), Value::Null);
-                secret_statuses.insert(
-                    format!("mcp_servers.{server_key}.auth_header"),
-                    SecretStatus {
-                        configured,
-                        source: if configured { "inline" } else { "unset" }.to_string(),
-                    },
-                );
+    if let Some(mcp_value) = root.get_mut("mcp") {
+        if let Some(servers_map) = mcp_value.get_mut("servers").and_then(|s| s.as_object_mut()) {
+            for (server_key, server_value) in servers_map.iter_mut() {
+                if let Value::Object(server_object) = server_value {
+                    let configured = server_object
+                        .get("auth_header")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .is_some();
+                    server_object.insert("auth_header".to_string(), Value::Null);
+                    secret_statuses.insert(
+                        format!("mcp_servers.{server_key}.auth_header"),
+                        SecretStatus {
+                            configured,
+                            source: if configured { "inline" } else { "unset" }.to_string(),
+                        },
+                    );
+                }
             }
         }
     }

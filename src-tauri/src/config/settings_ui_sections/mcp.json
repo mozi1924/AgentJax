@@ -1,19 +1,64 @@
 {
-  "id": "mcp-servers",
-  "title": "settings.mcp_servers.title",
-  "icon": "ServerCog",
+  "id": "mcp",
+  "title": "settings.mcp.title",
+  "icon": "Cpu",
   "order": 60,
-  "description": "settings.mcp_servers.description",
+  "description": "settings.mcp.description",
   "children": [
+    {
+      "kind": "group",
+      "id": "mcp-runtime-group",
+      "title": "settings.mcp.runtime.title",
+      "children": [
+        {
+          "kind": "field",
+          "id": "mcp-inherit-parent-env",
+          "title": "settings.mcp.inherit_parent_env.title",
+          "path": "mcp.stdio.inherit_parent_env",
+          "valueType": "boolean",
+          "control": "switch"
+        },
+        {
+          "kind": "field",
+          "id": "mcp-shared-env",
+          "title": "settings.mcp.shared_env.title",
+          "path": "mcp.stdio.env",
+          "valueType": "string_map",
+          "control": "key_value"
+        },
+        {
+          "kind": "field",
+          "id": "mcp-startup-timeout",
+          "title": "settings.mcp.startup_timeout.title",
+          "path": "mcp.startup_timeout_ms",
+          "valueType": "integer",
+          "control": "number",
+          "min": 100,
+          "max": 600000,
+          "step": 100
+        },
+        {
+          "kind": "field",
+          "id": "mcp-tool-timeout",
+          "title": "settings.mcp.tool_timeout.title",
+          "path": "mcp.tool_timeout_ms",
+          "valueType": "integer",
+          "control": "number",
+          "min": 100,
+          "max": 600000,
+          "step": 100
+        }
+      ]
+    },
     {
       "kind": "collection",
       "id": "mcp-servers-collection",
-      "title": "settings.mcp_servers.collection.title",
-      "path": "mcp_servers",
+      "title": "settings.mcp.servers.title",
+      "path": "mcp.servers",
       "valueType": "object_collection",
-      "addLabel": "settings.mcp_servers.collection.add_label",
-      "keyLabel": "settings.mcp_servers.collection.key_label",
-      "itemLabel": "settings.mcp_servers.collection.item_label",
+      "addLabel": "settings.mcp.servers.add_label",
+      "keyLabel": "settings.mcp.servers.key_label",
+      "itemLabel": "settings.mcp.servers.item_label",
       "keyPattern": "^[A-Za-z0-9_-]+$",
       "defaultItem": {
         "transport": "stdio",
@@ -36,7 +81,7 @@
         {
           "kind": "field",
           "id": "mcp-server-enabled",
-          "title": "settings.mcp_servers.enabled.title",
+          "title": "settings.mcp.servers.enabled.title",
           "path": "enabled",
           "valueType": "boolean",
           "control": "switch"
@@ -44,7 +89,7 @@
         {
           "kind": "field",
           "id": "mcp-server-transport",
-          "title": "settings.mcp_servers.transport.title",
+          "title": "settings.mcp.servers.transport.title",
           "path": "transport",
           "valueType": "enum",
           "control": "select",
@@ -53,7 +98,7 @@
         {
           "kind": "field",
           "id": "mcp-server-command",
-          "title": "settings.mcp_servers.command.title",
+          "title": "settings.mcp.servers.command.title",
           "path": "command",
           "valueType": "string",
           "control": "text",
@@ -67,7 +112,7 @@
         {
           "kind": "field",
           "id": "mcp-server-args",
-          "title": "settings.mcp_servers.args.title",
+          "title": "settings.mcp.servers.args.title",
           "path": "args",
           "valueType": "string_list",
           "control": "tags",
@@ -81,7 +126,7 @@
         {
           "kind": "field",
           "id": "mcp-server-env",
-          "title": "settings.mcp_servers.env.title",
+          "title": "settings.mcp.servers.env.title",
           "path": "env",
           "valueType": "string_map",
           "control": "key_value",
@@ -95,7 +140,7 @@
         {
           "kind": "field",
           "id": "mcp-server-cwd",
-          "title": "settings.mcp_servers.cwd.title",
+          "title": "settings.mcp.servers.cwd.title",
           "path": "cwd",
           "valueType": "string",
           "control": "text",
@@ -109,7 +154,7 @@
         {
           "kind": "field",
           "id": "mcp-server-use-global-env",
-          "title": "settings.mcp_servers.use_global_env.title",
+          "title": "settings.mcp.servers.use_global_env.title",
           "path": "use_global_stdio_env",
           "valueType": "boolean",
           "control": "switch",
@@ -123,14 +168,14 @@
         {
           "kind": "field",
           "id": "mcp-server-inherit-parent-env",
-          "title": "settings.mcp_servers.inherit_parent_env.title",
-          "description": "settings.mcp_servers.inherit_parent_env.description",
+          "title": "settings.mcp.servers.inherit_parent_env.title",
+          "description": "settings.mcp.servers.inherit_parent_env.description",
           "path": "inherit_parent_env",
           "valueType": "enum",
           "control": "select",
           "options": [
             {
-              "label": "settings.mcp_servers.inherit_parent_env.options.follow_runtime",
+              "label": "settings.mcp.servers.inherit_parent_env.options.follow_runtime",
               "value": ""
             },
             {
@@ -152,7 +197,7 @@
         {
           "kind": "field",
           "id": "mcp-server-uri",
-          "title": "settings.mcp_servers.uri.title",
+          "title": "settings.mcp.servers.uri.title",
           "path": "uri",
           "valueType": "string",
           "control": "text",
@@ -166,8 +211,8 @@
         {
           "kind": "field",
           "id": "mcp-server-auth-header",
-          "title": "settings.mcp_servers.auth_header.title",
-          "description": "settings.mcp_servers.auth_header.description",
+          "title": "settings.mcp.servers.auth_header.title",
+          "description": "settings.mcp.servers.auth_header.description",
           "path": "auth_header",
           "valueType": "secret",
           "control": "secret",
@@ -182,7 +227,7 @@
         {
           "kind": "field",
           "id": "mcp-server-headers",
-          "title": "settings.mcp_servers.headers.title",
+          "title": "settings.mcp.servers.headers.title",
           "path": "headers",
           "valueType": "string_map",
           "control": "key_value",
@@ -196,7 +241,7 @@
         {
           "kind": "field",
           "id": "mcp-server-allow-stateless",
-          "title": "settings.mcp_servers.allow_stateless.title",
+          "title": "settings.mcp.servers.allow_stateless.title",
           "path": "allow_stateless",
           "valueType": "boolean",
           "control": "switch",
@@ -210,8 +255,8 @@
         {
           "kind": "field",
           "id": "mcp-server-channel-buffer",
-          "title": "settings.mcp_servers.channel_buffer.title",
-          "description": "settings.mcp_servers.channel_buffer.description",
+          "title": "settings.mcp.servers.channel_buffer.title",
+          "description": "settings.mcp.servers.channel_buffer.description",
           "path": "channel_buffer_capacity",
           "valueType": "integer",
           "control": "number",
@@ -228,7 +273,7 @@
         {
           "kind": "field",
           "id": "mcp-server-reinit",
-          "title": "settings.mcp_servers.reinit.title",
+          "title": "settings.mcp.servers.reinit.title",
           "path": "reinit_on_expired_session",
           "valueType": "boolean",
           "control": "switch",
@@ -242,8 +287,8 @@
         {
           "kind": "field",
           "id": "mcp-server-unfolded",
-          "title": "settings.mcp_servers.unfolded.title",
-          "description": "settings.mcp_servers.unfolded.description",
+          "title": "settings.mcp.servers.unfolded.title",
+          "description": "settings.mcp.servers.unfolded.description",
           "path": "unfolded",
           "valueType": "boolean",
           "control": "switch"

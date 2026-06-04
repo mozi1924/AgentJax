@@ -1151,9 +1151,7 @@ mod tests {
         .expect("persist dynamic tools");
 
         let mut config = AppConfig::default();
-        config
-            .mcp_servers
-            .insert("openai_docs".to_string(), McpServerConfig::default());
+        config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog
             .snapshot(&ToolExecutionContext::with_conversation_id(conversation_id.clone()))
@@ -1172,9 +1170,7 @@ mod tests {
     #[tokio::test]
     async fn test_unmounted_mcp_server_exposes_only_mount_tool() {
         let mut config = AppConfig::default();
-        config
-            .mcp_servers
-            .insert("openai_docs".to_string(), McpServerConfig::default());
+        config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
 
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
@@ -1205,9 +1201,7 @@ mod tests {
     #[tokio::test]
     async fn test_mounted_mcp_server_exposes_server_tools_and_control_tool() {
         let mut config = AppConfig::default();
-        config
-            .mcp_servers
-            .insert("openai_docs".to_string(), McpServerConfig::default());
+        config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
 
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let mut mounted_servers = MountedToolSourceSessions::new();
@@ -1402,9 +1396,7 @@ globalThis.AgentJaxPlugin = {
         .expect("persist mounted tool sources");
 
         let mut config = AppConfig::default();
-        config
-            .mcp_servers
-            .insert("openai_docs".to_string(), McpServerConfig::default());
+        config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog
             .snapshot(&ToolExecutionContext::with_conversation_id(conversation_id.clone()))
@@ -1431,7 +1423,7 @@ globalThis.AgentJaxPlugin = {
         let _home = setup_test_home();
 
         let mut config = AppConfig::default();
-        config.mcp_servers.insert(
+        config.mcp.servers.insert(
             "unfolded_server".to_string(),
             McpServerConfig {
                 enabled: true,
@@ -1453,9 +1445,7 @@ globalThis.AgentJaxPlugin = {
     #[tokio::test]
     async fn test_tool_manager_snapshot_groups_sources_without_eager_mcp_discovery() {
         let mut config = AppConfig::default();
-        config
-            .mcp_servers
-            .insert("openai_docs".to_string(), McpServerConfig::default());
+        config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
 
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog.tool_manager_snapshot(Default::default()).await;
@@ -1520,9 +1510,7 @@ globalThis.AgentJaxPlugin = {
     #[tokio::test]
     async fn test_tool_manager_mcp_discovery_failure_is_source_scoped() {
         let mut config = AppConfig::default();
-        config
-            .mcp_servers
-            .insert("broken".to_string(), McpServerConfig::default());
+        config.mcp.servers.insert("broken".to_string(), McpServerConfig::default());
 
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
         let snapshot = catalog
@@ -1695,9 +1683,9 @@ rl.on('line', (line) => {
         .expect("write mock MCP server");
 
         let mut config = AppConfig::default();
-        config.mcp_runtime.startup_timeout_ms = 5_000;
-        config.mcp_runtime.tool_timeout_ms = 5_000;
-        config.mcp_servers.insert(
+        config.mcp.startup_timeout_ms = 5_000;
+        config.mcp.tool_timeout_ms = 5_000;
+        config.mcp.servers.insert(
             "openai_docs".to_string(),
             McpServerConfig {
                 enabled: true,

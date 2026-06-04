@@ -49,7 +49,7 @@ pub async fn run_sub_agent(
     });
 
     // ── Create isolated LCM ───────────────────────────────────────────────
-    let lcm_config = app_config.lcm.clone();
+    let lcm_config = app_config.context_management.to_lcm_config();
     let sub_lcm = match SubAgentLcmContext::create(
         &spec.parent_conversation_id,
         spec.subagent_type.as_str(),
