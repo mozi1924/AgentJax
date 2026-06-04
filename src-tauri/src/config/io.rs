@@ -1,3 +1,4 @@
+use crate::config::agent_config::{AgentConfig, AgentRegistry, FullConfig};
 use crate::config::constants::CONFIG_FILE_NAME;
 use crate::config::prompt_composer::abbreviate_prompt_composer_for_yaml;
 use crate::config::schema::AppConfig;
@@ -53,6 +54,33 @@ pub fn load_config() -> AgentJaxResult<AppConfig> {
     let raw = read_config_file(&path)?;
     let parsed = parse_config_yaml(&path, &raw)?;
     Ok(parsed.normalize())
+}
+
+/// Load an agent-specific configuration from `~/.agentjax/agents/{agent_id}/agent.yaml`.
+/// Returns the default `AgentConfig` if the file doesn't exist yet.
+pub fn load_agent_config(agent_id: &str) -> AgentJaxResult<AgentConfig> {
+    let registry = AgentRegistry::new()?;
+    if registry.agent_exists(agent_id) {
+        registry.load_agent_config(agent_id)
+    } else {
+        // Return a default that inherits from the shared config.yaml fields
+        // for any values that were historically stored there.
+        Ok(AgentConfig::default().normalize())
+    }
+}
+
+/// Load the shared config + agent config and merge into a `FullConfig`.
+pub fn load_full_config(agent_id: &str) -> AgentJaxResult<FullConfig> {
+    let shared = load_config()?;
+    let agent = load_agent_config(agent_id)?;
+    Ok(FullConfig::new(shared, agent, agent_id.to_string()))
+}
+
+/// Ensure the default agent profile exists on disk.
+/// Writes a default `agent.yaml` from the existing `AppConfig` fields for migration.
+pub fn ensure_default_agent_profile() -> AgentJaxResult<()> {
+    crate::agentjax_home::ensure_default_agent()?;
+    Ok(())
 }
 
 pub fn upgrade_config_file() -> AgentJaxResult<ConfigUpgradeResult> {

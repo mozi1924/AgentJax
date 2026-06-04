@@ -485,6 +485,7 @@ async fn execute_batch(
     let batch_catalog = Arc::new(crate::tools::ToolCatalog::new_with_home_plugins(
         Arc::new(crate::mcp::McpManager::new()),
         &batch_config,
+        &crate::config::AgentConfig::default(),
     ));
     let (_batch_event_tx, _batch_event_rx) = tokio::sync::mpsc::unbounded_channel();
     let batch_conv_id = conversation_id.clone();

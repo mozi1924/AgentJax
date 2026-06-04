@@ -66,6 +66,7 @@ impl ToolCatalog {
     pub fn new(
         mcp_manager: Arc<crate::mcp::McpManager>,
         config: &crate::config::AppConfig,
+        agent_config: &crate::config::AgentConfig,
     ) -> Self {
         use crate::lcm::LlmMapTool;
         let context_tools: Vec<Arc<dyn Tool>> = vec![
@@ -93,7 +94,7 @@ impl ToolCatalog {
             mcp_manager,
             mcp_runtime: config.mcp.runtime(),
             mcp_config: config.mcp.servers.clone(),
-            tool_manager: config.tool_manager.clone(),
+            tool_manager: agent_config.tool_manager.clone(),
             plugin_manager: config.plugin_manager.clone(),
             plugin_manifests: BTreeMap::new(),
             plugin_packages: BTreeMap::new(),
@@ -106,15 +107,16 @@ impl ToolCatalog {
     pub fn new_with_home_plugins(
         mcp_manager: Arc<crate::mcp::McpManager>,
         config: &crate::config::AppConfig,
+        agent_config: &crate::config::AgentConfig,
     ) -> Self {
         let fallback_mcp_manager = mcp_manager.clone();
-        let catalog = Self::new(mcp_manager, config);
+        let catalog = Self::new(mcp_manager, config, agent_config);
         match discover_all_plugin_packages() {
             Ok(packages) => match catalog.with_plugin_packages(packages) {
                 Ok(catalog) => catalog,
                 Err(err) => {
                     log::warn!("Failed to register plugins from AGENTJAX_HOME/plugins: {err}");
-                    Self::new(fallback_mcp_manager, config)
+                    Self::new(fallback_mcp_manager, config, agent_config)
                 }
             },
             Err(err) => {

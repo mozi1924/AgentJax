@@ -16,7 +16,8 @@ pub async fn get_tool_manager_snapshot(
     request: Option<ToolManagerSnapshotRequest>,
 ) -> Result<ToolManagerSnapshot, String> {
     let config = config::load_config()?;
-    let catalog = ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config);
+    let agent_config = config::AgentConfig::default();
+    let catalog = ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config, &agent_config);
     Ok(catalog
         .tool_manager_snapshot(request.unwrap_or_default())
         .await)

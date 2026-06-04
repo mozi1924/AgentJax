@@ -40,8 +40,12 @@ pub async fn chat_stream(
     mcp_manager: State<'_, std::sync::Arc<crate::mcp::McpManager>>,
     req: ChatRequest,
 ) -> Result<ChatResponse, String> {
-    let config = config::load_config()?;
     let agent_id = req.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID).to_string();
+
+    // Load FullConfig: shared providers/config + agent-specific settings
+    let full_config = config::load_full_config(&agent_id)?;
+    let config = full_config.shared.clone();
+    let agent_config = full_config.agent.clone();
     let jsonl_backup_enabled = config.context_management.jsonl_backup_enabled;
     let (sanitized_client_metadata, local_dynamic_tools) =
         split_local_client_metadata(req.client_metadata.clone())?;
@@ -108,10 +112,10 @@ pub async fn chat_stream(
     };
 
     let mut tools_catalog =
-        ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config);
+        ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config, &agent_config);
 
     // ── Resolve model early for dynamic LCM threshold computation ───────
-    let resolved_model = resolve_prompt_counting_model(&config, req.model.as_deref());
+    let resolved_model = resolve_prompt_counting_model(&config, &agent_config, req.model.as_deref());
 
     // ── Compute effective LCM thresholds (dynamic or manual) ────────────
     let effective_lcm_config = {

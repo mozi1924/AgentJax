@@ -75,7 +75,7 @@ async fn run_real_gateway_turn_with_config(
     crate::conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id)
         .expect("ensure conversation workspace");
 
-    let tools_catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+    let tools_catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
     let req = ChatRequest {
         input: input.to_string(),
         conversation_id: Some(conversation_id.clone()),
@@ -481,6 +481,7 @@ async fn run_real_gateway_turn_with_full_catalog(
     let tools_catalog = ToolCatalog::new_with_home_plugins(
         Arc::new(crate::mcp::McpManager::new()),
         &config,
+        &crate::config::AgentConfig::default(),
     );
     let lcm_engine = lcm_engine_for_test(&conversation_id);
     // Register context tools with the LCM store.

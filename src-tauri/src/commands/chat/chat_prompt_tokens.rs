@@ -5,9 +5,10 @@ use crate::tools::{ToolCatalog, ToolCatalogSnapshot, ToolExecutionContext};
 
 pub(super) fn resolve_prompt_counting_model(
     config: &config::AppConfig,
+    agent_config: &config::AgentConfig,
     model: Option<&str>,
 ) -> Option<crate::config::ResolvedModelConfig> {
-    match config.resolve_model_profile(model) {
+    match config.resolve_model_profile_with_agent(model, agent_config) {
         Ok(resolved) => Some(resolved),
         Err(err) => {
             log::warn!(
@@ -15,7 +16,7 @@ pub(super) fn resolve_prompt_counting_model(
                 model,
                 err
             );
-            match config.resolve_model_profile(None) {
+            match config.resolve_model_profile_with_agent(None, agent_config) {
                 Ok(resolved) => Some(resolved),
                 Err(err) => {
                     log::warn!("Failed to resolve fallback prompt counting model: {}", err);
@@ -62,12 +63,19 @@ pub(super) async fn load_conversation_prompt_token_count(
             return 0;
         }
     };
+    let agent_cfg = match config::load_agent_config(agent_id) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            log::warn!("Failed to load agent config for token counting: {}", err);
+            return 0;
+        }
+    };
 
-    let Some(resolved_model) = resolve_prompt_counting_model(&cfg, model) else {
+    let Some(resolved_model) = resolve_prompt_counting_model(&cfg, &agent_cfg, model) else {
         return 0;
     };
 
-    let tools_catalog = ToolCatalog::new_with_home_plugins(mcp_manager, &cfg);
+    let tools_catalog = ToolCatalog::new_with_home_plugins(mcp_manager, &cfg, &agent_cfg);
     let tool_snapshot = match tool_snapshot_for_conversation(
         &tools_catalog,
         agent_id,

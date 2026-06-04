@@ -281,6 +281,7 @@ mod tests {
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
+            &crate::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-file-paths-{}", uuid::Uuid::new_v4());
@@ -320,6 +321,7 @@ mod tests {
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
+            &crate::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-directory-tools-{}", uuid::Uuid::new_v4());
@@ -378,6 +380,7 @@ mod tests {
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
+            &crate::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-read-truncation-{}", uuid::Uuid::new_v4());
@@ -420,6 +423,7 @@ mod tests {
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
+            &crate::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-content-sniffing-text-{}", uuid::Uuid::new_v4());
@@ -451,6 +455,7 @@ mod tests {
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
+            &crate::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-list-truncation-{}", uuid::Uuid::new_v4());
@@ -495,6 +500,7 @@ mod tests {
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
+            &crate::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-content-sniffing-binary-{}", uuid::Uuid::new_v4());
@@ -526,6 +532,7 @@ mod tests {
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
+            &crate::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-binary-guards-{}", uuid::Uuid::new_v4());
@@ -580,6 +587,7 @@ mod tests {
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
+            &crate::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-text-edits-{}", uuid::Uuid::new_v4());
@@ -706,6 +714,7 @@ mod tests {
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &crate::config::AppConfig::default(),
+            &crate::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-apply-patch-atomic-{}", uuid::Uuid::new_v4());
@@ -757,7 +766,7 @@ mod tests {
     #[tokio::test]
     async fn test_tool_catalog_snapshot_freezes_native_tool_view() {
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let ctx = ToolExecutionContext {
             app_config: Some(std::sync::Arc::new(config.clone())),
             ..Default::default()
@@ -810,7 +819,7 @@ mod tests {
     #[tokio::test]
     async fn test_background_task_start_wait_and_list() {
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let ctx = ToolExecutionContext::default();
 
@@ -866,7 +875,7 @@ mod tests {
     #[tokio::test]
     async fn test_background_task_is_conversation_scoped() {
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let ctx_a = ToolExecutionContext::with_conversation_id(format!("test-bg-a-{}", uuid::Uuid::new_v4()));
         let ctx_b = ToolExecutionContext::with_conversation_id(format!("test-bg-b-{}", uuid::Uuid::new_v4()));
         let snapshot = catalog.snapshot(&ctx_a).await;
@@ -925,7 +934,7 @@ mod tests {
     #[tokio::test]
     async fn test_background_task_cancel() {
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let ctx = ToolExecutionContext::default();
 
@@ -1092,7 +1101,7 @@ mod tests {
         .expect("persist dynamic tools");
 
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let snapshot = catalog
             .snapshot(&ToolExecutionContext::with_conversation_id(conversation_id.clone()))
             .await;
@@ -1152,7 +1161,7 @@ mod tests {
 
         let mut config = AppConfig::default();
         config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let snapshot = catalog
             .snapshot(&ToolExecutionContext::with_conversation_id(conversation_id.clone()))
             .await;
@@ -1172,7 +1181,7 @@ mod tests {
         let mut config = AppConfig::default();
         config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
 
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
         assert!(snapshot.schemas().iter().any(|schema| {
@@ -1203,7 +1212,7 @@ mod tests {
         let mut config = AppConfig::default();
         config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
 
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let mut mounted_servers = MountedToolSourceSessions::new();
         mounted_servers.insert(
             "openai_docs".to_string(),
@@ -1274,6 +1283,7 @@ mod tests {
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &AppConfig::default(),
+            &crate::config::AgentConfig::default(),
         )
         .with_plugin_manifests(vec![plugin_manifest])
         .expect("plugin manifest should validate");
@@ -1350,6 +1360,7 @@ globalThis.AgentJaxPlugin = {
         let catalog = ToolCatalog::new_with_home_plugins(
             Arc::new(crate::mcp::McpManager::new()),
             &AppConfig::default(),
+            &crate::config::AgentConfig::default(),
         );
         let context = ToolExecutionContext::with_conversation_id("conversation-1".to_string());
         let snapshot = catalog
@@ -1397,7 +1408,7 @@ globalThis.AgentJaxPlugin = {
 
         let mut config = AppConfig::default();
         config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let snapshot = catalog
             .snapshot(&ToolExecutionContext::with_conversation_id(conversation_id.clone()))
             .await;
@@ -1432,7 +1443,7 @@ globalThis.AgentJaxPlugin = {
             },
         );
 
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
         assert!(
@@ -1447,7 +1458,7 @@ globalThis.AgentJaxPlugin = {
         let mut config = AppConfig::default();
         config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
 
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let snapshot = catalog.tool_manager_snapshot(Default::default()).await;
 
         let native_source = snapshot
@@ -1512,7 +1523,7 @@ globalThis.AgentJaxPlugin = {
         let mut config = AppConfig::default();
         config.mcp.servers.insert("broken".to_string(), McpServerConfig::default());
 
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let snapshot = catalog
             .tool_manager_snapshot(crate::tools::ToolManagerSnapshotRequest {
                 source_id: Some("broken".to_string()),
@@ -1592,7 +1603,11 @@ globalThis.AgentJaxPlugin = {
             ..Default::default()
         };
 
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config)
+        let agent_config = crate::config::AgentConfig {
+            tool_manager: config.tool_manager.clone(),
+            ..Default::default()
+        };
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &agent_config)
             .with_plugin_manifests(vec![plugin_manifest])
             .expect("plugin manifest should validate");
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
@@ -1622,8 +1637,12 @@ globalThis.AgentJaxPlugin = {
             "calculator".to_string(),
             ToolEnabledConfig { enabled: true },
         );
+        let reenabled_agent = crate::config::AgentConfig {
+            tool_manager: reenabled_config.tool_manager.clone(),
+            ..Default::default()
+        };
         let reenabled_catalog =
-            ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &reenabled_config);
+            ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &reenabled_config, &reenabled_agent);
         let reenabled_snapshot = reenabled_catalog
             .snapshot(&ToolExecutionContext::default())
             .await;
@@ -1703,7 +1722,11 @@ rl.on('line', (line) => {
             },
         );
 
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let agent_config_mcp = crate::config::AgentConfig {
+            tool_manager: config.tool_manager.clone(),
+            ..Default::default()
+        };
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &agent_config_mcp);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
         assert!(
@@ -1723,7 +1746,7 @@ rl.on('line', (line) => {
     #[tokio::test]
     async fn test_catalog_includes_llm_map() {
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
         assert!(
