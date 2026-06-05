@@ -1,6 +1,6 @@
 use super::io::{atomic_write, compute_revision};
 use super::snapshot::{
-    is_agent_config_path, snapshot_from_config, snapshot_from_config_with_agent,
+    is_agent_config_path, snapshot_from_config_with_agent,
 };
 use super::types::{SettingsPatch, SettingsPatchOperation, SettingsSnapshot};
 use crate::agentjax_err;
@@ -46,7 +46,7 @@ fn apply_shared_patch(
     config: &AppConfig,
     agent_config: &AgentConfig,
     config_path: &std::path::Path,
-    raw: &str,
+    _raw: &str,
 ) -> AgentJaxResult<SettingsSnapshot> {
     let mut root = serde_json::to_value(config)
         .map_err(|e| AgentJaxError::config(format!("Failed to serialize config for patching: {e}")).with_error_source(&e))?;

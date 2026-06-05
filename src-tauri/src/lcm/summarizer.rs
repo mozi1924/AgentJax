@@ -33,7 +33,7 @@ pub struct ProviderSummarizer {
     /// The app configuration (for provider/model resolution).
     config: crate::config::AppConfig,
     /// The model reference to use for summarization.
-    /// Falls back to `config.utility_small_model` if empty.
+    /// Falls back to `agent_config.utility_small_model` if empty.
     model_ref: String,
 }
 
@@ -41,15 +41,16 @@ impl ProviderSummarizer {
     /// Create a new provider-backed summarizer.
     ///
     /// `lcm_config` provides the `summarization_model` override.
-    /// If empty or "default", the app's `utility_small_model` is used.
+    /// If empty or "default", the agent's `utility_small_model` is used.
     pub fn new(
         app_config: &crate::config::AppConfig,
+        agent_config: &crate::config::AgentConfig,
         lcm_config: &crate::lcm::types::LcmConfig,
     ) -> Result<Self, LcmError> {
         let model_ref = if lcm_config.summarization_model.is_empty()
             || lcm_config.summarization_model == "default"
         {
-            app_config.utility_small_model.clone()
+            agent_config.utility_small_model.clone()
         } else {
             lcm_config.summarization_model.clone()
         };

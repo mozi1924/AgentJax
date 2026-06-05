@@ -173,7 +173,7 @@ pub async fn fetch_remote_models(
     let protocol = resolve_protocol(&provider.kind, "", None);
     let mut fetched_models: Vec<ProviderModelDescriptor> = if protocol.is_some() {
         let endpoint = format!("{}/models", provider.api_endpoint().trim_end_matches('/'));
-        protocol::fetch_remote_models(&provider, &endpoint, config.request_timeout_seconds)
+        protocol::fetch_remote_models(&provider, &endpoint, crate::config::constants::DEFAULT_TIMEOUT_SECONDS)
             .await
             .unwrap_or_default()
     } else {

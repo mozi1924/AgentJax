@@ -536,10 +536,19 @@ async fn execute_batch(
                 };
 
                 let task = SubAgentManager::register(spec.clone());
+                // Load the default agent config for sub-agent runner.
+                let agent_cfg = Arc::new(
+                    crate::config::load_agent_config(
+                        crate::config::constants::DEFAULT_AGENT_ID,
+                    )
+                    .unwrap_or_default()
+                    .normalize(),
+                );
                 let handle = tokio::spawn(crate::sub_agents::runner::run_sub_agent(
                     task.clone(),
                     spec,
                     cfg.clone(),
+                    agent_cfg,
                     catalog.clone(),
                     event_tx.clone(),
                 ));

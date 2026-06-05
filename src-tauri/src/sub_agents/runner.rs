@@ -8,7 +8,7 @@
 //! to the frontend via Tauri events.
 
 use crate::commands::chat::ChatRequest;
-use crate::config::AppConfig;
+use crate::config::{AgentConfig, AppConfig};
 use crate::provider_api::types::ProviderStreamEvent;
 use crate::sub_agents::events::SubAgentEvent;
 use crate::sub_agents::lcm_context::SubAgentLcmContext;
@@ -35,6 +35,7 @@ pub async fn run_sub_agent(
     task: Arc<SubAgentTask>,
     spec: SubAgentSpec,
     app_config: Arc<AppConfig>,
+    agent_config: Arc<AgentConfig>,
     tools_catalog: Arc<ToolCatalog>,
     event_tx: mpsc::UnboundedSender<SubAgentEvent>,
 ) {
@@ -49,7 +50,7 @@ pub async fn run_sub_agent(
     });
 
     // ── Create isolated LCM ───────────────────────────────────────────────
-    let lcm_config = app_config.context_management.to_lcm_config();
+    let lcm_config = agent_config.context_management.to_lcm_config();
     let sub_lcm = match SubAgentLcmContext::create(
         &spec.parent_conversation_id,
         spec.subagent_type.as_str(),
@@ -99,10 +100,10 @@ pub async fn run_sub_agent(
         input: build_sub_agent_instructions(&spec),
         conversation_id: Some(sub_lcm.conversation_id.clone()),
         model: model_id.or_else(|| {
-            if app_config.utility_small_model.is_empty() {
-                Some(app_config.default_model.clone())
+            if agent_config.utility_small_model.is_empty() {
+                Some(agent_config.default_model.clone())
             } else {
-                Some(app_config.utility_small_model.clone())
+                Some(agent_config.utility_small_model.clone())
             }
         }),
         reasoning_effort: None,
@@ -256,6 +257,7 @@ pub async fn run_sub_agent(
 pub async fn run_memory_agent(
     spec: SubAgentSpec,
     app_config: Arc<AppConfig>,
+    agent_config: Arc<AgentConfig>,
     mut signal_rx: tokio::sync::watch::Receiver<Option<crate::sub_agents::types::MemoryAgentSignal>>,
 ) {
     let agent_id = &spec.agent_id;
@@ -312,10 +314,10 @@ pub async fn run_memory_agent(
                 let prompt = build_memory_agent_prompt(&index_content, &conv_context);
 
                 // Resolve the model (use utility_small_model or default).
-                let model_id = if app_config.utility_small_model.is_empty() {
-                    app_config.default_model.clone()
+                let model_id = if agent_config.utility_small_model.is_empty() {
+                    agent_config.default_model.clone()
                 } else {
-                    app_config.utility_small_model.clone()
+                    agent_config.utility_small_model.clone()
                 };
 
                 // Call the provider with instructions as developer role (not user).

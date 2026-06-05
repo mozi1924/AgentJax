@@ -35,18 +35,18 @@ impl RagIndex {
     /// Opens the vector store and initializes the chunker from the
     /// configured RAG settings. Embedding is performed via the
     /// unified `provider_api` protocol layer.
-    pub async fn from_config(config: &RagConfig, app_config: &AppConfig) -> AgentJaxResult<Self> {
+    pub async fn from_config(config: &RagConfig, default_provider_key: &str) -> AgentJaxResult<Self> {
         let home = agentjax_home::agentjax_home_dir()?;
         let store_path = home.join(&config.storage_path);
         let store = VectorStore::open(&store_path).await?;
         let chunker = Chunker::new(config.chunk_size, config.chunk_overlap)?;
 
         // Resolve the provider key and model for embedding from the config.
-        // In the old config, `embedding.provider_key` references an existing
-        // provider config. If not set, default to the active provider.
+        // If `embedding.provider_key` is set, use it; otherwise default to
+        // the provided fallback (typically the agent's active_provider).
         let provider_key = config.embedding.provider_key.clone()
             .filter(|k| !k.is_empty())
-            .unwrap_or_else(|| app_config.active_provider.clone());
+            .unwrap_or_else(|| default_provider_key.to_string());
         let embedding_model = config.embedding.model.clone();
 
         Ok(Self {
@@ -177,8 +177,6 @@ impl RagIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::RagConfig;
-    use crate::provider_api::types::EmbeddingResponse;
 
     #[tokio::test]
     async fn test_index_and_search_flow() {

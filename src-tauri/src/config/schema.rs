@@ -1,8 +1,7 @@
 use crate::config::constants::{
-    DEFAULT_TIMEOUT_SECONDS,
     default_mcp_startup_timeout_ms, default_mcp_tool_timeout_ms, default_true,
 };
-use crate::config::prompt_composer::{CompiledPromptAssembly, PromptComposerConfig};
+use crate::config::prompt_composer::CompiledPromptAssembly;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -237,27 +236,9 @@ pub struct AppConfig {
     /// The currently active agent profile ID. Stored in shared config.yaml.
     #[serde(default = "default_active_agent_id")]
     pub active_agent_id: String,
-    pub active_provider: String,
-    pub default_model: String,
-    pub utility_small_model: String,
-    pub request_timeout_seconds: u64,
-    pub show_advanced_request_options: bool,
-    pub enable_developer_tools: bool,
     pub providers: BTreeMap<String, ProviderConfig>,
     #[serde(default)]
-    pub prompt_composer: PromptComposerConfig,
-    #[serde(default)]
-    pub context_management: ContextManagementConfig,
-    #[serde(default)]
-    pub sub_agent: SubAgentConfig,
-    #[serde(default)]
-    pub memory: MemoryConfig,
-    #[serde(default)]
-    pub rag: RagConfig,
-    #[serde(default)]
     pub mcp: McpConfig,
-    #[serde(default)]
-    pub tool_manager: ToolManagerConfig,
     #[serde(default)]
     pub plugin_manager: PluginManagerConfig,
 }
@@ -669,20 +650,8 @@ impl Default for AppConfig {
         Self {
             language: default_language(),
             active_agent_id: default_active_agent_id(),
-            active_provider: String::new(),
-            default_model: String::new(),
-            utility_small_model: String::new(),
-            request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
-            show_advanced_request_options: false,
-            enable_developer_tools: false,
             providers: BTreeMap::new(),
-            prompt_composer: PromptComposerConfig::default(),
-            context_management: ContextManagementConfig::default(),
-            sub_agent: SubAgentConfig::default(),
-            memory: MemoryConfig::default(),
-            rag: RagConfig::default(),
             mcp: McpConfig::default(),
-            tool_manager: ToolManagerConfig::default(),
             plugin_manager: PluginManagerConfig::default(),
         }
     }

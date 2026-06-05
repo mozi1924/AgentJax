@@ -103,12 +103,13 @@ pub fn open_lcm_engine(
 /// Open the LCM engine with a real provider-backed summarizer.
 ///
 /// Resolves the summarization model from `LcmConfig.summarization_model`
-/// (or falls back to `AppConfig.utility_small_model`).
+/// (or falls back to `agent_config.utility_small_model`).
 pub fn open_lcm_engine_with_summarizer(
     agent_id: &str,
     conversation_id: &str,
     lcm_config: &LcmConfig,
     app_config: &crate::config::AppConfig,
+    agent_config: &crate::config::AgentConfig,
 ) -> AgentJaxResult<Arc<LcmEngine>> {
     let db_path = lcm_store_path(agent_id, conversation_id)?;
     let store = Arc::new(
@@ -126,7 +127,7 @@ pub fn open_lcm_engine_with_summarizer(
         {
             Some(lcm_config.summarization_model.clone())
         } else {
-            let model = &app_config.utility_small_model;
+            let model = &agent_config.utility_small_model;
             if model.is_empty() { None } else { Some(model.clone()) }
         };
         resolved_lcm_config.tokenizer_model_id = tokenizer_model;
@@ -134,7 +135,7 @@ pub fn open_lcm_engine_with_summarizer(
 
     // Try to create a ProviderSummarizer; fall back to NoopSummarizer
     // if model resolution fails.
-    let summarizer: Arc<dyn Summarizer> = match ProviderSummarizer::new(app_config, lcm_config) {
+    let summarizer: Arc<dyn Summarizer> = match ProviderSummarizer::new(app_config, agent_config, lcm_config) {
         Ok(ps) => {
             log::info!(
                 "LCM using ProviderSummarizer (model: {})",

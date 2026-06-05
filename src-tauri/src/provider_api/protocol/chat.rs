@@ -14,7 +14,7 @@ use tokio::sync::watch;
 
 /// Stream a response using the OpenAI Chat Completions API.
 pub async fn stream_response<F>(
-    config: &AppConfig,
+    _config: &AppConfig,
     provider_key: &str,
     provider_config: &ProviderConfig,
     model_id: &str,
@@ -25,7 +25,9 @@ pub async fn stream_response<F>(
 where
     F: FnMut(ProviderStreamEvent) -> AgentJaxResult<()> + Send,
 {
-    let timeout_seconds = provider_config.resolved_timeout_seconds(config.request_timeout_seconds);
+    let timeout_seconds = provider_config.resolved_timeout_seconds(
+        crate::config::constants::DEFAULT_TIMEOUT_SECONDS,
+    );
     let client = build_client(timeout_seconds)?;
 
     let base_url = provider_config.api_endpoint().trim_end_matches('/').to_string();

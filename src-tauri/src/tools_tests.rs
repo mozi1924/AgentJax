@@ -1575,7 +1575,9 @@ globalThis.AgentJaxPlugin = {
             sandbox: SandboxPolicy::default(),
         };
 
-        let config = AppConfig {
+        let config = AppConfig::default();
+
+        let agent_config = crate::config::AgentConfig {
             tool_manager: ToolManagerConfig {
                 native_tools: [(
                     "calculator".to_string(),
@@ -1600,11 +1602,6 @@ globalThis.AgentJaxPlugin = {
                 mcp_tools: Default::default(),
                 context_tools: Default::default(),
             },
-            ..Default::default()
-        };
-
-        let agent_config = crate::config::AgentConfig {
-            tool_manager: config.tool_manager.clone(),
             ..Default::default()
         };
         let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &agent_config)
@@ -1632,17 +1629,13 @@ globalThis.AgentJaxPlugin = {
             .expect("calculator is visible in manager snapshot");
         assert!(!calculator.enabled);
 
-        let mut reenabled_config = config.clone();
-        reenabled_config.tool_manager.native_tools.insert(
+        let mut reenabled_agent = agent_config.clone();
+        reenabled_agent.tool_manager.native_tools.insert(
             "calculator".to_string(),
             ToolEnabledConfig { enabled: true },
         );
-        let reenabled_agent = crate::config::AgentConfig {
-            tool_manager: reenabled_config.tool_manager.clone(),
-            ..Default::default()
-        };
         let reenabled_catalog =
-            ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &reenabled_config, &reenabled_agent);
+            ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &reenabled_agent);
         let reenabled_snapshot = reenabled_catalog
             .snapshot(&ToolExecutionContext::default())
             .await;
@@ -1713,7 +1706,9 @@ rl.on('line', (line) => {
                 ..McpServerConfig::default()
             },
         );
-        config.tool_manager.mcp_tools.insert(
+
+        let mut agent_config = crate::config::AgentConfig::default();
+        agent_config.tool_manager.mcp_tools.insert(
             "openai_docs".to_string(),
             McpToolSourcePolicyConfig {
                 enabled: true,
@@ -1721,12 +1716,7 @@ rl.on('line', (line) => {
                 tools: Default::default(),
             },
         );
-
-        let agent_config_mcp = crate::config::AgentConfig {
-            tool_manager: config.tool_manager.clone(),
-            ..Default::default()
-        };
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &agent_config_mcp);
+        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &agent_config);
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
         assert!(

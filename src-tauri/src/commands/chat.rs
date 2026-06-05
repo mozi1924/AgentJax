@@ -46,7 +46,7 @@ pub async fn chat_stream(
     let full_config = config::load_full_config(&agent_id)?;
     let config = full_config.shared.clone();
     let agent_config = full_config.agent.clone();
-    let jsonl_backup_enabled = config.context_management.jsonl_backup_enabled;
+    let jsonl_backup_enabled = agent_config.context_management.jsonl_backup_enabled;
     let (sanitized_client_metadata, local_dynamic_tools) =
         split_local_client_metadata(req.client_metadata.clone())?;
     let request_id = req
@@ -79,7 +79,7 @@ pub async fn chat_stream(
 
     registry.clear_conversation_deleted(&conversation_id)?;
 
-    let closure_agent_id = agent_id.clone();
+    let _closure_agent_id = agent_id.clone();
     let mut context = {
         let conversation_id = conversation_id.clone();
         let local_dynamic_tools = local_dynamic_tools.clone();
@@ -119,7 +119,7 @@ pub async fn chat_stream(
 
     // ── Compute effective LCM thresholds (dynamic or manual) ────────────
     let effective_lcm_config = {
-        let base = config.context_management.to_lcm_config();
+        let base = agent_config.context_management.to_lcm_config();
         if base.dynamic_thresholds {
             if let Some(ref model) = resolved_model {
                 let budget = conversation_store::TokenBudget::for_model(
@@ -149,7 +149,7 @@ pub async fn chat_stream(
 
     // ── LCM: Initialize context management (always on) ──────────────────
     let lcm_engine =
-        crate::lcm::open_lcm_engine_with_summarizer(&agent_id, &conversation_id, &effective_lcm_config, &config)?;
+        crate::lcm::open_lcm_engine_with_summarizer(&agent_id, &conversation_id, &effective_lcm_config, &config, &agent_config)?;
     tools_catalog.set_context_tools(lcm_engine.store().clone());
 
     // Ensure LCM conversation metadata exists.
@@ -240,13 +240,13 @@ pub async fn chat_stream(
             user_message_ts,
         ));
         // Inject memory context if enabled.
-        if config.memory.enabled && config.memory.auto_inject {
+        if agent_config.memory.enabled && agent_config.memory.auto_inject {
             let memory_base = crate::agentjax_home::agentjax_home_dir()
                 .unwrap_or_else(|_| std::path::PathBuf::from(".agentjax"))
-                .join(&config.memory.storage_dir);
+                .join(&agent_config.memory.storage_dir);
             if let Ok(store) = crate::memory::MemoryStore::open(memory_base)
                 && let Ok(Some(memory_item)) =
-                    crate::memory::build_memory_context(&store, &config.memory)
+                    crate::memory::build_memory_context(&store, &agent_config.memory)
                 {
                     developer_items.push(memory_item);
                 }
@@ -362,7 +362,7 @@ pub async fn chat_stream(
     // ── Memory Agent Lifecycle ──────────────────────────────────────────
     // If memory is enabled and no memory agent exists for this conversation,
     // spawn a persistent background memory observer.
-    if config.memory.enabled {
+    if agent_config.memory.enabled {
         use crate::sub_agents::manager::SubAgentManager;
         use crate::sub_agents::types::SubAgentType;
         if SubAgentManager::get_memory_agent_for_conversation(&conversation_id).is_none() {
@@ -388,10 +388,12 @@ pub async fn chat_stream(
                 *tx_guard = Some(mem_signal_tx);
             }
             let mem_config = Arc::new(config.clone());
+            let mem_agent_config = Arc::new(agent_config.clone());
             tokio::spawn(async move {
                 crate::sub_agents::runner::run_memory_agent(
                     mem_spec,
                     mem_config,
+                    mem_agent_config,
                     mem_signal_rx,
                 )
                 .await;
@@ -401,7 +403,7 @@ pub async fn chat_stream(
     }
 
     // ── Collect Street notifications ────────────────────────────────────
-    let street_dev_items: Vec<Value> = if config.context_management.street_enabled {
+    let street_dev_items: Vec<Value> = if agent_config.context_management.street_enabled {
         let pending = crate::street::StreetManager::collect_pending(&conversation_id);
         if !pending.is_empty() {
             let count = pending.len();
@@ -459,13 +461,14 @@ pub async fn chat_stream(
             for (task, spec) in pending {
                 let agent_id = spec.agent_id.clone();
                 let spawn_config = Arc::new(config.clone());
+                let spawn_agent_config = Arc::new(agent_config.clone());
                 let spawn_catalog = Arc::clone(&tools_catalog_arc);
                 let spawn_event_tx = sub_event_tx.clone();
                 let sem_perm = sub_semaphore;
                 let _handle = tokio::spawn(async move {
                     // Acquire concurrency permit before starting execution.
                     let _permit = sem_perm.acquire().await;
-                    run_sub_agent(task, spec, spawn_config, spawn_catalog, spawn_event_tx).await;
+                    run_sub_agent(task, spec, spawn_config, spawn_agent_config, spawn_catalog, spawn_event_tx).await;
                 });
                 log::info!("Sub-agent {} spawned for conv={}", agent_id, conversation_id);
             }
@@ -477,7 +480,7 @@ pub async fn chat_stream(
     // ── Signal the memory agent ───────────────────────────────────────────
     // After the main turn completes, notify the memory agent so it can
     // evaluate the conversation and write/update memories.
-    if config.memory.enabled {
+    if agent_config.memory.enabled {
         crate::sub_agents::manager::SubAgentManager::signal_memory_agent(
             &conversation_id,
             crate::sub_agents::types::MemoryAgentSignal::TurnCompleted,
@@ -502,7 +505,7 @@ pub async fn chat_stream(
         schedule_title_generation(
             window.clone(),
             window.app_handle().clone(),
-            config.clone(),
+            full_config.clone(),
             agent_id.clone(),
             conversation_id.clone(),
             request_id.clone(),

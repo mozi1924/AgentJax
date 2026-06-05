@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow_array::{Array, ArrayRef, FixedSizeListArray, Float32Array, Int32Array, RecordBatch, RecordBatchIterator, StringArray};
+use arrow_array::{Array, ArrayRef, FixedSizeListArray, Float32Array, Int32Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use futures_util::StreamExt;
 
@@ -60,9 +60,8 @@ impl VectorStore {
             ));
         }
 
-        let schema = self.make_schema(dims);
         let batch = self.build_record_batch(chunks, dims)?;
-        let reader = RecordBatchIterator::new(vec![Ok(batch)], schema.clone());
+        let batches = vec![batch];
 
         let db = lancedb::connect(&self.db_path)
             .execute()
@@ -77,7 +76,7 @@ impl VectorStore {
         match existing {
             Ok(table) => {
                 table
-                    .add(reader)
+                    .add(batches.clone())
                     .execute()
                     .await
                     .map_err(|e| {
@@ -88,7 +87,7 @@ impl VectorStore {
             }
             Err(_) => {
                 // Table doesn't exist — create it with schema
-                db.create_table(table_name, reader)
+                db.create_table(table_name, batches)
                     .execute()
                     .await
                     .map_err(|e| {

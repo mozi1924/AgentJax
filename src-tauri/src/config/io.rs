@@ -1,6 +1,5 @@
 use crate::config::agent_config::{AgentConfig, AgentRegistry, FullConfig};
 use crate::config::constants::CONFIG_FILE_NAME;
-use crate::config::prompt_composer::abbreviate_prompt_composer_for_yaml;
 use crate::config::schema::AppConfig;
 use crate::error::{AgentJaxError, AgentJaxResult};
 use serde::Serialize;
@@ -109,19 +108,21 @@ fn register_home_provider_plugins() {
 pub fn get_config_info() -> AgentJaxResult<ConfigInfo> {
     let path = init_config_if_missing()?;
     let config = load_config()?;
-    let active_provider = config.active_provider.clone();
+    // Attempt to read the active agent's config for per-agent defaults.
+    let agent = load_agent_config(&config.active_agent_id).unwrap_or_default().normalize();
+    let active_provider = agent.active_provider.clone();
     let active_provider_config = config.resolved_provider(&active_provider)?;
 
     Ok(ConfigInfo {
         config_path: path.display().to_string(),
         active_provider,
         provider_keys: config.provider_keys(),
-        default_model: config.default_model.clone(),
-        utility_small_model: config.utility_small_model.clone(),
+        default_model: agent.default_model.clone(),
+        utility_small_model: agent.utility_small_model.clone(),
         models: config.configured_models(),
         has_credential: active_provider_config.resolved_credential().is_some(),
         credential_env: active_provider_config.credential_env(),
-        request_timeout_seconds: config.request_timeout_seconds,
+        request_timeout_seconds: agent.request_timeout_seconds,
     })
 }
 
@@ -154,28 +155,9 @@ fn parse_config_yaml(path: &Path, raw: &str) -> AgentJaxResult<AppConfig> {
 }
 
 pub fn serialize_config_to_yaml(normalized: &AppConfig) -> AgentJaxResult<String> {
-    // Build a YAML version of the config with the prompt_composer blocks
-    // abbreviated (built-in/plugin blocks → only {id, enabled}) so the YAML
-    // on disk stays clean and does not expose framework-internal content.
-    let mut abbreviated_root: serde_yaml::Value = serde_yaml::to_value(normalized)
-        .map_err(|e| AgentJaxError::config(format!("Failed to serialize config for YAML output: {e}")).with_error_source(&e))?;
-
-    if let Some(pc) = abbreviated_root
-        .get_mut("prompt_composer")
-        .and_then(|v| v.as_mapping_mut())
-    {
-        let abbreviated = abbreviate_prompt_composer_for_yaml(&normalized.prompt_composer);
-        let abbreviated_yaml: serde_yaml::Value = serde_yaml::to_value(&abbreviated)
-            .map_err(|e| AgentJaxError::config(format!("Failed to convert abbreviated blocks to YAML: {e}")).with_error_source(&e))?;
-        if let Some(blocks) = abbreviated_yaml.get("blocks") {
-            pc.insert(
-                serde_yaml::Value::String("blocks".to_string()),
-                blocks.clone(),
-            );
-        }
-    }
-
-    serde_yaml::to_string(&abbreviated_root)
+    // Prompt composer blocks are now per-agent; the shared config.yaml does not
+    // contain them. Future YAML abbreviation logic should go here if needed.
+    serde_yaml::to_string(normalized)
         .map_err(|e| AgentJaxError::config(format!("Failed to serialize normalized config to YAML: {e}")).with_error_source(&e))
 }
 

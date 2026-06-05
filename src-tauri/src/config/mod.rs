@@ -80,17 +80,25 @@ mod tests {
                 custom_settings,
             },
         );
-        cfg.active_provider = "openai".to_string();
-        cfg.default_model = "openai/gpt-5-mini".to_string();
-        cfg.utility_small_model = "openai/gpt-5-mini".to_string();
         cfg
+    }
+
+    /// Helper: build an AgentConfig with model defaults for testing.
+    fn test_agent_with_model(default_model: &str, utility_small_model: &str) -> AgentConfig {
+        AgentConfig {
+            active_provider: "openai".to_string(),
+            default_model: default_model.to_string(),
+            utility_small_model: utility_small_model.to_string(),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn resolves_model_with_provider_scoped_reference() {
         let cfg = test_config_with_openai().normalize();
+        let agent = test_agent_with_model("openai/gpt-5-mini", "openai/gpt-5-mini");
         let resolved = cfg
-            .resolve_model_profile(Some("openai/gpt-5"))
+            .resolve_model_profile_with_agent(Some("openai/gpt-5"), &agent)
             .expect("resolve model");
         assert_eq!(resolved.provider_key, "openai");
         assert_eq!(resolved.model_id, "gpt-5");
@@ -100,48 +108,34 @@ mod tests {
     #[test]
     fn falls_back_to_default_when_requested_model_invalid() {
         let cfg = test_config_with_openai().normalize();
+        let agent = test_agent_with_model("openai/gpt-5-mini", "openai/gpt-5-mini");
         let resolved = cfg
-            .resolve_model_profile(Some("openai/not-exist"))
+            .resolve_model_profile_with_agent(Some("openai/not-exist"), &agent)
             .expect("fallback to default");
-        assert_eq!(resolved.model_ref, cfg.default_model);
-    }
-
-    #[test]
-    fn keeps_unresolved_model_refs_during_normalize() {
-        let cfg = AppConfig {
-            default_model: "cm/gpt-5.4-mini".to_string(),
-            utility_small_model: "cm/gpt-5.4-mini".to_string(),
-            ..Default::default()
-        };
-
-        let normalized = cfg.normalize();
-        assert_eq!(normalized.default_model, "cm/gpt-5.4-mini");
-        assert_eq!(normalized.utility_small_model, "cm/gpt-5.4-mini");
+        assert_eq!(resolved.model_ref, agent.default_model);
     }
 
     #[test]
     fn resolve_profile_falls_back_to_first_enabled_model_when_defaults_are_unresolved() {
-        let cfg = test_config_with_openai();
+        let cfg = test_config_with_openai().normalize();
+        let agent = test_agent_with_model("openai/nonexistent-model-xyz", "openai/nonexistent-model-xyz");
 
-        let normalized = cfg.normalize();
-        let resolved = normalized
-            .resolve_model_profile(Some("openai/nonexistent-model-xyz"))
+        let resolved = cfg
+            .resolve_model_profile_with_agent(Some("openai/nonexistent-model-xyz"), &agent)
             .expect("fallback to first enabled model");
 
         assert!(
-            normalized
-                .configured_models()
+            cfg.configured_models()
                 .into_iter()
                 .any(|entry| entry == resolved.model_ref)
         );
     }
 
-
-
     #[test]
     fn resolved_profile_uses_built_in_agent_prompt() {
         let cfg = test_config_with_openai().normalize();
-        let resolved = cfg.resolve_model_profile(None).expect("resolve");
+        let agent = test_agent_with_model("openai/gpt-5-mini", "openai/gpt-5-mini");
+        let resolved = cfg.resolve_model_profile_with_agent(None, &agent).expect("resolve");
         assert!(resolved.system_prompt.contains("agentic coding assistant"));
         assert!(resolved.system_prompt.contains("Commentary protocol"));
         assert!(resolved.system_prompt.contains("Background tool protocol"));
@@ -149,8 +143,9 @@ mod tests {
 
     #[test]
     fn resolved_profile_compiles_user_system_and_developer_blocks() {
-        let mut cfg = test_config_with_openai();
-        cfg.prompt_composer.blocks.push(PromptBlock {
+        let cfg = test_config_with_openai().normalize();
+        let mut agent = test_agent_with_model("openai/gpt-5-mini", "openai/gpt-5-mini");
+        agent.prompt_composer.blocks.push(PromptBlock {
             id: "user-system".to_string(),
             title: "User system".to_string(),
             role: PromptBlockRole::System,
@@ -160,7 +155,7 @@ mod tests {
             source_id: None,
             locked: false,
         });
-        cfg.prompt_composer.blocks.push(PromptBlock {
+        agent.prompt_composer.blocks.push(PromptBlock {
             id: "user-developer".to_string(),
             title: "User developer".to_string(),
             role: PromptBlockRole::Developer,
@@ -171,8 +166,7 @@ mod tests {
             locked: false,
         });
         let resolved = cfg
-            .normalize()
-            .resolve_model_profile(None)
+            .resolve_model_profile_with_agent(None, &agent.normalize())
             .expect("resolve");
         assert!(resolved.system_prompt.contains("agentic coding assistant"));
         assert!(
@@ -192,22 +186,6 @@ mod tests {
         fs::create_dir_all(&home).expect("create temp home");
         let path = home.join("config.yaml");
         let raw = [
-            "active_provider: \"cm\"",
-            "default_model: \"cm/gpt-5.4-mini\"",
-            "utility_small_model: \"cm/gpt-5.4-mini\"",
-            "request_timeout_seconds: 77",
-            "prompt_composer:",
-            "  blocks:",
-            "    - id: builtin-core-system",
-            "      enabled: true",
-            "    - id: \"user-system\"",
-            "      title: \"User system\"",
-            "      role: \"system\"",
-            "      content: \" custom prompt \"",
-            "      enabled: true",
-            "      source: \"user\"",
-            "      source_id: null",
-            "      locked: false",
             "providers:",
             "  cm:",
             "    kind: \"codex\"",
@@ -580,24 +558,21 @@ mod tests {
     }
 
     #[test]
-    fn test_config_yaml_serialization_order_and_abbreviation() {
+    fn test_config_yaml_serialization_order() {
         let cfg = AppConfig {
             language: "zh-CN".to_string(),
-            active_provider: "custom".to_string(),
             ..Default::default()
         };
         
         let yaml = serialize_config_to_yaml(&cfg).expect("serialize config");
         
         let language_idx = yaml.find("language:").expect("find language");
-        let active_provider_idx = yaml.find("active_provider:").expect("find active_provider");
         let providers_idx = yaml.find("providers:").expect("find providers");
-        let prompt_composer_idx = yaml.find("prompt_composer:").expect("find prompt_composer");
         
-        assert!(language_idx < active_provider_idx);
-        assert!(active_provider_idx < providers_idx);
-        assert!(providers_idx < prompt_composer_idx);
+        assert!(language_idx < providers_idx);
 
+        // Agent-specific fields like prompt_composer should NOT appear in shared config.yaml
+        assert!(!yaml.contains("prompt_composer:"));
         assert!(!yaml.contains("Commentary protocol"));
     }
 }

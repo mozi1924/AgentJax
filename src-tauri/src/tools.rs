@@ -6,7 +6,7 @@ pub(crate) mod memory_tools;
 mod native;
 pub(crate) mod sub_agent_tools;
 
-use crate::config::AppConfig;
+use crate::config::{AgentConfig, AppConfig};
 use crate::error::AgentJaxResult;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -145,6 +145,10 @@ pub struct ToolExecutionContext {
     /// Application configuration (for tools that need provider access).
     pub app_config: Option<Arc<AppConfig>>,
 
+    /// Agent-specific configuration (for tools that need per-agent settings).
+    /// Falls back to the default agent config when `None`.
+    pub agent_config: Option<Arc<AgentConfig>>,
+
     /// Sub-agent identifier — set when executing within an async sub-agent.
     /// This allows tools like `lcm_expand` to distinguish between main-agent
     /// and sub-agent contexts.
@@ -201,6 +205,7 @@ impl ToolExecutionContext {
             turn_id: None,
             hop_index: None,
             app_config: None,
+            agent_config: None,
             sub_agent_id: None,
             lcm_store_override: None,
             sub_agent_type: None,

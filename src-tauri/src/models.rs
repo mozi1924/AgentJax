@@ -10,7 +10,7 @@
 //! This replaces the old single-file YAML cache (`models-cache.yaml`) with
 //! a per-provider JSON layout that stores the original API response.
 
-use crate::config::{self, AppConfig};
+use crate::config::{self, AppConfig, AgentConfig};
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::provider_api;
 use crate::provider_api::types::ProviderModelDescriptor;
@@ -82,26 +82,28 @@ pub async fn get_model_catalog(sync_if_stale: bool) -> AgentJaxResult<ModelCatal
     let config_path = config::init_config_if_missing()?;
     let cfg = config::load_config()?;
     let cache_base_path = model_cache_base_path()?;
+    // Load the active agent's config for per-agent model defaults.
+    let agent = config::load_agent_config(&cfg.active_agent_id).unwrap_or_default().normalize();
 
     if sync_if_stale {
         let _ = sync_remote_model_cache_if_stale(&cfg).await;
     }
 
     let configured_models = dedup_strings(cfg.configured_models());
-    let cached_models = load_cached_models_for_active(&cfg)?;
+    let cached_models = load_cached_models_for_active(&cfg, &agent)?;
     let all_cached_models = load_all_provider_caches(&cfg)?;
 
     let effective_models = configured_models.clone();
 
     let active_cache_entry = all_cached_models
         .providers
-        .get(&cfg.active_provider);
+        .get(&agent.active_provider);
 
     Ok(ModelCatalog {
         config_path: config_path.display().to_string(),
         cache_base_path: cache_base_path.display().to_string(),
-        default_model: cfg.default_model.clone(),
-        utility_small_model: cfg.utility_small_model.clone(),
+        default_model: agent.default_model.clone(),
+        utility_small_model: agent.utility_small_model.clone(),
         configured_models,
         cached_models,
         effective_models,
@@ -228,11 +230,11 @@ fn load_all_provider_caches(cfg: &AppConfig) -> AgentJaxResult<AllProviderCaches
 }
 
 /// Load cached model IDs for the active provider.
-fn load_cached_models_for_active(cfg: &AppConfig) -> AgentJaxResult<Vec<String>> {
+fn load_cached_models_for_active(cfg: &AppConfig, agent: &AgentConfig) -> AgentJaxResult<Vec<String>> {
     let all = load_all_provider_caches(cfg)?;
     Ok(all
         .providers
-        .get(&cfg.active_provider)
+        .get(&agent.active_provider)
         .map(|p| dedup_strings(p.models.iter().map(|m| m.id.clone()).collect()))
         .unwrap_or_default())
 }

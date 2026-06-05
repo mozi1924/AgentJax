@@ -241,14 +241,23 @@ pub async fn fetch_remote_models(
     provider_key: &str,
 ) -> AgentJaxResult<Vec<ProviderModelDescriptor>> {
     let provider = config.resolved_provider(provider_key)?;
-    let prompt_assembly = config.compile_prompt_assembly();
+    // Use the default agent config for prompt assembly (catalog sync doesn't
+    // need agent-specific prompts).
+    let agent = crate::config::load_agent_config(
+        crate::config::constants::DEFAULT_AGENT_ID,
+    )
+    .unwrap_or_default()
+    .normalize();
+    let prompt_assembly = agent.compile_prompt_assembly();
     let resolved = ResolvedModelConfig {
         profile_key: "<catalog-sync>".to_string(),
         provider_key: provider_key.to_string(),
         model_ref: format!("{provider_key}/<catalog-sync>"),
         system_prompt: prompt_assembly.instructions_text.clone(),
         prompt_assembly,
-        timeout_seconds: provider.resolved_timeout_seconds(config.request_timeout_seconds),
+        timeout_seconds: provider.resolved_timeout_seconds(
+            crate::config::constants::DEFAULT_TIMEOUT_SECONDS,
+        ),
         provider,
         model_id: String::new(),
         request: Default::default(),

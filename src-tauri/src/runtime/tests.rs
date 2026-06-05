@@ -3,7 +3,7 @@ use super::{
     tool_parsing::extract_active_tool_names,
 };
 use crate::commands::chat::ChatRequest;
-use crate::config::{AppConfig, PromptBlock, PromptBlockRole, PromptBlockSource};
+use crate::config::{AgentConfig, AppConfig, PromptBlock, PromptBlockRole, PromptBlockSource};
 use crate::message_phase::AssistantPhase;
 use crate::provider_api::types::ProviderStreamEvent;
 use crate::tools::ToolCatalog;
@@ -63,8 +63,11 @@ async fn run_real_gateway_turn_with_config(
     Vec<ProviderStreamEvent>,
 ) {
     ensure_rustls_crypto_provider();
+    let agent = crate::config::load_agent_config(crate::config::constants::DEFAULT_AGENT_ID)
+        .unwrap_or_default()
+        .normalize();
     let resolved_model = config
-        .resolve_model_profile(None)
+        .resolve_model_profile_with_agent(None, &agent)
         .expect("resolve default model profile");
     assert!(
         resolved_model.provider.resolved_credential().is_some(),
@@ -75,11 +78,11 @@ async fn run_real_gateway_turn_with_config(
     crate::conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id)
         .expect("ensure conversation workspace");
 
-    let tools_catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+    let tools_catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &agent);
     let req = ChatRequest {
         input: input.to_string(),
         conversation_id: Some(conversation_id.clone()),
-        model: Some(config.default_model.clone()),
+        model: Some(agent.default_model.clone()),
         reasoning_effort: None,
         text: None,
         include: None,
@@ -332,8 +335,11 @@ async fn real_gateway_prompt_composer_blocks_smoke_test_from_local_config() {
         return;
     }
 
-    let mut config = crate::config::load_config().expect("load local config");
-    config.prompt_composer.blocks.push(PromptBlock {
+    let config = crate::config::load_config().expect("load local config");
+    let mut agent = crate::config::load_agent_config(crate::config::constants::DEFAULT_AGENT_ID)
+        .unwrap_or_default()
+        .normalize();
+    agent.prompt_composer.blocks.push(PromptBlock {
         id: "test-system-block".to_string(),
         title: "Test system block".to_string(),
         role: PromptBlockRole::System,
@@ -343,7 +349,7 @@ async fn real_gateway_prompt_composer_blocks_smoke_test_from_local_config() {
         source_id: None,
         locked: false,
     });
-    config.prompt_composer.blocks.push(PromptBlock {
+    agent.prompt_composer.blocks.push(PromptBlock {
         id: "test-developer-block".to_string(),
         title: "Test developer block".to_string(),
         role: PromptBlockRole::Developer,
@@ -355,8 +361,6 @@ async fn real_gateway_prompt_composer_blocks_smoke_test_from_local_config() {
         source_id: None,
         locked: false,
     });
-    config = config.normalize();
-
     let (response, timeline_events, stream_events) = run_real_gateway_turn_with_config(
         config,
         "请调用 get_system_time，然后用中文给出最终结论，并包含“组合提示词验证通过”。",
@@ -466,8 +470,11 @@ async fn run_real_gateway_turn_with_full_catalog(
 ) {
     ensure_rustls_crypto_provider();
     let config = crate::config::load_config().expect("load local config");
+    let agent = crate::config::load_agent_config(crate::config::constants::DEFAULT_AGENT_ID)
+        .unwrap_or_default()
+        .normalize();
     let resolved_model = config
-        .resolve_model_profile(None)
+        .resolve_model_profile_with_agent(None, &agent)
         .expect("resolve default model profile");
     assert!(
         resolved_model.provider.resolved_credential().is_some(),
@@ -481,7 +488,7 @@ async fn run_real_gateway_turn_with_full_catalog(
     let tools_catalog = ToolCatalog::new_with_home_plugins(
         Arc::new(crate::mcp::McpManager::new()),
         &config,
-        &crate::config::AgentConfig::default(),
+        &agent,
     );
     let lcm_engine = lcm_engine_for_test(&conversation_id);
     // Register context tools with the LCM store.
@@ -491,7 +498,7 @@ async fn run_real_gateway_turn_with_full_catalog(
     let req = ChatRequest {
         input: input.to_string(),
         conversation_id: Some(conversation_id.clone()),
-        model: Some(config.default_model.clone()),
+        model: Some(agent.default_model.clone()),
         reasoning_effort: None,
         text: None,
         include: None,

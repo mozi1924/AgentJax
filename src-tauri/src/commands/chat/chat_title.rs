@@ -13,14 +13,14 @@ const TITLE_GENERATION_INSTRUCTIONS: &str = "You generate concise conversation t
 pub fn schedule_title_generation(
     window: tauri::Window,
     app_handle: tauri::AppHandle,
-    config: config::AppConfig,
+    full_config: config::FullConfig,
     agent_id: String,
     conversation_id: String,
     request_id: String,
 ) {
     tauri::async_runtime::spawn(async move {
         if let Err(err) =
-            generate_title_and_emit(window, app_handle, config, &agent_id, &conversation_id, &request_id).await
+            generate_title_and_emit(window, app_handle, full_config, &agent_id, &conversation_id, &request_id).await
         {
             log::warn!(
                 "Failed to generate conversation title for {}: {}",
@@ -34,7 +34,7 @@ pub fn schedule_title_generation(
 async fn generate_title_and_emit(
     window: tauri::Window,
     app_handle: tauri::AppHandle,
-    config: config::AppConfig,
+    full_config: config::FullConfig,
     agent_id: &str,
     conversation_id: &str,
     request_id: &str,
@@ -66,7 +66,7 @@ async fn generate_title_and_emit(
                 "text": build_title_generation_prompt(&candidate)
             }]
         })],
-        model: Some(config.utility_small_model_key().to_string()),
+        model: Some(full_config.utility_small_model().to_string()),
         reasoning_effort: None,
         instructions_override: Some(TITLE_GENERATION_INSTRUCTIONS.to_string()),
         text: None,
@@ -81,7 +81,7 @@ async fn generate_title_and_emit(
     };
 
     let response =
-        provider_api::stream_response(&config, &title_request, &mut title_cancel_rx, |_| Ok(())).await;
+        provider_api::stream_response(&full_config.shared, &title_request, &mut title_cancel_rx, |_| Ok(())).await;
 
     let cancelled = *title_cancel_rx.borrow();
     registry.finish_title_request(conversation_id, &job_id)?;

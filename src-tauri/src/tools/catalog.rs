@@ -225,10 +225,19 @@ impl ToolCatalog {
         }
 
         // ── LCM Context Tools ─────────────────────────────────────────
+        // Memory enablement is now per-agent; fall back to the default agent
+        // config when no context is available.
         let memory_enabled = context
-            .app_config
+            .agent_config
             .as_ref()
-            .map(|c| c.memory.enabled)
+            .map(|a| a.memory.enabled)
+            .or_else(|| {
+                crate::config::load_agent_config(
+                    crate::config::constants::DEFAULT_AGENT_ID,
+                )
+                .ok()
+                .map(|a| a.normalize().memory.enabled)
+            })
             .unwrap_or(false);
 
         for tool in &self.context_tools {

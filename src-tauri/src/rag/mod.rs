@@ -29,5 +29,7 @@ pub(crate) mod index;
 pub(crate) mod types;
 pub(crate) mod vector_store;
 
+#[allow(unused_imports)]
 pub use index::RagIndex;
+#[allow(unused_imports)]
 pub use types::{Chunk, Document, SearchConfig, SearchResult};

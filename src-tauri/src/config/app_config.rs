@@ -1,7 +1,6 @@
 use crate::agentjax_err;
-use crate::config::constants::DEFAULT_TIMEOUT_SECONDS;
 use crate::config::model_ref::{model_ref, parse_model_ref};
-use crate::config::prompt_composer::{compile_prompt_composer, normalize_prompt_composer};
+use crate::config::prompt_composer::compile_prompt_composer;
 use crate::config::schema::{
     AppConfig, McpRuntimeConfig, McpServerConfig, McpToolSourcePolicyConfig, McpTransportKind,
     ModelRequestConfig, PluginManagerConfig, ProviderConfig, ProviderModelConfig,
@@ -367,20 +366,7 @@ impl AgentConfig {
 }
 
 impl AppConfig {
-    pub fn compile_prompt_assembly(
-        &self,
-    ) -> crate::config::prompt_composer::CompiledPromptAssembly {
-        compile_prompt_composer(&self.prompt_composer)
-    }
-
     pub fn normalize(mut self) -> Self {
-        self.active_provider = self.active_provider.trim().to_lowercase();
-        self.prompt_composer = normalize_prompt_composer(self.prompt_composer);
-
-        if self.request_timeout_seconds == 0 {
-            self.request_timeout_seconds = DEFAULT_TIMEOUT_SECONDS;
-        }
-
         let mut normalized_providers = BTreeMap::new();
         for (raw_key, provider) in std::mem::take(&mut self.providers) {
             let provider_key = raw_key.trim().to_lowercase();
@@ -392,29 +378,12 @@ impl AppConfig {
                 provider.normalize_for_key(&provider_key),
             );
         }
-
         self.providers = normalized_providers;
-
-        if !self.active_provider.is_empty() && !self.providers.contains_key(&self.active_provider) {
-            self.active_provider = self
-                .providers
-                .first_key_value()
-                .map(|(k, _)| k.clone())
-                .unwrap_or_default();
-        }
-
-        self.default_model = self.default_model.trim().to_string();
-
-        self.utility_small_model = self.utility_small_model.trim().to_string();
-        if self.utility_small_model.is_empty() {
-            self.utility_small_model = self.default_model.clone();
-        }
 
         {
             let rt = self.mcp.runtime().normalize();
             self.mcp.stdio = rt.stdio;
         }
-        self.tool_manager = self.tool_manager.normalize();
         self.plugin_manager = self.plugin_manager.normalize();
 
         let mut normalized_mcp_servers = BTreeMap::new();
@@ -473,41 +442,19 @@ impl AppConfig {
         self.resolve_model_ref(&first_ref)
     }
 
+    /// Resolve a model profile using shared providers, falling back to the
+    /// main agent's defaults when no agent context is available.
     pub fn resolve_model_profile(
         &self,
         requested: Option<&str>,
     ) -> AgentJaxResult<ResolvedModelConfig> {
-        let requested_ref = requested.map(str::trim).filter(|s| !s.is_empty());
-        let chosen_ref = requested_ref.unwrap_or(&self.default_model).to_string();
-
-        let resolved = requested_ref
-            .and_then(|value| self.resolve_model_ref(value))
-            .or_else(|| self.resolve_model_ref(&self.default_model))
-            .or_else(|| self.resolve_model_ref(&self.utility_small_model))
-            .or_else(|| self.first_enabled_model_ref())
-            .ok_or_else(|| {
-                agentjax_err!(
-                    format!("Model '{}' not found or disabled. Expected format: {{provider}}/{{model_id}}", chosen_ref),
-                    Config
-                )
-            })?;
-
-        let (provider_key, provider, model_key, model_cfg) = resolved;
-        let prompt_assembly = self.compile_prompt_assembly();
-
-        let resolved_ref = model_ref(&provider_key, &model_key);
-        Ok(ResolvedModelConfig {
-            profile_key: resolved_ref.clone(),
-            provider_key,
-            provider: provider.clone(),
-            model_id: model_key.clone(),
-            model_ref: resolved_ref,
-            system_prompt: prompt_assembly.instructions_text.clone(),
-            prompt_assembly,
-            request: model_cfg.request.clone(),
-            timeout_seconds: provider.resolved_timeout_seconds(self.request_timeout_seconds),
-            api_protocol: model_cfg.api_protocol.clone(),
-        })
+        // Fall back to loading the main agent config for model defaults.
+        let agent = crate::config::load_agent_config(
+            crate::config::constants::DEFAULT_AGENT_ID,
+        )
+        .unwrap_or_default()
+        .normalize();
+        self.resolve_model_profile_with_agent(requested, &agent)
     }
 
     /// Resolve a model profile using shared providers + agent-specific settings.
@@ -551,10 +498,6 @@ impl AppConfig {
             timeout_seconds: provider.resolved_timeout_seconds(agent.request_timeout_seconds),
             api_protocol: model_cfg.api_protocol.clone(),
         })
-    }
-
-    pub fn utility_small_model_key(&self) -> &str {
-        &self.utility_small_model
     }
 
     pub fn provider_keys(&self) -> Vec<String> {
