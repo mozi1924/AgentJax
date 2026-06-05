@@ -1,4 +1,4 @@
-//! Street context injection — formats Street notifications as developer messages.
+//! Street context injection — formats Street notifications as system messages.
 
 use serde_json::{Value, json};
 
@@ -25,13 +25,13 @@ pub fn format_street_items(items: &[crate::street::types::StreetItem]) -> String
         .join("\n")
 }
 
-/// Build a developer message containing Street notifications.
+/// Build a system message containing Street notifications.
 ///
 /// This is injected into the hop prefix at the start of each turn,
 /// so the model sees pending async results without needing to poll.
-pub fn build_street_context_developer_item(count: usize, formatted: &str) -> Value {
+pub fn build_street_context_system_item(count: usize, formatted: &str) -> Value {
     json!({
-        "role": "developer",
+        "role": "system",
         "content": [{
             "type": "input_text",
             "text": format!(
@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_build_context_item() {
-        let item = build_street_context_developer_item(3, "(1) test\n(2) test2\n(3) test3");
+        let item = build_street_context_system_item(3, "(1) test\n(2) test2\n(3) test3");
         let text = item["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("[Street]"));
         assert!(text.contains("3 pending notification"));

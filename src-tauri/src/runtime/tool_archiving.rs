@@ -53,7 +53,7 @@ fn build_archived_tool_note(
     );
 
     json!({
-        "role": "developer",
+        "role": "system",
         "content": [{
             "type": "input_text",
             "text": note

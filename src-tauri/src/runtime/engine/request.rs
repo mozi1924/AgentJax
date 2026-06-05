@@ -5,13 +5,13 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[cfg(test)]
 pub(super) fn build_base_context(
-    developer_items: Vec<Value>,
+    system_items: Vec<Value>,
     recovery_note: Option<Value>,
     context_items: Vec<Value>,
     current_user_item: Value,
 ) -> Vec<Value> {
     let mut base_context = Vec::new();
-    base_context.extend(developer_items);
+    base_context.extend(system_items);
     if let Some(note_item) = recovery_note {
         base_context.push(note_item);
     }

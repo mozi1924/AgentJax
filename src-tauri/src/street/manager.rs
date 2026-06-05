@@ -5,7 +5,7 @@
 //!
 //! Items are conversation-scoped. On deposit, an event is sent to the
 //! conversation's event channel (for frontend auto-trigger). On the next turn,
-//! items are collected, formatted, and injected into the developer prefix.
+//! items are collected, formatted, and injected into the system prefix.
 
 use crate::street::types::{
     StreetEvent, StreetItem, StreetItemStatus, StreetSnapshot,

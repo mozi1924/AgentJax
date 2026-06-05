@@ -351,11 +351,11 @@ async fn real_gateway_prompt_composer_blocks_smoke_test_from_local_config() {
         locked: false,
     });
     agent.prompt_composer.blocks.push(PromptBlock {
-        id: "test-developer-block".to_string(),
-        title: "Test developer block".to_string(),
-        role: PromptBlockRole::Developer,
+        id: "test-extra-block".to_string(),
+        title: "Test extra block".to_string(),
+        role: PromptBlockRole::System,
         content:
-            "Before any tool call, output one short Chinese commentary line containing the exact phrase 来自developer块."
+            "Before any tool call, output one short Chinese commentary line containing the exact phrase 来自system块."
                 .to_string(),
         enabled: true,
         source: PromptBlockSource::User,
@@ -409,7 +409,7 @@ async fn real_gateway_prompt_composer_blocks_smoke_test_from_local_config() {
 }
 
 #[test]
-fn archives_unavailable_tool_call_pairs_into_developer_note() {
+fn archives_unavailable_tool_call_pairs_into_system_note() {
     let active_tools = extract_active_tool_names(&[json!({
         "type": "function",
         "name": "calculator",
@@ -428,7 +428,7 @@ fn archives_unavailable_tool_call_pairs_into_developer_note() {
     let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
     assert!(
         normalized.iter().any(|item| {
-            item.get("role").and_then(|v| v.as_str()) == Some("developer")
+            item.get("role").and_then(|v| v.as_str()) == Some("system")
                 && item
                     .get("content")
                     .and_then(|v| v.as_array())
@@ -438,7 +438,7 @@ fn archives_unavailable_tool_call_pairs_into_developer_note() {
                     .map(|text| text.contains("ARCHIVED_TOOL_CALL"))
                     .unwrap_or(false)
         }),
-        "expected a developer archived-tool note"
+        "expected a system archived-tool note"
     );
     assert!(
         !normalized.iter().any(|item| {

@@ -321,10 +321,10 @@ pub async fn run_memory_agent(
                     agent_config.utility_small_model.clone()
                 };
 
-                // Call the provider with instructions as developer role (not user).
+                // Call the provider with instructions as system role.
                 let request = crate::provider_api::types::ResponseStreamRequest {
                     input_items: vec![serde_json::json!({
-                        "role": "developer",
+                        "role": "system",
                         "content": [{"type": "input_text", "text": prompt}]
                     })],
                     model: Some(model_id),

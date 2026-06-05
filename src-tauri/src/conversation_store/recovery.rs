@@ -134,7 +134,7 @@ pub fn build_recovery_developer_note(agent_id: &str, conversation_id: &str) -> c
         );
 
         Ok(Some(json!({
-            "role": "developer",
+            "role": "system",
             "content": [{
                 "type": "input_text",
                 "text": note_parts.concat()

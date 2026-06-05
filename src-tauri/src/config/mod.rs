@@ -52,7 +52,7 @@ pub(crate) fn test_env_lock() -> &'static tokio::sync::Mutex<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::constants::{BUILTIN_CORE_SYSTEM_BLOCK_ID, BUILTIN_CORE_SYSTEM_TITLE};
+    use crate::config::constants::{BUILTIN_CORE_SYSTEM_BLOCK_ID};
     use std::fs;
 
     /// Helper: build a minimal AppConfig with an openai provider and two models.
@@ -138,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn resolved_profile_compiles_user_system_and_developer_blocks() {
+    fn resolved_profile_compiles_user_system_blocks() {
         let cfg = test_config_with_openai().normalize();
         let mut agent = test_agent_with_model("openai/gpt-5-mini", "openai/gpt-5-mini");
         agent.prompt_composer.blocks.push(PromptBlock {
@@ -152,9 +152,9 @@ mod tests {
             locked: false,
         });
         agent.prompt_composer.blocks.push(PromptBlock {
-            id: "user-developer".to_string(),
-            title: "User developer".to_string(),
-            role: PromptBlockRole::Developer,
+            id: "user-block".to_string(),
+            title: "User block".to_string(),
+            role: PromptBlockRole::System,
             content: "Before each tool phase, emit a short Chinese commentary.".to_string(),
             enabled: true,
             source: PromptBlockSource::User,
@@ -170,7 +170,8 @@ mod tests {
                 .system_prompt
                 .contains("Always prefer concise diffs.")
         );
-        assert_eq!(resolved.prompt_assembly.developer_items.len(), 1);
+        // Both user blocks + built-in block = 3 system items
+        assert_eq!(resolved.prompt_assembly.system_items.len(), 3);
     }
 
     #[test]
@@ -351,12 +352,12 @@ mod tests {
     }
 
     #[test]
-    fn normalize_prompt_composer_reinserts_builtin_block_and_keeps_system_first() {
+    fn normalize_prompt_composer_reinserts_builtin_block_and_keeps_order() {
         let normalized = normalize_prompt_composer(PromptComposerConfig {
             blocks: vec![PromptBlock {
-                id: "custom-dev".to_string(),
-                title: "Custom developer".to_string(),
-                role: PromptBlockRole::Developer,
+                id: "custom-block".to_string(),
+                title: "Custom block".to_string(),
+                role: PromptBlockRole::System,
                 content: "Do the thing".to_string(),
                 enabled: true,
                 source: PromptBlockSource::User,
@@ -367,20 +368,20 @@ mod tests {
 
         assert_eq!(
             normalized.blocks.first().map(|block| block.id.as_str()),
+            Some("custom-block")
+        );
+        assert_eq!(
+            normalized.blocks.last().map(|block| block.id.as_str()),
             Some(BUILTIN_CORE_SYSTEM_BLOCK_ID)
         );
         assert_eq!(
-            normalized.blocks.first().map(|block| block.title.as_str()),
-            Some(BUILTIN_CORE_SYSTEM_TITLE)
-        );
-        assert_eq!(
             normalized.blocks.last().map(|block| block.role),
-            Some(PromptBlockRole::Developer)
+            Some(PromptBlockRole::System)
         );
     }
 
     #[test]
-    fn compile_prompt_composer_skips_disabled_blocks_and_preserves_developer_order() {
+    fn compile_prompt_composer_skips_disabled_blocks_and_produces_system_items() {
         let composer = PromptComposerConfig {
             blocks: vec![
                 PromptBlock {
@@ -404,9 +405,9 @@ mod tests {
                     locked: false,
                 },
                 PromptBlock {
-                    id: "dev-a".to_string(),
-                    title: "Dev A".to_string(),
-                    role: PromptBlockRole::Developer,
+                    id: "blk-c".to_string(),
+                    title: "Blk C".to_string(),
+                    role: PromptBlockRole::System,
                     content: "First".to_string(),
                     enabled: true,
                     source: PromptBlockSource::Plugin,
@@ -414,9 +415,9 @@ mod tests {
                     locked: true,
                 },
                 PromptBlock {
-                    id: "dev-b".to_string(),
-                    title: "Dev B".to_string(),
-                    role: PromptBlockRole::Developer,
+                    id: "blk-d".to_string(),
+                    title: "Blk D".to_string(),
+                    role: PromptBlockRole::System,
                     content: "Second".to_string(),
                     enabled: true,
                     source: PromptBlockSource::User,
@@ -427,22 +428,25 @@ mod tests {
         };
 
         let compiled = compile_prompt_composer(&composer);
-        assert_eq!(compiled.instructions_text, "A");
-        assert_eq!(compiled.developer_items.len(), 2);
+        assert_eq!(compiled.instructions_text, "A\n\nFirst\n\nSecond");
+        assert_eq!(compiled.system_items.len(), 3);
         assert_eq!(
-            compiled.developer_items[0]["content"][0]["text"].as_str(),
+            compiled.system_items[0]["content"][0]["text"].as_str(),
+            Some("A")
+        );
+        assert_eq!(
+            compiled.system_items[1]["content"][0]["text"].as_str(),
             Some("First")
         );
         assert_eq!(
-            compiled.developer_items[1]["content"][0]["text"].as_str(),
+            compiled.system_items[2]["content"][0]["text"].as_str(),
             Some("Second")
         );
         assert!(
             compiled
                 .preview_markdown
-                .contains("## System / instructions")
+                .contains("## System prompt blocks")
         );
-        assert!(compiled.preview_markdown.contains("## Developer messages"));
     }
 
     #[test]

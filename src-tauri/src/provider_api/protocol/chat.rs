@@ -254,11 +254,11 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
             _ => {
                 let role = match item.get("role").and_then(Value::as_str) {
                     Some("assistant") => "assistant",
-                    Some("system") => "system",
-                    Some("developer") => {
-                        // 'developer' role is OpenAI Responses API-specific.
-                        // Chat Completions (e.g. DeepSeek) does not support it.
-                        // Map to 'system' for compatibility.
+                    Some("system") | Some("developer") => {
+                        // 'developer' was an OpenAI Responses API-specific
+                        // distinction that has been removed — kept as a
+                        // fallback for any persisted data that may still
+                        // use it. Both map to Chat Completions 'system'.
                         "system"
                     }
                     _ => "user",

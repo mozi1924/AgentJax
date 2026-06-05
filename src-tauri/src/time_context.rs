@@ -53,7 +53,7 @@ pub fn render_timed_message(label: &str, unix_ms: i64, text: &str) -> String {
     )
 }
 
-pub fn build_temporal_context_developer_item(
+pub fn build_temporal_context_system_item(
     request_started_at_unix_ms: i64,
     user_message_received_at_unix_ms: i64,
 ) -> Value {
@@ -70,7 +70,7 @@ pub fn build_temporal_context_developer_item(
     });
 
     json!({
-        "role": "developer",
+        "role": "system",
         "content": [{
             "type": "input_text",
             "text": format!(
@@ -123,7 +123,7 @@ pub fn attach_tool_output_time_metadata(
 #[cfg(test)]
 mod tests {
     use super::{
-        attach_tool_output_time_metadata, build_temporal_context_developer_item,
+        attach_tool_output_time_metadata, build_temporal_context_system_item,
         render_timed_message,
     };
     use serde_json::json;
@@ -137,10 +137,10 @@ mod tests {
 
     #[test]
     fn temporal_context_note_contains_marker() {
-        let note = build_temporal_context_developer_item(1_700_000_000_000, 1_700_000_000_123);
+        let note = build_temporal_context_system_item(1_700_000_000_000, 1_700_000_000_123);
         let text = note["content"][0]["text"]
             .as_str()
-            .expect("developer note text");
+            .expect("system note text");
         assert!(text.starts_with("TEMPORAL_CONTEXT "));
         assert!(text.contains("requestStartedAt"));
     }

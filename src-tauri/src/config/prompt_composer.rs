@@ -13,7 +13,6 @@ use serde_json::{Value, json};
 pub enum PromptBlockRole {
     #[default]
     System,
-    Developer,
 }
 
 impl PromptBlockRole {
@@ -21,7 +20,6 @@ impl PromptBlockRole {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::System => "system",
-            Self::Developer => "developer",
         }
     }
 }
@@ -76,8 +74,10 @@ pub struct PromptComposerConfig {
 
 #[derive(Debug, Clone)]
 pub struct CompiledPromptAssembly {
+    /// Concatenated system block content (for token counting / JS plugin compat).
     pub instructions_text: String,
-    pub developer_items: Vec<Value>,
+    /// Individual system items — one per enabled block — for native protocol paths.
+    pub system_items: Vec<Value>,
     #[allow(dead_code)] // Reserved API
     pub preview_markdown: String,
 }
@@ -142,8 +142,6 @@ fn builtin_block_map() -> std::collections::BTreeMap<String, PromptBlock> {
 ///    the config) and fills in their full properties from the canonical
 ///    definitions.
 /// 2. Auto-restores any built-in blocks that are missing from the config.
-/// 3. Sorts the final list so that all **system** blocks appear before
-///    **developer** blocks.
 pub fn normalize_prompt_composer(composer: PromptComposerConfig) -> PromptComposerConfig {
     let builtins = builtin_block_map();
 
@@ -176,28 +174,14 @@ pub fn normalize_prompt_composer(composer: PromptComposerConfig) -> PromptCompos
         resolved_builtins.push(block);
     }
 
-    // Merge: system blocks first, then developer blocks.
-    // Within each role: user blocks first (preserving config order), then
-    // builtin blocks (in canonical order).
-    let mut system_blocks: Vec<PromptBlock> = Vec::new();
-    let mut developer_blocks: Vec<PromptBlock> = Vec::new();
+    // Merge: user blocks first (preserving config order), then
+    // builtin blocks (in canonical order). All blocks are System role.
+    let mut all_blocks: Vec<PromptBlock> = Vec::new();
+    all_blocks.extend(user_blocks);
+    all_blocks.extend(resolved_builtins);
 
-    for block in user_blocks {
-        match block.role {
-            PromptBlockRole::System => system_blocks.push(block),
-            PromptBlockRole::Developer => developer_blocks.push(block),
-        }
-    }
-    for block in resolved_builtins {
-        match block.role {
-            PromptBlockRole::System => system_blocks.push(block),
-            PromptBlockRole::Developer => developer_blocks.push(block),
-        }
-    }
-
-    system_blocks.extend(developer_blocks);
     PromptComposerConfig {
-        blocks: system_blocks,
+        blocks: all_blocks,
     }
 }
 
@@ -228,10 +212,10 @@ pub fn abbreviate_prompt_composer_for_yaml(config: &PromptComposerConfig) -> Val
 // ── Compilation ────────────────────────────────────────────────────────────
 
 pub fn compile_prompt_composer(composer: &PromptComposerConfig) -> CompiledPromptAssembly {
-    let active_system_blocks = composer
+    let active_blocks = composer
         .blocks
         .iter()
-        .filter(|block| block.enabled && block.role == PromptBlockRole::System)
+        .filter(|block| block.enabled)
         .filter_map(|block| {
             let content = block.content.trim();
             if content.is_empty() {
@@ -242,31 +226,18 @@ pub fn compile_prompt_composer(composer: &PromptComposerConfig) -> CompiledPromp
         })
         .collect::<Vec<_>>();
 
-    let instructions_text = active_system_blocks
+    let instructions_text = active_blocks
         .iter()
         .map(|(_, content)| *content)
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    let developer_blocks = composer
-        .blocks
-        .iter()
-        .filter(|block| block.enabled && block.role == PromptBlockRole::Developer)
-        .filter_map(|block| {
-            let content = block.content.trim();
-            if content.is_empty() {
-                None
-            } else {
-                Some((block.title.trim(), content))
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let developer_items = developer_blocks
+    // Each enabled block becomes a separate system item.
+    let system_items = active_blocks
         .iter()
         .map(|(_, content)| {
             json!({
-                "role": "developer",
+                "role": "system",
                 "content": [{
                     "type": "input_text",
                     "text": content,
@@ -276,27 +247,18 @@ pub fn compile_prompt_composer(composer: &PromptComposerConfig) -> CompiledPromp
         .collect();
 
     let mut preview_sections = Vec::new();
-    preview_sections.push("## System / instructions".to_string());
-    if active_system_blocks.is_empty() {
-        preview_sections.push("_No active system blocks._".to_string());
+    preview_sections.push("## System prompt blocks".to_string());
+    if active_blocks.is_empty() {
+        preview_sections.push("_No active blocks._".to_string());
     } else {
-        for (title, content) in &active_system_blocks {
-            preview_sections.push(format!("### {title}\n\n{content}"));
-        }
-    }
-
-    preview_sections.push("## Developer messages".to_string());
-    if developer_blocks.is_empty() {
-        preview_sections.push("_No active developer blocks._".to_string());
-    } else {
-        for (index, (title, content)) in developer_blocks.iter().enumerate() {
+        for (index, (title, content)) in active_blocks.iter().enumerate() {
             preview_sections.push(format!("### {}. {}\n\n{}", index + 1, title, content));
         }
     }
 
     CompiledPromptAssembly {
         instructions_text,
-        developer_items,
+        system_items,
         preview_markdown: preview_sections.join("\n\n"),
     }
 }
@@ -311,10 +273,7 @@ fn normalize_block(mut block: PromptBlock) -> PromptBlock {
 
     block.title = block.title.trim().to_string();
     if block.title.is_empty() {
-        block.title = match block.role {
-            PromptBlockRole::System => format!("System block {}", rand_id()),
-            PromptBlockRole::Developer => format!("Developer block {}", rand_id()),
-        };
+        block.title = format!("System block {}", rand_id());
     }
 
     block.content = block.content.trim().to_string();

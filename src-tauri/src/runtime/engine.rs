@@ -14,7 +14,7 @@ use crate::commands::chat::ChatRequest;
 use crate::config::{AgentConfig, AppConfig};
 use crate::message_phase::AssistantPhase;
 use crate::provider_api::types::{ProviderStreamEvent, ResponseStreamResult};
-use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
+use crate::time_context::{build_temporal_context_system_item, render_timed_message};
 use crate::tools::{ToolCatalog, ToolExecutionContext};
 use output::{
     extract_assistant_messages_from_items, resolve_hop_phase, select_final_output_text,
@@ -61,9 +61,9 @@ impl AgentRuntime {
             _ => crate::provider_api::get_tool_schema_format(&resolved_model.provider.kind)?,
         };
         let provider_kind = &resolved_model.provider.kind;
-        let mut developer_items = resolved_model.prompt_assembly.developer_items.clone();
+        let mut system_items = resolved_model.prompt_assembly.system_items.clone();
         let request_started_at_unix_ms = crate::conversation_store_utils::now_unix_ms();
-        developer_items.push(build_temporal_context_developer_item(
+        system_items.push(build_temporal_context_system_item(
             request_started_at_unix_ms,
             user_message_ts,
         ));
@@ -158,15 +158,15 @@ impl AgentRuntime {
         }
 
         // ── Build prefix items sent once per turn (not per hop) ──────────
-        // Developer items (system prompt, temporal context) and recovery note
+        // System items (prompt blocks, temporal context) and recovery note
         // are included in hop 1. Subsequent hops use only LCM context since
         // the model already has these instructions from the first hop.
         let hop_prefix: Vec<Value> = {
-            let mut prefix = std::mem::take(&mut developer_items);
+            let mut prefix = std::mem::take(&mut system_items);
             if let Some(note) = recovery_note {
                 prefix.push(note);
             }
-            // Inject Street notifications as developer items.
+            // Inject Street notifications as system items.
             prefix.extend(street_items);
             prefix
         };
@@ -180,7 +180,7 @@ impl AgentRuntime {
             // ── Determine input for this hop ──────────────────────────────
             // All hops use the LCM active context as the single source of truth
             // for conversation history. Hop 1 additionally includes the prefix
-            // (developer items + recovery note) and a formatted user message.
+            // (system items + recovery note) and a formatted user message.
             let lcm_context = lcm_engine
                 .active_context_snapshot()
                 .ok()
@@ -231,7 +231,7 @@ impl AgentRuntime {
             // ── Archive tool calls for unavailable tools ──────────────────
             // When an MCP server is unmounted or a plugin is disabled between
             // turns, historical function_call / function_call_output items
-            // for those tools become orphaned. Replace them with developer
+            // for those tools become orphaned. Replace them with system
             // notes so the model knows the tool is gone and doesn't try to
             // re-call it, while still preserving the historical context.
             // This also prevents tool-result injection via stale call_id
@@ -671,10 +671,10 @@ mod tests {
     }
 
     #[test]
-    fn base_context_places_developer_blocks_before_recovery_and_history() {
+    fn base_context_places_system_blocks_before_recovery_and_history() {
         let base_context = build_base_context(
-            vec![json!({"role":"developer","content":[{"type":"input_text","text":"dev"}]})],
-            Some(json!({"role":"developer","content":[{"type":"input_text","text":"recovery"}]})),
+            vec![json!({"role":"system","content":[{"type":"input_text","text":"sys"}]})],
+            Some(json!({"role":"system","content":[{"type":"input_text","text":"recovery"}]})),
             vec![json!({"role":"user","content":[{"type":"input_text","text":"history"}]})],
             json!({"role":"user","content":[{"type":"input_text","text":"current"}]}),
         );
@@ -687,7 +687,7 @@ mod tests {
                 .and_then(|items| items.first())
                 .and_then(|item| item.get("text"))
                 .and_then(|value| value.as_str()),
-            Some("dev")
+            Some("sys")
         );
         assert_eq!(
             base_context[1]["content"][0]["text"].as_str(),

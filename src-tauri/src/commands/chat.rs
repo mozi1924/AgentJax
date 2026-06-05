@@ -19,7 +19,7 @@ pub use chat_types::{
 use crate::config;
 use crate::conversation_store;
 use crate::provider_api::{build_user_input_item, get_tool_schema_format};
-use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
+use crate::time_context::{build_temporal_context_system_item, render_timed_message};
 use crate::tools::ToolCatalog;
 use crate::tools::ToolExecutionContext;
 use chat_client_metadata::{split_local_client_metadata, validate_conversation_dynamic_tools};
@@ -234,8 +234,8 @@ pub async fn chat_stream(
                 context.input_items.clone(),
                 initial_snapshot.active_tool_names(),
             );
-        let mut developer_items = resolved_model.prompt_assembly.developer_items.clone();
-        developer_items.push(build_temporal_context_developer_item(
+        let mut system_items = resolved_model.prompt_assembly.system_items.clone();
+        system_items.push(build_temporal_context_system_item(
             now_unix_ms(),
             user_message_ts,
         ));
@@ -248,7 +248,7 @@ pub async fn chat_stream(
                 && let Ok(Some(memory_item)) =
                     crate::memory::build_memory_context(&store, &agent_config.memory)
                 {
-                    developer_items.push(memory_item);
+                    system_items.push(memory_item);
                 }
         }
         let current_user_item = build_user_input_item(
@@ -259,7 +259,7 @@ pub async fn chat_stream(
         match conversation_store::count_conversation_prompt_tokens(
             &resolved_model.model_id,
             Some(&resolved_model.system_prompt),
-            &developer_items,
+            &system_items,
             recovery_note.as_ref(),
             &archived_context_items,
             &[current_user_item],
@@ -409,7 +409,7 @@ pub async fn chat_stream(
             let count = pending.len();
             let formatted = crate::street::format_street_items(&pending);
             crate::street::StreetManager::mark_delivered(&conversation_id);
-            vec![crate::street::build_street_context_developer_item(count, &formatted)]
+            vec![crate::street::build_street_context_system_item(count, &formatted)]
         } else {
             Vec::new()
         }

@@ -109,7 +109,7 @@ pub(super) async fn load_conversation_prompt_token_count(
             match conversation_store::count_conversation_prompt_tokens(
                 &resolved_model.model_id,
                 Some(&resolved_model.system_prompt),
-                &resolved_model.prompt_assembly.developer_items,
+                &resolved_model.prompt_assembly.system_items,
                 recovery_note.as_ref(),
                 &archived_context_items,
                 &[],

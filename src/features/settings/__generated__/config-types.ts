@@ -392,7 +392,6 @@ export interface MemoryConfig {
 
 export type PromptBlockRole =
   | 'system'
-  | 'developer'
 ;
 
 export type PromptBlockSource =

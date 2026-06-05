@@ -67,26 +67,26 @@ pub fn count_conversation_context_tokens(
 /// This is the UI-facing helper for "what will the next request roughly cost"
 /// and includes:
 /// - the resolved system prompt
-/// - active developer prompt blocks
-/// - the optional recovery developer note
+/// - active system prompt blocks
+/// - the optional recovery note
 /// - the persisted conversation history
 pub fn count_conversation_prompt_tokens(
     model: &str,
     instructions_text: Option<&str>,
-    developer_items: &[Value],
+    system_items: &[Value],
     recovery_note: Option<&Value>,
     context_items: &[Value],
     extra_input_items: &[Value],
     tools: &[Value],
 ) -> crate::error::AgentJaxResult<ConversationTokenUsage> {
     let mut items = Vec::with_capacity(
-        developer_items
+        system_items
             .len()
             .saturating_add(recovery_note.map(|_| 1).unwrap_or(0))
             .saturating_add(context_items.len())
             .saturating_add(extra_input_items.len()),
     );
-    items.extend(developer_items.iter().cloned());
+    items.extend(system_items.iter().cloned());
     if let Some(recovery_note) = recovery_note {
         items.push(recovery_note.clone());
     }
@@ -233,9 +233,9 @@ mod tests {
     }
 
     #[test]
-    fn counts_system_and_developer_prompt_items() {
-        let developer_items = vec![json!({
-            "role": "developer",
+    fn counts_system_prompt_items() {
+        let system_items = vec![json!({
+            "role": "system",
             "content": [{
                 "type": "input_text",
                 "text": "Always answer in Chinese."
@@ -252,7 +252,7 @@ mod tests {
         let usage = count_conversation_prompt_tokens(
             "openai/gpt-5-mini",
             Some("You are a helpful assistant."),
-            &developer_items,
+            &system_items,
             None,
             &context_items,
             &[],

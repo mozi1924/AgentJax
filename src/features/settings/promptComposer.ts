@@ -1,4 +1,4 @@
-export type PromptBlockRole = 'system' | 'developer';
+export type PromptBlockRole = 'system';
 export type PromptBlockSource = 'builtin' | 'user' | 'plugin';
 
 export interface PromptBlock {
@@ -18,12 +18,11 @@ export interface PromptComposerConfig {
 
 export interface CompiledPromptPreview {
   instructionsText: string;
-  developerMessages: string[];
+  systemBlocks: { title: string; content: string }[];
   previewMarkdown: string;
 }
 
-const normalizeRole = (value: unknown): PromptBlockRole =>
-  value === 'developer' ? 'developer' : 'system';
+const normalizeRole = (_value: unknown): PromptBlockRole => 'system';
 
 const normalizeSource = (value: unknown): PromptBlockSource => {
   if (value === 'builtin' || value === 'plugin') {
@@ -40,10 +39,8 @@ const sanitizeId = (value: unknown, fallbackIndex: number) => {
   return candidate || `prompt-block-${fallbackIndex + 1}`;
 };
 
-const defaultTitleForRole = (role: PromptBlockRole, fallbackIndex: number) =>
-  role === 'system'
-    ? `System block ${fallbackIndex + 1}`
-    : `Developer block ${fallbackIndex + 1}`;
+const defaultTitleForRole = (_role: PromptBlockRole, fallbackIndex: number) =>
+  `System block ${fallbackIndex + 1}`;
 
 export const normalizePromptComposer = (value: unknown): PromptComposerConfig => {
   const sourceBlocks =
@@ -78,18 +75,14 @@ export const normalizePromptComposer = (value: unknown): PromptComposerConfig =>
     })
     .filter((entry): entry is PromptBlock => entry !== null);
 
-  const systemBlocks = blocks.filter((block) => block.role === 'system');
-  const developerBlocks = blocks.filter((block) => block.role === 'developer');
-
-  return {
-    blocks: [...systemBlocks, ...developerBlocks],
-  };
+  // All blocks are system role — preserve original order.
+  return { blocks };
 };
 
-export const createPromptBlock = (role: PromptBlockRole): PromptBlock => ({
-  id: `user-${role}-${crypto.randomUUID()}`,
-  title: role === 'system' ? 'New system block' : 'New developer block',
-  role,
+export const createPromptBlock = (_role?: PromptBlockRole): PromptBlock => ({
+  id: `user-system-${crypto.randomUUID()}`,
+  title: 'New system block',
+  role: 'system',
   content: '',
   enabled: true,
   source: 'user',
@@ -100,37 +93,25 @@ export const createPromptBlock = (role: PromptBlockRole): PromptBlock => ({
 export const compilePromptComposerPreview = (
   composer: PromptComposerConfig
 ): CompiledPromptPreview => {
-  const systemBlocks = composer.blocks.filter(
-    (block) => block.role === 'system' && block.enabled && block.content.trim()
-  );
-  const developerBlocks = composer.blocks.filter(
-    (block) => block.role === 'developer' && block.enabled && block.content.trim()
+  const activeBlocks = composer.blocks.filter(
+    (block) => block.enabled && block.content.trim()
   );
 
-  const instructionsText = systemBlocks.map((block) => block.content.trim()).join('\n\n');
-  const developerMessages = developerBlocks.map((block) => block.content.trim());
+  const instructionsText = activeBlocks.map((block) => block.content.trim()).join('\n\n');
+  const systemBlocks = activeBlocks.map((block) => ({ title: block.title, content: block.content.trim() }));
 
-  const previewSections: string[] = ['## System / instructions'];
-  if (systemBlocks.length === 0) {
-    previewSections.push('_No active system blocks._');
+  const previewSections: string[] = ['## System prompt blocks'];
+  if (activeBlocks.length === 0) {
+    previewSections.push('_No active blocks._');
   } else {
-    systemBlocks.forEach((block) => {
-      previewSections.push(`### ${block.title}\n\n${block.content.trim()}`);
-    });
-  }
-
-  previewSections.push('## Developer messages');
-  if (developerBlocks.length === 0) {
-    previewSections.push('_No active developer blocks._');
-  } else {
-    developerBlocks.forEach((block, index) => {
+    activeBlocks.forEach((block, index) => {
       previewSections.push(`### ${index + 1}. ${block.title}\n\n${block.content.trim()}`);
     });
   }
 
   return {
     instructionsText,
-    developerMessages,
+    systemBlocks,
     previewMarkdown: previewSections.join('\n\n'),
   };
 };

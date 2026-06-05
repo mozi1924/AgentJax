@@ -1,7 +1,7 @@
 //! Context injector — builds memory-augmented system messages for the LLM.
 //!
 //! At the start of each conversation turn, the memory index is loaded and
-//! injected as a developer message so the main agent knows what memories exist.
+//! injected as a system message so the main agent knows what memories exist.
 
 use crate::config::MemoryConfig;
 use crate::error::AgentJaxResult;
@@ -9,10 +9,10 @@ use crate::memory::index::MemoryIndex;
 use crate::memory::store::MemoryStore;
 use serde_json::{Value, json};
 
-/// Build a memory context developer item for injection into the conversation.
+/// Build a memory context system item for injection into the conversation.
 ///
 /// If the memory system is enabled and `auto_inject` is true, this returns
-/// a developer message containing the MEMORY.md index, allowing the model
+/// a system message containing the MEMORY.md index, allowing the model
 /// to know what memories exist and use `memory_search` / `memory_recall`
 /// to retrieve full contents.
 pub fn build_memory_context(
@@ -41,7 +41,7 @@ pub fn build_memory_context(
     };
 
     Ok(Some(json!({
-        "role": "developer",
+        "role": "system",
         "content": [{
             "type": "input_text",
             "text": format!(

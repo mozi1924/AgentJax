@@ -9,7 +9,7 @@
 //! ```text
 //! Async completion sites → StreetManager::deposit() → in-memory queue
 //!                                                          │
-//! Next turn start → collect_pending() → developer msg → context injection
+//! Next turn start → collect_pending() → system msg → context injection
 //!                                                          │
 //!                               StreetEvent → mpsc channel → frontend (badge/auto-trigger)
 //! ```
@@ -18,7 +18,7 @@ pub(crate) mod context;
 pub(crate) mod manager;
 pub(crate) mod types;
 
-pub use context::{build_street_context_developer_item, format_street_items};
+pub use context::{build_street_context_system_item, format_street_items};
 pub use manager::StreetManager;
 pub use types::{
     Priority, StreetEvent, StreetItem, StreetSnapshot, StreetSource,

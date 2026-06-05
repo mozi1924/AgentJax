@@ -18,7 +18,6 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   Eye,
   GripVertical,
-  Layers2,
   Plus,
   Shield,
   Sparkles,
@@ -30,7 +29,6 @@ import {
   createPromptBlock,
   normalizePromptComposer,
   type PromptBlock,
-  type PromptBlockRole,
   type PromptComposerConfig,
 } from '../../../features/settings/promptComposer';
 import { getValueAtPath, resolvePath } from '../../../features/settings/utils';
@@ -190,11 +188,7 @@ function PromptPreviewModal({
   );
 }
 
-const laneIcon = (role: PromptBlockRole) =>
-  role === 'system' ? <Shield className="h-3.5 w-3.5" /> : <Layers2 className="h-3.5 w-3.5" />;
-
-const laneLabel = (role: PromptBlockRole) =>
-  role === 'system' ? 'System / instructions' : 'Developer messages';
+const laneIcon = () => <Shield className="h-3.5 w-3.5" />;
 
 const canDeleteBlock = (block: PromptBlock) => block.source === 'user' && !block.locked;
 
@@ -207,7 +201,7 @@ export function PromptAssemblerField({
   onSaveField,
 }: FieldRendererProps) {
   const { t } = useI18n();
-  const laneLabel = (role: PromptBlockRole) => t(`settings.prompt_composer.lane.${role}`);
+  const laneLabel = () => t('settings.prompt_composer.lane.system');
   const resolvedPath = resolvePath(field.path, contextPath);
   const value = getValueAtPath(snapshot.values, resolvedPath);
   const [composer, setComposer] = useState<PromptComposerConfig>(() =>
@@ -240,8 +234,6 @@ export function PromptAssemblerField({
 
   const preview = useMemo(() => compilePromptComposerPreview(composer), [composer]);
   const helperText = fieldErrors[resolvedPath] || localError || field.helpText;
-  const systemBlocks = composer.blocks.filter((block) => block.role === 'system');
-  const developerBlocks = composer.blocks.filter((block) => block.role === 'developer');
 
   const persistComposer = async (nextComposer: PromptComposerConfig) => {
     setComposer(nextComposer);
@@ -262,8 +254,8 @@ export function PromptAssemblerField({
     await persistComposer(normalized);
   };
 
-  const handleAddBlock = async (role: PromptBlockRole) => {
-    const newBlock = createPromptBlock(role);
+  const handleAddBlock = async () => {
+    const newBlock = createPromptBlock();
     const nextComposer = normalizePromptComposer({
       blocks: [...composer.blocks, newBlock],
     });
@@ -293,37 +285,22 @@ export function PromptAssemblerField({
     await persistComposer(nextComposer);
   };
 
-  const handleRoleChange = async (blockId: string, role: PromptBlockRole) => {
-    const block = composer.blocks.find((entry) => entry.id === blockId);
-    if (!block || block.locked) {
-      return;
-    }
-
-    const nextComposer = normalizePromptComposer({
-      blocks: composer.blocks.map((entry) => (entry.id === blockId ? { ...entry, role } : entry)),
-    });
-    await persistComposer(nextComposer);
-  };
-
-  const handleDragEnd = async (event: DragEndEvent, role: PromptBlockRole) => {
+  const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) {
       return;
     }
 
-    const laneBlocks = composer.blocks.filter((block) => block.role === role);
-    const oldIndex = laneBlocks.findIndex((block) => block.id === active.id);
-    const newIndex = laneBlocks.findIndex((block) => block.id === over.id);
+    const blocks = composer.blocks;
+    const oldIndex = blocks.findIndex((block) => block.id === active.id);
+    const newIndex = blocks.findIndex((block) => block.id === over.id);
     if (oldIndex === -1 || newIndex === -1) {
       return;
     }
 
-    const movedLane = arrayMove(laneBlocks, oldIndex, newIndex);
-    const otherLane = composer.blocks.filter((block) => block.role !== role);
-    const nextComposer =
-      role === 'system'
-        ? { blocks: [...movedLane, ...otherLane] }
-        : { blocks: [...otherLane, ...movedLane] };
+    const nextComposer = normalizePromptComposer({
+      blocks: arrayMove(blocks, oldIndex, newIndex),
+    });
     await persistComposer(nextComposer);
   };
 
@@ -339,61 +316,56 @@ export function PromptAssemblerField({
         {/* Left Column: Sidebar with blocks and summary stats */}
         <div className="flex flex-col gap-4 min-w-0">
           <OverlayScrollArea containerClassName="flex-1" className="h-full space-y-4 pr-0.5">
-            {(['system', 'developer'] as const).map((role) => {
-              const blocks = role === 'system' ? systemBlocks : developerBlocks;
-              return (
-                <div key={role} className="space-y-2">
-                  <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
-                    <div className="flex items-center gap-1.5">
-                      {laneIcon(role)}
-                      <span>{laneLabel(role)}</span>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={isSaving}
-                      onClick={() => {
-                        void handleAddBlock(role);
-                      }}
-                      className="inline-flex items-center gap-1 rounded-md border border-[#2b2b2d] bg-[#1d1d1f] hover:bg-[#28282b] px-1.5 py-0.5 text-[10px] text-neutral-350 transition disabled:opacity-50"
-                      title={role === 'system' ? t('assembler.enable_block') : t('assembler.add')}
-                    >
-                      <Plus className="h-3 w-3" />
-                      {t('assembler.add')}
-                    </button>
-                  </div>
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={(event) => {
-                      void handleDragEnd(event, role);
-                    }}
-                  >
-                    <SortableContext
-                      items={blocks.map((block) => block.id)}
-                      strategy={verticalListSortingStrategy}
-                    >
-                      <div className="space-y-2">
-                        {blocks.length === 0 && (
-                          <div className="rounded-xl border border-dashed border-[#242426] bg-neutral-900/10 px-3 py-4 text-center text-[11px] text-neutral-500">
-                            {t('assembler.no_blocks', { role })}
-                          </div>
-                        )}
-                        {blocks.map((block) => (
-                          <SortableBlockItem
-                            key={block.id}
-                            block={block}
-                            selected={block.id === selectedBlock?.id}
-                            onSelect={setSelectedBlockId}
-                            onToggleEnabled={handleToggleEnabled}
-                            onDelete={handleDeleteBlock}
-                          />
-                        ))}
-                      </div>
-                    </SortableContext>
-                  </DndContext>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+                <div className="flex items-center gap-1.5">
+                  {laneIcon()}
+                  <span>{laneLabel()}</span>
                 </div>
-              );
-            })}
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => {
+                    void handleAddBlock();
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md border border-[#2b2b2d] bg-[#1d1d1f] hover:bg-[#28282b] px-1.5 py-0.5 text-[10px] text-neutral-350 transition disabled:opacity-50"
+                  title={t('assembler.add')}
+                >
+                  <Plus className="h-3 w-3" />
+                  {t('assembler.add')}
+                </button>
+              </div>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={(event) => {
+                  void handleDragEnd(event);
+                }}
+              >
+                <SortableContext
+                  items={composer.blocks.map((block) => block.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-2">
+                    {composer.blocks.length === 0 && (
+                      <div className="rounded-xl border border-dashed border-[#242426] bg-neutral-900/10 px-3 py-4 text-center text-[11px] text-neutral-500">
+                        {t('assembler.no_blocks', { role: 'system' })}
+                      </div>
+                    )}
+                    {composer.blocks.map((block) => (
+                      <SortableBlockItem
+                        key={block.id}
+                        block={block}
+                        selected={block.id === selectedBlock?.id}
+                        onSelect={setSelectedBlockId}
+                        onToggleEnabled={handleToggleEnabled}
+                        onDelete={handleDeleteBlock}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            </div>
           </OverlayScrollArea>
 
           {/* Bottom Summary & Stats Panel */}
@@ -404,15 +376,9 @@ export function PromptAssemblerField({
             </div>
             <div className="text-[11px] leading-relaxed text-neutral-400 space-y-1">
               <div className="flex justify-between">
-                <span>{t('assembler.stats.active_instructions')}</span>
+                <span>{t('assembler.stats.active_blocks')}</span>
                 <span className="font-mono text-neutral-200">
-                  {t('assembler.stats.blocks', { count: String(systemBlocks.filter((b) => b.enabled).length) })}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>{t('assembler.stats.developer_messages')}</span>
-                <span className="font-mono text-neutral-200">
-                  {t('assembler.stats.blocks', { count: String(developerBlocks.filter((b) => b.enabled).length) })}
+                  {t('assembler.stats.blocks', { count: String(composer.blocks.filter((b) => b.enabled).length) })}
                 </span>
               </div>
               <div className="flex justify-between border-t border-[#242426] pt-1 mt-1 font-medium">
@@ -464,20 +430,9 @@ export function PromptAssemblerField({
                 <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1 border-t border-[#242426]/50">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] uppercase tracking-wider text-neutral-500 font-medium">{t('assembler.role')}</span>
-                    <select
-                      value={selectedBlock.role}
-                      disabled={selectedBlock.locked || isSaving}
-                      onChange={(event) => {
-                        void handleRoleChange(
-                          selectedBlock.id,
-                          event.target.value === 'developer' ? 'developer' : 'system'
-                        );
-                      }}
-                      className="rounded-lg border border-[#2b2b2d] bg-[#18191b] px-2 py-1 text-[11px] font-medium text-neutral-200 outline-none transition hover:border-[#3c3c40] focus:border-neutral-500 disabled:opacity-60"
-                    >
-                      <option value="system">system</option>
-                      <option value="developer">developer</option>
-                    </select>
+                    <span className="rounded-lg border border-[#2b2b2d] bg-[#18191b] px-2 py-1 text-[11px] font-medium text-neutral-300">
+                      system
+                    </span>
                   </div>
 
                   {selectedBlock.source_id && (
@@ -537,11 +492,7 @@ export function PromptAssemblerField({
                   onBlur={() => {
                     void saveCurrentComposer();
                   }}
-                  placeholder={
-                    selectedBlock.role === 'system'
-                      ? t('assembler.placeholder.system')
-                      : t('assembler.placeholder.developer')
-                  }
+                  placeholder={t('assembler.placeholder.system')}
                   className="w-full flex-1 resize-none bg-transparent px-4 py-3.5 font-mono text-[11.5px] leading-6 text-neutral-200 outline-none disabled:opacity-60 placeholder-neutral-600"
                 />
 
