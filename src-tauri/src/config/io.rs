@@ -52,7 +52,28 @@ pub fn load_config() -> AgentJaxResult<AppConfig> {
     let path = init_config_if_missing()?;
     let raw = read_config_file(&path)?;
     let parsed = parse_config_yaml(&path, &raw)?;
-    Ok(parsed.normalize())
+    let mut config = parsed.normalize();
+
+    // Auto-populate provider entries from the plugin registry when the
+    // config has no providers yet (first run after installing a plugin).
+    // This ensures newly registered plugins (like deepseek) appear in the
+    // config and settings UI without manual YAML edits.
+    if config.providers.is_empty() {
+        for definition in crate::provider_api::registry::provider_definitions() {
+            let provider_key = definition.kind.clone();
+            let mut provider_config = definition.default_config.clone();
+            // Ensure the kind is set from the plugin definition.
+            if provider_config.kind.is_empty() {
+                provider_config.kind = definition.kind.clone();
+            }
+            config
+                .providers
+                .entry(provider_key)
+                .or_insert(provider_config);
+        }
+    }
+
+    Ok(config)
 }
 
 /// Load an agent-specific configuration from `~/.agentjax/agents/{agent_id}/agent.yaml`.
