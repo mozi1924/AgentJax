@@ -110,7 +110,18 @@ impl CompactionEngine {
         messages: &[StoredMessage],
         target_tokens: u32,
     ) -> Result<(String, u8), LcmError> {
-        let input_tokens: u32 = messages.iter().map(|m| m.token_count).sum();
+        let input_tokens: u32 = messages
+            .iter()
+            .map(|m| {
+                let base = m.token_count;
+                let thinking_tokens = m
+                    .thinking
+                    .as_ref()
+                    .map(|t| (self.count_tokens)(t))
+                    .unwrap_or(0);
+                base + thinking_tokens
+            })
+            .sum();
         let input_text = Self::concat_messages(messages);
 
         // ── Level 1: Normal — preserve details ──
@@ -162,7 +173,9 @@ impl CompactionEngine {
         Ok((truncated, 3))
     }
 
-    /// Concatenate messages into a single text block for summarization.
+    /// Concatenate messages (including thinking content) into a single text
+    /// block for summarization. Thinking content is included before the
+    /// assistant text so the summary preserves important reasoning context.
     fn concat_messages(messages: &[StoredMessage]) -> String {
         let mut text = String::new();
         for msg in messages {
@@ -172,6 +185,12 @@ impl CompactionEngine {
                 MessageRole::Tool => "Tool",
             };
             text.push_str(&format!("[{role_label}]: {}\n", msg.content));
+            if let Some(ref thinking) = msg.thinking {
+                let trimmed = thinking.trim();
+                if !trimmed.is_empty() {
+                    text.push_str(&format!("[Thinking]: {}\n", trimmed));
+                }
+            }
         }
         text
     }

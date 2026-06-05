@@ -269,7 +269,12 @@ impl LcmEngine {
                 metadata: msg.metadata.clone(),
             };
 
-            ctx.token_count += msg.token_count;
+            let thinking_tokens: u32 = msg
+                .thinking
+                .as_ref()
+                .map(|t| crate::lcm::types::estimate_tokens(t))
+                .unwrap_or(0);
+            ctx.token_count += msg.token_count + thinking_tokens;
             ctx.entries.push(entry);
         }
 
@@ -333,7 +338,12 @@ impl LcmEngine {
                         thinking: msg.thinking.clone(),
                         metadata: msg.metadata.clone(),
                     };
-                    ctx.token_count += msg.token_count;
+                    let thinking_tokens: u32 = msg
+                        .thinking
+                        .as_ref()
+                        .map(|t| crate::lcm::types::estimate_tokens(t))
+                        .unwrap_or(0);
+                    ctx.token_count += msg.token_count + thinking_tokens;
                     ctx.entries.push(entry);
                 }
             }
@@ -910,42 +920,9 @@ impl LcmEngine {
     pub fn context_to_provider_items(&self, entries: &[ContextEntry]) -> Vec<serde_json::Value> {
         let mut items = Vec::with_capacity(entries.len());
 
-        // ── Pre-load reasoning chains for assistant messages ──────────
-        // Reasoning (thinking) content is stored in a separate table and
-        // referenced via metadata["reasoning_id"]. Batch-load all of them
-        // so we can rehydrate thinking chains into the context — this is
-        // required for CoT models (DeepSeek R1, etc.) to maintain chain-of-thought
-        // continuity across turns.
-        let reasoning_ids: Vec<String> = entries
-            .iter()
-            .filter_map(|entry| {
-                if let ContextEntry::RawMessage { role, metadata, .. } = entry
-                    && *role == crate::lcm::types::MessageRole::Assistant
-                {
-                    return metadata
-                        .get("reasoning_id")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                }
-                None
-            })
-            .collect();
-
-        let reasoning_map: std::collections::HashMap<String, crate::lcm::types::ReasoningChain> =
-            if !reasoning_ids.is_empty() {
-                self.store
-                    .get_reasoning_batch(&reasoning_ids)
-                    .unwrap_or_else(|e| {
-                        log::warn!("LCM: failed to load reasoning chains for context: {e}");
-                        std::collections::HashMap::new()
-                    })
-            } else {
-                std::collections::HashMap::new()
-            };
-
         for entry in entries {
             match entry {
-                ContextEntry::RawMessage { role, content, metadata, .. } => {
+                ContextEntry::RawMessage { role, content, thinking, metadata, .. } => {
                     // ── Structured tool messages (via metadata) ────────────
                     // When a message carries a `message_type` in its metadata,
                     // reconstruct the proper Responses-API item shape so that
@@ -994,16 +971,13 @@ impl LcmEngine {
                         }
                     }
 
-                    // ── Rehydrate reasoning chain for assistant messages ──
+                    // ── Inject thinking content for assistant messages ──
                     // Must come BEFORE the output text so the model sees its
-                    // prior thinking when continuing the conversation.
+                    // prior chain-of-thought when continuing the conversation.
                     if *role == crate::lcm::types::MessageRole::Assistant
-                        && let Some(reasoning_id) = metadata
-                            .get("reasoning_id")
-                            .and_then(|v| v.as_str())
-                        && let Some(chain) = reasoning_map.get(reasoning_id)
+                        && let Some(t) = thinking
                     {
-                        let trimmed = chain.text.trim();
+                        let trimmed = t.trim();
                         if !trimmed.is_empty() {
                             items.push(serde_json::json!({
                                 "type": "reasoning",
