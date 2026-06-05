@@ -82,7 +82,7 @@ export function CollectionEditor({
                   setNewKeyError(t('settings.renderer.collection.key_exists'));
                   return;
                 }
-                void onAddCollectionItem(
+                onAddCollectionItem(
                   resolvedPath,
                   candidate,
                   createDefaultItem(collection, candidate)
@@ -90,6 +90,9 @@ export function CollectionEditor({
                   setExpandedKeys((current) => ({ ...current, [candidate]: true }));
                   setAdding(false);
                   setNewKey('');
+                  setNewKeyError('');
+                }).catch((err: unknown) => {
+                  setNewKeyError(err instanceof Error ? err.message : String(err));
                 });
               }}
               className="rounded-lg bg-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-900 transition hover:bg-white"

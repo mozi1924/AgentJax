@@ -20,8 +20,10 @@ const formatPrimitive = (value: unknown) => {
   return '';
 };
 
-export const createDefaultItem = (collection: SettingsCollectionSchema, key: string) => {
-  const next = JSON.parse(JSON.stringify(collection.defaultItem)) as Record<string, unknown>;
+export const createDefaultItem = (collection: SettingsCollectionSchema, key: string): Record<string, unknown> => {
+  const next: Record<string, unknown> = collection.defaultItem
+    ? JSON.parse(JSON.stringify(collection.defaultItem))
+    : {};
 
   if (collection.path === 'providers') {
     next.credential_env = `${key.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()}_API_KEY`;

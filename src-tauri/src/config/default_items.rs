@@ -45,8 +45,9 @@ fn lookup_default_item(path: &str) -> Option<Value> {
     }
 
     // For nested model collections (e.g. `providers.<key>.models`), match
-    // any path ending in `.models`.
-    if path.ends_with(".models") {
+    // any path ending in `.models`. Also match the relative path `"models"`
+    // used inside a provider's collection children.
+    if path == "models" || path.ends_with(".models") {
         return Some(
             serde_json::to_value(ProviderModelConfig::default())
                 .expect("ProviderModelConfig::default() must serialize"),

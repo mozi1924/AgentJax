@@ -119,6 +119,28 @@ impl ProviderConfig {
         self.custom_settings
             .retain(|_, v| !v.is_null());
 
+        // Auto-populate models from the provider definition's builtin_models
+        // when none are configured yet. This ensures that when a user sets a
+        // provider's kind (e.g. "deepseek"), its known models appear in the
+        // config and settings UI automatically.
+        if self.models.is_empty() {
+            if let Some(definition) = registry::provider_definition(&self.kind) {
+                for model in &definition.builtin_models {
+                    if !self.models.contains_key(&model.id) {
+                        self.models.insert(
+                            model.id.clone(),
+                            ProviderModelConfig {
+                                name: None,
+                                api_protocol: None,
+                                enabled: true,
+                                request: ModelRequestConfig::default(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+
         self
     }
 
