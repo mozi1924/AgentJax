@@ -26,7 +26,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
-use crate::config::{AppConfig, ResolvedModelConfig};
+use crate::config::{AgentConfig, AppConfig, ResolvedModelConfig};
 use crate::plugin_runtime::{PluginPackage, create_temp_plugin_instance};
 
 use super::core::ProviderIdFactory;
@@ -156,6 +156,7 @@ static CIRCUIT_BREAKERS: LazyLock<CircuitBreakerRegistry> =
 
 pub async fn stream_response<F>(
     config: &AppConfig,
+    agent: &AgentConfig,
     req: &ResponseStreamRequest,
     cancel_rx: &mut watch::Receiver<bool>,
     mut on_delta: F,
@@ -164,7 +165,7 @@ where
     F: FnMut(ProviderStreamEvent) -> AgentJaxResult<()> + Send,
 {
     use crate::error::AgentJaxError;
-    let resolved = config.resolve_model_profile(req.model.as_deref())?;
+    let resolved = config.resolve_model_profile_with_agent(req.model.as_deref(), agent)?;
     let provider_key = resolved.provider_key.clone();
 
     // ── Circuit Breaker: check before making the call ──

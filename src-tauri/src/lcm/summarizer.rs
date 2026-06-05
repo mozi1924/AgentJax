@@ -32,8 +32,9 @@ Guidelines:
 pub struct ProviderSummarizer {
     /// The app configuration (for provider/model resolution).
     config: crate::config::AppConfig,
+    /// The agent configuration (for agent-specific model defaults).
+    agent_config: crate::config::AgentConfig,
     /// The model reference to use for summarization.
-    /// Falls back to `agent_config.utility_small_model` if empty.
     model_ref: String,
 }
 
@@ -63,7 +64,7 @@ impl ProviderSummarizer {
 
         // Validate the model reference resolves.
         let _resolved = app_config
-            .resolve_model_profile(Some(&model_ref))
+            .resolve_model_profile_with_agent(Some(&model_ref), agent_config)
             .map_err(|e| {
                 LcmError::Config(format!(
                     "Failed to resolve summarization model '{}': {}",
@@ -73,6 +74,7 @@ impl ProviderSummarizer {
 
         Ok(Self {
             config: app_config.clone(),
+            agent_config: agent_config.clone(),
             model_ref,
         })
     }
@@ -142,6 +144,7 @@ impl Summarizer for ProviderSummarizer {
                 let mut cancel_rx = watch::channel(false).1;
                 let result = crate::provider_api::stream_response(
                     config,
+                    &self.agent_config,
                     &request,
                     &mut cancel_rx,
                     |_| Ok(()),

@@ -182,7 +182,7 @@ mod tests {
         let mut events = Vec::new();
         let result = tokio::time::timeout(
             Duration::from_secs(120),
-            provider_api::stream_response(&config, &request, &mut cancel_rx, |event| {
+            provider_api::stream_response(&config, &crate::config::AgentConfig::default(), &request, &mut cancel_rx, |event| {
                 events.push(event);
                 Ok(())
             }),

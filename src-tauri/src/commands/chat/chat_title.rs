@@ -81,7 +81,7 @@ async fn generate_title_and_emit(
     };
 
     let response =
-        provider_api::stream_response(&full_config.shared, &title_request, &mut title_cancel_rx, |_| Ok(())).await;
+        provider_api::stream_response(&full_config.shared, &full_config.agent, &title_request, &mut title_cancel_rx, |_| Ok(())).await;
 
     let cancelled = *title_cancel_rx.borrow();
     registry.finish_title_request(conversation_id, &job_id)?;

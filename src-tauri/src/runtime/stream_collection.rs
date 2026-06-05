@@ -2,7 +2,7 @@ use super::tool_execution::{TOOL_PROGRESS_HEARTBEAT_SECS, ToolExecutionScheduler
 use super::tool_parsing::{
     is_valid_pending_tool_call, parse_tool_arguments, push_or_update_pending_tool_call,
 };
-use crate::config::AppConfig;
+use crate::config::{AgentConfig, AppConfig};
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::provider_api::types::{
     ProviderPendingToolCall, ProviderStreamEvent, ResponseStreamRequest, ResponseStreamResult,
@@ -20,6 +20,7 @@ pub(super) struct CollectedProviderTurn {
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn collect_provider_turn<F>(
     config: &AppConfig,
+    agent: &AgentConfig,
     provider_kind: &str,
     provider_key_for_log: &str,
     stream_request: &ResponseStreamRequest,
@@ -42,11 +43,13 @@ where
     // keep draining tool completions and heartbeat ticks while the model
     // continues emitting text or other tool calls.
     let provider_config = config.clone();
+    let provider_agent = agent.clone();
     let provider_request = stream_request.clone();
     let mut provider_cancel_rx = cancel_rx.clone();
     let mut provider_task = tokio::spawn(async move {
         crate::provider_api::stream_response(
             &provider_config,
+            &provider_agent,
             &provider_request,
             &mut provider_cancel_rx,
             |event| {

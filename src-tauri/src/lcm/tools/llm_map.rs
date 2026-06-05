@@ -340,9 +340,13 @@ async fn call_llm_for_item(prompt: &str, model_ref: &str) -> AgentJaxResult<Valu
 
     let config = crate::config::load_config()
         .map_err(|e| AgentJaxError::config(format!("Failed to load config: {e}")))?;
+    let agent = crate::config::load_agent_config(crate::config::constants::DEFAULT_AGENT_ID)
+        .unwrap_or_default()
+        .normalize();
 
     let response = crate::provider_api::stream_response(
         &config,
+        &agent,
         &request,
         &mut cancel_rx,
         |_| Ok(()),

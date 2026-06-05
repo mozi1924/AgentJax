@@ -22,6 +22,7 @@ pub mod retry;
 pub(crate) mod plugin;
 pub mod types;
 
+use crate::config::AgentConfig;
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::plugin_runtime::BuiltinModelDescriptor;
 use serde_json::Value;
@@ -84,6 +85,7 @@ pub fn compose_tool_continuation_input(
 /// falls back to the JS plugin path for non-standard provider APIs.
 pub async fn stream_response<F>(
     config: &crate::config::AppConfig,
+    agent: &AgentConfig,
     req: &ResponseStreamRequest,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
     on_delta: F,
@@ -91,8 +93,9 @@ pub async fn stream_response<F>(
 where
     F: FnMut(ProviderStreamEvent) -> AgentJaxResult<()> + Send,
 {
-    // Resolve the model profile to get provider config and model info
-    let resolved = config.resolve_model_profile(req.model.as_deref())?;
+    // Resolve the model profile using the agent's config for correct model
+    // references (default_model, utility_small_model, prompt_composer, timeout).
+    let resolved = config.resolve_model_profile_with_agent(req.model.as_deref(), agent)?;
 
     // Determine which protocol to use
     let protocol = resolve_protocol(&resolved.provider.kind, &resolved.model_id, resolved.api_protocol.as_deref());
@@ -111,7 +114,7 @@ where
         .await
     } else {
         // Fall back to JS plugin path for non-standard providers
-        plugin::stream_response(config, req, cancel_rx, on_delta).await
+        plugin::stream_response(config, agent, req, cancel_rx, on_delta).await
     }
 }
 

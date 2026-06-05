@@ -109,6 +109,7 @@ async fn run_real_gateway_turn_with_config(
         Duration::from_secs(180),
         AgentRuntime::run_turn(
             &config,
+            &agent,
             &req,
             &conversation_id,
             crate::conversation_store_utils::now_unix_ms(),
@@ -524,8 +525,7 @@ async fn run_real_gateway_turn_with_full_catalog(
     let run_result = tokio::time::timeout(
         Duration::from_secs(300),
         AgentRuntime::run_turn(
-            &config,
-            &req,
+            &config,            &agent,            &req,
             &conversation_id,
             crate::conversation_store_utils::now_unix_ms(),
             Vec::new(),

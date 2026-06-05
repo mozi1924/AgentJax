@@ -11,7 +11,7 @@ use super::tool_archiving::archive_unavailable_historical_tool_calls;
 use super::tool_execution::ToolExecutionScheduler;
 use super::tool_parsing::describe_item_shape;
 use crate::commands::chat::ChatRequest;
-use crate::config::AppConfig;
+use crate::config::{AgentConfig, AppConfig};
 use crate::message_phase::AssistantPhase;
 use crate::provider_api::types::{ProviderStreamEvent, ResponseStreamResult};
 use crate::time_context::{build_temporal_context_developer_item, render_timed_message};
@@ -32,6 +32,7 @@ impl AgentRuntime {
     #[allow(clippy::too_many_arguments)]
     pub async fn run_turn<F>(
         config: &AppConfig,
+        agent: &AgentConfig,
         req: &ChatRequest,
         conversation_id: &str,
         user_message_ts: i64,
@@ -47,7 +48,7 @@ impl AgentRuntime {
     where
         F: FnMut(ProviderStreamEvent) -> Result<(), AgentJaxError> + Send + 'static,
     {
-        let resolved_model = config.resolve_model_profile(req.model.as_deref())?;
+        let resolved_model = config.resolve_model_profile_with_agent(req.model.as_deref(), agent)?;
         let provider_capabilities =
             crate::provider_api::get_capabilities(&resolved_model.provider.kind)?;
         // When a model explicitly overrides the API protocol to chat_completions,
@@ -249,6 +250,7 @@ impl AgentRuntime {
             );
             let collected = collect_provider_turn(
                 config,
+                agent,
                 provider_kind,
                 &resolved_model.provider_key,
                 &stream_request,

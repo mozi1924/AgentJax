@@ -153,6 +153,7 @@ pub async fn run_sub_agent(
     let run_event_tx = event_tx.clone(); // For the tool execution context
     let result = crate::runtime::AgentRuntime::run_turn(
         &app_config,
+        &agent_config,
         &sub_req,
         &sub_lcm.conversation_id,
         crate::conversation_store_utils::now_unix_ms(),
@@ -343,6 +344,7 @@ pub async fn run_memory_agent(
                 let (_cancel_tx, mut cancel_rx) = tokio::sync::watch::channel(false);
                 match crate::provider_api::stream_response(
                     &app_config,
+                    &agent_config,
                     &request,
                     &mut cancel_rx,
                     |_event| Ok(()),
