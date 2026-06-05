@@ -307,6 +307,7 @@ pub fn known_top_level_paths() -> BTreeSet<&'static str> {
     paths.insert("request_timeout_seconds");
     paths.insert("show_advanced_request_options");
     paths.insert("enable_developer_tools");
+    paths.insert("max_tool_turns");
     paths.insert("prompt_composer");
     paths.insert("memory.enabled");
     paths.insert("memory.auto_inject");

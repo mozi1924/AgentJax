@@ -77,6 +77,18 @@
         },
         {
           "kind": "field",
+          "id": "max-tool-turns",
+          "title": "settings.general.max_tool_turns.title",
+          "description": "settings.general.max_tool_turns.description",
+          "path": "max_tool_turns",
+          "valueType": "integer",
+          "control": "number",
+          "min": 0,
+          "max": 1000,
+          "step": 1
+        },
+        {
+          "kind": "field",
           "id": "show-advanced-request-options",
           "title": "settings.general.show_advanced_options.title",
           "description": "settings.general.show_advanced_options.description",

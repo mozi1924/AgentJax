@@ -66,6 +66,8 @@
   "settings.general.utility_small_model.description": "标题生成和轻量任务优先使用的小模型。",
   "settings.general.request_timeout.title": "请求超时 (秒)",
   "settings.general.request_timeout.description": "所有 provider 的全局超时时间。",
+  "settings.general.max_tool_turns.title": "最大工具执行次数",
+  "settings.general.max_tool_turns.description": "单次请求中最多允许执行工具的轮数（Hops）。设置为 0 表示无限制。",
   "settings.general.show_advanced_options.title": "显示高级参数按钮",
   "settings.general.show_advanced_options.description": "启用后在消息输入框旁显示高级请求参数按钮。",
   "settings.general.enable_developer_tools.title": "启用开发者工具",

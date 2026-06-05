@@ -131,7 +131,7 @@ impl AgentRuntime {
         // metadata.json so later turns and app restarts can recover the same
         // mounted tool surface until the agent explicitly unmounts it.
         let mut turn_idx = 0usize;
-        let max_turns = 10usize;
+        let max_turns = agent.max_tool_turns;
 
         // ── Seed active context with existing conversation history ──
         context.rebuild(conversation_id).await.ok();
@@ -172,7 +172,7 @@ impl AgentRuntime {
         };
 
         'turn_loop: loop {
-            if turn_idx >= max_turns {
+            if max_turns > 0 && turn_idx >= max_turns {
                 return Err(crate::error::AgentJaxError::internal(
                     "Maximum turn execution limit reached",
                 ));

@@ -66,6 +66,8 @@
   "settings.general.utility_small_model.description": "Preferred lightweight model for title generation and simple tasks.",
   "settings.general.request_timeout.title": "Request timeout (seconds)",
   "settings.general.request_timeout.description": "Global fallback timeout for all providers.",
+  "settings.general.max_tool_turns.title": "Max tool execution turns",
+  "settings.general.max_tool_turns.description": "Maximum number of tool-using turns (hops) allowed per request. Set to 0 for unlimited.",
   "settings.general.show_advanced_options.title": "Show advanced request options",
   "settings.general.show_advanced_options.description": "When enabled, shows advanced request options button next to message composer.",
   "settings.general.enable_developer_tools.title": "Enable developer tools",

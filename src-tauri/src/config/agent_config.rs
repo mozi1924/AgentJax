@@ -47,6 +47,8 @@ pub struct AgentConfig {
     pub show_advanced_request_options: bool,
     /// Whether developer tools are enabled for this agent.
     pub enable_developer_tools: bool,
+    /// Maximum number of tool execution turns (hops) allowed per request (0 for unlimited).
+    pub max_tool_turns: usize,
     /// Prompt composer — the assembly of system/developer prompt blocks.
     #[serde(default)]
     pub prompt_composer: PromptComposerConfig,
@@ -76,6 +78,7 @@ impl Default for AgentConfig {
             request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
             show_advanced_request_options: false,
             enable_developer_tools: false,
+            max_tool_turns: 0,
             prompt_composer: PromptComposerConfig::default(),
             context_management: ContextManagementConfig::default(),
             sub_agent: SubAgentConfig::default(),
