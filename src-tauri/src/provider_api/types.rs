@@ -3,6 +3,7 @@ use crate::message_phase::AssistantPhase;
 use crate::tools::ToolPresentation;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -142,6 +143,12 @@ pub struct ProviderTurnRequest {
     pub max_completion_tokens: Option<u32>,
     #[serde(default)]
     pub reasoning_budget_tokens: Option<u32>,
+
+    /// Provider-specific extra body fields to pass through in the request.
+    /// These are merged into the request body after standard parameters.
+    /// Useful for provider-specific features like DeepSeek's `thinking` field.
+    #[serde(default)]
+    pub extra_body: BTreeMap<String, Value>,
 }
 
 pub type ResponseStreamRequest = ProviderTurnRequest;

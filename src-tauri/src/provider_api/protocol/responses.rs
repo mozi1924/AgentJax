@@ -151,6 +151,13 @@ fn build_response_payload(model_id: &str, req: &ResponseStreamRequest) -> Value 
     if let Some(ref tool_choice) = req.tool_choice { payload["tool_choice"] = tool_choice.clone(); }
     if let Some(ref text) = req.text { payload["text"] = text.clone(); }
     if let Some(ref include) = req.include && !include.is_empty() { payload["include"] = Value::Array(include.iter().map(|s| json!(s)).collect()); }
+
+    // ── Extra body fields (provider-specific passthrough) ──
+    for (key, value) in &req.extra_body {
+        if !payload.as_object().map(|o| o.contains_key(key)).unwrap_or(false) {
+            payload[key] = value.clone();
+        }
+    }
     payload
 }
 

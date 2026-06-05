@@ -1,7 +1,7 @@
 use crate::commands::chat::ChatRequest;
 use crate::provider_api::types::ResponseStreamRequest;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[cfg(test)]
 pub(super) fn build_base_context(
@@ -45,6 +45,10 @@ pub(super) fn build_request(
         max_tokens: req.max_tokens,
         max_completion_tokens: req.max_completion_tokens,
         reasoning_budget_tokens: req.reasoning_budget_tokens,
+
+        // Extra body is merged later from ResolvedModelConfig.request.extra_body
+        // in provider_api::stream_response(). The ChatRequest does not carry it.
+        extra_body: BTreeMap::new(),
     }
 }
 

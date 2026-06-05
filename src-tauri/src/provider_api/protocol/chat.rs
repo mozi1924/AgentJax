@@ -202,6 +202,15 @@ fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
         // We set it as a top-level field; gateways/vLLM may forward it.
         payload["reasoning_budget_tokens"] = json!(reasoning_budget);
     }
+
+    // ── Extra body fields (provider-specific passthrough) ──
+    for (key, value) in &req.extra_body {
+        // Skip keys that are already set as standard parameters to avoid
+        // overriding explicit fields with extra_body values.
+        if !payload.as_object().map(|o| o.contains_key(key)).unwrap_or(false) {
+            payload[key] = value.clone();
+        }
+    }
     payload
 }
 

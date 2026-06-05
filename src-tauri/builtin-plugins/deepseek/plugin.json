@@ -1,0 +1,74 @@
+{
+  "id": "agentjax.provider.deepseek",
+  "name": "DeepSeek Provider",
+  "version": "0.0.0",
+  "apiVersion": 1,
+  "entrypoint": "plugin.js",
+  "description": "DeepSeek API provider — fully declarative. Uses native Chat Completions protocol in Rust. Supports thinking mode via `thinking` field.",
+  "sandbox": {
+    "allowNetwork": false,
+    "allowFileRead": false,
+    "allowFileWrite": false,
+    "maxExecutionMs": 30000
+  },
+  "providers": [
+    {
+      "kind": "deepseek",
+      "displayName": "DeepSeek",
+      "defaultPriority": 1,
+      "defaultModelIds": ["deepseek-v4-flash", "deepseek-v4-pro"],
+      "toolSchemaFormat": "chat_completions",
+      "capabilities": {
+        "requiresInstructions": true,
+        "supportsJsonMode": true,
+        "supportsJsonSchema": true,
+        "supportsParallelToolCalls": true,
+        "supportsBuiltInWebSearch": false,
+        "emitsFinalOutputItems": true,
+        "emitsIncrementalToolCallArguments": true
+      },
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "apiEndpoint": { "type": "string", "default": "https://api.deepseek.com/v1", "title": "API Endpoint" },
+          "modelsEndpointCandidates": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "queryParams": { "type": "object", "additionalProperties": { "type": "string" }, "default": {} },
+          "httpHeaders": { "type": "object", "additionalProperties": { "type": "string" }, "default": {} },
+          "envHttpHeaders": { "type": "object", "additionalProperties": { "type": "string" }, "default": {} },
+          "credential": { "type": ["string", "null"], "default": null, "sensitive": true },
+          "credentialEnv": { "type": "string", "default": "DEEPSEEK_API_KEY" },
+          "requestTimeoutSeconds": { "type": ["integer", "null"], "default": null },
+          "requestMaxRetries": { "type": ["integer", "null"], "default": null },
+          "streamMaxRetries": { "type": ["integer", "null"], "default": null },
+          "streamIdleTimeoutMs": { "type": ["integer", "null"], "default": null }
+        }
+      },
+      "modelRouting": [
+        { "pattern": "*", "protocol": "chat_completions", "path": "/v1/chat/completions" }
+      ],
+      "builtinModels": [
+        {
+          "id": "deepseek-v4-pro",
+          "kind": "chat",
+          "contextWindow": 131072,
+          "supportedReasoningLevels": ["low", "medium", "high"]
+        },
+        {
+          "id": "deepseek-v4-flash",
+          "kind": "chat",
+          "contextWindow": 131072,
+          "supportedReasoningLevels": ["low", "medium", "high"]
+        }
+      ],
+      "auth": {
+        "authType": "api_key",
+        "credentialEnv": "DEEPSEEK_API_KEY",
+        "placement": {
+          "in": "header",
+          "key": "Authorization",
+          "format": "Bearer {key}"
+        }
+      }
+    }
+  ]
+}

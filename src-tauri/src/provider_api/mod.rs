@@ -97,6 +97,14 @@ where
     // references (default_model, utility_small_model, prompt_composer, timeout).
     let resolved = config.resolve_model_profile_with_agent(req.model.as_deref(), agent)?;
 
+    // Merge extra_body from the resolved model config (user-configured) into
+    // the request. This ensures provider-specific fields like DeepSeek's
+    // `thinking` are injected for both native protocol and JS plugin paths.
+    let mut req = req.clone();
+    for (key, value) in &resolved.request.extra_body {
+        req.extra_body.entry(key.clone()).or_insert_with(|| value.clone());
+    }
+
     // Determine which protocol to use
     let protocol = resolve_protocol(&resolved.provider.kind, &resolved.model_id, resolved.api_protocol.as_deref());
     if let Some(ref protocol) = protocol {
@@ -107,14 +115,14 @@ where
             &resolved.provider_key,
             &resolved.provider,
             &resolved.model_id,
-            req,
+            &req,
             cancel_rx,
             &mut on_delta,
         )
         .await
     } else {
         // Fall back to JS plugin path for non-standard providers
-        plugin::stream_response(config, agent, req, cancel_rx, on_delta).await
+        plugin::stream_response(config, agent, &req, cancel_rx, on_delta).await
     }
 }
 
