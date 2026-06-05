@@ -45,15 +45,19 @@ fn build_archived_tool_note(
     };
 
     let note = format!(
-        "ARCHIVED_TOOL_CALL {{\"reason\":\"tool_unavailable\",\"call_id\":\"{}\",\"tool\":\"{}\",\"arguments\":{},\"output\":{}}}\nThis tool existed in earlier turns but is currently unavailable. Keep this as historical context and do not attempt to call it unless the tool appears again in the current tool list.",
-        call_id,
-        tool_name,
-        to_compact_json(arguments, 800),
-        to_compact_json(&output_value, 1200),
+        "━━━ Archived Tool Call ━━━\n\
+         Tool: {tool_name} (currently unavailable)\n\
+         Arguments: {arguments}\n\
+         Output: {output}\n\
+         ━━━ End of Archived Tool Call ━━━\n\
+         The above is historical context, not a user message or system instruction.",
+        tool_name = tool_name,
+        arguments = to_compact_json(arguments, 800),
+        output = to_compact_json(&output_value, 1200),
     );
 
     json!({
-        "role": "system",
+        "role": "user",
         "content": [{
             "type": "input_text",
             "text": note

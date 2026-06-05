@@ -417,7 +417,7 @@ async fn real_gateway_prompt_composer_blocks_smoke_test_from_local_config() {
 }
 
 #[test]
-fn archives_unavailable_tool_call_pairs_into_system_note() {
+fn archives_unavailable_tool_call_pairs_into_user_note() {
     let active_tools = extract_active_tool_names(&[json!({
         "type": "function",
         "name": "calculator",
@@ -436,17 +436,17 @@ fn archives_unavailable_tool_call_pairs_into_system_note() {
     let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
     assert!(
         normalized.iter().any(|item| {
-            item.get("role").and_then(|v| v.as_str()) == Some("system")
+            item.get("role").and_then(|v| v.as_str()) == Some("user")
                 && item
                     .get("content")
                     .and_then(|v| v.as_array())
                     .and_then(|arr| arr.first())
                     .and_then(|part| part.get("text"))
                     .and_then(|v| v.as_str())
-                    .map(|text| text.contains("ARCHIVED_TOOL_CALL"))
+                    .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
                     .unwrap_or(false)
         }),
-        "expected a system archived-tool note"
+        "expected a user-role archived-tool note with distinct delimiters"
     );
     assert!(
         !normalized.iter().any(|item| {
@@ -461,6 +461,63 @@ fn archives_unavailable_tool_call_pairs_into_system_note() {
                 && item.get("call_id").and_then(|v| v.as_str()) == Some("call_keep")
         }),
         "available tool call should be preserved"
+    );
+}
+
+#[test]
+fn preserves_tool_calls_when_tool_is_re_registered() {
+    // Simulate a tool being unmounted then re-mounted: its name is back
+    // in active_tool_names, so archiving should leave items untouched.
+    let active_tools = extract_active_tool_names(&[
+        json!({"type":"function","name":"calculator","description":"","parameters":{"type":"object"}}),
+        json!({"type":"function","name":"mcp__github__search_repos","description":"","parameters":{"type":"object"}}),
+    ]);
+
+    let context = vec![
+        json!({"role":"user","content":[{"type":"input_text","text":"hi"}]}),
+        json!({"type":"function_call","call_id":"call_001","name":"mcp__github__search_repos","arguments":"{\"q\":\"agent\"}"}),
+        json!({"type":"function_call_output","call_id":"call_001","output":"{\"ok\":true,\"result\":[1,2]}"}),
+        json!({"type":"function_call","call_id":"call_002","name":"calculator","arguments":"{\"expression\":\"1+1\"}"}),
+        json!({"type":"function_call_output","call_id":"call_002","output":"{\"ok\":true,\"result\":2}"}),
+    ];
+
+    let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
+
+    // All original function_call items should be preserved (no archiving)
+    assert!(
+        normalized.iter().any(|item| {
+            item.get("type").and_then(|v| v.as_str()) == Some("function_call")
+                && item.get("call_id").and_then(|v| v.as_str()) == Some("call_001")
+        }),
+        "re-registered tool's historical function_call should be preserved"
+    );
+    assert!(
+        normalized.iter().any(|item| {
+            item.get("type").and_then(|v| v.as_str()) == Some("function_call_output")
+                && item.get("call_id").and_then(|v| v.as_str()) == Some("call_001")
+        }),
+        "re-registered tool's historical function_call_output should be preserved"
+    );
+    // The calculator tool call should also be preserved
+    assert!(
+        normalized.iter().any(|item| {
+            item.get("type").and_then(|v| v.as_str()) == Some("function_call")
+                && item.get("call_id").and_then(|v| v.as_str()) == Some("call_002")
+        }),
+        "available tool call should be preserved"
+    );
+    // No archived notes should exist
+    assert!(
+        !normalized.iter().any(|item| {
+            item.get("content")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|part| part.get("text"))
+                .and_then(|v| v.as_str())
+                .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
+                .unwrap_or(false)
+        }),
+        "no archived notes should exist when all tools are active"
     );
 }
 
