@@ -5,6 +5,7 @@ use crate::conversation_store;
 use crate::provider_api::types::{ProviderStreamEvent, ProviderUsage, ResponseStreamResult};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 /// Persists provider stream side effects and maintains local token estimates.
 #[derive(Clone)]
@@ -16,6 +17,9 @@ pub(super) struct ChatStreamObserver {
     jsonl_backup_enabled: bool,
     fallback_token_count: Arc<AtomicUsize>,
     visible_token_count: Arc<AtomicUsize>,
+    /// Accumulated thinking/reasoning content from ReasoningDelta events.
+    /// Cleared after each HopAssistantText/AssistantMessageCompleted persist.
+    accumulated_thinking: Arc<Mutex<Option<String>>>,
 }
 
 impl ChatStreamObserver {
@@ -35,13 +39,38 @@ impl ChatStreamObserver {
             jsonl_backup_enabled,
             fallback_token_count: Arc::new(AtomicUsize::new(initial_token_count)),
             visible_token_count: Arc::new(AtomicUsize::new(initial_token_count)),
+            accumulated_thinking: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Persist stream events that affect conversation history and return the
     /// token count that should be attached to the outbound UI event, if any.
+    /// Track thinking content from ReasoningDelta events so it can be
+    /// persisted alongside assistant text in the JSONL fallback path.
+    fn accumulate_thinking(&self, delta: &str) {
+        if !delta.is_empty() {
+            if let Ok(mut guard) = self.accumulated_thinking.lock() {
+                let new_val = match guard.take() {
+                    Some(mut existing) => { existing.push_str(delta); existing }
+                    None => delta.to_string(),
+                };
+                *guard = Some(new_val);
+            }
+        }
+    }
+
+    fn take_thinking(&self) -> Option<String> {
+        self.accumulated_thinking.lock().ok().and_then(|mut g| g.take())
+    }
+
     pub(super) fn handle_provider_event(&self, event: &ProviderStreamEvent) -> Option<usize> {
         match event {
+            ProviderStreamEvent::ReasoningDelta { delta } => {
+                self.accumulate_thinking(delta);
+            }
+            ProviderStreamEvent::ReasoningCompleted { .. } => {
+                // Thinking block complete; content is already accumulated.
+            }
             ProviderStreamEvent::ToolCallStarted {
                 call_id,
                 name,
@@ -117,11 +146,13 @@ impl ChatStreamObserver {
                 response_id,
             }
                 if *phase == Some(crate::message_phase::AssistantPhase::Commentary) => {
+                    let thinking = self.take_thinking();
                     let _ = persist_assistant_line(                        &self.agent_id,                        &self.conversation_id,
                         &self.request_id,
                         response_id,
                         *phase,
                         text,
+                        thinking.as_deref(),
                         self.jsonl_backup_enabled,
                     );
                     self.add_text_tokens(text);
@@ -131,6 +162,7 @@ impl ChatStreamObserver {
                 phase,
                 response_id,
             } => {
+                let thinking = self.take_thinking();
                 let _ = persist_assistant_line(
                     &self.agent_id,
                     &self.conversation_id,
@@ -138,6 +170,7 @@ impl ChatStreamObserver {
                     response_id,
                     *phase,
                     text,
+                    thinking.as_deref(),
                     self.jsonl_backup_enabled,
                 );
                 self.add_text_tokens(text);

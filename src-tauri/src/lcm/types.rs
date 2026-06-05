@@ -114,6 +114,12 @@ pub struct StoredMessage {
     /// in its raw form.
     pub covered_by: Option<SummaryId>,
 
+    /// Reasoning / thinking content (chain-of-thought) for this message.
+    /// Stored directly alongside the message so loading is a single query.
+    /// Only populated for assistant messages with CoC reasoning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
+
     /// Additional metadata (provider-specific, tool names, etc.).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub metadata: BTreeMap<String, Value>,
@@ -142,6 +148,7 @@ impl StoredMessage {
             token_count,
             timestamp_unix_ms,
             covered_by: None,
+            thinking: None,
             metadata: BTreeMap::new(),
             file_refs: Vec::new(),
         }
@@ -375,6 +382,9 @@ pub enum ContextEntry {
         role: MessageRole,
         /// The full message content.
         content: String,
+        /// Reasoning / thinking content (chain-of-thought) for this message.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thinking: Option<String>,
         /// Opaque metadata carried from the StoredMessage (e.g. call_id, tool name).
         /// When present, `context_to_provider_items` uses this to reconstruct
         /// structured `function_call` / `function_call_output` items instead of

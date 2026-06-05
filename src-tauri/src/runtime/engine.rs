@@ -276,8 +276,10 @@ impl AgentRuntime {
             let is_final_hop = collected.pending_tools.is_empty();
             let hop_messages =
                 extract_assistant_messages_from_items(&collected.response_result.output_items);
-            // Clone for LCM persistence before hop_messages is consumed below.
-            let hop_messages_for_lcm = hop_messages.clone();
+            // Collected (text, resolved_phase) pairs for LCM persistence.
+            // Uses resolved phases (not raw output_item phases) so stored data
+            // matches what the frontend receives via HopAssistantText events.
+            let mut hop_messages_for_lcm: Vec<(String, Option<AssistantPhase>)> = Vec::new();
             if hop_messages.is_empty() && !collected.response_result.output_text.is_empty() {
                 let phase = resolve_hop_phase(None, is_final_hop);
                 let emitted_text = if phase == Some(AssistantPhase::Commentary) {
@@ -293,6 +295,7 @@ impl AgentRuntime {
                     phase,
                     response_id: collected.response_result.response_id.clone(),
                 })?;
+                hop_messages_for_lcm.push((emitted_text.clone(), phase));
                 if phase != Some(AssistantPhase::Commentary) {
                     final_output_text = emitted_text;
                 } else {
@@ -311,6 +314,7 @@ impl AgentRuntime {
                         phase: resolved_phase,
                         response_id: collected.response_result.response_id.clone(),
                     })?;
+                    hop_messages_for_lcm.push((emitted_text.clone(), resolved_phase));
                     if resolved_phase != Some(AssistantPhase::Commentary) {
                         final_output_text = emitted_text;
                     } else {
@@ -350,9 +354,12 @@ impl AgentRuntime {
                     }
                 }
 
-                // ── Extract and persist reasoning from output_items ────────
-                {
-                    let reasoning_text_parts: Vec<&str> = collected
+                // ── Extract reasoning/thinking from output_items ─────────
+                // Store thinking content directly on the StoredMessage so it
+                // survives restarts without needing a separate reasoning_chains
+                // table lookup.
+                let hop_thinking_text: Option<String> = {
+                    let parts: Vec<&str> = collected
                         .response_result
                         .output_items
                         .iter()
@@ -360,33 +367,14 @@ impl AgentRuntime {
                         .filter_map(|item| item.get("text").and_then(Value::as_str))
                         .filter(|text| !text.trim().is_empty())
                         .collect();
+                    if parts.is_empty() { None } else { Some(parts.join("\n")) }
+                };
 
-                    if !reasoning_text_parts.is_empty() {
-                        let reasoning_text = reasoning_text_parts.join("\n");
-                        let reasoning_tokens = crate::lcm::types::estimate_tokens(&reasoning_text);
-                        let reasoning_id = format!("rc-{}", uuid::Uuid::new_v4());
-
-                        if let Err(e) = engine.store().persist_reasoning(
-                            &crate::lcm::types::ReasoningChain {
-                                id: reasoning_id.clone(),
-                                conversation_id: lcm_conv_id.clone(),
-                                response_id: response_id.clone(),
-                                text: reasoning_text,
-                                token_count: reasoning_tokens,
-                                timestamp_unix_ms: now_ms,
-                            },
-                        ) {
-                            log::warn!("LCM: failed to persist reasoning chain: {e}");
-                        }
-
-                        // Attach reasoning_id to all assistant messages in this batch.
-                        for msg in &mut batch_messages {
-                            if msg.role == crate::lcm::types::MessageRole::Assistant {
-                                msg.metadata.insert(
-                                    "reasoning_id".to_string(),
-                                    serde_json::Value::String(reasoning_id.clone()),
-                                );
-                            }
+                // Attach thinking to all assistant messages in this batch.
+                if let Some(ref thinking_text) = hop_thinking_text {
+                    for msg in &mut batch_messages {
+                        if msg.role == crate::lcm::types::MessageRole::Assistant {
+                            msg.thinking = Some(thinking_text.clone());
                         }
                     }
                 }
@@ -406,6 +394,9 @@ impl AgentRuntime {
                 };
 
                 if let Some(text) = fallback_text {
+                    let phase = resolve_hop_phase(None, is_final_hop);
+                    let phase_str = phase.map(|p| p.as_str().to_string())
+                        .unwrap_or_else(|| if is_final_hop { "final_answer".to_string() } else { "commentary".to_string() });
                     let mut msg = crate::lcm::types::StoredMessage::new(
                         crate::lcm::types::MessageId::new(), &lcm_conv_id,
                         crate::lcm::types::MessageRole::Assistant, &text,
@@ -413,9 +404,11 @@ impl AgentRuntime {
                     );
                     msg.metadata.insert("request_id".to_string(), serde_json::Value::String(request_id.to_string()));
                     msg.metadata.insert("response_id".to_string(), serde_json::Value::String(response_id.clone()));
-                    msg.metadata.insert("phase".to_string(), serde_json::Value::String(
-                        if is_final_hop { "final" } else { "assistant" }.to_string(),
-                    ));
+                    msg.metadata.insert("phase".to_string(), serde_json::Value::String(phase_str));
+                    // Attach thinking directly to the fallback message.
+                    if let Some(ref thinking_text) = hop_thinking_text {
+                        msg.thinking = Some(thinking_text.clone());
+                    }
                     batch_messages.push(msg);
                 }
 
@@ -455,6 +448,7 @@ impl AgentRuntime {
                 let engine = lcm_engine;
                 let now_ms = crate::conversation_store_utils::now_unix_ms();
                 let lcm_conv_id = conversation_id.to_string();
+                let tool_request_id = req.request_id.as_deref().unwrap_or("unknown");
                 let lcm_tool_results = executed_batch.tool_results_items.clone();
                 let lcm_tool_calls = executed_batch.executed_tool_call_items.clone();
                 let mut batch_messages: Vec<crate::lcm::types::StoredMessage> = Vec::new();
@@ -475,6 +469,7 @@ impl AgentRuntime {
                     metadata.insert("call_id".to_string(), serde_json::Value::String(call_id.to_string()));
                     metadata.insert("tool_name".to_string(), serde_json::Value::String(name.to_string()));
                     metadata.insert("arguments".to_string(), serde_json::Value::String(arguments.to_string()));
+                    metadata.insert("request_id".to_string(), serde_json::Value::String(tool_request_id.to_string()));
                     let mut msg = crate::lcm::types::StoredMessage::new(
                         crate::lcm::types::MessageId::new(), &lcm_conv_id,
                         crate::lcm::types::MessageRole::Tool, arguments,
@@ -492,6 +487,7 @@ impl AgentRuntime {
                         metadata.insert("message_type".to_string(), serde_json::Value::String("function_call_output".to_string()));
                         metadata.insert("call_id".to_string(), serde_json::Value::String(call_id.to_string()));
                         metadata.insert("tool_name".to_string(), serde_json::Value::String(tool_name.to_string()));
+                        metadata.insert("request_id".to_string(), serde_json::Value::String(tool_request_id.to_string()));
                         let mut msg = crate::lcm::types::StoredMessage::new(
                             crate::lcm::types::MessageId::new(), &lcm_conv_id,
                             crate::lcm::types::MessageRole::Tool, output_str,

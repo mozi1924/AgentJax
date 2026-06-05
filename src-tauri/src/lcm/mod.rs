@@ -198,7 +198,11 @@ pub fn stored_messages_to_conversation_lines(
                         .get("phase")
                         .and_then(|v| v.as_str())
                         .and_then(|s| match s {
-                            "commentary" => Some(crate::message_phase::AssistantPhase::Commentary),
+                            "commentary" | "assistant" => {
+                                // "assistant" is a legacy value from an older
+                                // fallback path — treat it as commentary.
+                                Some(crate::message_phase::AssistantPhase::Commentary)
+                            }
                             "final" | "final_answer" => {
                                 Some(crate::message_phase::AssistantPhase::FinalAnswer)
                             }
@@ -210,6 +214,8 @@ pub fn stored_messages_to_conversation_lines(
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown")
                         .to_string();
+                    let thinking = msg.thinking.clone();
+                    let thinking_token_count = thinking.as_ref().map(|t| crate::lcm::types::estimate_tokens(t));
                     Some(ConversationLine::Assistant(AssistantLine {
                         id,
                         ts,
@@ -217,8 +223,8 @@ pub fn stored_messages_to_conversation_lines(
                         response_id,
                         phase,
                         text: msg.content.clone(),
-                        thinking: None,
-                        thinking_token_count: None,
+                        thinking,
+                        thinking_token_count,
                         status: AssistantStatus::Done,
                     }))
                 }

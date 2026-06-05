@@ -154,8 +154,8 @@ impl LcmStore {
         let file_refs_json = serde_json::to_string(&msg.file_refs).unwrap_or_default();
 
         conn.execute(
-            "INSERT OR IGNORE INTO messages (id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, search_text, metadata_json, file_refs_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT OR IGNORE INTO messages (id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, thinking, search_text, metadata_json, file_refs_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 msg.id.as_str(),
                 msg.conversation_id,
@@ -164,6 +164,7 @@ impl LcmStore {
                 msg.token_count,
                 msg.timestamp_unix_ms,
                 msg.covered_by.as_ref().map(|s| s.as_str()),
+                msg.thinking.as_deref(),
                 msg.search_text(),
                 metadata_json,
                 file_refs_json,
@@ -187,8 +188,8 @@ impl LcmStore {
         {
             let mut stmt = tx
                 .prepare(
-                    "INSERT OR IGNORE INTO messages (id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, search_text, metadata_json, file_refs_json)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    "INSERT OR IGNORE INTO messages (id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, thinking, search_text, metadata_json, file_refs_json)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 )
                 .map_err(|e| LcmError::Store(format!("Failed to prepare insert: {e}")))?;
 
@@ -203,6 +204,7 @@ impl LcmStore {
                     msg.token_count,
                     msg.timestamp_unix_ms,
                     msg.covered_by.as_ref().map(|s| s.as_str()),
+                    msg.thinking.as_deref(),
                     msg.search_text(),
                     metadata_json,
                     file_refs_json,
@@ -229,7 +231,7 @@ impl LcmStore {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, metadata_json, file_refs_json
+                "SELECT id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, thinking, metadata_json, file_refs_json
                  FROM messages WHERE id = ?1",
             )
             .map_err(|e| LcmError::Store(format!("Failed to prepare query: {e}")))?;
@@ -237,8 +239,9 @@ impl LcmStore {
         let result = stmt
             .query_row(params![id.as_str()], |row| {
                 let covered_by: Option<String> = row.get(6)?;
-                let metadata_json: String = row.get::<_, String>(7).unwrap_or_default();
-                let file_refs_json: String = row.get::<_, String>(8).unwrap_or_default();
+                let thinking: Option<String> = row.get(7)?;
+                let metadata_json: String = row.get::<_, String>(8).unwrap_or_default();
+                let file_refs_json: String = row.get::<_, String>(9).unwrap_or_default();
                 let metadata: BTreeMap<String, Value> =
                     serde_json::from_str(&metadata_json).unwrap_or_default();
                 let file_refs: Vec<FileRefId> =
@@ -251,6 +254,7 @@ impl LcmStore {
                     token_count: row.get(4)?,
                     timestamp_unix_ms: row.get(5)?,
                     covered_by: covered_by.map(SummaryId::from),
+                    thinking,
                     metadata,
                     file_refs,
                 })
@@ -272,7 +276,7 @@ impl LcmStore {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, metadata_json, file_refs_json
+                "SELECT id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, thinking, metadata_json, file_refs_json
                  FROM messages
                  WHERE conversation_id = ?1
                  ORDER BY timestamp_unix_ms ASC",
@@ -282,8 +286,9 @@ impl LcmStore {
         let rows = stmt
             .query_map(params![conversation_id], |row| {
                 let covered_by: Option<String> = row.get(6)?;
-                let metadata_json: String = row.get::<_, String>(7).unwrap_or_default();
-                let file_refs_json: String = row.get::<_, String>(8).unwrap_or_default();
+                let thinking: Option<String> = row.get(7)?;
+                let metadata_json: String = row.get::<_, String>(8).unwrap_or_default();
+                let file_refs_json: String = row.get::<_, String>(9).unwrap_or_default();
                 let metadata: BTreeMap<String, Value> =
                     serde_json::from_str(&metadata_json).unwrap_or_default();
                 let file_refs: Vec<FileRefId> =
@@ -296,6 +301,7 @@ impl LcmStore {
                     token_count: row.get(4)?,
                     timestamp_unix_ms: row.get(5)?,
                     covered_by: covered_by.map(SummaryId::from),
+                    thinking,
                     metadata,
                     file_refs,
                 })
@@ -468,6 +474,7 @@ impl LcmStore {
                         token_count: row.get(4)?,
                         timestamp_unix_ms: row.get(5)?,
                         covered_by: covered_by.map(SummaryId::from),
+                        thinking: None,
                         metadata,
                         file_refs,
                     },
@@ -1167,6 +1174,7 @@ CREATE TABLE IF NOT EXISTS messages (
     token_count INTEGER NOT NULL DEFAULT 0,
     timestamp_unix_ms INTEGER NOT NULL,
     covered_by TEXT,
+    thinking TEXT,
     search_text TEXT NOT NULL DEFAULT '',
     metadata_json TEXT NOT NULL DEFAULT '{}',
     file_refs_json TEXT NOT NULL DEFAULT '[]',
@@ -1302,6 +1310,7 @@ const SCHEMA_MIGRATIONS: &[&str] = &[
     )",
     "CREATE INDEX IF NOT EXISTS idx_reasoning_conv ON reasoning_chains(conversation_id)",
     "CREATE INDEX IF NOT EXISTS idx_reasoning_response ON reasoning_chains(response_id)",
+    "ALTER TABLE messages ADD COLUMN thinking TEXT",
 ];
 
 fn parse_role(s: &str) -> Result<MessageRole, rusqlite::Error> {

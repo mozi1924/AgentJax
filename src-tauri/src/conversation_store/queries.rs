@@ -7,7 +7,7 @@ use super::paths::{
 use super::types::{
     CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY, CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
     CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY, CONVERSATION_TOKEN_USAGE_METADATA_KEY,
-    AssistantLine, ConversationDetail, ConversationDynamicTool, ConversationLine,
+    ConversationDetail, ConversationDynamicTool, ConversationLine,
     ConversationMeta, ConversationMountedMcpServer, ConversationMountedToolDefinition,
     ConversationMountedToolSource, ConversationSummary, TitleGenerationCandidate,
 };
@@ -163,50 +163,10 @@ fn try_load_from_lcm(
     }
 
     // Convert LCM StoredMessages to ConversationLines.
-    let lines = crate::lcm::stored_messages_to_conversation_lines(&messages);
-
-    // ── Enrich assistant lines with reasoning content ────────────────
-    let reasoning_ids: Vec<String> = messages
-        .iter()
-        .filter_map(|msg| {
-            msg.metadata
-                .get("reasoning_id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        })
-        .collect();
-
-    let reasoning_map = if !reasoning_ids.is_empty() {
-        store
-            .get_reasoning_batch(&reasoning_ids)
-            .unwrap_or_else(|e| {
-                log::warn!("Failed to load reasoning chains: {e}");
-                std::collections::HashMap::new()
-            })
-    } else {
-        std::collections::HashMap::new()
-    };
-
-    let lines: Vec<ConversationLine> = lines
-        .into_iter()
-        .map(|line| {
-            if let ConversationLine::Assistant(ref a) = line
-                && let Some(msg) = messages.iter().find(|m| m.id.as_str() == a.id)
-                && let Some(rid) = msg
-                    .metadata
-                    .get("reasoning_id")
-                    .and_then(|v| v.as_str())
-                && let Some(chain) = reasoning_map.get(rid)
-            {
-                return ConversationLine::Assistant(AssistantLine {
-                    thinking: Some(chain.text.clone()),
-                    thinking_token_count: Some(chain.token_count),
-                    ..a.clone()
-                });
-            }
-            line
-        })
-        .collect();
+    // Thinking content is read directly from the StoredMessage.thinking field
+    // (no separate reasoning_chains enrichment needed).
+    let lines: Vec<ConversationLine> =
+        crate::lcm::stored_messages_to_conversation_lines(&messages);
 
     // Read metadata from the legacy metadata.json (title, timestamps, etc.).
     let (title, title_source, context_token_count) =

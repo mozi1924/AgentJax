@@ -265,6 +265,7 @@ impl LcmEngine {
                 id: msg.id.clone(),
                 role: msg.role,
                 content: msg.content.clone(),
+                thinking: msg.thinking.clone(),
                 metadata: msg.metadata.clone(),
             };
 
@@ -329,6 +330,7 @@ impl LcmEngine {
                         id: msg.id.clone(),
                         role: msg.role,
                         content: msg.content.clone(),
+                        thinking: msg.thinking.clone(),
                         metadata: msg.metadata.clone(),
                     };
                     ctx.token_count += msg.token_count;
@@ -581,6 +583,7 @@ impl LcmEngine {
                         token_count: summary.token_count,
                         timestamp_unix_ms: summary.created_at_unix_ms,
                         covered_by: None,
+                        thinking: None,
                         metadata: std::collections::BTreeMap::new(),
                         file_refs: summary.file_refs.clone(),
                     };
@@ -873,6 +876,7 @@ impl LcmEngine {
                         id: msg.id.clone(),
                         role: msg.role,
                         content: msg.content.clone(),
+                        thinking: msg.thinking.clone(),
                         metadata: msg.metadata.clone(),
                     };
 
@@ -1188,6 +1192,7 @@ mod tests {
             id: MessageId::from("msg-1"),
             role: MessageRole::User,
             content: "Hello".to_string(),
+            thinking: None,
             metadata: BTreeMap::new(),
         }];
 
@@ -1240,6 +1245,7 @@ mod tests {
                 id: MessageId::from("msg-1"),
                 role: MessageRole::User,
                 content: "First".to_string(),
+                thinking: None,
                 metadata: BTreeMap::new(),
             },
             ContextEntry::SummaryPointer {

@@ -178,6 +178,7 @@ pub fn persist_assistant_line(
     response_id: &str,
     phase: Option<AssistantPhase>,
     text: &str,
+    thinking: Option<&str>,
     jsonl_backup_enabled: bool,
 ) -> Result<(), String> {
     if !jsonl_backup_enabled {
@@ -188,6 +189,8 @@ pub fn persist_assistant_line(
         return Ok(());
     }
     let ts = now_unix_ms();
+    let thinking = thinking.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let thinking_token_count = thinking.as_ref().map(|t| crate::lcm::types::estimate_tokens(t));
     let line = ConversationLine::Assistant(AssistantLine {
         id: format!("asst-{request_id}-{}", ts),
         ts,
@@ -195,8 +198,8 @@ pub fn persist_assistant_line(
         response_id: response_id.to_string(),
         phase,
         text,
-        thinking: None,
-        thinking_token_count: None,
+        thinking,
+        thinking_token_count,
         status: AssistantStatus::Done,
     });
     conversation_store::append_line(agent_id, conversation_store::AppendLineInput {

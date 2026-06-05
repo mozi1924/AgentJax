@@ -208,6 +208,7 @@ export default function WorkLogPanel({
                 if (item.kind === 'assistant') {
                   const text = (item.line.text || '').trim();
                   const isDraft = item.line.status === 'draft';
+                  const hasThinking = item.line.thinking && item.line.thinking.trim();
 
                   return (
                     <div
@@ -229,6 +230,23 @@ export default function WorkLogPanel({
                       </span>
 
                       <div className="rounded-xl bg-transparent py-0.5 text-sm text-slate-300">
+                        {hasThinking && (
+                          <details className="mb-2" open={isDraft}>
+                            <summary className="cursor-pointer text-xs font-medium text-indigo-300/70 hover:text-indigo-200 transition-colors select-none">
+                              {isDraft ? (
+                                <span className="inline-flex items-center gap-1.5">
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  {t('chat.thinking')}
+                                </span>
+                              ) : (
+                                t('chat.thinking')
+                              )}
+                            </summary>
+                            <div className="mt-1.5 border-l-2 border-indigo-500/20 pl-3 text-xs text-slate-400 leading-relaxed whitespace-pre-wrap">
+                              {item.line.thinking}
+                            </div>
+                          </details>
+                        )}
                         {text ? (
                           <div className="prose prose-invert prose-sm max-w-none [&_code]:!rounded-md [&_code]:!bg-[#1b1c1d] [&_code]:!px-1.5 [&_code]:!py-0.5 [&_code]:!text-[11px] [&_code]:!text-slate-200 [&_p]:!my-1 [&_pre]:!rounded-xl [&_pre]:!border [&_pre]:!border-zinc-800 [&_pre]:!bg-[#0c0d0e]">
                             {renderMarkdown(
@@ -239,7 +257,7 @@ export default function WorkLogPanel({
                               t
                             )}
                           </div>
-                        ) : (
+                        ) : hasThinking ? null : (
                           <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
                             <Loader2 className="h-3 w-3 animate-spin" />
                             {t('chat.thinking')}
