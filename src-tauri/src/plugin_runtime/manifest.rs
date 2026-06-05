@@ -144,6 +144,23 @@ pub struct PluginProviderDefinition {
     /// When present, the host applies credentials server-side.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<AuthConfig>,
+
+    /// Declarative reasoning/thinking schema.
+    ///
+    /// Tells the framework what extra_body fields to inject when reasoning
+    /// mode is enabled for this provider. This is in addition to standard
+    /// protocol-level reasoning fields (e.g. `reasoning_effort` for Chat
+    /// Completions, `reasoning` object for Responses API).
+    ///
+    /// Example (DeepSeek needs `thinking: {"type": "enabled"}`):
+    /// ```json
+    /// {"enabledExtraBody": {"thinking": {"type": "enabled"}}}
+    /// ```
+    ///
+    /// When absent or empty, no extra reasoning fields are injected and the
+    /// framework relies solely on standard protocol-level reasoning handling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_schema: Option<ReasoningSchema>,
 }
 
 impl Default for PluginProviderDefinition {
@@ -160,6 +177,7 @@ impl Default for PluginProviderDefinition {
             model_routing: Vec::new(),
             builtin_models: Vec::new(),
             auth: None,
+            reasoning_schema: None,
         }
     }
 }
@@ -200,6 +218,38 @@ fn default_input_schema() -> Value {
         "type": "object",
         "properties": {}
     })
+}
+
+// ── Reasoning Schema ───────────────────────────────────────────────────────
+
+/// Declarative schema for how a provider handles reasoning/thinking mode.
+///
+/// Each provider can declare what extra HTTP body fields to inject when
+/// reasoning is enabled. Standard protocol-level reasoning fields
+/// (`reasoning_effort`, `reasoning` object, etc.) are handled by the protocol
+/// implementations (`chat.rs`, `responses.rs`) and do NOT need to be declared
+/// here. This schema only covers **additional** provider-specific fields.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReasoningSchema {
+    /// Extra body fields to merge into the request payload when reasoning is
+    /// enabled. The framework deep-merges these into `extra_body` before the
+    /// payload is serialized.
+    ///
+    /// For DeepSeek:
+    /// ```json
+    /// {"thinking": {"type": "enabled"}}
+    /// ```
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub enabled_extra_body: BTreeMap<String, Value>,
+}
+
+impl Default for ReasoningSchema {
+    fn default() -> Self {
+        Self {
+            enabled_extra_body: BTreeMap::new(),
+        }
+    }
 }
 
 fn default_api_version() -> u32 {

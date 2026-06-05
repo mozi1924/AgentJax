@@ -120,18 +120,24 @@ where
         }
     }
 
-    // DeepSeek requires `thinking: {"type": "enabled"}` for reasoning mode.
-    // Inject it when reasoning is enabled and the caller hasn't suppressed
-    // model extra_body merging.
+    // Apply the provider's reasoning schema: inject any extra_body fields
+    // declared in the provider's plugin.json `reasoningSchema.enabledExtraBody`
+    // when reasoning mode is enabled. This replaces the old hardcoded DeepSeek
+    // check with a fully declarative approach — any provider can declare what
+    // extra fields are needed for reasoning mode.
     if !req.skip_model_extra_body
-        && resolved.provider.kind == "deepseek"
         && req.reasoning.as_ref().is_some_and(|r| r.enabled)
-        && !req.extra_body.contains_key("thinking")
     {
-        req.extra_body.insert(
-            "thinking".to_string(),
-            serde_json::json!({"type": "enabled"}),
-        );
+        if let Some(reasoning_schema) =
+            registry::provider_definition(&resolved.provider.kind)
+                .and_then(|def| def.reasoning_schema)
+        {
+            for (key, value) in &reasoning_schema.enabled_extra_body {
+                req.extra_body
+                    .entry(key.clone())
+                    .or_insert_with(|| value.clone());
+            }
+        }
     }
 
     // Determine which protocol to use

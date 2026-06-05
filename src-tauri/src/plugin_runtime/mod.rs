@@ -24,7 +24,7 @@ pub use discovery::{PluginPackage, discover_all_plugin_packages, discover_home_p
 #[allow(unused_imports)]
 pub use manifest::{
     AuthConfig, AuthPlacement, BuiltinModelDescriptor, ModelRoutingRule, PluginManifest,
-    PluginProviderDefinition, PluginToolDefinition,
+    PluginProviderDefinition, PluginToolDefinition, ReasoningSchema,
 };
 pub use runtime::{
     PluginRuntimeError, PluginRuntimeResult, create_temp_plugin_instance,

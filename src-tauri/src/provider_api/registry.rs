@@ -1,8 +1,8 @@
 use crate::agentjax_err;
 use crate::config::{ModelRequestConfig, ProviderConfig, ProviderModelConfig};
 use crate::plugin_runtime::{
-    BuiltinModelDescriptor, PluginPackage, PluginProviderDefinition, builtin_plugin_packages,
-    provider_definitions_for_package,
+    BuiltinModelDescriptor, PluginPackage, PluginProviderDefinition, ReasoningSchema,
+    builtin_plugin_packages, provider_definitions_for_package,
 };
 use crate::tools::ToolSchemaFormat;
 use serde_json::Value;
@@ -30,6 +30,9 @@ pub struct DynamicProviderDefinition {
     pub supports_protocols: Vec<String>,
     /// Built-in model descriptors.
     pub builtin_models: Vec<BuiltinModelDescriptor>,
+    /// Declarative reasoning schema from plugin.json.
+    /// Describes what extra_body fields to inject when reasoning is enabled.
+    pub reasoning_schema: Option<ReasoningSchema>,
 }
 
 pub fn builtin_provider_definitions() -> Vec<DynamicProviderDefinition> {
@@ -204,6 +207,7 @@ fn dynamic_provider_definition_from_plugin(
         default_config,
         supports_protocols,
         builtin_models: plugin_provider.builtin_models,
+        reasoning_schema: plugin_provider.reasoning_schema,
     })
 }
 

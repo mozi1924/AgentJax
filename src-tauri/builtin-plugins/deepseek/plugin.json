@@ -68,6 +68,11 @@
           "key": "Authorization",
           "format": "Bearer {key}"
         }
+      },
+      "reasoningSchema": {
+        "enabledExtraBody": {
+          "thinking": { "type": "enabled" }
+        }
       }
     }
   ]
