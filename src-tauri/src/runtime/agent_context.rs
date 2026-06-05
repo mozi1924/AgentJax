@@ -8,6 +8,8 @@
 //!   for the main conversation agent.
 //! - **`InMemoryContext`** — Simple in-memory message buffer for ephemeral
 //!   sub-agents. No disk I/O, no compaction, auto-cleaned on drop.
+//! - **`MemoryAgentContext`** — Read-only view of the parent conversation's
+//!   recent LCM history. Used by the background memory agent.
 
 use crate::error::AgentJaxResult;
 use crate::lcm::types::{MessageRole, StoredMessage};
@@ -209,6 +211,167 @@ impl AgentContext for InMemoryContext {
     async fn persist_messages(&self, msgs: &[StoredMessage]) -> AgentJaxResult<()> {
         let mut guard = self.messages.lock().await;
         guard.extend_from_slice(msgs);
+        Ok(())
+    }
+}
+
+// ── MemoryAgentContext ───────────────────────────────────────────────────────
+
+/// Agent context that reads the parent conversation's recent history from LCM.
+///
+/// Used by the background memory agent. Provides a lightweight view of the
+/// last N messages from the parent conversation — suitable for evaluating
+/// whether new memories should be written. Unlike `LcmAgentContext`, this
+/// does NOT persist messages (the memory agent doesn't generate conversation
+/// history) and does NOT run compaction.
+pub struct MemoryAgentContext {
+    /// The parent conversation ID to read from.
+    parent_conv_id: String,
+    /// Maximum number of recent messages to include.
+    max_messages: usize,
+    /// Cached provider-ready context items, built during `rebuild()`.
+    items: tokio::sync::Mutex<Vec<Value>>,
+}
+
+impl MemoryAgentContext {
+    pub fn new(parent_conv_id: impl Into<String>) -> Self {
+        Self {
+            parent_conv_id: parent_conv_id.into(),
+            max_messages: 20,
+            items: tokio::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Set the maximum number of recent messages to load.
+    pub fn with_max_messages(mut self, n: usize) -> Self {
+        self.max_messages = n;
+        self
+    }
+}
+
+#[async_trait::async_trait]
+impl AgentContext for MemoryAgentContext {
+    async fn rebuild(&self, _conversation_id: &str) -> AgentJaxResult<()> {
+        // Open the parent conversation's LCM store and read recent messages.
+        let store_path = crate::lcm::lcm_store_path(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &self.parent_conv_id,
+        )
+        .map_err(|e| {
+            crate::error::AgentJaxError::internal(format!(
+                "Memory agent: failed to get LCM path: {e}"
+            ))
+        })?;
+
+        let lcm_config = crate::lcm::LcmConfig::default();
+        let store = crate::lcm::LcmStore::open(&store_path, lcm_config).map_err(|e| {
+            crate::error::AgentJaxError::internal(format!(
+                "Memory agent: failed to open LCM store: {e}"
+            ))
+        })?;
+
+        // Read all messages for the parent conversation and take the last N.
+        let all_messages = store
+            .get_conversation_messages(&self.parent_conv_id)
+            .map_err(|e| {
+                crate::error::AgentJaxError::internal(format!(
+                    "Memory agent: failed to read LCM messages: {e}"
+                ))
+            })?;
+
+        let recent: Vec<&StoredMessage> = all_messages
+            .iter()
+            .rev()
+            .take(self.max_messages)
+            .rev()
+            .collect();
+
+        // Convert to provider-ready items using the same logic as InMemoryContext.
+        let mut items = Vec::with_capacity(recent.len());
+        for msg in recent {
+            match msg.role {
+                MessageRole::User => {
+                    items.push(serde_json::json!({
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": &msg.content}]
+                    }));
+                }
+                MessageRole::Assistant => {
+                    if let Some(ref t) = msg.thinking {
+                        let trimmed = t.trim();
+                        if !trimmed.is_empty() {
+                            items.push(serde_json::json!({
+                                "type": "reasoning",
+                                "text": trimmed,
+                            }));
+                        }
+                    }
+                    items.push(serde_json::json!({
+                        "role": "assistant",
+                        "content": [{"type": "input_text", "text": &msg.content}]
+                    }));
+                }
+                MessageRole::Tool => {
+                    if let Some(msg_type) = msg.metadata.get("message_type").and_then(|v| v.as_str()) {
+                        match msg_type {
+                            "function_call" => {
+                                let call_id = msg.metadata.get("call_id")
+                                    .and_then(|v| v.as_str()).unwrap_or("");
+                                let name = msg.metadata.get("tool_name")
+                                    .and_then(|v| v.as_str()).unwrap_or("");
+                                let arguments = msg.metadata.get("arguments")
+                                    .and_then(|v| v.as_str()).unwrap_or("{}");
+                                items.push(serde_json::json!({
+                                    "type": "function_call",
+                                    "call_id": call_id,
+                                    "name": name,
+                                    "arguments": arguments,
+                                }));
+                            }
+                            "function_call_output" => {
+                                let call_id = msg.metadata.get("call_id")
+                                    .and_then(|v| v.as_str()).unwrap_or("");
+                                items.push(serde_json::json!({
+                                    "type": "function_call_output",
+                                    "call_id": call_id,
+                                    "output": &msg.content,
+                                }));
+                            }
+                            _ => {
+                                items.push(serde_json::json!({
+                                    "role": "user",
+                                    "content": [{"type": "input_text", "text": &msg.content}]
+                                }));
+                            }
+                        }
+                    } else {
+                        items.push(serde_json::json!({
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": &msg.content}]
+                        }));
+                    }
+                }
+            }
+        }
+
+        let mut guard = self.items.lock().await;
+        *guard = items;
+        Ok(())
+    }
+
+    fn context_items(&self) -> Vec<Value> {
+        self.items.try_lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_default()
+    }
+
+    async fn persist_message(&self, _msg: &StoredMessage) -> AgentJaxResult<()> {
+        // Memory agent does not generate conversation history — no-op.
+        Ok(())
+    }
+
+    async fn persist_messages(&self, _msgs: &[StoredMessage]) -> AgentJaxResult<()> {
+        // Memory agent does not generate conversation history — no-op.
         Ok(())
     }
 }

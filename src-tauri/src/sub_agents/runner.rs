@@ -9,7 +9,7 @@
 
 use crate::commands::chat::ChatRequest;
 use crate::config::{AgentConfig, AppConfig};
-use crate::runtime::agent_context::InMemoryContext;
+use crate::runtime::agent_context::{AgentContext, InMemoryContext};
 use crate::provider_api::types::ProviderStreamEvent;
 use crate::sub_agents::events::SubAgentEvent;
 use crate::sub_agents::manager::{HARD_MAX_TURNS, SubAgentManager, SubAgentTask};
@@ -260,12 +260,12 @@ pub async fn run_memory_agent(
     log::info!("Memory agent {}: started", agent_id);
 
     // Open memory store.
-    let memory_store = match crate::memory::store::MemoryStore::open(
+    let memory_store: std::sync::Arc<crate::memory::store::MemoryStore> = match crate::memory::store::MemoryStore::open(
         crate::agentjax_home::agentjax_home_dir()
             .unwrap_or_else(|_| std::path::PathBuf::from("."))
             .join("memory"),
     ) {
-        Ok(store) => store,
+        Ok(store) => std::sync::Arc::new(store),
         Err(e) => {
             log::error!(
                 "Memory agent {}: failed to open memory store: {e}",
@@ -304,14 +304,18 @@ pub async fn run_memory_agent(
                     }
                 };
 
-                // Load parent conversation context from LCM.
-                let conv_context =
-                    load_conversation_context(&spec.parent_conversation_id).unwrap_or_default();
+                // Load parent conversation context via MemoryAgentContext.
+                let mem_ctx = crate::runtime::agent_context::MemoryAgentContext::new(
+                    &spec.parent_conversation_id,
+                );
+                if let Err(e) = mem_ctx.rebuild(&spec.parent_conversation_id).await {
+                    log::warn!("Memory agent {}: failed to load LCM context: {e}", agent_id);
+                    continue;
+                }
+                let context_items = mem_ctx.context_items();
 
-                // Build the prompt instructing the LLM to classify and act.
-                // Now includes both the memory index AND the actual conversation context
-                // so the LLM can evaluate what was actually said.
-                let prompt = build_memory_agent_prompt(&index_content, &conv_context);
+                // Build the prompt with only the memory index (context is injected separately).
+                let prompt = build_memory_agent_prompt(&index_content);
 
                 // Resolve the model (use utility_small_model or default).
                 let model_id = if agent_config.utility_small_model.is_empty() {
@@ -320,51 +324,48 @@ pub async fn run_memory_agent(
                     agent_config.utility_small_model.clone()
                 };
 
-                // Call the provider with instructions as system role.
-                let request = crate::provider_api::types::ResponseStreamRequest {
-                    input_items: vec![serde_json::json!({
-                        "role": "system",
-                        "content": [{"type": "input_text", "text": prompt}]
-                    })],
-                    model: Some(model_id),
-                    reasoning: None,
-                    instructions_override: None,
-                    text: None,
-                    include: None,
-                    service_tier: None,
-                    prompt_cache_key: None,
-                    client_metadata: None,
-                    generate: None,
-                    tools: None,
-                    tool_choice: None,
-                    ..Default::default()
-                };
+                // Define memory tools for the agent loop.
+                let tool_definitions = vec![
+                    memory_search_schema(),
+                    memory_recall_schema(),
+                    memory_write_schema(),
+                ];
 
-                let (_cancel_tx, mut cancel_rx) = tokio::sync::watch::channel(false);
-                match crate::provider_api::stream_response(
+                // Create tool handlers backed by the memory store.
+                let tool_handlers: Vec<Box<dyn ToolHandler>> = vec![
+                    Box::new(MemorySearchHandler {
+                        store: memory_store.clone(),
+                    }),
+                    Box::new(MemoryRecallHandler {
+                        store: memory_store.clone(),
+                    }),
+                    Box::new(MemoryWriteHandler {
+                        store: memory_store.clone(),
+                        parent_conv_id: spec.parent_conversation_id.clone(),
+                    }),
+                ];
+
+                match crate::runtime::tool_loop::run_tool_loop(
+                    &prompt,
+                    context_items,
+                    tool_definitions,
+                    tool_handlers,
+                    &model_id,
+                    3,
                     &app_config,
                     &agent_config,
-                    &request,
-                    &mut cancel_rx,
-                    |_event| Ok(()),
                 )
                 .await
                 {
-                    Ok(response) => {
-                        let text = response.output_text.trim().to_string();
-                        if text.is_empty() {
+                    Ok(text) => {
+                        if text.is_empty() || text.contains(r#""action": "ignore""#) {
+                            log::info!("Memory agent {}: IGNORE — no memories written", agent_id);
                             continue;
                         }
-                        // Parse the LLM output for memory operations.
-                        execute_memory_operations(
-                            &memory_store,
-                            &text,
-                            agent_id,
-                            &spec.parent_conversation_id,
-                        );
+                        execute_memory_operations(&memory_store, &text, agent_id, &spec.parent_conversation_id);
                     }
                     Err(e) => {
-                        log::warn!("Memory agent {}: LLM call failed: {e}", agent_id);
+                        log::warn!("Memory agent {}: tool loop failed: {e}", agent_id);
                     }
                 }
             }
@@ -373,53 +374,247 @@ pub async fn run_memory_agent(
 }
 
 /// Build the classification prompt for the memory agent.
-fn build_memory_agent_prompt(index_content: &str, conversation_context: &str) -> String {
+///
+/// The prompt includes the memory index and instructions. Conversation
+/// context is injected separately via `MemoryAgentContext` as provider items.
+fn build_memory_agent_prompt(index_content: &str) -> String {
     let has_memories = index_content.contains("\n## ");
     let memory_context = if has_memories {
         format!("## Existing Memory Index\n\n{}\n\n---\n", index_content)
     } else {
-        "No existing memories found.\n\n".to_string()
-    };
-    // Include actual conversation context for the LLM to evaluate.
-    let conv_context = if conversation_context.is_empty() {
-        "(No conversation messages available.)".to_string()
-    } else {
-        format!(
-            "## Recent Conversation Context\n\n{}\n\n---\n",
-            conversation_context
-        )
+        "No existing memories found.\n\n---\n".to_string()
     };
 
     format!(
         "You are a background memory observer agent. Your role is to review the \
          conversation and manage persistent memories across sessions.\n\n\
-         {memory_context}{conv_context}\
+         {memory_context}\
          ## Instructions\n\n\
-         Review the conversation context above and decide if there is any new, \
-         corrected, or updated information worth remembering across sessions.\n\n\
-         Classify each insight into ONE of:\n\
-         - CREATE: Entirely new topic → write a new memory with a kebab-case name, \
-           a one-line description, a type (user/feedback/project/reference), and the body.\n\
-         - APPEND: Existing memory about the same topic, new developments → append new \
-           info to the existing body. Include the full updated content.\n\
-         - UPDATE: Existing memory needs correction (user corrected previous info) → \
-           replace the content.\n\
-         - IGNORE: No new memory-worthy content in this conversation.\n\n\
-         ## Rules\n\
-         1. ALWAYS check existing memories before CREATE to avoid duplicates.\n\
-         2. When APPENDing, include the original content + new info together.\n\
-         3. User corrections are high-priority UPDATE signals.\n\
-         4. Casual conversation, small talk → IGNORE.\n\
-         5. Technical preferences, project conventions, architectural decisions → CREATE.\n\n\
+         Review the recent conversation context (provided below) and decide if there \
+         is any new, corrected, or updated information worth remembering.\n\n\
+         You have access to memory tools:\n\
+         - **memory_search(query)**: Search existing memories before creating new ones.\n\
+         - **memory_recall(name)**: Read the full content of a specific memory.\n\
+         - **memory_write(name, description, type, tags, body)**: Create or update a memory.\n\n\
+         ## Workflow\n\n\
+         1. Use memory_search to check for existing memories related to the topic.\n\
+         2. If you find an existing memory that needs updating, use memory_recall \
+           to read it, then memory_write with the updated content.\n\
+         3. For entirely new information, use memory_write directly.\n\
+         4. If nothing noteworthy happened, output: {{\"action\": \"ignore\"}}\n\n\
+         ## Memory Types\n\
+         - **user**: User preferences, personal info, habits\n\
+         - **feedback**: User corrections, complaints, suggestions\n\
+         - **project**: Code architecture, conventions, decisions\n\
+         - **reference**: External references (URLs, docs)\n\n\
          ## Output Format\n\n\
-         If IGNORE, output exactly: {{\"action\": \"ignore\"}}\n\n\
-         Otherwise, output a JSON object with the memory operation:\n\
-         {{\"action\": \"create\", \"name\": \"kebab-case-name\", \"description\": \"...\", \
-         \"type\": \"project\", \"tags\": [\"tag1\"], \"body\": \"markdown body\"}}\n\n\
-         For APPEND: {{\"action\": \"append\", \"name\": \"existing-name\", \"body\": \"full updated body\"}}\n\
-         For UPDATE: {{\"action\": \"update\", \"name\": \"existing-name\", \"body\": \"corrected body\"}}\n\n\
-         Output ONLY valid JSON. No markdown fences, no commentary."
+         When done, output a JSON object with the final result:\n\
+         - For ignore: {{\"action\": \"ignore\"}}\n\
+         - For create: {{\"action\": \"create\", \"name\": \"kebab-case-name\", ...}}\n\
+         - For append: {{\"action\": \"append\", \"name\": \"existing-name\", \"body\": \"...\"}}\n\
+         - For update: {{\"action\": \"update\", \"name\": \"existing-name\", \"body\": \"...\"}}\n\n\
+         Output ONLY valid JSON at the end. No markdown fences, no commentary."
     )
+}
+
+// ── Memory Tool Schemas ──────────────────────────────────────────────────────
+
+fn memory_search_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "function",
+        "name": "memory_search",
+        "description": "Search across all stored memories. Returns ranked results with snippets.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query. Matches against name, description, tags, and body."
+                },
+                "maxResults": {
+                    "type": "integer",
+                    "description": "Maximum number of results (default 10).",
+                    "default": 10
+                }
+            },
+            "required": ["query"]
+        }
+    })
+}
+
+fn memory_recall_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "function",
+        "name": "memory_recall",
+        "description": "Recall the full content of a specific memory by name.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The name (kebab-case slug) of the memory to recall."
+                }
+            },
+            "required": ["name"]
+        }
+    })
+}
+
+fn memory_write_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "function",
+        "name": "memory_write",
+        "description": "Write or update a persistent memory entry.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Short kebab-case slug (e.g., 'project-architecture')."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "One-line summary."
+                },
+                "memoryType": {
+                    "type": "string",
+                    "enum": ["user", "feedback", "project", "reference"],
+                    "description": "The type of memory.",
+                    "default": "project"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional tags."
+                },
+                "body": {
+                    "type": "string",
+                    "description": "The memory content. Can include [[wikilinks]]."
+                }
+            },
+            "required": ["name", "description", "body"]
+        }
+    })
+}
+
+// ── Memory Tool Handlers ──────────────────────────────────────────────────────
+
+use crate::runtime::tool_loop::ToolHandler;
+
+struct MemorySearchHandler {
+    store: std::sync::Arc<crate::memory::store::MemoryStore>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for MemorySearchHandler {
+    fn name(&self) -> &str {
+        "memory_search"
+    }
+
+    async fn execute(&self, arguments: &str) -> String {
+        let args: serde_json::Value = match serde_json::from_str(arguments) {
+            Ok(v) => v,
+            Err(e) => return format!("{{\"error\": \"Invalid arguments: {e}\"}}"),
+        };
+        let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+        let max_results = args.get("maxResults").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+
+        match crate::memory::search::search_memories(&self.store, query, max_results) {
+            Ok(results) => serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string()),
+            Err(e) => format!("{{\"error\": \"{e}\"}}"),
+        }
+    }
+}
+
+struct MemoryRecallHandler {
+    store: std::sync::Arc<crate::memory::store::MemoryStore>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for MemoryRecallHandler {
+    fn name(&self) -> &str {
+        "memory_recall"
+    }
+
+    async fn execute(&self, arguments: &str) -> String {
+        let args: serde_json::Value = match serde_json::from_str(arguments) {
+            Ok(v) => v,
+            Err(e) => return format!("{{\"error\": \"Invalid arguments: {e}\"}}"),
+        };
+        let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("");
+
+        match self.store.read_memory(name) {
+            Ok(memory) => serde_json::json!({
+                "name": memory.frontmatter.name,
+                "description": memory.frontmatter.description,
+                "type": memory.frontmatter.memory_type.as_str(),
+                "tags": memory.frontmatter.tags,
+                "links": memory.frontmatter.links,
+                "body": memory.body,
+            }).to_string(),
+            Err(e) => format!("{{\"error\": \"Memory '{name}' not found: {e}\"}}"),
+        }
+    }
+}
+
+struct MemoryWriteHandler {
+    store: std::sync::Arc<crate::memory::store::MemoryStore>,
+    parent_conv_id: String,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for MemoryWriteHandler {
+    fn name(&self) -> &str {
+        "memory_write"
+    }
+
+    async fn execute(&self, arguments: &str) -> String {
+        let args: serde_json::Value = match serde_json::from_str(arguments) {
+            Ok(v) => v,
+            Err(e) => return format!("{{\"error\": \"Invalid arguments: {e}\"}}"),
+        };
+
+        let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let description = args.get("description").and_then(|v| v.as_str()).unwrap_or("");
+        let body = args.get("body").and_then(|v| v.as_str()).unwrap_or("");
+        let memory_type_str = args.get("memoryType").and_then(|v| v.as_str()).unwrap_or("project");
+        let tags: Vec<String> = args.get("tags")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let memory_type = crate::memory::types::MemoryType::from_str(memory_type_str)
+            .unwrap_or(crate::memory::types::MemoryType::Project);
+
+        if name.is_empty() || body.is_empty() {
+            return "{{\"error\": \"Missing required fields: name, body\"}}".to_string();
+        }
+
+        let links = crate::sub_agents::runner::extract_wikilinks_from_body(body);
+        let memory = crate::memory::types::ParsedMemory {
+            frontmatter: crate::memory::types::MemoryFrontmatter {
+                name: name.to_string(),
+                description: description.to_string(),
+                memory_type,
+                tags,
+                links,
+            },
+            body: body.to_string(),
+        };
+
+        match self.store.write_memory(&memory) {
+            Ok(()) => {
+                crate::street::StreetManager::deposit(crate::street::StreetItem::new(
+                    &self.parent_conv_id,
+                    crate::street::StreetSource::MemoryAgent,
+                    crate::street::Priority::Low,
+                    &format!("Memory updated: '{name}'"),
+                    serde_json::json!({"action": "write", "name": name, "type": memory_type_str}),
+                ));
+                format!("{{\"ok\": true, \"name\": \"{name}\", \"action\": \"written\"}}")
+            }
+            Err(e) => format!("{{\"error\": \"Failed to write memory: {e}\"}}"),
+        }
+    }
 }
 
 /// Parse the LLM output and execute memory operations via MemoryStore.
