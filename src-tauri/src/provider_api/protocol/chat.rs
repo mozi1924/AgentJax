@@ -261,11 +261,25 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
                 let content_value = item.get("content").cloned().unwrap_or(Value::Null);
                 if content_value.is_null() { continue; }
                 if let Some(arr) = content_value.as_array() {
+                    // Chat Completions uses "text" type, while Responses API uses
+                    // "input_text". Treat both equivalently so cross-protocol
+                    // input items work (e.g. DeepSeek via chat_completions).
                     let has_non_text = arr.iter().any(|part| {
-                        !matches!(part.get("type").and_then(Value::as_str), Some("text") | None)
+                        let ptype = part.get("type").and_then(Value::as_str);
+                        !matches!(ptype, Some("text") | Some("input_text") | None)
                     });
                     if has_non_text {
-                        messages.push(json!({"role": role, "content": arr}));
+                        // For non-text parts (images, files, etc.), pass the
+                        // array as-is but normalize known Responses API types
+                        // to Chat Completions equivalents.
+                        let normalized: Vec<Value> = arr.iter().map(|part| {
+                            let mut p = part.clone();
+                            if let Some("input_text") = p.get("type").and_then(Value::as_str) {
+                                p["type"] = json!("text");
+                            }
+                            p
+                        }).collect();
+                        messages.push(json!({"role": role, "content": normalized}));
                     } else {
                         let text = arr.iter()
                             .filter_map(|part| part.get("text").and_then(Value::as_str))

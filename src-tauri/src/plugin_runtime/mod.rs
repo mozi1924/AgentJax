@@ -278,8 +278,9 @@ mod tests {
             .map(|package| package.manifest.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(packages.len(), 1, "Expected 1 built-in provider plugin (openai)");
-        assert!(plugin_ids.contains(&"agentjax.provider.openai"), "Expected openai plugin, got: {:?}", plugin_ids);
+        assert_eq!(packages.len(), 2, "Expected 2 built-in provider plugins (openai, deepseek), got: {plugin_ids:?}");
+        assert!(plugin_ids.contains(&"agentjax.provider.openai"), "Expected openai plugin, got: {plugin_ids:?}");
+        assert!(plugin_ids.contains(&"agentjax.provider.deepseek"), "Expected deepseek plugin, got: {plugin_ids:?}");
 
         for package in packages {
             let providers = provider_definitions_for_package(&package)

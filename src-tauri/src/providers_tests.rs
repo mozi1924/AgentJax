@@ -46,14 +46,21 @@ mod tests {
             .map(|definition| definition.kind.as_str())
             .collect::<Vec<_>>();
 
-        assert!(kinds.contains(&"openai"));
-        assert_eq!(kinds.len(), 1, "expected exactly 1 built-in provider (openai), got {kinds:?}");
+        assert!(kinds.contains(&"openai"), "expected openai provider, got {kinds:?}");
+        assert!(kinds.contains(&"deepseek"), "expected deepseek provider, got {kinds:?}");
 
         let openai = definitions
             .iter()
             .find(|definition| definition.kind == "openai")
             .expect("openai provider plugin should be registered");
         assert_eq!(openai.tool_schema_format, ToolSchemaFormat::Responses);
+
+        let deepseek = definitions
+            .iter()
+            .find(|definition| definition.kind == "deepseek")
+            .expect("deepseek provider plugin should be registered");
+        assert_eq!(deepseek.tool_schema_format, ToolSchemaFormat::ChatCompletions);
+        assert_eq!(deepseek.default_model_ids, vec!["deepseek-v4-flash", "deepseek-v4-pro"]);
     }
 
     #[test]
@@ -204,6 +211,85 @@ mod tests {
             )),
             "{provider_kind} did not emit text stream events"
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires configured real upstream credentials and network access"]
+    async fn real_deepseek_smoke_from_local_config() {
+        if std::env::var("AGENTJAX_REAL_PROVIDER_SMOKE")
+            .ok()
+            .as_deref()
+            != Some("1")
+        {
+            eprintln!("Skip provider smoke test. Set AGENTJAX_REAL_PROVIDER_SMOKE=1 to enable.");
+            return;
+        }
+
+        ensure_rustls_crypto_provider();
+        let config = crate::config::load_config().expect("load local AgentJax config");
+        let provider_kind = "deepseek";
+
+        let model_ref = first_enabled_model_ref_for_kind(&config, provider_kind)
+            .unwrap_or_else(|| panic!("missing enabled model for provider kind {provider_kind}"));
+        eprintln!("Using model ref: {model_ref}");
+        let resolved = config
+            .resolve_model_profile(Some(&model_ref))
+            .expect("resolve smoke-test model");
+        assert!(
+            resolved.provider.resolved_credential().is_some(),
+            "provider kind {provider_kind} has no resolved credential"
+        );
+        eprintln!("Protocol: {:?}, Endpoint: {}", resolved.api_protocol, resolved.provider.api_endpoint());
+
+        let user_item = provider_api::build_user_input_item(
+            provider_kind,
+            "Reply with exactly this token and no extra words: agentjax-smoke-ok",
+        )
+        .expect("build provider user input");
+        let request = ResponseStreamRequest {
+            input_items: vec![user_item],
+            model: Some(model_ref.clone()),
+            reasoning_effort: None,
+            instructions_override: None,
+            text: None,
+            include: None,
+            service_tier: None,
+            prompt_cache_key: None,
+            client_metadata: None,
+            generate: None,
+            tools: None,
+            tool_choice: None,
+            ..Default::default()
+        };
+
+        let (_cancel_tx, mut cancel_rx) = watch::channel(false);
+        let mut events = Vec::new();
+        let result = tokio::time::timeout(
+            Duration::from_secs(120),
+            provider_api::stream_response(&config, &crate::config::AgentConfig::default(), &request, &mut cancel_rx, |event| {
+                events.push(event);
+                Ok(())
+            }),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("{provider_kind} smoke test timed out"))
+        .unwrap_or_else(|err| panic!("{provider_kind} smoke test failed: {err}"));
+
+        eprintln!("Output text: {:?}", &result.output_text);
+        assert!(
+            !result.output_text.trim().is_empty(),
+            "{provider_kind} returned empty output text"
+        );
+        assert!(
+            events.iter().any(|event| matches!(
+                event,
+                ProviderStreamEvent::OutputTextDelta { .. }
+                    | ProviderStreamEvent::AssistantMessageCompleted { .. }
+                    | ProviderStreamEvent::HopAssistantText { .. }
+            )),
+            "{provider_kind} did not emit text stream events"
+        );
+        eprintln!("{provider_kind} smoke test PASSED");
     }
 
     fn first_enabled_model_ref_for_kind(
