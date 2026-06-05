@@ -9,10 +9,9 @@
 
 use crate::commands::chat::ChatRequest;
 use crate::config::{AgentConfig, AppConfig};
-use crate::runtime::agent_context::LcmAgentContext;
+use crate::runtime::agent_context::InMemoryContext;
 use crate::provider_api::types::ProviderStreamEvent;
 use crate::sub_agents::events::SubAgentEvent;
-use crate::sub_agents::lcm_context::SubAgentLcmContext;
 use crate::sub_agents::manager::{HARD_MAX_TURNS, SubAgentManager, SubAgentTask};
 use crate::sub_agents::types::SubAgentSpec;
 use crate::sub_agents::worktree::Worktree;
@@ -26,7 +25,7 @@ use tokio::sync::mpsc;
 /// Run a sub-agent task to completion.
 ///
 /// This function is called inside a `tokio::spawn` block. It:
-/// 1. Creates an isolated LCM engine for the sub-agent
+/// 1. Creates an in-memory context for the sub-agent
 /// 2. Optionally creates a git worktree
 /// 3. Builds a ChatRequest from the spec
 /// 4. Calls AgentRuntime::run_turn
@@ -50,25 +49,16 @@ pub async fn run_sub_agent(
         parent_request_id: spec.parent_request_id.clone(),
     });
 
-    // ── Create isolated LCM ───────────────────────────────────────────────
-    let lcm_config = agent_config.context_management.to_lcm_config();
-    let sub_lcm = match SubAgentLcmContext::create(
-        &spec.parent_conversation_id,
+    // ── Create isolated in-memory context ─────────────────────────────────
+    // Sub-agents use a lightweight in-memory message buffer. No SQLite,
+    // no compaction, no disk I/O — automatically cleaned up on drop.
+    let sub_conv_id = format!(
+        "{}/sub-agent/{}/{}",
+        spec.parent_conversation_id,
         spec.subagent_type.as_str(),
-        &agent_id,
-        &lcm_config,
-    ) {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            let _ = event_tx.send(SubAgentEvent::Failed {
-                agent_id: agent_id.clone(),
-                error: format!("Failed to create LCM context: {e}"),
-                duration_ms: 0,
-            });
-            SubAgentManager::fail(&task, format!("LCM initialization failed: {e}"));
-            return;
-        }
-    };
+        agent_id
+    );
+    let agent_ctx = InMemoryContext::new();
 
     // Emit started event.
     let _ = event_tx.send(SubAgentEvent::Started {
@@ -99,7 +89,7 @@ pub async fn run_sub_agent(
     let model_id = spec.model_id.clone();
     let sub_req = ChatRequest {
         input: build_sub_agent_instructions(&spec),
-        conversation_id: Some(sub_lcm.conversation_id.clone()),
+        conversation_id: Some(sub_conv_id.clone()),
         model: model_id.or_else(|| {
             if agent_config.utility_small_model.is_empty() {
                 Some(agent_config.default_model.clone())
@@ -154,12 +144,11 @@ pub async fn run_sub_agent(
     let closure_event_tx = event_tx.clone();
     let closure_agent_id = agent_id.clone();
     let run_event_tx = event_tx.clone(); // For the tool execution context
-    let agent_ctx = LcmAgentContext::new(sub_lcm.engine.clone());
     let result = crate::runtime::AgentRuntime::run_turn(
         &app_config,
         &agent_config,
         &sub_req,
-        &sub_lcm.conversation_id,
+        &sub_conv_id,
         crate::conversation_store_utils::now_unix_ms(),
         Vec::new(), // No prior context for sub-agents
         None,       // No recovery note

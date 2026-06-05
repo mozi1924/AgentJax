@@ -8,13 +8,13 @@
 //!
 //! ```text
 //! Main Agent Turn
-//!   ├─ Calls spawn_sub_agent tool → returns immediately with agent_id
+//!   ├─ Calls sub_agent tool → returns immediately with agent_id
 //!   ├─ Main agent continues its turn loop
-//!   ├─ Later: sub_agent_status(agent_id) → gets progress/results
-//!   └─ Optional: cancel_sub_agent(agent_id) → stops the sub-agent
+//!   ├─ Later: sub_agent(action='status', agentId=...) → gets progress
+//!   └─ Optional: sub_agent(action='cancel', agentId=...) → stops the sub-agent
 //!
 //! Sub-Agent (runs in tokio::spawn)
-//!   ├─ Isolated LCM store at {parent_conv}/sub_agents/{agent_id}/lcm.db
+//!   ├─ In-memory context (no disk I/O, auto-cleaned on drop)
 //!   ├─ Calls AgentRuntime::run_turn (reuses full engine infrastructure)
 //!   ├─ Streams progress events → frontend via chat_stream_event channel
 //!   └─ Stores result in SubAgentTask state, notifies waiters
@@ -26,12 +26,13 @@
 //!   outlive individual Tauri command invocations.
 //! - **Reuse `AgentRuntime::run_turn`** — sub-agents get full multi-hop tool-using
 //!   capability for free.
+//! - **In-memory context** — ephemeral sub-agents don't need SQLite or LCM;
+//!   a lightweight `Vec<StoredMessage>` suffices.
 //! - **Scope-narrowing invariant** (from `sub_agent_tools.rs`) — non-root sub-agents
 //!   must declare `delegated_scope` and `kept_work` to prevent infinite delegation
 //!   chains.
 
 pub(crate) mod events;
-mod lcm_context;
 pub(crate) mod manager;
 pub(crate) mod runner;
 pub(crate) mod types;
