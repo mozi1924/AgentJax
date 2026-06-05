@@ -168,15 +168,6 @@ pub enum RetryResult<T> {
 }
 
 impl<T> RetryResult<T> {
-    /// Convert to `Option<T>`, discarding errors.
-    #[allow(dead_code)] // Reserved for future use
-    pub fn ok(self) -> Option<T> {
-        match self {
-            RetryResult::Success(val) => Some(val),
-            _ => None,
-        }
-    }
-
     /// Convert to `Result<T, AgentJaxError>`.
     pub fn into_result(self) -> Result<T, crate::error::AgentJaxError> {
         match self {

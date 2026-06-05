@@ -694,6 +694,7 @@ mod tests {
                 id: LcmId::new(),
                 role: MessageRole::User,
                 content: "Hello world!".to_string(), // 12 chars ≈ 3 tokens
+                thinking: None,
                 metadata: BTreeMap::new(),
             },
             ContextEntry::SummaryPointer {

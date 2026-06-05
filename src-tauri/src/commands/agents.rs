@@ -5,7 +5,6 @@
 
 use crate::config::agent_config::{AgentConfig, AgentRegistry};
 use crate::config::constants::DEFAULT_AGENT_ID;
-use crate::error::AgentJaxResult;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 

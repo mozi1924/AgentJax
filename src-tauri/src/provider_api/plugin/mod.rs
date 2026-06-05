@@ -401,8 +401,7 @@ fn finalize_and_build_result(
         model_profile: resolved.profile_key.clone(),
         model_id: resolved.model_id.clone(),
         capabilities,
-        reasoning_text: None,
-        reasoning_tokens: None,
+
     })
 }
 

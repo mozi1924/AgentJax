@@ -129,13 +129,6 @@ pub fn build_merged_schema() -> Value {
     build_merged_config_schema()
 }
 
-/// Build only the AppConfig schema (useful for targeted checks).
-#[allow(dead_code)]
-pub(crate) fn build_app_config_schema() -> Value {
-    let schema = schemars::schema_for!(super::AppConfig);
-    serde_json::to_value(&schema).expect("AppConfig schemars schema must serialise to JSON")
-}
-
 // ── Tree walker ────────────────────────────────────────────────────────────
 
 fn validate_node(

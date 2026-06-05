@@ -34,7 +34,6 @@
 pub mod compaction;
 pub mod dag;
 pub mod engine;
-pub mod file_handler;
 pub mod store;
 pub mod summarizer;
 pub mod tools;
@@ -72,11 +71,9 @@ pub fn lcm_store_path(agent_id: &str, conversation_id: &str) -> AgentJaxResult<P
 
 /// Open (or create) the LCM store and engine for a conversation.
 ///
-/// LCM is the sole context management engine and is always active.
-/// Uses `NoopSummarizer` by default — call `open_lcm_engine_with_summarizer`
-/// when `AppConfig` is available for provider-backed summarization.
+/// Uses `NoopSummarizer` by default.
 /// Currently only used in tests; production uses `open_lcm_engine_with_summarizer`.
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn open_lcm_engine(
     agent_id: &str,
     conversation_id: &str,
@@ -343,6 +340,7 @@ mod smoke_tests {
             covered_by: None,
             metadata,
             file_refs: Vec::new(),
+            thinking: None,
         }
     }
 

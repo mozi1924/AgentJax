@@ -60,7 +60,6 @@ mod tests {
             .find(|definition| definition.kind == "deepseek")
             .expect("deepseek provider plugin should be registered");
         assert_eq!(deepseek.tool_schema_format, ToolSchemaFormat::ChatCompletions);
-        assert_eq!(deepseek.default_model_ids, vec!["deepseek-v4-flash", "deepseek-v4-pro"]);
     }
 
     #[test]

@@ -27,7 +27,7 @@ use truncation::truncate_context_items_preserving_tool_pairs;
 pub use budget::{TokenBudget, truncate_items_to_budget, estimate_input_items_tokens};
 pub use token_usage::{
     ConversationTokenUsage, TokenCountFunctionCall, TokenCountMessage,
-    count_conversation_context_tokens, count_conversation_prompt_tokens, count_messages_tokens,
+    count_conversation_prompt_tokens, count_messages_tokens,
     count_request_prompt_tokens, count_text_tokens, count_tool_schema_tokens,
 };
 pub use types::ConversationContext;

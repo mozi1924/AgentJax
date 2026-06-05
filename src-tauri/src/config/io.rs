@@ -99,7 +99,32 @@ pub fn load_full_config(agent_id: &str) -> AgentJaxResult<FullConfig> {
 /// Ensure the default agent profile exists on disk.
 /// Writes a default `agent.yaml` from the existing `AppConfig` fields for migration.
 pub fn ensure_default_agent_profile() -> AgentJaxResult<()> {
-    crate::agentjax_home::ensure_default_agent()?;
+    // Create the default agent profile if it doesn't exist.
+    let agent_id = crate::config::constants::DEFAULT_AGENT_ID;
+    let agent_dir = crate::agentjax_home::agent_dir(agent_id)?;
+    let config_path = agent_dir.join(crate::config::constants::AGENT_CONFIG_FILE_NAME);
+    if !config_path.exists() {
+        std::fs::create_dir_all(&agent_dir).map_err(|err| {
+            crate::error::AgentJaxError::config(format!(
+                "Failed to create default agent directory {}: {err}",
+                agent_dir.display()
+            ))
+            .with_error_source(&err)
+        })?;
+        let config = crate::config::agent_config::AgentConfig::default();
+        let yaml = serde_yaml::to_string(&config).map_err(|e| {
+            crate::error::AgentJaxError::config(format!(
+                "Failed to serialize default agent config: {e}"
+            ))
+        })?;
+        std::fs::write(&config_path, yaml).map_err(|err| {
+            crate::error::AgentJaxError::config(format!(
+                "Failed to write default agent config at {}: {err}",
+                config_path.display()
+            ))
+            .with_error_source(&err)
+        })?;
+    }
     Ok(())
 }
 

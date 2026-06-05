@@ -316,47 +316,11 @@ pub fn get_model_metadata(
 
 // ── Internal Helpers ───────────────────────────────────────────────────────
 
-/// Match a model ID against a glob pattern used in `ModelRoutingRule`.
-///
-/// Supports the subset of glob needed for model routing:
-/// - `*` — matches everything (catch-all)
-/// - `prefix*` — starts with prefix
-/// - `*suffix` — ends with suffix
-/// - `*substring*` — contains substring
-/// - Literal — exact match
-fn glob_match(pattern: &str, model_id: &str) -> bool {
-    if pattern == "*" {
-        return true;
-    }
-    if let Some(prefix) = pattern.strip_suffix('*') {
-        // prefix* or *prefix* pattern
-        if let Some(suffix) = prefix.strip_prefix('*') {
-            // *suffix or *substring*
-            if pattern.starts_with('*') {
-                // *substring* — contains
-                model_id.contains(suffix)
-            } else {
-                // *suffix — ends with (starts_with('*') is false but prefix[0]=='*')
-                model_id.ends_with(suffix)
-            }
-        } else {
-            // prefix* — simple starts-with
-            model_id.starts_with(prefix)
-        }
-    } else if let Some(suffix) = pattern.strip_prefix('*') {
-        // *suffix — starts with * but doesn't end with *
-        model_id.ends_with(suffix)
-    } else {
-        model_id == pattern
-    }
-}
-
 /// Map a provider kind and optional model ID to a known protocol.
 ///
 /// Resolution order:
 /// 1. `api_protocol` override (per-model config)
-/// 2. `model_routing` glob matching from the provider definition (Phase 3)
-/// 3. Legacy `supports_protocols` heuristic (for providers without model_routing)
+/// 2. Legacy `supports_protocols` heuristic
 fn resolve_protocol(
     provider_kind: &str,
     model_id: &str,
@@ -370,19 +334,7 @@ fn resolve_protocol(
         }
     }
 
-    // 2. Check model_routing from the provider definition (Phase 3)
-    if let Some(def) = crate::provider_api::registry::provider_definition(provider_kind) {
-        if !def.model_routing.is_empty() {
-            let normalized = model_id.trim().to_lowercase();
-            for rule in &def.model_routing {
-                if glob_match(&rule.pattern, &normalized) {
-                    return Some(rule.protocol.clone());
-                }
-            }
-        }
-    }
-
-    // 3. Fall back to supports_protocols heuristic (legacy providers)
+    // Fall back to supports_protocols heuristic (legacy providers)
     let protocols = crate::provider_api::registry::provider_supports_protocols(provider_kind);
     if protocols.is_empty() {
         return None;

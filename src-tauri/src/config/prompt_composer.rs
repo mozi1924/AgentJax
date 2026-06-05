@@ -15,14 +15,7 @@ pub enum PromptBlockRole {
     System,
 }
 
-impl PromptBlockRole {
-    #[allow(dead_code)] // Reserved API
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::System => "system",
-        }
-    }
-}
+impl PromptBlockRole {}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -33,16 +26,7 @@ pub enum PromptBlockSource {
     Plugin,
 }
 
-impl PromptBlockSource {
-    #[allow(dead_code)] // Reserved API
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Builtin => "builtin",
-            Self::Plugin => "plugin",
-        }
-    }
-}
+
 
 // ── Structs ────────────────────────────────────────────────────────────────
 
@@ -78,8 +62,6 @@ pub struct CompiledPromptAssembly {
     pub instructions_text: String,
     /// Individual system items — one per enabled block — for native protocol paths.
     pub system_items: Vec<Value>,
-    #[allow(dead_code)] // Reserved API
-    pub preview_markdown: String,
 }
 
 // ── Defaults ───────────────────────────────────────────────────────────────
@@ -185,30 +167,6 @@ pub fn normalize_prompt_composer(composer: PromptComposerConfig) -> PromptCompos
     }
 }
 
-/// Return a JSON value suitable for YAML serialization.
-///
-/// Built-in and plugin blocks are abbreviated to only `{id, enabled}` so the
-/// user's config file is clean and does not expose framework-internal content.
-pub fn abbreviate_prompt_composer_for_yaml(config: &PromptComposerConfig) -> Value {
-    let blocks: Vec<Value> = config
-        .blocks
-        .iter()
-        .map(|block| {
-            if block.source == PromptBlockSource::User {
-                // User blocks are serialized in full.
-                serde_json::to_value(block).unwrap_or_default()
-            } else {
-                // Built-in / plugin blocks: only id + enabled.
-                json!({
-                    "id": block.id,
-                    "enabled": block.enabled
-                })
-            }
-        })
-        .collect();
-    json!({ "blocks": blocks })
-}
-
 // ── Compilation ────────────────────────────────────────────────────────────
 
 pub fn compile_prompt_composer(composer: &PromptComposerConfig) -> CompiledPromptAssembly {
@@ -259,7 +217,6 @@ pub fn compile_prompt_composer(composer: &PromptComposerConfig) -> CompiledPromp
     CompiledPromptAssembly {
         instructions_text,
         system_items,
-        preview_markdown: preview_sections.join("\n\n"),
     }
 }
 

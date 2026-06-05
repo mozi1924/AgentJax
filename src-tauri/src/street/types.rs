@@ -35,17 +35,6 @@ impl StreetSource {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "subAgent" => Some(StreetSource::SubAgent),
-            "backgroundJob" => Some(StreetSource::BackgroundJob),
-            "memoryAgent" => Some(StreetSource::MemoryAgent),
-            "system" => Some(StreetSource::System),
-            "external" => Some(StreetSource::External),
-            _ => None,
-        }
-    }
 }
 
 // ── Priority ───────────────────────────────────────────────────────────────
@@ -70,36 +59,6 @@ impl Priority {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "low" => Some(Priority::Low),
-            "normal" => Some(Priority::Normal),
-            "high" => Some(Priority::High),
-            "urgent" => Some(Priority::Urgent),
-            _ => None,
-        }
-    }
-
-    /// Map a priority string to a numeric level for threshold comparison.
-    #[allow(dead_code)]
-    pub fn level(&self) -> u8 {
-        match self {
-            Priority::Low => 0,
-            Priority::Normal => 1,
-            Priority::High => 2,
-            Priority::Urgent => 3,
-        }
-    }
-
-    /// Whether this priority meets or exceeds a threshold given as a string.
-    #[allow(dead_code)]
-    pub fn meets_threshold(&self, threshold: &str) -> bool {
-        let threshold_level = Priority::from_str(threshold)
-            .map(|p| p.level())
-            .unwrap_or(3); // unrecognized = treat as urgent (safe default)
-        self.level() >= threshold_level
-    }
 }
 
 // ── Street Item Status ─────────────────────────────────────────────────────
@@ -208,35 +167,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_source_roundtrip() {
-        for variant in &[
-            StreetSource::SubAgent,
-            StreetSource::BackgroundJob,
-            StreetSource::MemoryAgent,
-            StreetSource::System,
-            StreetSource::External,
-        ] {
-            let s = variant.as_str();
-            let parsed = StreetSource::from_str(s);
-            assert_eq!(parsed, Some(variant.clone()), "roundtrip failed for {s}");
-        }
-    }
-
-    #[test]
     fn test_priority_ordering() {
         assert!(Priority::Urgent > Priority::High);
         assert!(Priority::High > Priority::Normal);
         assert!(Priority::Normal > Priority::Low);
-    }
-
-    #[test]
-    fn test_priority_meets_threshold() {
-        assert!(Priority::Urgent.meets_threshold("urgent"));
-        assert!(Priority::Urgent.meets_threshold("high"));
-        assert!(Priority::Urgent.meets_threshold("normal"));
-        assert!(Priority::High.meets_threshold("high"));
-        assert!(!Priority::Normal.meets_threshold("high"));
-        assert!(!Priority::Low.meets_threshold("normal"));
     }
 
     #[test]

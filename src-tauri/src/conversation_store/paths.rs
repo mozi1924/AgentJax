@@ -1,4 +1,3 @@
-use crate::config::constants::DEFAULT_AGENT_ID;
 use crate::conversation_store_utils::sanitize_conversation_id;
 use crate::error::{AgentJaxError, AgentJaxResult};
 use std::fs;
@@ -9,11 +8,6 @@ const METADATA_FILE_NAME: &str = "metadata.json";
 const MESSAGES_FILE_NAME: &str = "messages.jsonl";
 const LCM_DB_FILE_NAME: &str = "lcm.db";
 const WORKSPACE_DIR_NAME: &str = "workspace";
-
-/// Alias to agentjax home for convenience.
-pub fn agentjax_home_dir() -> AgentJaxResult<PathBuf> {
-    crate::agentjax_home::agentjax_home_dir()
-}
 
 /// `~/.agentjax/agents/{agent_id}/sessions/` — root for all conversations of an agent.
 pub fn conversations_dir_path(agent_id: &str) -> AgentJaxResult<PathBuf> {
@@ -97,24 +91,4 @@ pub fn list_conversation_ids(agent_id: &str) -> AgentJaxResult<Vec<String>> {
     Ok(out)
 }
 
-// ── Default agent convenience shims ───────────────────────────────────────
 
-/// Convenience: calls `conversations_dir_path(DEFAULT_AGENT_ID)` for tests/backfill.
-pub fn default_default_conversations_dir_path() -> AgentJaxResult<PathBuf> {
-    conversations_dir_path(DEFAULT_AGENT_ID)
-}
-
-/// Convenience: calls `conversation_dir_path(DEFAULT_AGENT_ID, conversation_id)`.
-pub fn default_conversation_dir_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
-    conversation_dir_path(DEFAULT_AGENT_ID, conversation_id)
-}
-
-/// Convenience: calls `conversation_workspace_path(DEFAULT_AGENT_ID, conversation_id)`.
-pub fn default_conversation_workspace_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
-    conversation_workspace_path(DEFAULT_AGENT_ID, conversation_id)
-}
-
-/// Convenience: calls `list_conversation_ids(DEFAULT_AGENT_ID)`.
-pub fn default_list_conversation_ids() -> AgentJaxResult<Vec<String>> {
-    list_conversation_ids(DEFAULT_AGENT_ID)
-}

@@ -1,7 +1,7 @@
 use crate::agentjax_err;
 use crate::config::{ModelRequestConfig, ProviderConfig, ProviderModelConfig};
 use crate::plugin_runtime::{
-    BuiltinModelDescriptor, ModelRoutingRule, PluginPackage, PluginProviderDefinition,
+    BuiltinModelDescriptor, PluginPackage, PluginProviderDefinition,
     builtin_plugin_packages, provider_definitions_for_package,
 };
 use crate::tools::ToolSchemaFormat;
@@ -26,15 +26,8 @@ pub struct DynamicProviderDefinition {
     pub config_schema: Value,
     pub capabilities: ProviderCapabilities,
     pub tool_schema_format: ToolSchemaFormat,
-    #[allow(dead_code)]
-    pub default_model_ids: Vec<String>,
     pub default_config: ProviderConfig,
     pub supports_protocols: Vec<String>,
-
-    // ── Phase 2: declarative fields ─────────────────────────────────────
-    /// Ordered glob-based model routing rules.
-    #[allow(dead_code)]
-    pub model_routing: Vec<ModelRoutingRule>,
     /// Built-in model descriptors.
     pub builtin_models: Vec<BuiltinModelDescriptor>,
 }
@@ -88,15 +81,6 @@ pub fn register_plugin_providers_from_packages(packages: impl IntoIterator<Item 
     }
 }
 
-#[allow(dead_code)] // Reserved for future use
-pub fn register_plugin_provider(plugin_provider: PluginProviderDefinition) {
-    let Ok(definition) = dynamic_provider_definition_from_plugin(plugin_provider, None) else {
-        return;
-    };
-
-    insert_provider_definition(definition);
-}
-
 pub fn register_plugin_provider_from_package(
     package: PluginPackage,
     plugin_provider: PluginProviderDefinition,
@@ -121,14 +105,6 @@ fn insert_provider_definition(definition: DynamicProviderDefinition) {
     sort_provider_definitions(&mut registry);
 }
 
-#[allow(dead_code)]
-pub fn unregister_plugin_provider(provider_kind: &str) {
-    let mut registry = get_registry().write().unwrap();
-    let normalized = normalize_provider_kind(provider_kind);
-    registry.retain(|definition| definition.kind != normalized);
-}
-
-#[allow(dead_code)]
 pub fn provider_definitions() -> Vec<DynamicProviderDefinition> {
     get_registry().read().unwrap().clone()
 }
@@ -225,10 +201,8 @@ fn dynamic_provider_definition_from_plugin(
         config_schema,
         capabilities,
         tool_schema_format,
-        default_model_ids,
         default_config,
         supports_protocols,
-        model_routing: plugin_provider.model_routing,
         builtin_models: plugin_provider.builtin_models,
     })
 }

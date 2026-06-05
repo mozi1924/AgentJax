@@ -2,7 +2,7 @@ use super::file_io::{read_conversation_file, read_conversation_meta, summary_fro
 use super::locks::{cached_summary, replace_cached_summary, with_conversation_lock};
 use super::paths::{
     conversation_messages_path, conversation_metadata_path, list_conversation_ids,
-    conversation_lcm_db_path,
+
 };
 use super::types::{
     CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY, CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
@@ -12,7 +12,6 @@ use super::types::{
     ConversationMountedToolSource, ConversationSummary, TitleGenerationCandidate,
 };
 use serde_json::Value;
-use std::path::Path;
 
 fn token_count_from_usage_value(value: &Value) -> Option<usize> {
     value

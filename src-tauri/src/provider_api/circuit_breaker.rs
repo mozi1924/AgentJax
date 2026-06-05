@@ -67,28 +67,6 @@ impl Default for CircuitBreakerConfig {
     }
 }
 
-impl CircuitBreakerConfig {
-    /// Aggressive circuit breaker for auth errors (quick to open, slow to recover).
-    #[allow(dead_code)] // Reserved for future use
-    pub fn aggressive() -> Self {
-        Self {
-            failure_threshold: 2,
-            cooldown_duration: Duration::from_secs(120),
-            success_threshold: 3,
-        }
-    }
-
-    /// Lenient circuit breaker for transient errors.
-    #[allow(dead_code)] // Reserved for future use
-    pub fn lenient() -> Self {
-        Self {
-            failure_threshold: 5,
-            cooldown_duration: Duration::from_secs(10),
-            success_threshold: 1,
-        }
-    }
-}
-
 /// Per-provider circuit breaker state.
 struct BreakerState {
     config: CircuitBreakerConfig,

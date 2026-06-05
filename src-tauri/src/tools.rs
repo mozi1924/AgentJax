@@ -120,10 +120,6 @@ pub trait Tool: Send + Sync {
         )
     }
 
-    #[allow(dead_code)] // Reserved for future use
-    fn to_schema(&self) -> Value {
-        self.to_schema_with_format(ToolSchemaFormat::Responses)
-    }
 }
 
 #[derive(Clone, Default)]
@@ -154,13 +150,6 @@ pub struct ToolExecutionContext {
     /// and sub-agent contexts.
     pub sub_agent_id: Option<String>,
 
-    /// Override LCM store for sub-agent contexts.
-    /// When set, LCM tools (lcm_grep, lcm_describe, lcm_expand) use this
-    /// store instead of the parent's store, ensuring sub-agents operate
-    /// on their own isolated conversation history.
-    #[allow(dead_code)]
-    pub lcm_store_override: Option<Arc<crate::lcm::LcmStore>>,
-
     /// The sub-agent type when executing in a sub-agent context.
     /// Used to gate tools that are exclusive to specific sub-agent types
     /// (e.g., memory_write is only available to the Memory sub-agent).
@@ -187,7 +176,6 @@ impl std::fmt::Debug for ToolExecutionContext {
             .field("hop_index", &self.hop_index)
             .field("app_config", &self.app_config)
             .field("sub_agent_id", &self.sub_agent_id)
-            .field("lcm_store_override", &self.lcm_store_override.as_ref().map(|_| "Arc<LcmStore>"))
             .field("sub_agent_type", &self.sub_agent_type)
             .field("is_memory_sub_agent", &self.is_memory_sub_agent)
             .field("sub_agent_event_tx", &self.sub_agent_event_tx.as_ref().map(|_| "mpsc::UnboundedSender"))
@@ -207,7 +195,6 @@ impl ToolExecutionContext {
             app_config: None,
             agent_config: None,
             sub_agent_id: None,
-            lcm_store_override: None,
             sub_agent_type: None,
             is_memory_sub_agent: false,
             sub_agent_event_tx: None,

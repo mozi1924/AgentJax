@@ -13,7 +13,7 @@ mod tests;
 #[allow(unused_imports)]
 pub use context::{
     ConversationTokenUsage, TokenBudget, TokenCountFunctionCall, TokenCountMessage,
-    count_conversation_context_tokens, count_conversation_prompt_tokens, count_messages_tokens,
+    count_conversation_prompt_tokens, count_messages_tokens,
     count_request_prompt_tokens, count_text_tokens, count_tool_schema_tokens,
     estimate_input_items_tokens, load_context_for_request, truncate_items_to_budget,
 };
@@ -25,11 +25,9 @@ pub use mutations::{
 };
 #[allow(unused_imports)]
 #[cfg(test)]
-pub use paths::conversation_dir_path;
 #[allow(unused_imports)]
-pub use paths::{
-    conversation_workspace_path, default_conversation_workspace_path,
-};
+pub use paths::conversation_dir_path;
+pub use paths::conversation_workspace_path;
 pub use queries::{
     list_conversations, load_conversation, load_conversation_dynamic_tools,
     load_conversation_mounted_tool_sources, load_conversation_token_usage_count,

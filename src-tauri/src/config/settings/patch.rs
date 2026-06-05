@@ -81,7 +81,7 @@ fn apply_agent_patch(
     agent_config: &AgentConfig,
     agent_id: &str,
 ) -> AgentJaxResult<SettingsSnapshot> {
-    let agent_path = crate::agentjax_home::agent_config_path(agent_id)?;
+    let agent_path = crate::agentjax_home::agent_dir(agent_id)?.join(crate::config::constants::AGENT_CONFIG_FILE_NAME);
     let mut root = serde_json::to_value(agent_config)
         .map_err(|e| AgentJaxError::config(format!("Failed to serialize agent config for patching: {e}")).with_error_source(&e))?;
     let path_segments = parse_path(&patch.path)?;

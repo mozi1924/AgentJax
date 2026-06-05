@@ -17,9 +17,6 @@ use std::path::PathBuf;
 pub struct Worktree {
     /// The path to the worktree directory.
     pub path: PathBuf,
-    /// The branch name used for this worktree.
-    #[allow(dead_code)]
-    pub branch: String,
 }
 
 impl Worktree {
@@ -28,8 +25,6 @@ impl Worktree {
     /// This creates a temporary branch from the current HEAD and checks
     /// it out into an isolated directory.
     pub fn create(agent_id: &str, parent_conv_id: &str) -> AgentJaxResult<Self> {
-        let branch = format!("sub-agent/{parent_conv_id}/{agent_id}");
-
         // Build the worktree path.
         let session_dir = crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, parent_conv_id)
             .map_err(|e| AgentJaxError::internal(format!("Failed to get workspace path: {e}")))?;
@@ -58,7 +53,6 @@ impl Worktree {
 
         Ok(Self {
             path: worktree_path,
-            branch,
         })
     }
 
@@ -129,14 +123,11 @@ mod tests {
         // Create a worktree struct pointing to a nonexistent path.
         let wt = Worktree {
             path: PathBuf::from("/tmp/nonexistent-worktree-test-path"),
-            branch: "test-branch".to_string(),
         };
         // Manual cleanup on nonexistent path should succeed (no-op).
         // std::fs::remove_dir_all returns Ok(()) if the path doesn't exist.
         let result = wt.manual_cleanup("/tmp/nonexistent-worktree-test-path");
         // remove_dir_all returns an error on macOS for nonexistent paths.
-        // Just verify the worktree struct fields are correct.
-        assert_eq!(wt.branch, "test-branch");
         let _ = result; // May or may not succeed depending on platform.
     }
 

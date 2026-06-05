@@ -52,11 +52,6 @@ impl SubAgentType {
         }
     }
 
-    /// Whether this sub-agent type is read-only (exempt from scope-narrowing).
-    #[allow(dead_code)] // Test-only API surface
-    pub fn is_explore(&self) -> bool {
-        matches!(self, SubAgentType::Explore)
-    }
 }
 
 // ── Sub-Agent Status ──────────────────────────────────────────────────────────
@@ -229,12 +224,6 @@ mod tests {
         assert!(SubAgentStatus::Completed.is_terminal());
         assert!(SubAgentStatus::Failed.is_terminal());
         assert!(SubAgentStatus::Cancelled.is_terminal());
-    }
-
-    #[test]
-    fn test_explore_is_exempt() {
-        assert!(SubAgentType::Explore.is_explore());
-        assert!(!SubAgentType::Implement.is_explore());
     }
 
     #[test]

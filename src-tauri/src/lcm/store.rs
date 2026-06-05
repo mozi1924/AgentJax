@@ -317,33 +317,6 @@ impl LcmStore {
 
     // ── Reasoning Chain Persistence ────────────────────────────────────
 
-    /// Persist a reasoning chain to the store.
-    pub fn persist_reasoning(&self, chain: &ReasoningChain) -> Result<(), LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
-        conn.execute(
-            "INSERT OR REPLACE INTO reasoning_chains
-             (id, conversation_id, response_id, text, token_count, timestamp_unix_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![
-                chain.id,
-                chain.conversation_id,
-                chain.response_id,
-                chain.text,
-                chain.token_count,
-                chain.timestamp_unix_ms,
-            ],
-        )
-        .map_err(|e| {
-            LcmError::Store(format!(
-                "Failed to persist reasoning chain {}: {e}",
-                chain.id
-            ))
-        })?;
-        Ok(())
-    }
-
     /// Batch-load reasoning chains for multiple IDs.
     pub fn get_reasoning_batch(
         &self,

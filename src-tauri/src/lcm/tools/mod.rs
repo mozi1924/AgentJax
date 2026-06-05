@@ -36,7 +36,7 @@ use std::sync::Arc;
 /// history rather than the parent's.
 pub(crate) fn effective_store<'a>(
     default: &'a Arc<LcmStore>,
-    context: &'a ToolExecutionContext,
+    _context: &'a ToolExecutionContext,
 ) -> &'a Arc<LcmStore> {
-    context.lcm_store_override.as_ref().unwrap_or(default)
+    default
 }

@@ -61,15 +61,6 @@ pub fn get_settings_ui_snapshot(agent_id: Option<&str>) -> AgentJaxResult<settin
     })
 }
 
-pub(super) fn snapshot_from_config(
-    config: &AppConfig,
-    config_path: &Path,
-    raw: &str,
-) -> AgentJaxResult<SettingsSnapshot> {
-    let agent_config = AgentConfig::default();
-    snapshot_from_config_with_agent(config, &agent_config, config_path, raw)
-}
-
 pub(super) fn snapshot_from_config_with_agent(
     config: &AppConfig,
     agent_config: &AgentConfig,

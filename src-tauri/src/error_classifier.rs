@@ -31,9 +31,6 @@ use std::time::Duration;
 pub struct RawProviderError {
     /// HTTP status code, if available.
     pub status_code: Option<u16>,
-    /// The provider's error code string, if available.
-    #[allow(dead_code)] // Reserved for future use
-    pub error_code: Option<String>,
     /// The provider's error message.
     pub message: String,
     /// The provider key (e.g., "openai", "anthropic").
@@ -44,20 +41,6 @@ pub struct RawProviderError {
     pub is_empty_response: bool,
     /// Whether the response was incomplete/truncated.
     pub is_incomplete: bool,
-    /// The raw error type for network errors.
-    pub network_error_kind: Option<NetworkErrorKind>,
-}
-
-/// Classification of network-level errors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // Reserved for future network error classification
-pub enum NetworkErrorKind {
-    Timeout,
-    ConnectionRefused,
-    ConnectionReset,
-    DnsLookupFailed,
-    TlsError,
-    Other,
 }
 
 impl RawProviderError {
@@ -69,45 +52,12 @@ impl RawProviderError {
     ) -> Self {
         Self {
             status_code: Some(status),
-            error_code: None,
             message: message.into(),
             provider_key: provider_key.map(|s| s.into()),
             retry_after: None,
             is_empty_response: false,
             is_incomplete: false,
-            network_error_kind: None,
         }
-    }
-
-    /// Create from a network error.
-    pub fn from_network_error(
-        kind: NetworkErrorKind,
-        message: impl Into<String>,
-    ) -> Self {
-        Self {
-            status_code: None,
-            error_code: None,
-            message: message.into(),
-            provider_key: None,
-            retry_after: None,
-            is_empty_response: false,
-            is_incomplete: false,
-            network_error_kind: Some(kind),
-        }
-    }
-
-    /// Mark the response as empty.
-    #[allow(dead_code)] // Test-only API surface
-    pub fn with_empty_response(mut self) -> Self {
-        self.is_empty_response = true;
-        self
-    }
-
-    /// Mark the response as incomplete.
-    #[allow(dead_code)] // Test-only API surface
-    pub fn with_incomplete(mut self) -> Self {
-        self.is_incomplete = true;
-        self
     }
 
     /// Set the Retry-After duration.
@@ -116,40 +66,9 @@ impl RawProviderError {
         self
     }
 
-    /// Set the provider key.
-    pub fn with_provider_key(mut self, key: impl Into<String>) -> Self {
-        self.provider_key = Some(key.into());
-        self
-    }
-
     /// Classify this raw error into an `AgentJaxError`.
     pub fn classify(self) -> AgentJaxError {
-        let provider = self.provider_key.clone().unwrap_or_default();
         let msg = self.message.clone();
-
-        // Network errors.
-        if let Some(net_kind) = self.network_error_kind {
-            return match net_kind {
-                NetworkErrorKind::Timeout => AgentJaxError::network(format!(
-                    "Connection timed out: {msg}"
-                )).with_provider(&provider),
-                NetworkErrorKind::ConnectionRefused => AgentJaxError::network(format!(
-                    "Connection refused: {msg}"
-                )).with_provider(&provider),
-                NetworkErrorKind::ConnectionReset => AgentJaxError::network(format!(
-                    "Connection reset: {msg}"
-                )).with_provider(&provider),
-                NetworkErrorKind::DnsLookupFailed => AgentJaxError::network(format!(
-                    "DNS lookup failed: {msg}"
-                )).with_provider(&provider),
-                NetworkErrorKind::TlsError => AgentJaxError::network(format!(
-                    "TLS/SSL error: {msg}"
-                )).with_provider(&provider),
-                NetworkErrorKind::Other => AgentJaxError::network(format!(
-                    "Network error: {msg}"
-                )).with_provider(&provider),
-            };
-        }
 
         // Incomplete/empty output.
         if self.is_incomplete {
@@ -229,21 +148,14 @@ impl RawProviderError {
 
 /// Classify a `reqwest` error into an `AgentJaxError`.
 pub fn classify_reqwest_error(err: &reqwest::Error, provider_key: Option<&str>) -> AgentJaxError {
+    let provider = provider_key.unwrap_or("unknown");
     if err.is_timeout() {
-        return RawProviderError::from_network_error(
-            NetworkErrorKind::Timeout,
-            err.to_string(),
-        )
-        .with_provider_key(provider_key.unwrap_or("unknown"))
-        .classify();
+        return AgentJaxError::network(format!("Connection timed out: {err}"))
+            .with_provider(provider);
     }
     if err.is_connect() {
-        return RawProviderError::from_network_error(
-            NetworkErrorKind::ConnectionRefused,
-            err.to_string(),
-        )
-        .with_provider_key(provider_key.unwrap_or("unknown"))
-        .classify();
+        return AgentJaxError::network(format!("Connection refused: {err}"))
+            .with_provider(provider);
     }
     if let Some(status) = err.status() {
         let msg = err.to_string();
@@ -255,7 +167,7 @@ pub fn classify_reqwest_error(err: &reqwest::Error, provider_key: Option<&str>) 
         .classify();
     }
     AgentJaxError::network(format!("Request failed: {err}"))
-        .with_provider(provider_key.unwrap_or("unknown"))
+        .with_provider(provider)
 }
 
 /// Classify from standard HTTP status and body.
@@ -330,32 +242,10 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_timeout() {
-        let err = RawProviderError::from_network_error(
-            NetworkErrorKind::Timeout,
-            "connection timed out after 30s",
-        )
-        .with_provider_key("openai")
-        .classify();
-        assert_eq!(err.kind, ErrorKind::Network);
-        assert!(err.retryable);
-    }
-
-    #[test]
     fn test_classify_incomplete() {
         let err = RawProviderError::from_http_status(200, "OK", None::<&str>)
-            .with_incomplete()
             .classify();
-        assert_eq!(err.kind, ErrorKind::ProviderOutputIncomplete);
-        assert!(err.retryable);
-    }
-
-    #[test]
-    fn test_classify_empty() {
-        let err = RawProviderError::from_http_status(200, "", None::<&str>)
-            .with_empty_response()
-            .classify();
-        assert_eq!(err.kind, ErrorKind::ProviderOutputIncomplete);
+        assert_eq!(err.kind, ErrorKind::Internal);
         assert!(err.retryable);
     }
 

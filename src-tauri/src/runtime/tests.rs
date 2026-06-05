@@ -3,7 +3,7 @@ use super::{
     tool_parsing::extract_active_tool_names,
 };
 use crate::commands::chat::ChatRequest;
-use crate::config::{AgentConfig, AppConfig, PromptBlock, PromptBlockRole, PromptBlockSource};
+use crate::config::{AppConfig, PromptBlock, PromptBlockRole, PromptBlockSource};
 use crate::message_phase::AssistantPhase;
 use crate::provider_api::types::ProviderStreamEvent;
 use crate::tools::ToolCatalog;

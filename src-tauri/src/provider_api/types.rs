@@ -198,23 +198,6 @@ pub struct ProviderUsageRecord {
 }
 
 impl ProviderUsage {
-    #[allow(dead_code)] // Reserved API
-    pub fn from_api_value(value: &Value) -> Option<Self> {
-        let usage_value = value
-            .get("response")
-            .and_then(|response| response.get("usage"))
-            .or_else(|| value.get("usage"))
-            .unwrap_or(value);
-
-        let mut usage = serde_json::from_value::<ProviderUsage>(usage_value.clone()).ok()?;
-        if usage.total_tokens == 0 {
-            usage.total_tokens = usage.prompt_tokens.saturating_add(usage.completion_tokens);
-        }
-
-        (usage.prompt_tokens > 0 || usage.completion_tokens > 0 || usage.total_tokens > 0)
-            .then_some(usage)
-    }
-
     pub fn saturating_add(&mut self, other: &ProviderUsage) {
         self.prompt_tokens = self.prompt_tokens.saturating_add(other.prompt_tokens);
         self.completion_tokens = self
@@ -238,18 +221,12 @@ pub struct ProviderPendingToolCall {
 /// logic, keeping future native Gemini/Anthropic/Chat Completions adapters
 /// independent from the OpenAI Responses event grammar.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Reserved for future use — fields consumed by pending integration
+#[allow(dead_code)]
 pub struct ResponseStreamResult {
     pub response_id: String,
     /// Final answer text (after all tool calls are complete).
     pub output_text: String,
     pub output_items: Vec<Value>,
-    /// Accumulated reasoning text from output_items of type "reasoning".
-    #[allow(dead_code)]
-    pub reasoning_text: Option<String>,
-    /// Token count of reasoning, if reported by the provider.
-    #[allow(dead_code)]
-    pub reasoning_tokens: Option<usize>,
     /// Provider-reported billing usage, preferred over local token estimates.
     pub usage: Option<ProviderUsage>,
     pub usage_hops: Vec<ProviderUsageRecord>,

@@ -283,7 +283,8 @@ impl AgentRegistry {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-/// Default agent config used when creating a new agent profile.
+/// Default agent config used when creating a new agent profile (test helper).
+#[cfg(test)]
 pub fn default_agent_config() -> AgentConfig {
     AgentConfig::default()
 }

@@ -21,9 +21,6 @@ pub struct SubAgentLcmContext {
     /// The conversation ID used for LCM storage.
     /// Format: `{parent_conv_id}/sub-agent/{agent_id}`
     pub conversation_id: String,
-    /// Path to the sub-agent's LCM database.
-    #[allow(dead_code)] // Read in tests; available for future introspection
-    pub db_path: PathBuf,
 }
 
 impl SubAgentLcmContext {
@@ -90,7 +87,6 @@ impl SubAgentLcmContext {
         Ok(Self {
             engine,
             conversation_id: sub_conv_id,
-            db_path,
         })
     }
 }
@@ -148,8 +144,9 @@ mod tests {
         assert!(ctx.conversation_id.contains("/sub-agent/explore/"));
         assert!(ctx.conversation_id.contains("agent-test"));
         // Cleanup: remove the test directory.
-        if let Some(parent) = ctx.db_path.parent() {
-            // Remove the agent directory.
+        let db_path = sub_agent_lcm_store_path("test-conv", "agent-test")
+            .expect("db path");
+        if let Some(parent) = db_path.parent() {
             let _ = std::fs::remove_dir_all(
                 parent.parent().unwrap_or(parent),
             );
@@ -171,7 +168,9 @@ mod tests {
         // it was created successfully with capped values.
         assert!(ctx.conversation_id.contains("agent-capped"));
         // Cleanup.
-        if let Some(parent) = ctx.db_path.parent() {
+        let db_path = sub_agent_lcm_store_path("test-conv", "agent-capped")
+            .expect("db path");
+        if let Some(parent) = db_path.parent() {
             let _ = std::fs::remove_dir_all(
                 parent.parent().unwrap_or(parent),
             );

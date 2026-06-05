@@ -100,11 +100,6 @@ impl AgentRuntime {
             } else {
                 None
             },
-            lcm_store_override: if is_sub_agent {
-                Some(lcm_engine.store().clone())
-            } else {
-                None
-            },
             sub_agent_type: sub_agent_type.clone(),
             is_memory_sub_agent,
             sub_agent_event_tx: sub_agent_event_tx.clone(),
@@ -568,8 +563,7 @@ impl AgentRuntime {
             model_profile: resolved_model.profile_key.clone(),
             model_id: resolved_model.model_id.clone(),
             capabilities: provider_capabilities,
-            reasoning_text: None,
-            reasoning_tokens: None,
+
         };
 
         Ok((final_res, accumulator.timeline_events))

@@ -1,15 +1,11 @@
 use crate::agentjax_err;
-use crate::config::constants::{AGENT_CONFIG_FILE_NAME, AGENTS_DIR_NAME, DEFAULT_AGENT_ID};
+use crate::config::constants::AGENTS_DIR_NAME;
 use crate::error::{AgentJaxError, AgentJaxResult};
 use std::path::PathBuf;
 
 pub const AGENTJAX_HOME_ENV: &str = "AGENTJAX_HOME";
 const AGENTJAX_DIR_NAME: &str = ".agentjax";
 const PLUGINS_DIR_NAME: &str = "plugins";
-#[allow(dead_code)]
-const TMP_DIR_NAME: &str = "tmp";
-#[allow(dead_code)]
-const CACHE_DIR_NAME: &str = "cache";
 
 pub fn agentjax_home_dir() -> AgentJaxResult<PathBuf> {
     let configured = std::env::var(AGENTJAX_HOME_ENV)
@@ -54,71 +50,7 @@ pub fn agent_dir(agent_id: &str) -> AgentJaxResult<PathBuf> {
     Ok(agents_dir()?.join(sanitize_agent_id(agent_id)))
 }
 
-#[allow(dead_code)]
-/// `~/.agentjax/agents/{agent_id}/agent.yaml` — the agent's config file.
-pub fn agent_config_path(agent_id: &str) -> AgentJaxResult<PathBuf> {
-    Ok(agent_dir(agent_id)?.join(AGENT_CONFIG_FILE_NAME))
-}
 
-#[allow(dead_code)]
-/// Create the agents directory and the specific agent's subdirectory.
-pub fn ensure_agent_dir(agent_id: &str) -> AgentJaxResult<PathBuf> {
-    let dir = agent_dir(agent_id)?;
-    std::fs::create_dir_all(&dir).map_err(|err| {
-        AgentJaxError::config(format!(
-            "Failed to create agent directory {}: {err}",
-            dir.display()
-        ))
-        .with_error_source(&err)
-    })?;
-    Ok(dir)
-}
-
-#[allow(dead_code)]
-/// Create the default agent profile ("main") if it doesn't exist.
-/// Returns the path to the agent config file.
-pub fn ensure_default_agent() -> AgentJaxResult<PathBuf> {
-    let path = agent_config_path(DEFAULT_AGENT_ID)?;
-    if !path.exists() {
-        let dir = path.parent().ok_or_else(|| {
-            AgentJaxError::config("Failed to resolve parent directory for default agent config"
-                .to_string())
-        })?;
-        std::fs::create_dir_all(dir).map_err(|err| {
-            AgentJaxError::config(format!(
-                "Failed to create default agent directory {}: {err}",
-                dir.display()
-            ))
-            .with_error_source(&err)
-        })?;
-        let config = crate::config::agent_config::AgentConfig::default();
-        let yaml = serde_yaml::to_string(&config).map_err(|e| {
-            AgentJaxError::config(format!("Failed to serialize default agent config: {e}"))
-        })?;
-        std::fs::write(&path, yaml).map_err(|err| {
-            AgentJaxError::config(format!(
-                "Failed to write default agent config at {}: {err}",
-                path.display()
-            ))
-            .with_error_source(&err)
-        })?;
-    }
-    Ok(path)
-}
-
-// ── Temporary / Cache directories ─────────────────────────────────────────
-
-#[allow(dead_code)]
-/// `~/.agentjax/tmp/` — temporary files.
-pub fn tmp_dir() -> AgentJaxResult<PathBuf> {
-    Ok(agentjax_home_dir()?.join(TMP_DIR_NAME))
-}
-
-#[allow(dead_code)]
-/// `~/.agentjax/cache/` — cached data.
-pub fn cache_dir() -> AgentJaxResult<PathBuf> {
-    Ok(agentjax_home_dir()?.join(CACHE_DIR_NAME))
-}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

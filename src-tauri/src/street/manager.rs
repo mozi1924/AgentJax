@@ -180,7 +180,7 @@ impl StreetManager {
     }
 
     /// Get the count of Pending items for a conversation.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn get_pending_count(conversation_id: &str) -> usize {
         let guard = registry()
             .lock()
@@ -235,15 +235,13 @@ impl StreetManager {
     }
 
     /// Remove all items for a conversation (called on conversation delete).
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn cleanup_conversation(conversation_id: &str) -> usize {
         let mut guard = registry()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let removed = guard.remove(conversation_id).map(|v| v.len()).unwrap_or(0);
-        drop(guard);
         // Unregister event channel.
-        Self::unregister_event_channel(conversation_id);
         removed
     }
 
@@ -258,15 +256,6 @@ impl StreetManager {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.insert(conversation_id.to_string(), tx);
-    }
-
-    /// Remove the event channel sender for a conversation.
-    #[allow(dead_code)]
-    pub fn unregister_event_channel(conversation_id: &str) {
-        let mut guard = channels()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        guard.remove(conversation_id);
     }
 
     /// Send a StreetEvent to the conversation's event channel.

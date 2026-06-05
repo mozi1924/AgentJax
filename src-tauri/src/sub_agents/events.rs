@@ -15,7 +15,6 @@ use serde_json::Value;
 /// observer so the frontend can track sub-agent progress in real time.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)] // HopCompleted variant reserved for future use
 pub enum SubAgentEvent {
     /// Sub-agent has been spawned and is about to start running.
     Spawned {
@@ -48,13 +47,6 @@ pub enum SubAgentEvent {
         call_id: String,
         tool_name: String,
         tool_status: String,
-    },
-
-    /// A hop completed within the sub-agent's turn loop.
-    HopCompleted {
-        agent_id: String,
-        hop_index: usize,
-        text: Option<String>,
     },
 
     /// Sub-agent completed successfully.
@@ -134,10 +126,6 @@ pub fn sub_agent_event_to_chat_stream_event(
             chat_event.tool_name = Some(tool_name.clone());
             chat_event.tool_status = Some(tool_status.clone());
         }
-        SubAgentEvent::HopCompleted { hop_index, text, .. } => {
-            chat_event.delta = text.clone();
-            chat_event.tool_name = Some(format!("hop_{}", hop_index));
-        }
         SubAgentEvent::Completed { result, duration_ms, .. } => {
             chat_event.delta = serde_json::to_string(result)
                 .ok()
@@ -166,7 +154,6 @@ impl SubAgentEvent {
             | SubAgentEvent::Progress { agent_id, .. }
             | SubAgentEvent::ToolCallStarted { agent_id, .. }
             | SubAgentEvent::ToolCallCompleted { agent_id, .. }
-            | SubAgentEvent::HopCompleted { agent_id, .. }
             | SubAgentEvent::Completed { agent_id, .. }
             | SubAgentEvent::Failed { agent_id, .. }
             | SubAgentEvent::Cancelled { agent_id, .. } => agent_id,
@@ -181,7 +168,6 @@ impl SubAgentEvent {
             SubAgentEvent::Progress { .. } => "sub_agent_progress",
             SubAgentEvent::ToolCallStarted { .. } => "sub_agent_tool_call_started",
             SubAgentEvent::ToolCallCompleted { .. } => "sub_agent_tool_call_done",
-            SubAgentEvent::HopCompleted { .. } => "sub_agent_hop_completed",
             SubAgentEvent::Completed { .. } => "sub_agent_completed",
             SubAgentEvent::Failed { .. } => "sub_agent_failed",
             SubAgentEvent::Cancelled { .. } => "sub_agent_cancelled",

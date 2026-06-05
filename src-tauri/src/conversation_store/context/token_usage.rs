@@ -1,8 +1,3 @@
-use super::builders::build_context_items;
-use super::policy::MAX_CONTEXT_ITEMS_PER_REQUEST;
-use super::sanitizer::sanitize_tool_call_pairs;
-use super::truncation::truncate_context_items_preserving_tool_pairs;
-use crate::conversation_store::ConversationLine;
 use serde_json::Value;
 
 mod messages;
@@ -45,19 +40,15 @@ pub fn count_request_prompt_tokens(
     })
 }
 
-/// Count the token usage for a conversation's persisted history.
-///
-/// This mirrors the same context-building pipeline used before a request is
-/// sent so the number shown in the UI stays aligned with the model-facing
-/// prompt.
-#[allow(dead_code)]
+/// Count the token usage for a conversation's persisted history (test helper).
+#[cfg(test)]
 pub fn count_conversation_context_tokens(
     model: &str,
-    lines: &[ConversationLine],
+    lines: &[crate::conversation_store::ConversationLine],
 ) -> crate::error::AgentJaxResult<ConversationTokenUsage> {
-    let mut items = build_context_items(lines);
-    items = sanitize_tool_call_pairs(items);
-    items = truncate_context_items_preserving_tool_pairs(items, MAX_CONTEXT_ITEMS_PER_REQUEST);
+    let mut items = super::builders::build_context_items(lines);
+    items = super::sanitizer::sanitize_tool_call_pairs(items);
+    items = super::truncation::truncate_context_items_preserving_tool_pairs(items, super::policy::MAX_CONTEXT_ITEMS_PER_REQUEST);
     count_request_prompt_tokens(model, None, &items, &[])
 }
 
@@ -135,10 +126,6 @@ pub fn count_text_tokens(model: &str, text: &str) -> crate::error::AgentJaxResul
 }
 
 /// Count token usage for serialized tool schemas.
-///
-/// The schema is tokenized from its compact JSON form so the count reflects
-/// the model-facing payload rather than an ad-hoc projection of the object.
-#[allow(dead_code)]
 pub fn count_tool_schema_tokens(model: &str, tools: &[Value]) -> crate::error::AgentJaxResult<usize> {
     if tools.is_empty() {
         return Ok(0);

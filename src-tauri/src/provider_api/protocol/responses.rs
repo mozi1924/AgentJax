@@ -121,8 +121,6 @@ where
         model_profile: format!("{provider_key}/{model_id}"),
         model_id: model_id.to_string(),
         capabilities: ProviderCapabilities::openai_responses(),
-        reasoning_text: None,
-        reasoning_tokens: None,
     })
 }
 

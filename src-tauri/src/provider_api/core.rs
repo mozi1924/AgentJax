@@ -8,13 +8,7 @@ use uuid::Uuid;
 /// inspection when debugging multi-provider conversations.
 #[derive(Debug, Clone)]
 pub struct ProviderIdFactory {
-    #[allow(dead_code)] // Stored for display/debug; consumed in constructor for response_id
-    provider_kind: String,
     response_id: String,
-    #[allow(dead_code)] // Test-only API surface (read via next_item_id)
-    next_item_index: usize,
-    #[allow(dead_code)] // Test-only API surface (read via next_call_id)
-    next_call_index: usize,
 }
 
 impl ProviderIdFactory {
@@ -23,37 +17,12 @@ impl ProviderIdFactory {
         let response_id = format!("resp_{}_{}", provider_kind, Uuid::new_v4().simple());
 
         Self {
-            provider_kind,
             response_id,
-            next_item_index: 0,
-            next_call_index: 0,
         }
     }
 
     pub fn response_id(&self) -> &str {
         &self.response_id
-    }
-
-    #[allow(dead_code)] // Test-only API surface
-    pub fn next_item_id(&mut self, label: &str) -> String {
-        self.next_item_index = self.next_item_index.saturating_add(1);
-        format!(
-            "item_{}_{}_{}",
-            self.provider_kind,
-            self.next_item_index,
-            sanitize_id_segment(label)
-        )
-    }
-
-    #[allow(dead_code)] // Test-only API surface
-    pub fn next_call_id(&mut self, tool_name: &str) -> String {
-        self.next_call_index = self.next_call_index.saturating_add(1);
-        format!(
-            "call_{}_{}_{}",
-            self.provider_kind,
-            self.next_call_index,
-            sanitize_id_segment(tool_name)
-        )
     }
 }
 
@@ -74,27 +43,6 @@ fn sanitize_id_segment(value: &str) -> String {
     } else {
         normalized
     }
-}
-
-#[allow(dead_code)] // Test-only API surface
-pub fn normalize_reasoning_levels(levels: &[String]) -> Vec<String> {
-    let mut normalized = Vec::new();
-
-    for level in levels {
-        let level = level.trim().to_lowercase();
-        if !matches!(
-            level.as_str(),
-            "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
-        ) {
-            continue;
-        }
-
-        if !normalized.iter().any(|existing| existing == &level) {
-            normalized.push(level);
-        }
-    }
-
-    normalized
 }
 
 pub fn extract_pending_tool_calls_from_output(
@@ -216,7 +164,6 @@ mod tests {
     use super::{
         ProviderIdFactory, build_tool_result_input_item, build_user_input_item,
         compose_tool_continuation_input, extract_pending_tool_calls_from_output,
-        normalize_reasoning_levels,
     };
     use serde_json::json;
 
@@ -252,18 +199,6 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_reasoning_levels_and_deduplicates() {
-        let levels = normalize_reasoning_levels(&[
-            "LOW".to_string(),
-            "high".to_string(),
-            "bad".to_string(),
-            "low".to_string(),
-        ]);
-
-        assert_eq!(levels, vec!["low", "high"]);
-    }
-
-    #[test]
     fn builds_user_and_tool_items_and_continuation() {
         let user_input = build_user_input_item("hello");
         assert_eq!(
@@ -289,21 +224,8 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_ids_are_prefixed_and_monotonic() {
-        let mut factory = ProviderIdFactory::new("gemini-native");
+    fn synthetic_response_id_is_prefixed() {
+        let factory = ProviderIdFactory::new("gemini-native");
         assert!(factory.response_id().starts_with("resp_gemini_native_"));
-
-        assert_eq!(
-            factory.next_item_id("function call"),
-            "item_gemini_native_1_function_call"
-        );
-        assert_eq!(
-            factory.next_call_id("search.web"),
-            "call_gemini_native_1_search_web"
-        );
-        assert_eq!(
-            factory.next_call_id("search.web"),
-            "call_gemini_native_2_search_web"
-        );
     }
 }
