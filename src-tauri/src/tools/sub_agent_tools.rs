@@ -209,11 +209,17 @@ impl Tool for SubAgentTool {
     }
 
     fn description(&self) -> &'static str {
-        "Manage async sub-agents that perform tasks independently. \
-         Use action 'spawn' for a single sub-agent, 'batch' to spawn one \
-         per JSONL item with concurrency and retry, 'status' to check \
-         progress, or 'cancel' to stop. Spawned sub-agents run in the \
-         background while you continue working."
+        "Spawn short-lived sub-agents to perform focused tasks. \
+         Sub-agents are **ephemeral**: they execute their task, report \
+         results, and are disposed. State lives only in memory and is \
+         automatically cleaned up after the agent finishes or is cancelled.\n\n\
+         Actions:\n\
+         - **spawn**: launch a single ephemeral sub-agent, returns immediately\
+         - **status**: check progress / collect results (use wait=true to block)\
+         - **cancel**: stop a running sub-agent early\
+         - **batch**: spawn one ephemeral sub-agent per JSONL item\n\n\
+         Results are available via status() until the registry prunes them \
+         (6-hour TTL). Sub-agents do NOT survive app restarts."
     }
 
     fn display_name(&self) -> &'static str {
@@ -236,31 +242,31 @@ impl Tool for SubAgentTool {
                 },
                 "prompt": {
                     "type": "string",
-                    "description": "[spawn] The task for the sub-agent to perform."
+                    "description": "[spawn] The focused task for the ephemeral sub-agent to execute."
                 },
                 "subagentType": {
                     "type": "string",
                     "enum": ["explore", "codeReview", "implement", "analyze", "general", "memory"],
-                    "description": "[spawn] The type of sub-agent. 'explore' is read-only, 'memory' is for background memory management."
+                    "description": "[spawn] The type of sub-agent. 'explore' is read-only (cannot mutate). 'memory' is persistent — all others are ephemeral (auto-disposed after completion)."
                 },
                 "delegatedScope": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "[spawn] Tools/capabilities the sub-agent may access."
+                    "description": "[spawn] Tools/capabilities the ephemeral sub-agent may access. Required for non-root sub-agents (scope-narrowing invariant)."
                 },
                 "keptWork": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "[spawn] Concrete outputs the sub-agent will produce."
+                    "description": "[spawn] Concrete outputs the ephemeral sub-agent will produce. Required for non-root sub-agents (scope-narrowing invariant)."
                 },
                 "maxTurns": {
                     "type": "integer",
-                    "description": "[spawn] Maximum tool-using turns (default 5, max 10).",
+                    "description": "[spawn] Maximum tool-using turns for this ephemeral agent (default 5, max 10). The agent is disposed after exhausting its turns.",
                     "default": 5
                 },
                 "useWorktree": {
                     "type": "boolean",
-                    "description": "[spawn] Whether to use an isolated git worktree.",
+                    "description": "[spawn] Whether to use an isolated git worktree for this ephemeral agent.",
                     "default": false
                 },
                 "agentId": {
@@ -371,7 +377,7 @@ async fn execute_spawn(
         "agentId": agent_id,
         "status": "pending",
         "subagentType": subagent_type.as_str(),
-        "hint": "The sub-agent has been registered. Use sub_agent(action='status', agentId=...) to check progress, or action='status' with wait=true to block until completion."
+        "hint": "Ephemeral sub-agent registered. It will execute and self-dispose. Use sub_agent(action='status', agentId=...) to check progress, or action='status' with wait=true to block until completion."
     }))
 }
 

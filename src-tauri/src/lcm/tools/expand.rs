@@ -4,8 +4,8 @@
 //!
 //! **IMPORTANT**: This tool is restricted to sub-agents only.
 //! The main agent cannot call `lcm_expand` directly — it must delegate
-//! to a sub-agent via the Task tool. This prevents uncontrolled context
-//! growth in the primary interaction loop (§2.4).
+//! to an ephemeral sub-agent via `sub_agent(action='spawn', ...)`. This
+//! prevents uncontrolled context growth in the primary interaction loop (§2.4).
 //!
 //! When called by a sub-agent, it recursively traverses the summary DAG
 //! to recover all original messages covered by the specified summary node.
@@ -50,9 +50,9 @@ impl Tool for LcmExpandTool {
 
     fn description(&self) -> &'static str {
         "Expand a summary node back into its original messages. \
-         ⚠️ RESTRICTED: only available in sub-agents, not in the main \
-         conversation loop. The main agent should use the Task tool to \
-         delegate expansion work to a sub-agent. \
+         ⚠️ RESTRICTED: only available in ephemeral sub-agents, not \
+         in the main conversation loop. The main agent should delegate \
+         expansion work via sub_agent(action='spawn', subagentType='explore'). \
          Recursively traverses the summary DAG to recover all original \
          messages covered by the specified summary."
     }
@@ -105,12 +105,11 @@ impl Tool for LcmExpandTool {
         // sub-agent context from the Task tool infrastructure.
         if !Self::is_sub_agent_context(context) {
             return Err(AgentJaxError::tool(
-                "lcm_expand is restricted to sub-agents only. \
-                 The main agent should delegate expansion work to a sub-agent:\n\n\
-                 - Sync: Task(prompt=\"Expand summary X and report findings\", \
-                 subagent_type=\"explore\", delegated_scope=[...], kept_work=[...])\n\
-                 - Async: spawn_sub_agent(prompt=\"Expand summary X and report findings\", \
-                 subagentType=\"explore\")\n\n\
+                "lcm_expand is restricted to ephemeral sub-agents only. \
+                 The main agent should delegate expansion work via:\n\n\
+                 sub_agent(action='spawn', prompt=\"Expand summary X and report findings\", \
+                 subagentType='explore', delegatedScope=[...], keptWork=[...])\n\n\
+                 The spawned sub-agent will execute, report results, and be disposed. \
                  This restriction prevents uncontrolled context growth in \
                  the primary conversation loop. See LCM §2.4 for details.",
             ));
