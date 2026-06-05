@@ -164,10 +164,12 @@ pub async fn chat_stream(
         &config,
         &agent_config,
     )?;
-    tools_catalog.set_context_tools(lcm_engine.store().clone());
+    let agent_ctx = LcmAgentContext::new(lcm_engine);
+    tools_catalog.set_context_tools(agent_ctx.engine().store().clone());
 
     // Ensure LCM conversation metadata exists.
-    let _ = lcm_engine
+    let _ = agent_ctx
+        .engine()
         .store()
         .ensure_conversation_meta(&conversation_id)
         .map_err(|e| {
@@ -181,7 +183,7 @@ pub async fn chat_stream(
     log::info!(
         "LCM initialized for conversation '{}' (db: {:?})",
         conversation_id,
-        lcm_engine.store().db_path()
+        agent_ctx.engine().store().db_path()
     );
 
     let user_message_ts = now_unix_ms();
@@ -458,7 +460,7 @@ pub async fn chat_stream(
         context.input_items,
         recovery_note,
         &tools_catalog,
-        &LcmAgentContext::new(lcm_engine.clone()),
+        &agent_ctx,
         &mut cancel_rx,
         Some(sub_event_tx.clone()),
         street_dev_items,
