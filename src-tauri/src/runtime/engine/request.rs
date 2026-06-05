@@ -49,6 +49,7 @@ pub(super) fn build_request(
         // Extra body is merged later from ResolvedModelConfig.request.extra_body
         // in provider_api::stream_response(). The ChatRequest does not carry it.
         extra_body: BTreeMap::new(),
+        skip_model_extra_body: false,
     }
 }
 

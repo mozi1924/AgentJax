@@ -109,16 +109,22 @@ where
     // Merge extra_body from the resolved model config (user-configured) into
     // the request. This ensures provider-specific fields like DeepSeek's
     // `thinking` are injected for both native protocol and JS plugin paths.
+    // Utility callers (title generation, LCM summarization) can opt out via
+    // `skip_model_extra_body` to avoid wasting tokens on thinking mode.
     let mut req = req.clone();
-    for (key, value) in &resolved.request.extra_body {
-        req.extra_body
-            .entry(key.clone())
-            .or_insert_with(|| value.clone());
+    if !req.skip_model_extra_body {
+        for (key, value) in &resolved.request.extra_body {
+            req.extra_body
+                .entry(key.clone())
+                .or_insert_with(|| value.clone());
+        }
     }
 
     // DeepSeek requires `thinking: {"type": "enabled"}` to activate thinking
     // mode. Without it, `reasoning_effort` alone is ignored by the API.
-    if resolved.provider.kind == "deepseek"
+    // Skip this when the caller has suppressed model extra_body merging.
+    if !req.skip_model_extra_body
+        && resolved.provider.kind == "deepseek"
         && req
             .reasoning_effort
             .as_deref()

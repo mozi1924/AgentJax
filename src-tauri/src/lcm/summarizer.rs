@@ -133,6 +133,7 @@ impl Summarizer for ProviderSummarizer {
             generate: None,
             tools: None,
             tool_choice: None,
+            skip_model_extra_body: true,
             ..Default::default()
         };
 

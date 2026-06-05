@@ -149,6 +149,13 @@ pub struct ProviderTurnRequest {
     /// Useful for provider-specific features like DeepSeek's `thinking` field.
     #[serde(default)]
     pub extra_body: BTreeMap<String, Value>,
+
+    /// When true, skip merging extra_body from the resolved model profile.
+    /// Set this for utility calls (title generation, LCM summarization)
+    /// where provider-specific features like thinking mode should not be
+    /// inherited from the user's model configuration.
+    #[serde(default)]
+    pub skip_model_extra_body: bool,
 }
 
 pub type ResponseStreamRequest = ProviderTurnRequest;

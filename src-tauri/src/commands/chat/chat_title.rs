@@ -87,6 +87,7 @@ async fn generate_title_and_emit(
         generate: None,
         tools: None,
         tool_choice: None,
+        skip_model_extra_body: true,
         ..Default::default()
     };
 
