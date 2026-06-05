@@ -95,7 +95,7 @@ impl Tool for LcmGrepTool {
 
         let page_size = self.store.grep_page_size();
 
-        let store = super::effective_store(&self.store, context);
+        let store = &self.store; // LCM tools always operate on the parent conversation's store
         let results = store
             .search_messages(
                 conversation_id,

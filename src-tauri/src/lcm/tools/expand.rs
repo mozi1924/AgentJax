@@ -118,7 +118,7 @@ impl Tool for LcmExpandTool {
 
         let summary_id = LcmId::from(args.summary_id);
 
-        let store = super::effective_store(&self.store, context);
+        let store = &self.store;
         let messages = store
             .expand_summary(&summary_id)
             .map_err(|e| format!("lcm_expand failed: {e}"))?;
@@ -154,26 +154,13 @@ impl Tool for LcmExpandTool {
 impl LcmExpandTool {
     /// Check whether the current execution context is a sub-agent.
     ///
-    /// Sub-agents can be spawned in two ways:
-    /// 1. **Sync** (`task` tool): inline within the same process, where
-    ///    `hop_index > 0` indicates we're past the root turn.
-    /// 2. **Async** (`spawn_sub_agent` tool): in a separate tokio task
-    ///    with `hop_index = 0` but `sub_agent_id` set to `Some(...)`.
+    /// Short-lived sub-agents (spawned via `sub_agent` tool) always have
+    /// `sub_agent_id` set by `AgentRuntime::run_turn` when the
+    /// conversation_id matches the `/sub-agent/` pattern.
     ///
-    /// Both cases are valid sub-agent contexts for `lcm_expand`.
+    /// This is the *only* reliable indicator — `hop_index` and `turn_id`
+    /// are not deterministic sub-agent markers and are not checked here.
     fn is_sub_agent_context(context: &ToolExecutionContext) -> bool {
-        // Async sub-agent: identified by sub_agent_id being set.
-        if context.sub_agent_id.is_some() {
-            return true;
-        }
-        // Sync sub-agent (task tool): hop_index > 0 in a delegated context.
-        if context.hop_index.unwrap_or(0) > 0 {
-            return true;
-        }
-        // Has an explicit turn_id (e.g., background task context).
-        if context.turn_id.is_some() {
-            return true;
-        }
-        false
+        context.sub_agent_id.is_some()
     }
 }

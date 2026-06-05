@@ -75,10 +75,12 @@ impl AgentRuntime {
         // Sub-agent conversations use the format:
         //   "{parent}/sub-agent/{type}/{agent_id}"
         // where {type} is the SubAgentType (e.g., "explore", "memory", "implement").
-        // When detected, LCM tools are pointed at the sub-agent's isolated store
-        // via lcm_store_override, and lcm_expand is allowed via sub_agent_id.
-        // Additionally, the sub-agent type is propagated to ToolExecutionContext
-        // so context tools like memory_write can be gated appropriately.
+        // When detected, `sub_agent_id` is set in ToolExecutionContext which gates
+        // `lcm_expand` access. Note: LCM tools (grep/describe/expand) always read
+        // from the **parent conversation's** store — sub-agents do not need their
+        // own isolated store for tool access since they are short-lived.
+        // The sub-agent type is also propagated so context tools like memory_write
+        // can be gated appropriately.
         let is_sub_agent = conversation_id.contains("/sub-agent/");
         let sub_agent_type: Option<String> = if is_sub_agent {
             // Extract type from ".../sub-agent/{type}/{id}"

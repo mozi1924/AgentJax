@@ -169,7 +169,6 @@ pub struct ToolExecutionContext {
         Option<tokio::sync::mpsc::UnboundedSender<crate::sub_agents::SubAgentEvent>>,
 }
 
-// Manual Debug impl that skips lcm_store_override (LcmStore doesn't impl Debug).
 impl std::fmt::Debug for ToolExecutionContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ToolExecutionContext")

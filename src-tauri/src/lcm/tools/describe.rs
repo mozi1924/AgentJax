@@ -77,7 +77,7 @@ impl Tool for LcmDescribeTool {
 
         let id = LcmId::from(args.id);
 
-        let store = super::effective_store(&self.store, _context);
+        let store = &self.store; // LCM tools always operate on the parent conversation's store
         let result = store
             .describe(&id)
             .map_err(|e| AgentJaxError::internal(format!("lcm_describe failed: {e}")))?;
