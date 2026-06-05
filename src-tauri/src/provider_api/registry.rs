@@ -277,17 +277,125 @@ fn build_default_config(
         );
     }
 
-    let mut custom_settings = serde_json::Map::new();
+    // Build a ProviderConfig with typed defaults from the schema.
+    // Standard fields are mapped to their typed equivalents; everything
+    // else goes into extension_fields.
+    let mut config = ProviderConfig {
+        kind: kind.to_string(),
+        models,
+        ..Default::default()
+    };
+
     if let Some(properties) = config_schema.get("properties").and_then(Value::as_object) {
         for (key, schema_val) in properties {
-            let default_val = schema_val.get("default").cloned().unwrap_or(Value::Null);
-            custom_settings.insert(key.clone(), default_val);
+            let default_val = match schema_val.get("default") {
+                Some(val) if !val.is_null() => val.clone(),
+                _ => continue,
+            };
+            // Map to typed fields using the same logic as normalize_for_key.
+            // This keeps the two paths in sync.
+            match key.as_str() {
+                "credential" | "credentialEnv" => {
+                    if config.credential_env.is_none() {
+                        if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                            config.credential_env = Some(s.to_string());
+                        }
+                    }
+                }
+                "apiEndpoint" => {
+                    if config.api_endpoint.is_empty() {
+                        if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                            config.api_endpoint = s.trim_end_matches('/').to_string();
+                        }
+                    }
+                }
+                "httpHeaders" => {
+                    if config.http_headers.is_empty() {
+                        if let Some(obj) = default_val.as_object() {
+                            config.http_headers = obj.iter()
+                                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                                .collect();
+                        }
+                    }
+                }
+                "envHttpHeaders" => {
+                    if config.env_http_headers.is_empty() {
+                        if let Some(obj) = default_val.as_object() {
+                            config.env_http_headers = obj.iter()
+                                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                                .collect();
+                        }
+                    }
+                }
+                "queryParams" => {
+                    if config.query_params.is_empty() {
+                        if let Some(obj) = default_val.as_object() {
+                            config.query_params = obj.iter()
+                                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                                .collect();
+                        }
+                    }
+                }
+                "modelsEndpointCandidates" => {
+                    if config.models_endpoint_candidates.is_empty() {
+                        if let Some(arr) = default_val.as_array() {
+                            config.models_endpoint_candidates = arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect();
+                        }
+                    }
+                }
+                "realtimeEndpoint" => {
+                    if config.realtime_endpoint.is_none() {
+                        if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                            config.realtime_endpoint = Some(s.trim_end_matches('/').to_string());
+                        }
+                    }
+                }
+                "supportsWebsockets" => {
+                    if let Some(b) = default_val.as_bool() {
+                        config.supports_websockets = b;
+                    }
+                }
+                "streamTransport" => {
+                    if config.stream_transport == "sse" {
+                        if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                            config.stream_transport = s.to_string();
+                        }
+                    }
+                }
+                "requestTimeoutSeconds" => {
+                    if config.request_timeout_seconds.is_none() {
+                        config.request_timeout_seconds = default_val.as_u64();
+                    }
+                }
+                "requestMaxRetries" => {
+                    if config.request_max_retries.is_none() {
+                        config.request_max_retries = default_val.as_u64().map(|v| v as u32);
+                    }
+                }
+                "streamMaxRetries" => {
+                    if config.stream_max_retries.is_none() {
+                        config.stream_max_retries = default_val.as_u64().map(|v| v as u32);
+                    }
+                }
+                "streamIdleTimeoutMs" => {
+                    if config.stream_idle_timeout_ms.is_none() {
+                        config.stream_idle_timeout_ms = default_val.as_u64();
+                    }
+                }
+                "websocketConnectTimeoutMs" => {
+                    if config.websocket_connect_timeout_ms.is_none() {
+                        config.websocket_connect_timeout_ms = default_val.as_u64();
+                    }
+                }
+                other => {
+                    config.extension_fields.entry(other.to_string())
+                        .or_insert(default_val);
+                }
+            }
         }
     }
 
-    ProviderConfig {
-        kind: kind.to_string(),
-        models,
-        custom_settings,
-    }
+    config
 }

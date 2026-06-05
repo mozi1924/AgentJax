@@ -5,12 +5,71 @@
 
 // Shared config types used in IPC between Rust backend and React frontend.
 
+  /** Standardized provider configuration with strongly typed fields. */
+  /**  */
+  /** Previously used `#[serde(flatten)] custom_settings` which caused: */
+  /** - No compile-time type safety (string-keyed lookups) */
+  /** - Duplicate keys with different naming conventions (e.g. `credential_env` vs `credentialEnv`) */
+  /** - Empty default values cluttering the config file */
+  /**  */
+  /** The new design promotes well-known fields to first-class typed members while */
+  /** keeping `extension_fields` for truly provider-specific settings. Serialization */
+  /** uses camelCase to match the existing YAML convention. */
 export interface ProviderConfig {
   // default: ""
   kind?: string;
 
   // default: {}
   models?: Record<string, ProviderModelConfig>;
+
+  /** Inline credential value (API key, token, etc.). */
+  /** If set, takes precedence over `credential_env`. */
+  credential?: string | null;
+
+  /** Environment variable name to read the credential from. */
+  credentialEnv?: string | null;
+
+  /** Base API endpoint URL (e.g. "https://api.deepseek.com/v1"). */
+  // default: ""
+  apiEndpoint?: string;
+
+  /** Custom HTTP headers to include in every request. */
+  httpHeaders?: Record<string, string>;
+
+  /** HTTP headers sourced from environment variables (key = header name, value = env var name). */
+  envHttpHeaders?: Record<string, string>;
+
+  /** Query parameters to include in every request. */
+  queryParams?: Record<string, string>;
+
+  /** Candidates for the model listing endpoint (used for auto-discovery). */
+  modelsEndpointCandidates?: string[];
+
+  /** Realtime endpoint URL (WebSocket). */
+  realtimeEndpoint?: string | null;
+
+  /** Whether WebSocket transport is supported. */
+  // default: false
+  supportsWebsockets?: boolean;
+
+  /** Stream transport: "sse" (default) or "websocket". */
+  // default: ""
+  streamTransport?: string;
+
+  /** Request timeout in seconds. */
+  requestTimeoutSeconds?: number | null;
+
+  /** Maximum retries for non-streaming requests. */
+  requestMaxRetries?: number | null;
+
+  /** Maximum retries for streaming requests. */
+  streamMaxRetries?: number | null;
+
+  /** Stream idle timeout in milliseconds. */
+  streamIdleTimeoutMs?: number | null;
+
+  /** WebSocket connect timeout in milliseconds. */
+  websocketConnectTimeoutMs?: number | null;
 
 }
 
@@ -47,218 +106,6 @@ export interface ModelRequestConfig {
   reasoning_effort?: string | null;
 
   extra_body?: Record<string, unknown>;
-
-}
-
-  /** User-facing prompt composer configuration. */
-  /**  */
-  /** Internally stores the **fully resolved** block list (both user-defined and */
-  /** built-in blocks merged).  When serialized to YAML, built-in/plugin blocks */
-  /** are abbreviated to only `{id, enabled}` — see */
-  /** [`Self::abbreviated_for_yaml`].  The abbreviated form is transparently */
-  /** expanded back during [`normalize_prompt_composer`]. */
-export interface PromptComposerConfig {
-  // default: [{"id":"builtin-core-system","title":"AgentJax Core System","role":"system","content":"You are AgentJax, an agentic coding assistant operating through the Responses API and tool calls.\n\nHow you work:\n- Persist until the user's request is fully handled whenever feasible.\n- Use available tools to inspect, modify, verify, and gather information instead of asking for data you can obtain yourself.\n- If the task implies code or environment work, perform the work directly rather than only proposing it.\n- Prefer grounded actions and verifiable results over speculation.\n\nCommentary protocol:\n- Commentary messages are short progress updates while work is still in progress.\n- Before a substantial new tool phase or a meaningful change in approach, emit one fresh commentary update.\n- Commentary should say what you are about to do next or what you just learned, in concise language.\n- Do not use commentary as the answer to the task.\n- Do not front-load long plans unless the user explicitly asks for a plan.\n\nFinal-answer protocol:\n- The final answer must be separate from commentary.\n- A `final_answer` message must contain the completed answer for the user, not a transcript of prior commentary or tool narration.\n- Never restate earlier commentary lines inside a `final_answer`.\n- If commentary already covered progress, the final answer should focus on the result, verification, and any important remaining risk or follow-up.\n\nContext protocol:\n- Preserve the distinction between in-progress commentary and completed answers.\n- Earlier `commentary` items are progress updates, not the answer.\n- Earlier `final_answer` items are the assistant's completed answers.\n- If a prior assistant message has no phase, treat it as phase-unknown compatibility data rather than rewriting its meaning.\n\nVerification protocol:\n- Reuse relevant information already present in the conversation and tool results.\n- After making changes, run the best available focused verification before concluding when feasible.\n- When you cannot verify something directly, say so plainly in the final answer.\n\nBackground tool protocol:\n- If a tool may take a long time and you can make progress elsewhere, start it with `background_task` with `action: \"start\"` instead of blocking on the target tool directly.\n- Treat waiting as a separate awaiter step. Call `background_task` with `action: \"wait\"` only when that background result is on the critical path.\n- Prefer short awaiter checkpoints. If `background_task` with `action: \"wait\"` reports `timedOut: true` or `decision: continue_other_work_or_wait_again`, decide whether to continue other useful work, wait again later, list jobs, or cancel.\n- Do not immediately use a long wait after starting a background job unless there is truly nothing else useful to do.","enabled":true,"source":"builtin","source_id":"agentjax/core/system","locked":true}]
-  blocks?: PromptBlock[];
-
-}
-
-export interface PromptBlock {
-  // default: "prompt-block"
-  id?: string;
-
-  // default: "Prompt block"
-  title?: string;
-
-  // default: "system"
-  role?: PromptBlockRole;
-
-  // default: ""
-  content?: string;
-
-  // default: true
-  enabled?: boolean;
-
-  // default: "user"
-  source?: PromptBlockSource;
-
-  // default: null
-  source_id?: string | null;
-
-  // default: false
-  locked?: boolean;
-
-}
-
-export type PromptBlockRole =
-  | 'system'
-  | 'developer'
-;
-
-export type PromptBlockSource =
-  | 'user'
-  | 'builtin'
-  | 'plugin'
-;
-
-  /** Combined configuration for the Context Management subsystem. */
-  /** Merges the former LCM (Lossless Context Management) settings, Street */
-  /** notification config, and conversation JSONL backup toggle into a single */
-  /** top-level `context_management` section. */
-export interface ContextManagementConfig {
-  /** When true, the soft/hard/large-file thresholds are computed dynamically */
-  /** from the active model's context window. */
-  // default: true
-  dynamic_thresholds?: boolean;
-
-  /** Soft token threshold for async compaction. */
-  // default: 65536
-  soft_token_threshold?: number;
-
-  /** Hard token threshold for blocking compaction. */
-  // default: 131072
-  hard_token_threshold?: number;
-
-  /** Large file token threshold. */
-  // default: 25600
-  large_file_token_threshold?: number;
-
-  /** Compaction timeout (seconds). */
-  // default: 25
-  compaction_timeout_secs?: number;
-
-  /** Maximum messages in a single compact block. */
-  // default: 20
-  max_compact_block_size?: number;
-
-  /** Maximum DAG summary depth. */
-  // default: 5
-  max_summary_depth?: number;
-
-  /** Truncation max tokens. */
-  // default: 128
-  truncation_max_tokens?: number;
-
-  /** Grep page size. */
-  // default: 20
-  grep_page_size?: number;
-
-  /** Summarization model reference. */
-  // default: ""
-  summarization_model?: string;
-
-  /** Tokenizer model ID for accurate token counting. */
-  // default: null
-  tokenizer_model_id?: string | null;
-
-  /** Whether the Street notification system is enabled. */
-  // default: true
-  street_enabled?: boolean;
-
-  /** Minimum priority to auto-trigger a new turn. */
-  // default: "urgent"
-  street_auto_trigger_priority?: string;
-
-  /** Maximum Street items retained per conversation. */
-  // default: 100
-  street_max_items_per_conversation?: number;
-
-  /** Whether to write a JSONL backup alongside the context store. */
-  // default: true
-  jsonl_backup_enabled?: boolean;
-
-}
-
-export interface SubAgentConfig {
-  /** Maximum concurrent sub-agents allowed process-wide. */
-  // default: 4
-  max_concurrent?: number;
-
-  /** Default maximum turns for a sub-agent. */
-  // default: 5
-  default_max_turns?: number;
-
-  /** Hard cap on sub-agent turns. */
-  // default: 10
-  hard_max_turns?: number;
-
-  /** Maximum time a sub-agent may run before being timed out (seconds). */
-  // default: 300
-  timeout_secs?: number;
-
-  /** Whether git worktree isolation is enabled. */
-  // default: false
-  worktree_enabled?: boolean;
-
-}
-
-export interface MemoryConfig {
-  /** Whether the memory system is enabled. */
-  // default: true
-  enabled?: boolean;
-
-  /** Maximum tokens for the MEMORY.md index injected into context. */
-  // default: 2000
-  max_index_tokens?: number;
-
-  /** Whether to auto-inject the memory index into each conversation turn. */
-  // default: true
-  auto_inject?: boolean;
-
-  /** Directory where memory files are stored (relative to agentjax home). */
-  // default: "memory"
-  storage_dir?: string;
-
-}
-
-  /** RAG (Retrieval-Augmented Generation) system configuration. */
-export interface RagConfig {
-  /** Whether the RAG system is enabled. */
-  // default: true
-  enabled?: boolean;
-
-  /** Directory for vector store data (relative to agentjax home). */
-  // default: "rag"
-  storage_path?: string;
-
-  /** Default chunk size in characters for text splitting. */
-  // default: 512
-  chunk_size?: number;
-
-  /** Chunk overlap in characters. */
-  // default: 64
-  chunk_overlap?: number;
-
-  /** Default top-K results for searches. */
-  // default: 5
-  top_k?: number;
-
-  /** Embedding provider configuration. */
-  // default: {"provider":"openai","model":"text-embedding-3-small","dimensions":1536}
-  embedding?: EmbeddingProviderConfig;
-
-}
-
-  /** Configuration for the embedding provider used by RAG. */
-  /** Credentials are resolved by referencing an existing provider config */
-  /** via `provider_key` (e.g., "openai-responses"). */
-export interface EmbeddingProviderConfig {
-  /** Embedding provider implementation name (e.g., "openai"). */
-  // default: "openai"
-  provider?: string;
-
-  /** Optional reference to an existing provider config key for credentials. */
-  /** When set, the system reads apiEndpoint and credential/credentialEnv */
-  /** from the referenced provider config in AppConfig.providers. */
-  provider_key?: string | null;
-
-  /** Embedding model name (e.g., "text-embedding-3-small"). */
-  // default: "text-embedding-3-small"
-  model?: string;
-
-  /** Output vector dimensions. */
-  // default: 1536
-  dimensions?: number;
 
 }
 
@@ -342,53 +189,6 @@ export type McpTransportKind =
   | 'streamable_http'
 ;
 
-  /** User-facing tool exposure policy. */
-  /**  */
-  /** The first read-only Tools Manager surface uses this to report effective */
-  /** availability. Later management actions can patch the same structure without */
-  /** changing provider execution paths or source-specific config models. */
-export interface ToolManagerConfig {
-  // default: {}
-  native_tools?: Record<string, ToolEnabledConfig>;
-
-  // default: {}
-  plugin_tools?: Record<string, ToolSourcePolicyConfig>;
-
-  // default: {}
-  mcp_tools?: Record<string, McpToolSourcePolicyConfig>;
-
-  // default: {}
-  context_tools?: Record<string, ToolEnabledConfig>;
-
-}
-
-export interface ToolEnabledConfig {
-  // default: true
-  enabled?: boolean;
-
-}
-
-export interface ToolSourcePolicyConfig {
-  // default: true
-  enabled?: boolean;
-
-  // default: {}
-  tools?: Record<string, ToolEnabledConfig>;
-
-}
-
-export interface McpToolSourcePolicyConfig {
-  // default: true
-  enabled?: boolean;
-
-  // default: null
-  exposure?: string | null;
-
-  // default: {}
-  tools?: Record<string, ToolEnabledConfig>;
-
-}
-
   /** Plugin lifecycle and permission configuration. */
   /**  */
   /** Controls whether a plugin is enabled at the plugin-manager level and */
@@ -435,50 +235,109 @@ export interface AppConfig {
   // default: "auto"
   language?: string;
 
-  // default: ""
-  active_provider?: string;
-
-  // default: ""
-  default_model?: string;
-
-  // default: ""
-  utility_small_model?: string;
-
-  // default: 120
-  request_timeout_seconds?: number;
-
-  // default: false
-  show_advanced_request_options?: boolean;
-
-  // default: false
-  enable_developer_tools?: boolean;
+  /** The currently active agent profile ID. Stored in shared config.yaml. */
+  // default: "main"
+  active_agent_id?: string;
 
   // default: {}
   providers?: Record<string, ProviderConfig>;
 
-  // default: {"blocks":[{"id":"builtin-core-system","title":"AgentJax Core System","role":"system","content":"You are AgentJax, an agentic coding assistant operating through the Responses API and tool calls.\n\nHow you work:\n- Persist until the user's request is fully handled whenever feasible.\n- Use available tools to inspect, modify, verify, and gather information instead of asking for data you can obtain yourself.\n- If the task implies code or environment work, perform the work directly rather than only proposing it.\n- Prefer grounded actions and verifiable results over speculation.\n\nCommentary protocol:\n- Commentary messages are short progress updates while work is still in progress.\n- Before a substantial new tool phase or a meaningful change in approach, emit one fresh commentary update.\n- Commentary should say what you are about to do next or what you just learned, in concise language.\n- Do not use commentary as the answer to the task.\n- Do not front-load long plans unless the user explicitly asks for a plan.\n\nFinal-answer protocol:\n- The final answer must be separate from commentary.\n- A `final_answer` message must contain the completed answer for the user, not a transcript of prior commentary or tool narration.\n- Never restate earlier commentary lines inside a `final_answer`.\n- If commentary already covered progress, the final answer should focus on the result, verification, and any important remaining risk or follow-up.\n\nContext protocol:\n- Preserve the distinction between in-progress commentary and completed answers.\n- Earlier `commentary` items are progress updates, not the answer.\n- Earlier `final_answer` items are the assistant's completed answers.\n- If a prior assistant message has no phase, treat it as phase-unknown compatibility data rather than rewriting its meaning.\n\nVerification protocol:\n- Reuse relevant information already present in the conversation and tool results.\n- After making changes, run the best available focused verification before concluding when feasible.\n- When you cannot verify something directly, say so plainly in the final answer.\n\nBackground tool protocol:\n- If a tool may take a long time and you can make progress elsewhere, start it with `background_task` with `action: \"start\"` instead of blocking on the target tool directly.\n- Treat waiting as a separate awaiter step. Call `background_task` with `action: \"wait\"` only when that background result is on the critical path.\n- Prefer short awaiter checkpoints. If `background_task` with `action: \"wait\"` reports `timedOut: true` or `decision: continue_other_work_or_wait_again`, decide whether to continue other useful work, wait again later, list jobs, or cancel.\n- Do not immediately use a long wait after starting a background job unless there is truly nothing else useful to do.","enabled":true,"source":"builtin","source_id":"agentjax/core/system","locked":true}]}
-  prompt_composer?: PromptComposerConfig;
-
-  // default: {"dynamic_thresholds":true,"soft_token_threshold":65536,"hard_token_threshold":131072,"large_file_token_threshold":25600,"compaction_timeout_secs":25,"max_compact_block_size":20,"max_summary_depth":5,"truncation_max_tokens":128,"grep_page_size":20,"summarization_model":"","tokenizer_model_id":null,"street_enabled":true,"street_auto_trigger_priority":"urgent","street_max_items_per_conversation":100,"jsonl_backup_enabled":true}
-  context_management?: ContextManagementConfig;
-
-  // default: {"max_concurrent":4,"default_max_turns":5,"hard_max_turns":10,"timeout_secs":300,"worktree_enabled":false}
-  sub_agent?: SubAgentConfig;
-
-  // default: {"enabled":true,"max_index_tokens":2000,"auto_inject":true,"storage_dir":"memory"}
-  memory?: MemoryConfig;
-
-  // default: {"enabled":true,"storage_path":"rag","chunk_size":512,"chunk_overlap":64,"top_k":5,"embedding":{"provider":"openai","model":"text-embedding-3-small","dimensions":1536}}
-  rag?: RagConfig;
-
   // default: {"stdio":{"env":{},"inherit_parent_env":false},"startup_timeout_ms":15000,"tool_timeout_ms":30000,"servers":{}}
   mcp?: McpConfig;
 
-  // default: {"native_tools":{},"plugin_tools":{},"mcp_tools":{},"context_tools":{}}
-  tool_manager?: ToolManagerConfig;
-
   // default: {"plugins":{}}
   plugin_manager?: PluginManagerConfig;
+
+}
+
+  /** Combined configuration for the Context Management subsystem. */
+  /** Merges the former LCM (Lossless Context Management) settings, Street */
+  /** notification config, and conversation JSONL backup toggle into a single */
+  /** top-level `context_management` section. */
+export interface ContextManagementConfig {
+  /** When true, the soft/hard/large-file thresholds are computed dynamically */
+  /** from the active model's context window. */
+  // default: true
+  dynamic_thresholds?: boolean;
+
+  /** Soft token threshold for async compaction. */
+  // default: 65536
+  soft_token_threshold?: number;
+
+  /** Hard token threshold for blocking compaction. */
+  // default: 131072
+  hard_token_threshold?: number;
+
+  /** Large file token threshold. */
+  // default: 25600
+  large_file_token_threshold?: number;
+
+  /** Compaction timeout (seconds). */
+  // default: 25
+  compaction_timeout_secs?: number;
+
+  /** Maximum messages in a single compact block. */
+  // default: 20
+  max_compact_block_size?: number;
+
+  /** Maximum DAG summary depth. */
+  // default: 5
+  max_summary_depth?: number;
+
+  /** Truncation max tokens. */
+  // default: 128
+  truncation_max_tokens?: number;
+
+  /** Grep page size. */
+  // default: 20
+  grep_page_size?: number;
+
+  /** Summarization model reference. */
+  // default: ""
+  summarization_model?: string;
+
+  /** Tokenizer model ID for accurate token counting. */
+  // default: null
+  tokenizer_model_id?: string | null;
+
+  /** Whether the Street notification system is enabled. */
+  // default: true
+  street_enabled?: boolean;
+
+  /** Minimum priority to auto-trigger a new turn. */
+  // default: "urgent"
+  street_auto_trigger_priority?: string;
+
+  /** Maximum Street items retained per conversation. */
+  // default: 100
+  street_max_items_per_conversation?: number;
+
+  /** Whether to write a JSONL backup alongside the context store. */
+  // default: true
+  jsonl_backup_enabled?: boolean;
+
+}
+
+  /** Configuration for the embedding provider used by RAG. */
+  /** Credentials are resolved by referencing an existing provider config */
+  /** via `provider_key` (e.g., "openai-responses"). */
+export interface EmbeddingProviderConfig {
+  /** Embedding provider implementation name (e.g., "openai"). */
+  // default: "openai"
+  provider?: string;
+
+  /** Optional reference to an existing provider config key for credentials. */
+  /** When set, the system reads apiEndpoint and credential/credentialEnv */
+  /** from the referenced provider config in AppConfig.providers. */
+  provider_key?: string | null;
+
+  /** Embedding model name (e.g., "text-embedding-3-small"). */
+  // default: "text-embedding-3-small"
+  model?: string;
+
+  /** Output vector dimensions. */
+  // default: 1536
+  dimensions?: number;
 
 }
 
@@ -491,6 +350,122 @@ export interface McpRuntimeConfig {
 
   // default: 30000
   tool_timeout_ms?: number;
+
+}
+
+export interface ToolEnabledConfig {
+  // default: true
+  enabled?: boolean;
+
+}
+
+export interface McpToolSourcePolicyConfig {
+  // default: true
+  enabled?: boolean;
+
+  // default: null
+  exposure?: string | null;
+
+  // default: {}
+  tools?: Record<string, ToolEnabledConfig>;
+
+}
+
+export interface MemoryConfig {
+  /** Whether the memory system is enabled. */
+  // default: true
+  enabled?: boolean;
+
+  /** Maximum tokens for the MEMORY.md index injected into context. */
+  // default: 2000
+  max_index_tokens?: number;
+
+  /** Whether to auto-inject the memory index into each conversation turn. */
+  // default: true
+  auto_inject?: boolean;
+
+  /** Directory where memory files are stored (relative to agentjax home). */
+  // default: "memory"
+  storage_dir?: string;
+
+}
+
+export type PromptBlockRole =
+  | 'system'
+  | 'developer'
+;
+
+export type PromptBlockSource =
+  | 'user'
+  | 'builtin'
+  | 'plugin'
+;
+
+export interface PromptBlock {
+  // default: "prompt-block"
+  id?: string;
+
+  // default: "Prompt block"
+  title?: string;
+
+  // default: "system"
+  role?: PromptBlockRole;
+
+  // default: ""
+  content?: string;
+
+  // default: true
+  enabled?: boolean;
+
+  // default: "user"
+  source?: PromptBlockSource;
+
+  // default: null
+  source_id?: string | null;
+
+  // default: false
+  locked?: boolean;
+
+}
+
+  /** User-facing prompt composer configuration. */
+  /**  */
+  /** Internally stores the **fully resolved** block list (both user-defined and */
+  /** built-in blocks merged).  When serialized to YAML, built-in/plugin blocks */
+  /** are abbreviated to only `{id, enabled}` — see */
+  /** [`Self::abbreviated_for_yaml`].  The abbreviated form is transparently */
+  /** expanded back during [`normalize_prompt_composer`]. */
+export interface PromptComposerConfig {
+  // default: [{"id":"builtin-core-system","title":"AgentJax Core System","role":"system","content":"You are AgentJax, an agentic coding assistant operating through the Responses API and tool calls.\n\nHow you work:\n- Persist until the user's request is fully handled whenever feasible.\n- Use available tools to inspect, modify, verify, and gather information instead of asking for data you can obtain yourself.\n- If the task implies code or environment work, perform the work directly rather than only proposing it.\n- Prefer grounded actions and verifiable results over speculation.\n\nCommentary protocol:\n- Commentary messages are short progress updates while work is still in progress.\n- Before a substantial new tool phase or a meaningful change in approach, emit one fresh commentary update.\n- Commentary should say what you are about to do next or what you just learned, in concise language.\n- Do not use commentary as the answer to the task.\n- Do not front-load long plans unless the user explicitly asks for a plan.\n\nFinal-answer protocol:\n- The final answer must be separate from commentary.\n- A `final_answer` message must contain the completed answer for the user, not a transcript of prior commentary or tool narration.\n- Never restate earlier commentary lines inside a `final_answer`.\n- If commentary already covered progress, the final answer should focus on the result, verification, and any important remaining risk or follow-up.\n\nContext protocol:\n- Preserve the distinction between in-progress commentary and completed answers.\n- Earlier `commentary` items are progress updates, not the answer.\n- Earlier `final_answer` items are the assistant's completed answers.\n- If a prior assistant message has no phase, treat it as phase-unknown compatibility data rather than rewriting its meaning.\n\nVerification protocol:\n- Reuse relevant information already present in the conversation and tool results.\n- After making changes, run the best available focused verification before concluding when feasible.\n- When you cannot verify something directly, say so plainly in the final answer.\n\nBackground tool protocol:\n- If a tool may take a long time and you can make progress elsewhere, start it with `background_task` with `action: \"start\"` instead of blocking on the target tool directly.\n- Treat waiting as a separate awaiter step. Call `background_task` with `action: \"wait\"` only when that background result is on the critical path.\n- Prefer short awaiter checkpoints. If `background_task` with `action: \"wait\"` reports `timedOut: true` or `decision: continue_other_work_or_wait_again`, decide whether to continue other useful work, wait again later, list jobs, or cancel.\n- Do not immediately use a long wait after starting a background job unless there is truly nothing else useful to do.","enabled":true,"source":"builtin","source_id":"agentjax/core/system","locked":true}]
+  blocks?: PromptBlock[];
+
+}
+
+  /** RAG (Retrieval-Augmented Generation) system configuration. */
+export interface RagConfig {
+  /** Whether the RAG system is enabled. */
+  // default: true
+  enabled?: boolean;
+
+  /** Directory for vector store data (relative to agentjax home). */
+  // default: "rag"
+  storage_path?: string;
+
+  /** Default chunk size in characters for text splitting. */
+  // default: 512
+  chunk_size?: number;
+
+  /** Chunk overlap in characters. */
+  // default: 64
+  chunk_overlap?: number;
+
+  /** Default top-K results for searches. */
+  // default: 5
+  top_k?: number;
+
+  /** Embedding provider configuration. */
+  // default: {"provider":"openai","model":"text-embedding-3-small","dimensions":1536}
+  embedding?: EmbeddingProviderConfig;
 
 }
 
@@ -518,6 +493,58 @@ export interface SettingsSnapshot {
   dynamicOptions: Record<string, SettingsOption[]>;
 
   secretStatuses: Record<string, SecretStatus>;
+
+}
+
+export interface SubAgentConfig {
+  /** Maximum concurrent sub-agents allowed process-wide. */
+  // default: 4
+  max_concurrent?: number;
+
+  /** Default maximum turns for a sub-agent. */
+  // default: 5
+  default_max_turns?: number;
+
+  /** Hard cap on sub-agent turns. */
+  // default: 10
+  hard_max_turns?: number;
+
+  /** Maximum time a sub-agent may run before being timed out (seconds). */
+  // default: 300
+  timeout_secs?: number;
+
+  /** Whether git worktree isolation is enabled. */
+  // default: false
+  worktree_enabled?: boolean;
+
+}
+
+export interface ToolSourcePolicyConfig {
+  // default: true
+  enabled?: boolean;
+
+  // default: {}
+  tools?: Record<string, ToolEnabledConfig>;
+
+}
+
+  /** User-facing tool exposure policy. */
+  /**  */
+  /** The first read-only Tools Manager surface uses this to report effective */
+  /** availability. Later management actions can patch the same structure without */
+  /** changing provider execution paths or source-specific config models. */
+export interface ToolManagerConfig {
+  // default: {}
+  native_tools?: Record<string, ToolEnabledConfig>;
+
+  // default: {}
+  plugin_tools?: Record<string, ToolSourcePolicyConfig>;
+
+  // default: {}
+  mcp_tools?: Record<string, McpToolSourcePolicyConfig>;
+
+  // default: {}
+  context_tools?: Record<string, ToolEnabledConfig>;
 
 }
 

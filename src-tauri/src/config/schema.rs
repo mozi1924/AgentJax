@@ -5,7 +5,7 @@ use crate::config::prompt_composer::CompiledPromptAssembly;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 fn default_language() -> String {
     "auto".to_string()
@@ -427,154 +427,198 @@ pub enum McpTransportKind {
     StreamableHttp,
 }
 
+/// Standardized provider configuration with strongly typed fields.
+///
+/// Previously used `#[serde(flatten)] custom_settings` which caused:
+/// - No compile-time type safety (string-keyed lookups)
+/// - Duplicate keys with different naming conventions (e.g. `credential_env` vs `credentialEnv`)
+/// - Empty default values cluttering the config file
+///
+/// The new design promotes well-known fields to first-class typed members while
+/// keeping `extension_fields` for truly provider-specific settings. Serialization
+/// uses camelCase to match the existing YAML convention.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct ProviderConfig {
     pub kind: String,
     #[serde(default)]
     pub models: BTreeMap<String, ProviderModelConfig>,
+
+    // ── Auth ────────────────────────────────────────────────────────────
+    /// Inline credential value (API key, token, etc.).
+    /// If set, takes precedence over `credential_env`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<String>,
+    /// Environment variable name to read the credential from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_env: Option<String>,
+
+    // ── Network ─────────────────────────────────────────────────────────
+    /// Base API endpoint URL (e.g. "https://api.deepseek.com/v1").
+    #[serde(default)]
+    pub api_endpoint: String,
+    /// Custom HTTP headers to include in every request.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub http_headers: BTreeMap<String, String>,
+    /// HTTP headers sourced from environment variables (key = header name, value = env var name).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env_http_headers: BTreeMap<String, String>,
+    /// Query parameters to include in every request.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub query_params: BTreeMap<String, String>,
+    /// Candidates for the model listing endpoint (used for auto-discovery).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models_endpoint_candidates: Vec<String>,
+    /// Realtime endpoint URL (WebSocket).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realtime_endpoint: Option<String>,
+    /// Whether WebSocket transport is supported.
+    #[serde(default)]
+    pub supports_websockets: bool,
+    /// Stream transport: "sse" (default) or "websocket".
+    #[serde(default)]
+    pub stream_transport: String,
+
+    // ── Timeouts & Retries ─────────────────────────────────────────────
+    /// Request timeout in seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_timeout_seconds: Option<u64>,
+    /// Maximum retries for non-streaming requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_max_retries: Option<u32>,
+    /// Maximum retries for streaming requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_max_retries: Option<u32>,
+    /// Stream idle timeout in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_idle_timeout_ms: Option<u64>,
+    /// WebSocket connect timeout in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub websocket_connect_timeout_ms: Option<u64>,
+
+    // ── Provider-specific extension fields ──────────────────────────────
+    /// Any additional provider-specific settings not covered by the standard fields above.
+    /// These are flattened into the YAML/JSON output (via `#[serde(flatten)]`).
+    /// Keys that overlap with the typed fields above are ignored during deserialization.
     #[serde(flatten)]
-    pub custom_settings: serde_json::Map<String, Value>,
+    pub extension_fields: HashMap<String, Value>,
 }
 
 impl ProviderConfig {
+    // ── Convenience accessors (field wrappers for backward compat) ──────
+
     pub fn api_endpoint(&self) -> String {
-        self.custom_settings
-            .get("apiEndpoint")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
-    }
-
-    #[allow(dead_code)] // Reserved for future use
-    pub fn models_endpoint_candidates(&self) -> Vec<String> {
-        self.custom_settings
-            .get("modelsEndpointCandidates")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|val| val.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    #[allow(dead_code)] // Reserved for future use
-    pub fn query_params(&self) -> BTreeMap<String, String> {
-        self.custom_settings
-            .get("queryParams")
-            .and_then(Value::as_object)
-            .map(|obj| {
-                obj.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    pub fn http_headers(&self) -> BTreeMap<String, String> {
-        self.custom_settings
-            .get("httpHeaders")
-            .and_then(Value::as_object)
-            .map(|obj| {
-                obj.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    pub fn env_http_headers(&self) -> BTreeMap<String, String> {
-        self.custom_settings
-            .get("envHttpHeaders")
-            .and_then(Value::as_object)
-            .map(|obj| {
-                obj.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    pub fn realtime_endpoint(&self) -> Option<String> {
-        self.custom_settings
-            .get("realtimeEndpoint")
-            .and_then(|val| {
-                if val.is_null() {
-                    None
-                } else {
-                    val.as_str().map(String::from)
-                }
-            })
-    }
-
-    pub fn supports_websockets(&self) -> bool {
-        self.custom_settings
-            .get("supportsWebsockets")
-            .and_then(Value::as_bool)
-            .unwrap_or(true)
-    }
-
-    pub fn stream_transport(&self) -> String {
-        self.custom_settings
-            .get("streamTransport")
-            .and_then(Value::as_str)
-            .unwrap_or("sse")
-            .to_string()
+        self.api_endpoint.clone()
     }
 
     pub fn credential(&self) -> Option<String> {
-        self.custom_settings.get("credential").and_then(|val| {
-            if val.is_null() {
-                None
-            } else {
-                val.as_str().map(String::from)
-            }
-        })
+        self.credential.clone()
     }
 
     pub fn credential_env(&self) -> String {
-        self.custom_settings
-            .get("credentialEnv")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
+        self.credential_env.clone().unwrap_or_default()
+    }
+
+    pub fn http_headers(&self) -> BTreeMap<String, String> {
+        self.http_headers.clone()
+    }
+
+    pub fn env_http_headers(&self) -> BTreeMap<String, String> {
+        self.env_http_headers.clone()
+    }
+
+    pub fn realtime_endpoint(&self) -> Option<String> {
+        self.realtime_endpoint.clone()
+    }
+
+    pub fn supports_websockets(&self) -> bool {
+        self.supports_websockets
+    }
+
+    pub fn stream_transport(&self) -> String {
+        self.stream_transport.clone()
     }
 
     pub fn request_timeout_seconds(&self) -> Option<u64> {
-        self.custom_settings
-            .get("requestTimeoutSeconds")
-            .and_then(Value::as_u64)
+        self.request_timeout_seconds
     }
 
-    #[allow(dead_code)] // Reserved for future use
+    pub fn query_params(&self) -> BTreeMap<String, String> {
+        self.query_params.clone()
+    }
+
+    pub fn models_endpoint_candidates(&self) -> Vec<String> {
+        self.models_endpoint_candidates.clone()
+    }
+
     pub fn request_max_retries(&self) -> Option<u32> {
-        self.custom_settings
-            .get("requestMaxRetries")
-            .and_then(Value::as_u64)
-            .map(|v| v as u32)
+        self.request_max_retries
     }
 
-    #[allow(dead_code)] // Reserved for future use
     pub fn stream_max_retries(&self) -> Option<u32> {
-        self.custom_settings
-            .get("streamMaxRetries")
-            .and_then(Value::as_u64)
-            .map(|v| v as u32)
+        self.stream_max_retries
     }
 
-    #[allow(dead_code)] // Reserved for future use
     pub fn stream_idle_timeout_ms(&self) -> Option<u64> {
-        self.custom_settings
-            .get("streamIdleTimeoutMs")
-            .and_then(Value::as_u64)
+        self.stream_idle_timeout_ms
     }
 
-    #[allow(dead_code)] // Reserved for future use
     pub fn websocket_connect_timeout_ms(&self) -> Option<u64> {
-        self.custom_settings
-            .get("websocketConnectTimeoutMs")
-            .and_then(Value::as_u64)
+        self.websocket_connect_timeout_ms
+    }
+
+    /// Resolve the effective credential: inline value first, then environment variable.
+    pub fn resolved_credential(&self) -> Option<String> {
+        self.credential
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                self.credential_env
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .and_then(|env_key| std::env::var(env_key).ok())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            })
+    }
+
+    /// Resolve the effective realtime endpoint: explicit URL, or derive from `api_endpoint`.
+    pub fn resolved_realtime_endpoint(&self) -> String {
+        if let Some(ref url) = self.realtime_endpoint {
+            return url.clone();
+        }
+        let base = self.api_endpoint.trim_end_matches('/');
+        if base.starts_with("https://") {
+            format!("wss://{}", &base["https://".len()..])
+        } else if base.starts_with("http://") {
+            format!("ws://{}", &base["http://".len()..])
+        } else {
+            format!("wss://{}", base)
+        }
+    }
+
+    /// Resolve the effective timeout: provider-specific or global default.
+    pub fn resolved_timeout_seconds(&self, global_default: u64) -> u64 {
+        self.request_timeout_seconds.unwrap_or(global_default)
+    }
+
+    /// Resolve HTTP headers merging static headers with env-var-sourced headers.
+    pub fn resolved_http_headers(&self) -> BTreeMap<String, String> {
+        let mut headers = self.http_headers.clone();
+        for (header_name, env_key) in &self.env_http_headers {
+            if env_key.trim().is_empty() {
+                continue;
+            }
+            if let Ok(value) = std::env::var(env_key) {
+                let value = value.trim().to_string();
+                if !value.is_empty() {
+                    headers.insert(header_name.clone(), value);
+                }
+            }
+        }
+        headers
     }
 }
 
@@ -720,7 +764,22 @@ impl Default for ProviderConfig {
         Self {
             kind: String::new(),
             models: BTreeMap::new(),
-            custom_settings: serde_json::Map::new(),
+            credential: None,
+            credential_env: None,
+            api_endpoint: String::new(),
+            http_headers: BTreeMap::new(),
+            env_http_headers: BTreeMap::new(),
+            query_params: BTreeMap::new(),
+            models_endpoint_candidates: Vec::new(),
+            realtime_endpoint: None,
+            supports_websockets: true,
+            stream_transport: "sse".to_string(),
+            request_timeout_seconds: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            websocket_connect_timeout_ms: None,
+            extension_fields: HashMap::new(),
         }
     }
 }

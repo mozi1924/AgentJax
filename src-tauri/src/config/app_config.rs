@@ -11,118 +11,84 @@ use crate::provider_api::registry;
 use std::collections::BTreeMap;
 
 impl ProviderConfig {
+    /// Normalize provider config: trim whitespace, fill defaults from registry schema,
+    /// normalize models, and populate built-in models when none are configured.
     pub fn normalize_for_key(mut self, provider_key: &str) -> Self {
         self.kind = self.kind.trim().to_lowercase();
         if self.kind.is_empty() {
             self.kind = provider_key.to_string();
         }
 
-        // Auto-complete custom_settings fields dynamically from registered config schema.
-        // Only insert keys that have a non-null default value.
+        // Fill standard typed fields from the registered plugin schema defaults
+        // only when the field is still at its default/empty value.
         if let Some(definition) = registry::provider_definition(&self.kind)
-            && let Some(obj) = definition.config_schema.as_object()
-            && let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {
-                for (key, property_schema) in properties {
-                    if !self.custom_settings.contains_key(key)
-                        && let Some(default_val) = property_schema.get("default")
-                        && !default_val.is_null() {
-                            self.custom_settings
-                                .insert(key.clone(), default_val.clone());
-                    }
-                }
+            && let Some(properties) = definition
+                .config_schema
+                .as_object()
+                .and_then(|obj| obj.get("properties").and_then(|p| p.as_object()))
+        {
+            for (key, property_schema) in properties {
+                let Some(default_val) = property_schema.get("default") else { continue };
+                if default_val.is_null() { continue; }
+                self.fill_typed_field_from_schema(key, default_val);
             }
-
-        // Perform custom settings self-healing and normalization
-        if let Some(serde_json::Value::String(api_endpoint)) =
-            self.custom_settings.get("apiEndpoint")
-        {
-            let trimmed = api_endpoint.trim().trim_end_matches('/').to_string();
-            self.custom_settings.insert(
-                "apiEndpoint".to_string(),
-                serde_json::Value::String(trimmed),
-            );
         }
 
-        if let Some(serde_json::Value::String(realtime_endpoint)) =
-            self.custom_settings.get("realtimeEndpoint")
-        {
-            let trimmed = realtime_endpoint.trim().trim_end_matches('/').to_string();
-            self.custom_settings.insert(
-                "realtimeEndpoint".to_string(),
-                serde_json::Value::String(trimmed),
-            );
-        }
+        // Normalize api_endpoint: trim trailing slashes.
+        self.api_endpoint = self.api_endpoint.trim().trim_end_matches('/').to_string();
 
-        let supports_ws = self.supports_websockets();
-        let mut transport = self.stream_transport().trim().to_lowercase();
-        if transport != "websocket" && transport != "sse" {
-            if let Some(definition) = registry::provider_definition(&self.kind) {
-                transport = definition.default_config.stream_transport();
+        // Normalize realtime_endpoint: trim trailing slashes.
+        if let Some(ref mut url) = self.realtime_endpoint {
+            let trimmed = url.trim().trim_end_matches('/').to_string();
+            if trimmed.is_empty() {
+                self.realtime_endpoint = None;
             } else {
-                transport = if supports_ws {
-                    "websocket".to_string()
-                } else {
-                    "sse".to_string()
-                };
-            }
-        }
-        if !supports_ws && transport == "websocket" {
-            transport = "sse".to_string();
-        }
-        self.custom_settings.insert(
-            "streamTransport".to_string(),
-            serde_json::Value::String(transport),
-        );
-
-        for key in &["queryParams", "httpHeaders", "envHttpHeaders"] {
-            if let Some(serde_json::Value::Object(obj)) = self.custom_settings.get(*key) {
-                let mut normalized = serde_json::Map::new();
-                for (k, v) in obj {
-                    let k = k.trim().to_string();
-                    if k.is_empty() {
-                        continue;
-                    }
-                    if let serde_json::Value::String(s) = v {
-                        normalized.insert(k, serde_json::Value::String(s.trim().to_string()));
-                    }
-                }
-                self.custom_settings
-                    .insert(key.to_string(), serde_json::Value::Object(normalized));
+                *url = trimmed;
             }
         }
 
-        // Normalize model configuration items.
-        // The map key is now the model ID (e.g. "gpt-5.4-mini") rather than a
-        // user-defined alias.  An optional `name` field provides the display
-        // label; when absent the model ID is shown directly.
+        // Normalize stream_transport: validate and fall back to provider default.
+        let transport = self.stream_transport.trim().to_lowercase();
+        if transport != "websocket" && transport != "sse" {
+            self.stream_transport = registry::provider_definition(&self.kind)
+                .map(|def| def.default_config.stream_transport.clone())
+                .unwrap_or_else(|| {
+                    if self.supports_websockets { "websocket".to_string() } else { "sse".to_string() }
+                });
+        } else {
+            self.stream_transport = transport;
+        }
+        if !self.supports_websockets && self.stream_transport == "websocket" {
+            self.stream_transport = "sse".to_string();
+        }
+
+        // Normalize map-typed fields (trim keys and values).
+        let normalize_map = |m: BTreeMap<String, String>| -> BTreeMap<String, String> {
+            m.into_iter()
+                .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+                .filter(|(k, _)| !k.is_empty())
+                .collect()
+        };
+        self.http_headers = normalize_map(std::mem::take(&mut self.http_headers));
+        self.env_http_headers = normalize_map(std::mem::take(&mut self.env_http_headers));
+        self.query_params = normalize_map(std::mem::take(&mut self.query_params));
+
+        // Normalize model configs.
         let mut normalized_models = BTreeMap::new();
         for (raw_key, mut model_cfg) in std::mem::take(&mut self.models) {
             let model_key = raw_key.trim().to_string();
-            if model_key.is_empty() {
-                continue;
-            }
-            // Trim the optional friendly name.
+            if model_key.is_empty() { continue; }
             if let Some(ref n) = model_cfg.name {
                 let trimmed = n.trim().to_string();
-                if trimmed.is_empty() {
-                    model_cfg.name = None;
-                } else {
-                    model_cfg.name = Some(trimmed);
-                }
+                model_cfg.name = if trimmed.is_empty() { None } else { Some(trimmed) };
             }
             model_cfg.request.normalize();
             normalized_models.insert(model_key, model_cfg);
         }
         self.models = normalized_models;
 
-        // Remove null-valued custom_settings keys to keep the config file clean.
-        self.custom_settings
-            .retain(|_, v| !v.is_null());
-
         // Auto-populate models from the provider definition's builtin_models
-        // when none are configured yet. This ensures that when a user sets a
-        // provider's kind (e.g. "deepseek"), its known models appear in the
-        // config and settings UI automatically.
+        // when none are configured yet.
         if self.models.is_empty() {
             if let Some(definition) = registry::provider_definition(&self.kind) {
                 for model in &definition.builtin_models {
@@ -144,61 +110,113 @@ impl ProviderConfig {
         self
     }
 
-    /// Preserve compatibility with older YAML files that stored provider
-    pub fn resolved_credential(&self) -> Option<String> {
-        let from_config = self
-            .credential()
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(ToOwned::to_owned);
-
-        from_config.or_else(|| {
-            std::env::var(self.credential_env())
-                .ok()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        })
-    }
-
-    pub fn resolved_realtime_endpoint(&self) -> String {
-        if let Some(url) = self.realtime_endpoint() {
-            return url;
-        }
-
-        let api_endpoint = self.api_endpoint();
-        if api_endpoint.starts_with("https://") {
-            return format!("wss://{}", api_endpoint.trim_start_matches("https://"));
-        }
-        if api_endpoint.starts_with("http://") {
-            return format!("ws://{}", api_endpoint.trim_start_matches("http://"));
-        }
-
-        format!("wss://{}", api_endpoint)
-    }
-
-    pub fn resolved_timeout_seconds(&self, global_default: u64) -> u64 {
-        self.request_timeout_seconds().unwrap_or(global_default)
-    }
-
-    pub fn resolved_http_headers(&self) -> BTreeMap<String, String> {
-        let mut headers = self.http_headers();
-
-        for (header_name, env_key) in &self.env_http_headers() {
-            let env_key = env_key.trim();
-            if env_key.is_empty() {
-                continue;
+    /// Map a plugin config schema key to the corresponding typed field and fill it
+    /// if it's still at its default value. Unknown keys go to `extension_fields`.
+    fn fill_typed_field_from_schema(&mut self, key: &str, default_val: &serde_json::Value) {
+        match key {
+            "credential" | "credentialEnv" => {
+                // These are sensitive — never fill from schema default at this stage.
+                // The schema has default: null for credential and default: "DEEPSEEK_API_KEY"
+                // for credentialEnv, but we should only set credentialEnv when it's empty
+                // and the schema has a non-empty default.
+                if self.credential_env.is_none() {
+                    if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                        self.credential_env = Some(s.to_string());
+                    }
+                }
             }
-
-            if let Ok(value) = std::env::var(env_key) {
-                let value = value.trim();
-                if !value.is_empty() {
-                    headers.insert(header_name.clone(), value.to_string());
+            "apiEndpoint" => {
+                if self.api_endpoint.is_empty() {
+                    if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                        self.api_endpoint = s.trim_end_matches('/').to_string();
+                    }
+                }
+            }
+            "httpHeaders" => {
+                if self.http_headers.is_empty() {
+                    if let Some(obj) = default_val.as_object() {
+                        self.http_headers = obj.iter()
+                            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                            .collect();
+                    }
+                }
+            }
+            "envHttpHeaders" => {
+                if self.env_http_headers.is_empty() {
+                    if let Some(obj) = default_val.as_object() {
+                        self.env_http_headers = obj.iter()
+                            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                            .collect();
+                    }
+                }
+            }
+            "queryParams" => {
+                if self.query_params.is_empty() {
+                    if let Some(obj) = default_val.as_object() {
+                        self.query_params = obj.iter()
+                            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                            .collect();
+                    }
+                }
+            }
+            "modelsEndpointCandidates" => {
+                if self.models_endpoint_candidates.is_empty() {
+                    if let Some(arr) = default_val.as_array() {
+                        self.models_endpoint_candidates = arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect();
+                    }
+                }
+            }
+            "realtimeEndpoint" => {
+                if self.realtime_endpoint.is_none() {
+                    if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                        self.realtime_endpoint = Some(s.trim_end_matches('/').to_string());
+                    }
+                }
+            }
+            "supportsWebsockets" => {
+                // Keep the default true — only override if explicitly set.
+            }
+            "streamTransport" => {
+                if self.stream_transport == "sse" {
+                    if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                        self.stream_transport = s.to_string();
+                    }
+                }
+            }
+            "requestTimeoutSeconds" => {
+                if self.request_timeout_seconds.is_none() {
+                    self.request_timeout_seconds = default_val.as_u64();
+                }
+            }
+            "requestMaxRetries" => {
+                if self.request_max_retries.is_none() {
+                    self.request_max_retries = default_val.as_u64().map(|v| v as u32);
+                }
+            }
+            "streamMaxRetries" => {
+                if self.stream_max_retries.is_none() {
+                    self.stream_max_retries = default_val.as_u64().map(|v| v as u32);
+                }
+            }
+            "streamIdleTimeoutMs" => {
+                if self.stream_idle_timeout_ms.is_none() {
+                    self.stream_idle_timeout_ms = default_val.as_u64();
+                }
+            }
+            "websocketConnectTimeoutMs" => {
+                if self.websocket_connect_timeout_ms.is_none() {
+                    self.websocket_connect_timeout_ms = default_val.as_u64();
+                }
+            }
+            // Unknown key → store in extension_fields for provider-specific settings.
+            other => {
+                if !self.extension_fields.contains_key(other) {
+                    self.extension_fields.insert(other.to_string(), default_val.clone());
                 }
             }
         }
-
-        headers
     }
 }
 

@@ -58,11 +58,6 @@ mod tests {
     /// Helper: build a minimal AppConfig with an openai provider and two models.
     fn test_config_with_openai() -> AppConfig {
         let mut cfg = AppConfig::default();
-        let mut custom_settings = serde_json::Map::new();
-        custom_settings.insert(
-            "apiEndpoint".to_string(),
-            serde_json::Value::String("https://api.openai.com/v1".to_string()),
-        );
         let mut models = std::collections::BTreeMap::new();
         models.insert(
             "gpt-5".to_string(),
@@ -77,7 +72,8 @@ mod tests {
             ProviderConfig {
                 kind: "openai".to_string(),
                 models,
-                custom_settings,
+                api_endpoint: "https://api.openai.com/v1".to_string(),
+                ..Default::default()
             },
         );
         cfg
@@ -234,21 +230,15 @@ mod tests {
             .providers
             .get_mut("openai")
             .expect("openai provider exists");
-        provider.custom_settings.insert(
-            "supportsWebsockets".to_string(),
-            serde_json::Value::Bool(false),
-        );
-        provider.custom_settings.insert(
-            "streamTransport".to_string(),
-            serde_json::Value::String("websocket".to_string()),
-        );
+        provider.supports_websockets = false;
+        provider.stream_transport = "websocket".to_string();
 
         let normalized = cfg.normalize();
         let provider = normalized
             .providers
             .get("openai")
             .expect("normalized provider exists");
-        assert_eq!(provider.stream_transport(), "sse");
+        assert_eq!(provider.stream_transport, "sse");
     }
 
 
@@ -258,28 +248,18 @@ mod tests {
             .blocking_lock();
         let mut provider = ProviderConfig::default();
 
-        let mut http_headers = serde_json::Map::new();
-        http_headers.insert(
+        provider.http_headers.insert(
             "X-Feature".to_string(),
-            serde_json::Value::String("static".to_string()),
-        );
-        provider.custom_settings.insert(
-            "httpHeaders".to_string(),
-            serde_json::Value::Object(http_headers),
+            "static".to_string(),
         );
 
-        let mut env_http_headers = serde_json::Map::new();
-        env_http_headers.insert(
+        provider.env_http_headers.insert(
             "Authorization".to_string(),
-            serde_json::Value::String("TEST_AGENTJAX_AUTH".to_string()),
+            "TEST_AGENTJAX_AUTH".to_string(),
         );
-        env_http_headers.insert(
+        provider.env_http_headers.insert(
             "X-Feature".to_string(),
-            serde_json::Value::String("TEST_AGENTJAX_X_FEATURE".to_string()),
-        );
-        provider.custom_settings.insert(
-            "envHttpHeaders".to_string(),
-            serde_json::Value::Object(env_http_headers),
+            "TEST_AGENTJAX_X_FEATURE".to_string(),
         );
 
         unsafe {
@@ -526,26 +506,17 @@ mod tests {
             .get("custom-oauth-llm")
             .expect("custom-oauth-llm provider exists");
 
-        // Verify custom_settings has been auto-completed with defaults from the schema
+        // Verify typed fields + extension_fields have been auto-completed from schema
         assert_eq!(
-            provider
-                .custom_settings
-                .get("apiKey")
-                .and_then(|v| v.as_str()),
+            provider.extension_fields.get("apiKey").and_then(|v| v.as_str()),
             Some("default-oauth-key")
         );
         assert_eq!(
-            provider
-                .custom_settings
-                .get("apiEndpoint")
-                .and_then(|v| v.as_str()),
-            Some("https://api.custom-oauth.com/v1")
+            provider.api_endpoint.as_str(),
+            "https://api.custom-oauth.com/v1"
         );
         assert_eq!(
-            provider
-                .custom_settings
-                .get("customParam")
-                .and_then(|v| v.as_str()),
+            provider.extension_fields.get("customParam").and_then(|v| v.as_str()),
             Some("custom-value")
         );
 
