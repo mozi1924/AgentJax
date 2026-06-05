@@ -4,7 +4,6 @@ mod request;
 mod tool_state;
 mod turn;
 
-use crate::error::{AgentJaxError, AgentJaxResult};
 use super::AgentRuntime;
 use super::stream_collection::collect_provider_turn;
 use super::tool_archiving::archive_unavailable_historical_tool_calls;
@@ -12,6 +11,7 @@ use super::tool_execution::ToolExecutionScheduler;
 use super::tool_parsing::describe_item_shape;
 use crate::commands::chat::ChatRequest;
 use crate::config::{AgentConfig, AppConfig};
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::message_phase::AssistantPhase;
 use crate::provider_api::types::{ProviderStreamEvent, ResponseStreamResult};
 use crate::time_context::{build_temporal_context_system_item, render_timed_message};
@@ -41,14 +41,17 @@ impl AgentRuntime {
         tools_catalog: &ToolCatalog,
         lcm_engine: &std::sync::Arc<crate::lcm::LcmEngine>,
         cancel_rx: &mut watch::Receiver<bool>,
-        sub_agent_event_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::sub_agents::SubAgentEvent>>,
+        sub_agent_event_tx: Option<
+            tokio::sync::mpsc::UnboundedSender<crate::sub_agents::SubAgentEvent>,
+        >,
         street_items: Vec<Value>,
         mut on_event: F,
     ) -> AgentJaxResult<(ResponseStreamResult, Vec<Value>)>
     where
         F: FnMut(ProviderStreamEvent) -> Result<(), AgentJaxError> + Send + 'static,
     {
-        let resolved_model = config.resolve_model_profile_with_agent(req.model.as_deref(), agent)?;
+        let resolved_model =
+            config.resolve_model_profile_with_agent(req.model.as_deref(), agent)?;
         let provider_capabilities =
             crate::provider_api::get_capabilities(&resolved_model.provider.kind)?;
         // When a model explicitly overrides the API protocol to chat_completions,
@@ -79,7 +82,8 @@ impl AgentRuntime {
         let is_sub_agent = conversation_id.contains("/sub-agent/");
         let sub_agent_type: Option<String> = if is_sub_agent {
             // Extract type from ".../sub-agent/{type}/{id}"
-            conversation_id.split("/sub-agent/")
+            conversation_id
+                .split("/sub-agent/")
                 .nth(1)
                 .and_then(|rest| rest.split('/').next())
                 .map(|s| s.to_string())
@@ -93,10 +97,7 @@ impl AgentRuntime {
             app_config: Some(Arc::new(config.clone())),
             sub_agent_id: if is_sub_agent {
                 // Extract agent_id (last segment) from the conversation_id path.
-                conversation_id
-                    .rsplit('/')
-                    .next()
-                    .map(|s| s.to_string())
+                conversation_id.rsplit('/').next().map(|s| s.to_string())
             } else {
                 None
             },
@@ -130,9 +131,7 @@ impl AgentRuntime {
         let max_turns = 10usize;
 
         // ── Seed LCM active context with existing conversation history ──
-        lcm_engine
-            .rebuild_active_context(conversation_id)
-            .ok();
+        lcm_engine.rebuild_active_context(conversation_id).ok();
 
         // ── Persist the current user message to LCM ─────────────────────
         {
@@ -146,7 +145,10 @@ impl AgentRuntime {
                 crate::lcm::types::estimate_tokens(user_text),
                 user_message_ts,
             );
-            user_msg.metadata.insert("request_id".to_string(), serde_json::Value::String(request_id.to_string()));
+            user_msg.metadata.insert(
+                "request_id".to_string(),
+                serde_json::Value::String(request_id.to_string()),
+            );
             if let Err(e) = lcm_engine.process_message(&user_msg).await {
                 log::warn!("LCM: failed to persist user message for turn: {e}");
             }
@@ -168,7 +170,9 @@ impl AgentRuntime {
 
         'turn_loop: loop {
             if turn_idx >= max_turns {
-                return Err(crate::error::AgentJaxError::internal("Maximum turn execution limit reached"));
+                return Err(crate::error::AgentJaxError::internal(
+                    "Maximum turn execution limit reached",
+                ));
             }
             turn_idx += 1;
 
@@ -190,23 +194,18 @@ impl AgentRuntime {
                 let history_items: Vec<Value> = lcm_context
                     .into_iter()
                     .filter(|item| {
-                        !matches!(
-                            item.get("role").and_then(|v| v.as_str()),
-                            Some("user")
-                        )
+                        !matches!(item.get("role").and_then(|v| v.as_str()), Some("user"))
                     })
                     .collect();
                 items.extend(history_items);
-                items.push(
-                    crate::provider_api::build_user_input_item(
-                        provider_kind,
-                        &render_timed_message(
-                            "Current user message",
-                            user_message_ts,
-                            req.input.trim(),
-                        ),
-                    )?,
-                );
+                items.push(crate::provider_api::build_user_input_item(
+                    provider_kind,
+                    &render_timed_message(
+                        "Current user message",
+                        user_message_ts,
+                        req.input.trim(),
+                    ),
+                )?);
                 items
             } else {
                 lcm_context
@@ -236,7 +235,8 @@ impl AgentRuntime {
                 tool_snapshot.active_tool_names(),
             );
 
-            let stream_request = build_request(req, input_items.clone(), tool_snapshot.schemas().to_vec());
+            let stream_request =
+                build_request(req, input_items.clone(), tool_snapshot.schemas().to_vec());
             let mut tool_scheduler = ToolExecutionScheduler::new(
                 conversation_id,
                 tool_snapshot.clone(),
@@ -340,10 +340,19 @@ impl AgentRuntime {
                             crate::lcm::types::estimate_tokens(text),
                             now_ms,
                         );
-                        msg.metadata.insert("request_id".to_string(), serde_json::Value::String(request_id.to_string()));
-                        msg.metadata.insert("response_id".to_string(), serde_json::Value::String(response_id.clone()));
+                        msg.metadata.insert(
+                            "request_id".to_string(),
+                            serde_json::Value::String(request_id.to_string()),
+                        );
+                        msg.metadata.insert(
+                            "response_id".to_string(),
+                            serde_json::Value::String(response_id.clone()),
+                        );
                         if let Some(p) = phase {
-                            msg.metadata.insert("phase".to_string(), serde_json::Value::String(p.as_str().to_string()));
+                            msg.metadata.insert(
+                                "phase".to_string(),
+                                serde_json::Value::String(p.as_str().to_string()),
+                            );
                         }
                         batch_messages.push(msg);
                     }
@@ -358,11 +367,17 @@ impl AgentRuntime {
                         .response_result
                         .output_items
                         .iter()
-                        .filter(|item| item.get("type").and_then(Value::as_str) == Some("reasoning"))
+                        .filter(|item| {
+                            item.get("type").and_then(Value::as_str) == Some("reasoning")
+                        })
                         .filter_map(|item| item.get("text").and_then(Value::as_str))
                         .filter(|text| !text.trim().is_empty())
                         .collect();
-                    if parts.is_empty() { None } else { Some(parts.join("\n")) }
+                    if parts.is_empty() {
+                        None
+                    } else {
+                        Some(parts.join("\n"))
+                    }
                 };
 
                 // Attach thinking to all assistant messages in this batch.
@@ -380,26 +395,45 @@ impl AgentRuntime {
                 {
                     Some(collected.response_result.output_text.trim().to_string())
                 } else if is_final_hop && !final_output_text.trim().is_empty() {
-                    let already_captured = hop_messages_for_lcm.iter().any(|(t, _)| {
-                        t.trim() == final_output_text.trim()
-                    });
-                    if !already_captured { Some(final_output_text.trim().to_string()) } else { None }
+                    let already_captured = hop_messages_for_lcm
+                        .iter()
+                        .any(|(t, _)| t.trim() == final_output_text.trim());
+                    if !already_captured {
+                        Some(final_output_text.trim().to_string())
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 };
 
                 if let Some(text) = fallback_text {
                     let phase = resolve_hop_phase(None, is_final_hop);
-                    let phase_str = phase.map(|p| p.as_str().to_string())
-                        .unwrap_or_else(|| if is_final_hop { "final_answer".to_string() } else { "commentary".to_string() });
+                    let phase_str = phase.map(|p| p.as_str().to_string()).unwrap_or_else(|| {
+                        if is_final_hop {
+                            "final_answer".to_string()
+                        } else {
+                            "commentary".to_string()
+                        }
+                    });
                     let mut msg = crate::lcm::types::StoredMessage::new(
-                        crate::lcm::types::MessageId::new(), &lcm_conv_id,
-                        crate::lcm::types::MessageRole::Assistant, &text,
-                        crate::lcm::types::estimate_tokens(&text), now_ms,
+                        crate::lcm::types::MessageId::new(),
+                        &lcm_conv_id,
+                        crate::lcm::types::MessageRole::Assistant,
+                        &text,
+                        crate::lcm::types::estimate_tokens(&text),
+                        now_ms,
                     );
-                    msg.metadata.insert("request_id".to_string(), serde_json::Value::String(request_id.to_string()));
-                    msg.metadata.insert("response_id".to_string(), serde_json::Value::String(response_id.clone()));
-                    msg.metadata.insert("phase".to_string(), serde_json::Value::String(phase_str));
+                    msg.metadata.insert(
+                        "request_id".to_string(),
+                        serde_json::Value::String(request_id.to_string()),
+                    );
+                    msg.metadata.insert(
+                        "response_id".to_string(),
+                        serde_json::Value::String(response_id.clone()),
+                    );
+                    msg.metadata
+                        .insert("phase".to_string(), serde_json::Value::String(phase_str));
                     // Attach thinking directly to the fallback message.
                     if let Some(ref thinking_text) = hop_thinking_text {
                         msg.thinking = Some(thinking_text.clone());
@@ -408,9 +442,14 @@ impl AgentRuntime {
                 }
 
                 if !batch_messages.is_empty()
-                    && let Err(e) = engine.process_messages_batch(&batch_messages).await {
-                        log::warn!("LCM: failed to persist {} messages: {}", batch_messages.len(), e);
-                    }
+                    && let Err(e) = engine.process_messages_batch(&batch_messages).await
+                {
+                    log::warn!(
+                        "LCM: failed to persist {} messages: {}",
+                        batch_messages.len(),
+                        e
+                    );
+                }
             }
 
             // ── No tools → final response reached ─────────────────────────
@@ -449,26 +488,60 @@ impl AgentRuntime {
                 let mut batch_messages: Vec<crate::lcm::types::StoredMessage> = Vec::new();
 
                 let tool_name_by_call_id: std::collections::HashMap<String, String> =
-                    lcm_tool_calls.iter().filter_map(|item| {
-                        let call_id = item.get("call_id").and_then(|v| v.as_str()).map(String::from)?;
-                        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-                        Some((call_id, name))
-                    }).collect();
+                    lcm_tool_calls
+                        .iter()
+                        .filter_map(|item| {
+                            let call_id = item
+                                .get("call_id")
+                                .and_then(|v| v.as_str())
+                                .map(String::from)?;
+                            let name = item
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            Some((call_id, name))
+                        })
+                        .collect();
 
                 for item in &lcm_tool_calls {
-                    let call_id = item.get("call_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let call_id = item
+                        .get("call_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
                     let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                    let arguments = item.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
+                    let arguments = item
+                        .get("arguments")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("{}");
                     let mut metadata = std::collections::BTreeMap::new();
-                    metadata.insert("message_type".to_string(), serde_json::Value::String("function_call".to_string()));
-                    metadata.insert("call_id".to_string(), serde_json::Value::String(call_id.to_string()));
-                    metadata.insert("tool_name".to_string(), serde_json::Value::String(name.to_string()));
-                    metadata.insert("arguments".to_string(), serde_json::Value::String(arguments.to_string()));
-                    metadata.insert("request_id".to_string(), serde_json::Value::String(tool_request_id.to_string()));
+                    metadata.insert(
+                        "message_type".to_string(),
+                        serde_json::Value::String("function_call".to_string()),
+                    );
+                    metadata.insert(
+                        "call_id".to_string(),
+                        serde_json::Value::String(call_id.to_string()),
+                    );
+                    metadata.insert(
+                        "tool_name".to_string(),
+                        serde_json::Value::String(name.to_string()),
+                    );
+                    metadata.insert(
+                        "arguments".to_string(),
+                        serde_json::Value::String(arguments.to_string()),
+                    );
+                    metadata.insert(
+                        "request_id".to_string(),
+                        serde_json::Value::String(tool_request_id.to_string()),
+                    );
                     let mut msg = crate::lcm::types::StoredMessage::new(
-                        crate::lcm::types::MessageId::new(), &lcm_conv_id,
-                        crate::lcm::types::MessageRole::Tool, arguments,
-                        crate::lcm::types::estimate_tokens(arguments), now_ms,
+                        crate::lcm::types::MessageId::new(),
+                        &lcm_conv_id,
+                        crate::lcm::types::MessageRole::Tool,
+                        arguments,
+                        crate::lcm::types::estimate_tokens(arguments),
+                        now_ms,
                     );
                     msg.metadata = metadata;
                     batch_messages.push(msg);
@@ -476,17 +549,38 @@ impl AgentRuntime {
 
                 for item in &lcm_tool_results {
                     if let Some(output_str) = item.get("output").and_then(|v| v.as_str()) {
-                        let call_id = item.get("call_id").and_then(|v| v.as_str()).unwrap_or("unknown");
-                        let tool_name = tool_name_by_call_id.get(call_id).map(String::as_str).unwrap_or("unknown");
+                        let call_id = item
+                            .get("call_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let tool_name = tool_name_by_call_id
+                            .get(call_id)
+                            .map(String::as_str)
+                            .unwrap_or("unknown");
                         let mut metadata = std::collections::BTreeMap::new();
-                        metadata.insert("message_type".to_string(), serde_json::Value::String("function_call_output".to_string()));
-                        metadata.insert("call_id".to_string(), serde_json::Value::String(call_id.to_string()));
-                        metadata.insert("tool_name".to_string(), serde_json::Value::String(tool_name.to_string()));
-                        metadata.insert("request_id".to_string(), serde_json::Value::String(tool_request_id.to_string()));
+                        metadata.insert(
+                            "message_type".to_string(),
+                            serde_json::Value::String("function_call_output".to_string()),
+                        );
+                        metadata.insert(
+                            "call_id".to_string(),
+                            serde_json::Value::String(call_id.to_string()),
+                        );
+                        metadata.insert(
+                            "tool_name".to_string(),
+                            serde_json::Value::String(tool_name.to_string()),
+                        );
+                        metadata.insert(
+                            "request_id".to_string(),
+                            serde_json::Value::String(tool_request_id.to_string()),
+                        );
                         let mut msg = crate::lcm::types::StoredMessage::new(
-                            crate::lcm::types::MessageId::new(), &lcm_conv_id,
-                            crate::lcm::types::MessageRole::Tool, output_str,
-                            crate::lcm::types::estimate_tokens(output_str), now_ms,
+                            crate::lcm::types::MessageId::new(),
+                            &lcm_conv_id,
+                            crate::lcm::types::MessageRole::Tool,
+                            output_str,
+                            crate::lcm::types::estimate_tokens(output_str),
+                            now_ms,
                         );
                         msg.metadata = metadata;
                         batch_messages.push(msg);
@@ -494,18 +588,25 @@ impl AgentRuntime {
                 }
 
                 if !batch_messages.is_empty()
-                    && let Err(e) = engine.process_messages_batch(&batch_messages).await {
-                        log::warn!("LCM: failed to persist tool batch of {} messages: {}", batch_messages.len(), e);
-                    }
+                    && let Err(e) = engine.process_messages_batch(&batch_messages).await
+                {
+                    log::warn!(
+                        "LCM: failed to persist tool batch of {} messages: {}",
+                        batch_messages.len(),
+                        e
+                    );
+                }
             }
 
             accumulator
                 .timeline_events
                 .extend(executed_batch.timeline_events);
             apply_tool_state_changes(&mut mounted_mcp_servers, executed_batch.state_changes);
-            if let Err(err) =
-                tools_catalog.persist_mounted_servers(crate::config::constants::DEFAULT_AGENT_ID, conversation_id, &mounted_mcp_servers)
-            {
+            if let Err(err) = tools_catalog.persist_mounted_servers(
+                crate::config::constants::DEFAULT_AGENT_ID,
+                conversation_id,
+                &mounted_mcp_servers,
+            ) {
                 log::warn!(
                     "Failed to persist mounted MCP servers for conversation '{}': {}",
                     conversation_id,
@@ -563,7 +664,6 @@ impl AgentRuntime {
             model_profile: resolved_model.profile_key.clone(),
             model_id: resolved_model.model_id.clone(),
             capabilities: provider_capabilities,
-
         };
 
         Ok((final_res, accumulator.timeline_events))
@@ -577,12 +677,8 @@ mod tests {
     use super::request::{build_base_context, ensure_tool_call_output_pairs};
     use super::tool_state::apply_tool_state_changes;
     use crate::config::McpServerConfig;
-    use crate::tools::catalog::{
-        MountedToolDefinition, MountedToolSourceSession,
-    };
-    use crate::tools::{
-        MountedToolSourceSessions, ToolCatalogStateChange, ToolPresentation,
-    };
+    use crate::tools::catalog::{MountedToolDefinition, MountedToolSourceSession};
+    use crate::tools::{MountedToolSourceSessions, ToolCatalogStateChange, ToolPresentation};
     use serde_json::json;
 
     #[test]

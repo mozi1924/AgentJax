@@ -125,19 +125,24 @@ pub fn open_lcm_engine_with_summarizer(
             Some(lcm_config.summarization_model.clone())
         } else {
             let model = &agent_config.utility_small_model;
-            if model.is_empty() { None } else { Some(model.clone()) }
+            if model.is_empty() {
+                None
+            } else {
+                Some(model.clone())
+            }
         };
         resolved_lcm_config.tokenizer_model_id = tokenizer_model;
     }
 
     // Try to create a ProviderSummarizer; fall back to NoopSummarizer
     // if model resolution fails.
-    let summarizer: Arc<dyn Summarizer> = match ProviderSummarizer::new(app_config, agent_config, lcm_config) {
+    let summarizer: Arc<dyn Summarizer> = match ProviderSummarizer::new(
+        app_config,
+        agent_config,
+        lcm_config,
+    ) {
         Ok(ps) => {
-            log::info!(
-                "LCM using ProviderSummarizer (model: {})",
-                ps.model_ref()
-            );
+            log::info!("LCM using ProviderSummarizer (model: {})", ps.model_ref());
             Arc::new(ps)
         }
         Err(e) => {
@@ -212,7 +217,9 @@ pub fn stored_messages_to_conversation_lines(
                         .unwrap_or("unknown")
                         .to_string();
                     let thinking = msg.thinking.clone();
-                    let thinking_token_count = thinking.as_ref().map(|t| crate::lcm::types::estimate_tokens(t));
+                    let thinking_token_count = thinking
+                        .as_ref()
+                        .map(|t| crate::lcm::types::estimate_tokens(t));
                     Some(ConversationLine::Assistant(AssistantLine {
                         id,
                         ts,
@@ -246,8 +253,8 @@ pub fn stored_messages_to_conversation_lines(
 
                     match message_type {
                         "function_call" => {
-                            let args: serde_json::Value =
-                                serde_json::from_str(&msg.content).unwrap_or(serde_json::Value::Null);
+                            let args: serde_json::Value = serde_json::from_str(&msg.content)
+                                .unwrap_or(serde_json::Value::Null);
                             Some(ConversationLine::Tool(ToolLine {
                                 id: format!("tool-{request_id}-{call_id}"),
                                 ts,
@@ -265,11 +272,9 @@ pub fn stored_messages_to_conversation_lines(
                             }))
                         }
                         "function_call_output" => {
-                            let output: serde_json::Value =
-                                serde_json::from_str(&msg.content).unwrap_or(serde_json::Value::Null);
-                            let is_error = output
-                                .get("ok")
-                                .and_then(|v| v.as_bool())
+                            let output: serde_json::Value = serde_json::from_str(&msg.content)
+                                .unwrap_or(serde_json::Value::Null);
+                            let is_error = output.get("ok").and_then(|v| v.as_bool())
                                 == Some(false)
                                 || output.get("error").is_some();
                             Some(ConversationLine::Tool(ToolLine {
@@ -305,9 +310,7 @@ pub fn stored_messages_to_conversation_lines(
 #[cfg(test)]
 mod smoke_tests {
     use super::*;
-    use crate::conversation_store::{
-        AssistantStatus, ConversationLine, ToolStatus,
-    };
+    use crate::conversation_store::{AssistantStatus, ConversationLine, ToolStatus};
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -315,10 +318,8 @@ mod smoke_tests {
         let dir = std::env::temp_dir().join(format!("lcm-smoke-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create test dir");
         let db_path = dir.join("lcm.db");
-        let store = Arc::new(
-            LcmStore::open(&db_path, LcmConfig::default())
-                .expect("open LCM store"),
-        );
+        let store =
+            Arc::new(LcmStore::open(&db_path, LcmConfig::default()).expect("open LCM store"));
         (dir, store)
     }
 
@@ -347,8 +348,11 @@ mod smoke_tests {
     #[test]
     fn smoke_user_message_roundtrips() {
         let msg = make_stored_message(
-            "user-1", "conv-1", types::MessageRole::User,
-            "Hello, world!", 1000,
+            "user-1",
+            "conv-1",
+            types::MessageRole::User,
+            "Hello, world!",
+            1000,
             BTreeMap::from([("request_id".to_string(), json!("req-1"))]),
         );
         let lines = stored_messages_to_conversation_lines(&[msg]);
@@ -369,8 +373,12 @@ mod smoke_tests {
         meta.insert("response_id".to_string(), json!("resp-1"));
         meta.insert("phase".to_string(), json!("final"));
         let msg = make_stored_message(
-            "asst-1", "conv-1", types::MessageRole::Assistant,
-            "The answer is 42.", 2000, meta,
+            "asst-1",
+            "conv-1",
+            types::MessageRole::Assistant,
+            "The answer is 42.",
+            2000,
+            meta,
         );
         let lines = stored_messages_to_conversation_lines(&[msg]);
         assert_eq!(lines.len(), 1);
@@ -395,8 +403,12 @@ mod smoke_tests {
         fc_meta.insert("call_id".to_string(), json!("call-123"));
         fc_meta.insert("tool_name".to_string(), json!("calculator"));
         let fc_msg = make_stored_message(
-            "fc-1", conv_id, types::MessageRole::Tool,
-            r#"{"expression": "2+2"}"#, 3000, fc_meta,
+            "fc-1",
+            conv_id,
+            types::MessageRole::Tool,
+            r#"{"expression": "2+2"}"#,
+            3000,
+            fc_meta,
         );
 
         // Simulate function_call_output
@@ -406,12 +418,15 @@ mod smoke_tests {
         fco_meta.insert("call_id".to_string(), json!("call-123"));
         fco_meta.insert("tool_name".to_string(), json!("calculator"));
         let fco_msg = make_stored_message(
-            "fco-1", conv_id, types::MessageRole::Tool,
-            r#"{"result":"4"}"#, 4000, fco_meta,
+            "fco-1",
+            conv_id,
+            types::MessageRole::Tool,
+            r#"{"result":"4"}"#,
+            4000,
+            fco_meta,
         );
 
-        let lines =
-            stored_messages_to_conversation_lines(&[fc_msg, fco_msg]);
+        let lines = stored_messages_to_conversation_lines(&[fc_msg, fco_msg]);
         assert_eq!(lines.len(), 2);
 
         // First line should be the tool call (Pending, with args)
@@ -441,14 +456,26 @@ mod smoke_tests {
         let conv_id = "conv-full-test";
 
         let messages = vec![
-            make_stored_message("u-1", conv_id, types::MessageRole::User, "Hi", 1000,
-                BTreeMap::from([("request_id".to_string(), json!("r1"))])),
-            make_stored_message("a-1", conv_id, types::MessageRole::Assistant, "Hello!", 2000,
+            make_stored_message(
+                "u-1",
+                conv_id,
+                types::MessageRole::User,
+                "Hi",
+                1000,
+                BTreeMap::from([("request_id".to_string(), json!("r1"))]),
+            ),
+            make_stored_message(
+                "a-1",
+                conv_id,
+                types::MessageRole::Assistant,
+                "Hello!",
+                2000,
                 BTreeMap::from([
                     ("request_id".to_string(), json!("r1")),
                     ("response_id".to_string(), json!("resp1")),
                     ("phase".to_string(), json!("final")),
-                ])),
+                ]),
+            ),
         ];
 
         let lines = stored_messages_to_conversation_lines(&messages);
@@ -464,14 +491,26 @@ mod smoke_tests {
 
         // Persist messages directly to LCM (no JSONL).
         let messages = vec![
-            make_stored_message("u-1", conv_id, types::MessageRole::User, "Hello", 1000,
-                BTreeMap::from([("request_id".to_string(), json!("r1"))])),
-            make_stored_message("a-1", conv_id, types::MessageRole::Assistant, "Hi there!", 2000,
+            make_stored_message(
+                "u-1",
+                conv_id,
+                types::MessageRole::User,
+                "Hello",
+                1000,
+                BTreeMap::from([("request_id".to_string(), json!("r1"))]),
+            ),
+            make_stored_message(
+                "a-1",
+                conv_id,
+                types::MessageRole::Assistant,
+                "Hi there!",
+                2000,
                 BTreeMap::from([
                     ("request_id".to_string(), json!("r1")),
                     ("response_id".to_string(), json!("resp1")),
                     ("phase".to_string(), json!("final")),
-                ])),
+                ]),
+            ),
         ];
         store.persist_messages(&messages).expect("persist");
 
@@ -498,13 +537,7 @@ mod smoke_tests {
 
         // Update title
         store
-            .update_conversation_meta(
-                conv_id,
-                Some("Test Title"),
-                Some("manual"),
-                None,
-                None,
-            )
+            .update_conversation_meta(conv_id, Some("Test Title"), Some("manual"), None, None)
             .expect("update");
 
         let updated = store.get_conversation_meta(conv_id).expect("get");

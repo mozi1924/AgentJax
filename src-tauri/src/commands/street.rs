@@ -25,5 +25,8 @@ pub fn get_street_items(req: GetStreetItemsRequest) -> Result<Vec<StreetSnapshot
 /// Dismiss a single Street item.
 #[tauri::command]
 pub fn dismiss_street_item(req: DismissStreetItemRequest) -> Result<bool, String> {
-    Ok(StreetManager::mark_dismissed(&req.item_id, &req.conversation_id))
+    Ok(StreetManager::mark_dismissed(
+        &req.item_id,
+        &req.conversation_id,
+    ))
 }

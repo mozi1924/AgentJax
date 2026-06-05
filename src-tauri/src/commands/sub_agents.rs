@@ -20,7 +20,8 @@ pub struct ListSubAgentsRequest {
 /// Cancel a running sub-agent.
 #[tauri::command]
 pub fn cancel_sub_agent(req: CancelSubAgentRequest) -> Result<serde_json::Value, String> {
-    SubAgentManager::cancel(&req.agent_id, req.conversation_id.as_deref()).map_err(|e| e.to_string())
+    SubAgentManager::cancel(&req.agent_id, req.conversation_id.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 /// List all sub-agents for a conversation.

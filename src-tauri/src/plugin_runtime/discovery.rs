@@ -50,8 +50,7 @@ pub fn load_plugin_package(path: impl AsRef<Path>) -> PluginRuntimeResult<Plugin
         ))
     })?;
 
-    manifest
-        .validate()?;
+    manifest.validate()?;
     validate_entrypoint_path(&root_dir, &manifest)?;
 
     Ok(PluginPackage {
@@ -112,7 +111,8 @@ pub fn discover_plugin_packages(
 
 /// Discover plugin packages from `$AGENTJAX_HOME/plugins`.
 pub fn discover_home_plugin_packages() -> PluginRuntimeResult<Vec<PluginPackage>> {
-    let plugins_dir = crate::agentjax_home::ensure_plugins_dir().map_err(|e| PluginRuntimeError::Io(e.to_string()))?;
+    let plugins_dir = crate::agentjax_home::ensure_plugins_dir()
+        .map_err(|e| PluginRuntimeError::Io(e.to_string()))?;
     discover_plugin_packages(plugins_dir)
 }
 

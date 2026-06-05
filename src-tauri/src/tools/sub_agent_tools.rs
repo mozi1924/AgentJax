@@ -11,7 +11,7 @@
 //! - **cancel** — cancel a running sub-agent
 
 use crate::error::{AgentJaxError, AgentJaxResult};
-use crate::sub_agents::manager::{SubAgentManager, DEFAULT_MAX_TURNS, HARD_MAX_TURNS};
+use crate::sub_agents::manager::{DEFAULT_MAX_TURNS, HARD_MAX_TURNS, SubAgentManager};
 use crate::sub_agents::types::{SubAgentSpec, SubAgentType};
 use crate::tools::{Tool, ToolExecutionContext, check_scope_narrowing_invariant};
 use serde::Deserialize;
@@ -56,130 +56,143 @@ struct SubAgentArgs {
     output_path: Option<String>,
 }
 
-    #[test]
-    fn test_batch_args_deserialization() {
+#[test]
+fn test_batch_args_deserialization() {
+    let args = json!({
+        "action": "batch",
+        "prompt": "Analyze: {input}",
+        "inputPath": "items.jsonl",
+        "outputPath": "results.jsonl",
+        "maxTurns": 8
+    });
+    let parsed: SubAgentArgs = serde_json::from_value(args).unwrap();
+    assert_eq!(parsed.action, "batch");
+    assert_eq!(parsed.prompt.unwrap(), "Analyze: {input}");
+    assert_eq!(parsed.input_path.unwrap(), "items.jsonl");
+    assert_eq!(parsed.output_path.unwrap(), "results.jsonl");
+    assert_eq!(parsed.max_turns, 8);
+}
+
+#[test]
+fn test_batch_args_defaults_work_with_spawn_fields() {
+    // Batch reuses spawn fields as batch defaults.
+    let args = json!({
+        "action": "batch",
+        "prompt": "Classify: {input}",
+        "inputPath": "data.jsonl",
+        "subagentType": "explore",
+        "keptWork": ["classification"]
+    });
+    let parsed: SubAgentArgs = serde_json::from_value(args).unwrap();
+    assert_eq!(parsed.action, "batch");
+    assert_eq!(parsed.subagent_type.unwrap(), "explore");
+    assert_eq!(parsed.kept_work, vec!["classification"]);
+    assert_eq!(parsed.max_turns, DEFAULT_MAX_TURNS);
+}
+
+#[test]
+fn test_batch_missing_input_path() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let ctx = ToolExecutionContext::default();
+        let args = json!({ "action": "batch", "prompt": "Analyze: {input}" });
+        let tool = SubAgentTool;
+        let result = tool.execute(&args, &ctx).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("inputPath"), "Got: {err}");
+    });
+}
+
+#[test]
+fn test_batch_missing_prompt() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let ctx = ToolExecutionContext::default();
+        let args = json!({ "action": "batch", "inputPath": "items.jsonl" });
+        let tool = SubAgentTool;
+        let result = tool.execute(&args, &ctx).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("prompt"), "Got: {err}");
+    });
+}
+
+#[test]
+fn test_batch_input_file_not_found() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let ctx = ToolExecutionContext {
+            conversation_id: Some("conv-test-batch".to_string()),
+            ..Default::default()
+        };
+        let args = json!({
+            "action": "batch",
+            "prompt": "Analyze: {input}",
+            "inputPath": "nonexistent_file.jsonl"
+        });
+        let tool = SubAgentTool;
+        let result = tool.execute(&args, &ctx).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not found"), "Got: {err}");
+    });
+}
+
+#[test]
+fn test_batch_registers_multiple_agents() {
+    // Create a temp JSONL file in the conversation workspace and test batch registration.
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let conv_id = format!("conv_batch_test_{}", uuid::Uuid::new_v4());
+        // Create the conversation workspace directory
+        let workspace_dir = crate::conversation_store::conversation_workspace_path(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conv_id,
+        )
+        .unwrap();
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+        let input_path = workspace_dir.join("items.jsonl");
+        std::fs::write(
+            &input_path,
+            r#"{"item": 1}
+{"item": 2}
+{"item": 3}
+"#,
+        )
+        .unwrap();
+
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(conv_id.clone()),
+            ..Default::default()
+        };
         let args = json!({
             "action": "batch",
             "prompt": "Analyze: {input}",
             "inputPath": "items.jsonl",
-            "outputPath": "results.jsonl",
-            "maxTurns": 8
+            "keptWork": ["result"]
         });
-        let parsed: SubAgentArgs = serde_json::from_value(args).unwrap();
-        assert_eq!(parsed.action, "batch");
-        assert_eq!(parsed.prompt.unwrap(), "Analyze: {input}");
-        assert_eq!(parsed.input_path.unwrap(), "items.jsonl");
-        assert_eq!(parsed.output_path.unwrap(), "results.jsonl");
-        assert_eq!(parsed.max_turns, 8);
-    }
-
-    #[test]
-    fn test_batch_args_defaults_work_with_spawn_fields() {
-        // Batch reuses spawn fields as batch defaults.
-        let args = json!({
-            "action": "batch",
-            "prompt": "Classify: {input}",
-            "inputPath": "data.jsonl",
-            "subagentType": "explore",
-            "keptWork": ["classification"]
-        });
-        let parsed: SubAgentArgs = serde_json::from_value(args).unwrap();
-        assert_eq!(parsed.action, "batch");
-        assert_eq!(parsed.subagent_type.unwrap(), "explore");
-        assert_eq!(parsed.kept_work, vec!["classification"]);
-        assert_eq!(parsed.max_turns, DEFAULT_MAX_TURNS);
-    }
-
-    #[test]
-    fn test_batch_missing_input_path() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let ctx = ToolExecutionContext::default();
-            let args = json!({ "action": "batch", "prompt": "Analyze: {input}" });
-            let tool = SubAgentTool;
-            let result = tool.execute(&args, &ctx).await;
-            assert!(result.is_err());
-            let err = result.unwrap_err().to_string();
-            assert!(err.contains("inputPath"), "Got: {err}");
-        });
-    }
-
-    #[test]
-    fn test_batch_missing_prompt() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let ctx = ToolExecutionContext::default();
-            let args = json!({ "action": "batch", "inputPath": "items.jsonl" });
-            let tool = SubAgentTool;
-            let result = tool.execute(&args, &ctx).await;
-            assert!(result.is_err());
-            let err = result.unwrap_err().to_string();
-            assert!(err.contains("prompt"), "Got: {err}");
-        });
-    }
-
-    #[test]
-    fn test_batch_input_file_not_found() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let ctx = ToolExecutionContext {
-                conversation_id: Some("conv-test-batch".to_string()),
-                ..Default::default()
-            };
-            let args = json!({
-                "action": "batch",
-                "prompt": "Analyze: {input}",
-                "inputPath": "nonexistent_file.jsonl"
-            });
-            let tool = SubAgentTool;
-            let result = tool.execute(&args, &ctx).await;
-            assert!(result.is_err());
-            let err = result.unwrap_err().to_string();
-            assert!(err.contains("not found"), "Got: {err}");
-        });
-    }
-
-    #[test]
-    fn test_batch_registers_multiple_agents() {
-        // Create a temp JSONL file in the conversation workspace and test batch registration.
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let conv_id = format!("conv_batch_test_{}", uuid::Uuid::new_v4());
-            // Create the conversation workspace directory
-            let workspace_dir = crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, &conv_id).unwrap();
-            std::fs::create_dir_all(&workspace_dir).unwrap();
-            let input_path = workspace_dir.join("items.jsonl");
-            std::fs::write(&input_path, r#"{"item": 1}
-{"item": 2}
-{"item": 3}
-"#).unwrap();
-
-            let ctx = ToolExecutionContext {
-                conversation_id: Some(conv_id.clone()),
-                ..Default::default()
-            };
-            let args = json!({
-                "action": "batch",
-                "prompt": "Analyze: {input}",
-                "inputPath": "items.jsonl",
-                "keptWork": ["result"]
-            });
-            let tool = SubAgentTool;
-            // In test env, sub-agents will fail (no provider configured).
-            // The batch coordinator should still complete without error,
-            // returning the correct count and status.
-            let result = tool.execute(&args, &ctx).await.unwrap();
-            assert!(result["batchMode"].as_bool().unwrap(), "Should be batch mode");
-            assert_eq!(result["totalItems"].as_i64().unwrap(), 3);
-            assert_eq!(result["completedItems"].as_i64().unwrap(), 0);
-            assert_eq!(result["failedItems"].as_i64().unwrap(), 3);
-            assert!(result["status"].as_str().unwrap() == "partial", 
-                "Status should be partial, got: {:?}", result["status"].as_str());
-            // Cleanup: remove the workspace directory
-            let _ = std::fs::remove_dir_all(&workspace_dir);
-        });
-    }
-
+        let tool = SubAgentTool;
+        // In test env, sub-agents will fail (no provider configured).
+        // The batch coordinator should still complete without error,
+        // returning the correct count and status.
+        let result = tool.execute(&args, &ctx).await.unwrap();
+        assert!(
+            result["batchMode"].as_bool().unwrap(),
+            "Should be batch mode"
+        );
+        assert_eq!(result["totalItems"].as_i64().unwrap(), 3);
+        assert_eq!(result["completedItems"].as_i64().unwrap(), 0);
+        assert_eq!(result["failedItems"].as_i64().unwrap(), 3);
+        assert!(
+            result["status"].as_str().unwrap() == "partial",
+            "Status should be partial, got: {:?}",
+            result["status"].as_str()
+        );
+        // Cleanup: remove the workspace directory
+        let _ = std::fs::remove_dir_all(&workspace_dir);
+    });
+}
 
 fn default_max_turns() -> usize {
     DEFAULT_MAX_TURNS
@@ -309,10 +322,8 @@ async fn execute_spawn(
         ));
     }
 
-    let subagent_type = SubAgentType::from_str(
-        args.subagent_type.as_deref().unwrap_or("general"),
-    )
-    .unwrap_or(SubAgentType::GeneralPurpose);
+    let subagent_type = SubAgentType::from_str(args.subagent_type.as_deref().unwrap_or("general"))
+        .unwrap_or(SubAgentType::GeneralPurpose);
 
     // Scope-narrowing invariant (LCM §3.2).
     check_scope_narrowing_invariant(
@@ -368,14 +379,9 @@ async fn execute_status(
     args: &SubAgentArgs,
     context: &ToolExecutionContext,
 ) -> AgentJaxResult<Value> {
-    let agent_id = args
-        .agent_id
-        .as_deref()
-        .ok_or_else(|| {
-            AgentJaxError::sub_agent(
-                "The 'agentId' field is required for action 'status'.".to_string(),
-            )
-        })?;
+    let agent_id = args.agent_id.as_deref().ok_or_else(|| {
+        AgentJaxError::sub_agent("The 'agentId' field is required for action 'status'.".to_string())
+    })?;
 
     let conversation_id = context.conversation_id.as_deref();
 
@@ -390,14 +396,9 @@ async fn execute_cancel(
     args: &SubAgentArgs,
     context: &ToolExecutionContext,
 ) -> AgentJaxResult<Value> {
-    let agent_id = args
-        .agent_id
-        .as_deref()
-        .ok_or_else(|| {
-            AgentJaxError::sub_agent(
-                "The 'agentId' field is required for action 'cancel'.".to_string(),
-            )
-        })?;
+    let agent_id = args.agent_id.as_deref().ok_or_else(|| {
+        AgentJaxError::sub_agent("The 'agentId' field is required for action 'cancel'.".to_string())
+    })?;
 
     let conversation_id = context.conversation_id.as_deref();
     SubAgentManager::cancel(agent_id, conversation_id)
@@ -418,16 +419,20 @@ async fn execute_batch(
     })?;
 
     let prompt_template = args.prompt.as_deref().ok_or_else(|| {
-        AgentJaxError::sub_agent(
-            "The 'prompt' field is required for action 'batch'.".to_string(),
-        )
+        AgentJaxError::sub_agent("The 'prompt' field is required for action 'batch'.".to_string())
     })?;
 
     // Resolve path relative to the conversation workspace.
     let workspace_dir = context
         .conversation_id
         .as_deref()
-        .and_then(|id| crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, id).ok())
+        .and_then(|id| {
+            crate::conversation_store::conversation_workspace_path(
+                crate::config::constants::DEFAULT_AGENT_ID,
+                id,
+            )
+            .ok()
+        })
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let full_path = workspace_dir.join(input_path);
 
@@ -448,7 +453,9 @@ async fn execute_batch(
         .collect();
 
     if items.is_empty() {
-        return Err(AgentJaxError::sub_agent("Batch input file is empty".to_string()));
+        return Err(AgentJaxError::sub_agent(
+            "Batch input file is empty".to_string(),
+        ));
     }
 
     let conversation_id = context
@@ -456,10 +463,8 @@ async fn execute_batch(
         .clone()
         .unwrap_or_else(|| "unknown".to_string());
 
-    let subagent_type = SubAgentType::from_str(
-        args.subagent_type.as_deref().unwrap_or("general"),
-    )
-    .unwrap_or(SubAgentType::GeneralPurpose);
+    let subagent_type = SubAgentType::from_str(args.subagent_type.as_deref().unwrap_or("general"))
+        .unwrap_or(SubAgentType::GeneralPurpose);
 
     let max_turns = args.max_turns.min(HARD_MAX_TURNS);
     let concurrency = std::cmp::max(1, 16); // default concurrency cap
@@ -516,7 +521,8 @@ async fn execute_batch(
 
             for attempt in 0..=retries {
                 if attempt > 0 {
-                    tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64))
+                        .await;
                 }
 
                 let agent_id = format!("batch_{}", uuid::Uuid::new_v4().simple());
@@ -538,11 +544,9 @@ async fn execute_batch(
                 let task = SubAgentManager::register(spec.clone());
                 // Load the default agent config for sub-agent runner.
                 let agent_cfg = Arc::new(
-                    crate::config::load_agent_config(
-                        crate::config::constants::DEFAULT_AGENT_ID,
-                    )
-                    .unwrap_or_default()
-                    .normalize(),
+                    crate::config::load_agent_config(crate::config::constants::DEFAULT_AGENT_ID)
+                        .unwrap_or_default()
+                        .normalize(),
                 );
                 let handle = tokio::spawn(crate::sub_agents::runner::run_sub_agent(
                     task.clone(),
@@ -563,12 +567,10 @@ async fn execute_batch(
                 .await
                 {
                     Ok(status_json) => {
-                        let agent_status = status_json["agent"]["status"]
-                            .as_str()
-                            .unwrap_or("failed");
+                        let agent_status =
+                            status_json["agent"]["status"].as_str().unwrap_or("failed");
                         if agent_status == "completed" {
-                            let result_text = status_json["agent"]["result"]
-                                .to_string();
+                            let result_text = status_json["agent"]["result"].to_string();
                             comp.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                             let mut lock = res.lock().unwrap();
                             lock.push((i, result_text, None));
@@ -619,10 +621,13 @@ async fn execute_batch(
 
         for (_i, result_text, error) in &sorted_results {
             if let Some(err) = error {
-                out_lines.push(serde_json::to_string(&json!({
-                    "error": err.to_string(),
-                    "status": "failed"
-                })).unwrap_or_default());
+                out_lines.push(
+                    serde_json::to_string(&json!({
+                        "error": err.to_string(),
+                        "status": "failed"
+                    }))
+                    .unwrap_or_default(),
+                );
             } else {
                 // Try to parse the result as JSON; if not possible, wrap as raw text.
                 let line = serde_json::from_str::<Value>(result_text)
@@ -635,7 +640,10 @@ async fn execute_batch(
             let _ = std::fs::create_dir_all(parent);
         }
         if let Err(e) = std::fs::write(&out_path, out_lines.join("\n")) {
-            log::warn!("Failed to write batch output to {}: {e}", out_path.display());
+            log::warn!(
+                "Failed to write batch output to {}: {e}",
+                out_path.display()
+            );
         }
     }
 
@@ -690,7 +698,10 @@ mod tests {
         );
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("kept_work"), "Should reject empty kept_work: {err}");
+        assert!(
+            err.contains("kept_work"),
+            "Should reject empty kept_work: {err}"
+        );
     }
 
     #[test]
@@ -699,12 +710,8 @@ mod tests {
             hop_index: Some(0),
             ..Default::default()
         };
-        let result = check_scope_narrowing_invariant(
-            &Some("implement".to_string()),
-            &[],
-            &[],
-            &ctx,
-        );
+        let result =
+            check_scope_narrowing_invariant(&Some("implement".to_string()), &[], &[], &ctx);
         assert!(result.is_ok(), "Root agent should be exempt");
     }
 
@@ -714,12 +721,7 @@ mod tests {
             hop_index: Some(2),
             ..Default::default()
         };
-        let result = check_scope_narrowing_invariant(
-            &Some("explore".to_string()),
-            &[],
-            &[],
-            &ctx,
-        );
+        let result = check_scope_narrowing_invariant(&Some("explore".to_string()), &[], &[], &ctx);
         assert!(result.is_ok(), "Explore agent should be exempt");
     }
 
@@ -729,13 +731,11 @@ mod tests {
             hop_index: Some(2),
             ..Default::default()
         };
-        let result = check_scope_narrowing_invariant(
-            &Some("memory".to_string()),
-            &[],
-            &[],
-            &ctx,
+        let result = check_scope_narrowing_invariant(&Some("memory".to_string()), &[], &[], &ctx);
+        assert!(
+            result.is_ok(),
+            "Memory agent should be exempt from scope narrowing"
         );
-        assert!(result.is_ok(), "Memory agent should be exempt from scope narrowing");
     }
 
     #[test]

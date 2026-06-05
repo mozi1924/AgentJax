@@ -16,9 +16,7 @@ impl ProviderIdFactory {
         let provider_kind = sanitize_id_segment(provider_kind);
         let response_id = format!("resp_{}_{}", provider_kind, Uuid::new_v4().simple());
 
-        Self {
-            response_id,
-        }
+        Self { response_id }
     }
 
     pub fn response_id(&self) -> &str {
@@ -150,9 +148,10 @@ fn parse_tool_arguments_value(raw: Option<&Value>) -> Value {
             return json!({});
         }
         if let Ok(parsed) = serde_json::from_str::<Value>(trimmed)
-            && parsed.is_object() {
-                return parsed;
-            }
+            && parsed.is_object()
+        {
+            return parsed;
+        }
         return json!({});
     }
 

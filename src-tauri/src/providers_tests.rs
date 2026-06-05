@@ -20,8 +20,7 @@ mod tests {
 
     #[test]
     fn test_provider_capability_lookup() {
-        let openai = provider_api::get_capabilities("openai")
-            .expect("openai adapter should exist");
+        let openai = provider_api::get_capabilities("openai").expect("openai adapter should exist");
         assert!(!openai.supports_stored_responses);
 
         let err = provider_api::get_capabilities("not-a-provider").unwrap_err();
@@ -33,8 +32,8 @@ mod tests {
 
     #[test]
     fn test_provider_tool_schema_format_lookup() {
-        let openai = provider_api::get_tool_schema_format("openai")
-            .expect("openai adapter should exist");
+        let openai =
+            provider_api::get_tool_schema_format("openai").expect("openai adapter should exist");
         assert_eq!(openai, ToolSchemaFormat::Responses);
     }
 
@@ -46,8 +45,14 @@ mod tests {
             .map(|definition| definition.kind.as_str())
             .collect::<Vec<_>>();
 
-        assert!(kinds.contains(&"openai"), "expected openai provider, got {kinds:?}");
-        assert!(kinds.contains(&"deepseek"), "expected deepseek provider, got {kinds:?}");
+        assert!(
+            kinds.contains(&"openai"),
+            "expected openai provider, got {kinds:?}"
+        );
+        assert!(
+            kinds.contains(&"deepseek"),
+            "expected deepseek provider, got {kinds:?}"
+        );
 
         let openai = definitions
             .iter()
@@ -59,7 +64,10 @@ mod tests {
             .iter()
             .find(|definition| definition.kind == "deepseek")
             .expect("deepseek provider plugin should be registered");
-        assert_eq!(deepseek.tool_schema_format, ToolSchemaFormat::ChatCompletions);
+        assert_eq!(
+            deepseek.tool_schema_format,
+            ToolSchemaFormat::ChatCompletions
+        );
     }
 
     #[test]
@@ -93,16 +101,15 @@ mod tests {
 
     #[test]
     fn test_provider_builds_tool_result_and_continuation_input_items() {
-        let user_input_item = provider_api::build_user_input_item("openai", "hello")
-            .expect("build user input item");
+        let user_input_item =
+            provider_api::build_user_input_item("openai", "hello").expect("build user input item");
         assert_eq!(
             user_input_item.get("role").and_then(|v| v.as_str()),
             Some("user")
         );
 
-        let tool_output_item =
-            provider_api::build_tool_result_input_item("openai", "call_1", "ok")
-                .expect("build tool result item");
+        let tool_output_item = provider_api::build_tool_result_input_item("openai", "call_1", "ok")
+            .expect("build tool result item");
         assert_eq!(
             tool_output_item.get("type").and_then(|v| v.as_str()),
             Some("function_call_output")
@@ -188,10 +195,16 @@ mod tests {
         let mut events = Vec::new();
         let result = tokio::time::timeout(
             Duration::from_secs(120),
-            provider_api::stream_response(&config, &crate::config::AgentConfig::default(), &request, &mut cancel_rx, |event| {
-                events.push(event);
-                Ok(())
-            }),
+            provider_api::stream_response(
+                &config,
+                &crate::config::AgentConfig::default(),
+                &request,
+                &mut cancel_rx,
+                |event| {
+                    events.push(event);
+                    Ok(())
+                },
+            ),
         )
         .await
         .unwrap_or_else(|_| panic!("{provider_kind} smoke test timed out"))
@@ -238,7 +251,11 @@ mod tests {
             resolved.provider.resolved_credential().is_some(),
             "provider kind {provider_kind} has no resolved credential"
         );
-        eprintln!("Protocol: {:?}, Endpoint: {}", resolved.api_protocol, resolved.provider.api_endpoint());
+        eprintln!(
+            "Protocol: {:?}, Endpoint: {}",
+            resolved.api_protocol,
+            resolved.provider.api_endpoint()
+        );
 
         let user_item = provider_api::build_user_input_item(
             provider_kind,
@@ -265,10 +282,16 @@ mod tests {
         let mut events = Vec::new();
         let result = tokio::time::timeout(
             Duration::from_secs(120),
-            provider_api::stream_response(&config, &crate::config::AgentConfig::default(), &request, &mut cancel_rx, |event| {
-                events.push(event);
-                Ok(())
-            }),
+            provider_api::stream_response(
+                &config,
+                &crate::config::AgentConfig::default(),
+                &request,
+                &mut cancel_rx,
+                |event| {
+                    events.push(event);
+                    Ok(())
+                },
+            ),
         )
         .await
         .unwrap_or_else(|_| panic!("{provider_kind} smoke test timed out"))

@@ -6,9 +6,9 @@
 //! using regex patterns. Results are paginated and grouped by their
 //! covering summary node to provide conversational context.
 
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::lcm::store::LcmStore;
 use crate::lcm::types::LcmId;
-use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -97,7 +97,13 @@ impl Tool for LcmGrepTool {
 
         let store = super::effective_store(&self.store, context);
         let results = store
-            .search_messages(conversation_id, &args.pattern, summary_id.as_ref(), args.cursor.as_deref(), page_size)
+            .search_messages(
+                conversation_id,
+                &args.pattern,
+                summary_id.as_ref(),
+                args.cursor.as_deref(),
+                page_size,
+            )
             .map_err(|e| AgentJaxError::internal(format!("lcm_grep search failed: {e}")))?;
 
         serde_json::to_value(&results)

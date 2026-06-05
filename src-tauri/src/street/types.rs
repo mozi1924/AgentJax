@@ -34,7 +34,6 @@ impl StreetSource {
             StreetSource::External => "external",
         }
     }
-
 }
 
 // ── Priority ───────────────────────────────────────────────────────────────
@@ -58,7 +57,6 @@ impl Priority {
             Priority::Urgent => "urgent",
         }
     }
-
 }
 
 // ── Street Item Status ─────────────────────────────────────────────────────
@@ -84,7 +82,10 @@ impl StreetItemStatus {
     }
 
     pub fn is_terminal(&self) -> bool {
-        matches!(self, StreetItemStatus::Delivered | StreetItemStatus::Dismissed)
+        matches!(
+            self,
+            StreetItemStatus::Delivered | StreetItemStatus::Dismissed
+        )
     }
 }
 

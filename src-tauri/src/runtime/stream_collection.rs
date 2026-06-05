@@ -53,9 +53,9 @@ where
             &provider_request,
             &mut provider_cancel_rx,
             |event| {
-                provider_event_tx
-                    .send(event)
-                    .map_err(|_| crate::error::AgentJaxError::internal("Provider stream event receiver dropped"))
+                provider_event_tx.send(event).map_err(|_| {
+                    crate::error::AgentJaxError::internal("Provider stream event receiver dropped")
+                })
             },
         )
         .await
@@ -195,9 +195,10 @@ where
                 pending_tool.arguments.clone(),
             );
             if is_valid_pending_tool_call(&pending_tool)
-                && let Some(scheduler) = tool_scheduler.as_deref_mut() {
-                    scheduler.schedule_pending_tool(pending_tool, repeated_failed_tool_signatures);
-                }
+                && let Some(scheduler) = tool_scheduler.as_deref_mut()
+            {
+                scheduler.schedule_pending_tool(pending_tool, repeated_failed_tool_signatures);
+            }
         }
         _ => {}
     }

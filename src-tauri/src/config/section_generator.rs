@@ -118,17 +118,19 @@ fn is_map_type(schema: &Value) -> bool {
     }
     // Nested structs (object with named properties)
     if schema.get("type").and_then(Value::as_str) == Some("object") {
-        if schema.get("properties").and_then(Value::as_object).is_some_and(|p| !p.is_empty()) {
+        if schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .is_some_and(|p| !p.is_empty())
+        {
             return true;
         }
     }
     // Non-string arrays
     if schema.get("type").and_then(Value::as_str) == Some("array") {
         let items = schema.get("items");
-        let is_string_array = items
-            .and_then(|i| i.get("type"))
-            .and_then(Value::as_str)
-            == Some("string");
+        let is_string_array =
+            items.and_then(|i| i.get("type")).and_then(Value::as_str) == Some("string");
         return !is_string_array;
     }
     false
@@ -150,18 +152,24 @@ fn build_field_node(field_name: &str, full_path: &str, schema: &Value) -> Option
     // Add helpText from schema description
     if let Some(description) = schema.get("description").and_then(Value::as_str) {
         if !description.is_empty() {
-            node.as_object_mut()
-                .and_then(|o| o.insert("helpText".to_string(), Value::String(description.to_string())));
+            node.as_object_mut().and_then(|o| {
+                o.insert(
+                    "helpText".to_string(),
+                    Value::String(description.to_string()),
+                )
+            });
         }
     }
 
     // Add min/max for number types
     if let Some(obj) = schema.as_object() {
         if let Some(min) = obj.get("minimum") {
-            node.as_object_mut().and_then(|o| o.insert("min".to_string(), min.clone()));
+            node.as_object_mut()
+                .and_then(|o| o.insert("min".to_string(), min.clone()));
         }
         if let Some(max) = obj.get("maximum") {
-            node.as_object_mut().and_then(|o| o.insert("max".to_string(), max.clone()));
+            node.as_object_mut()
+                .and_then(|o| o.insert("max".to_string(), max.clone()));
         }
     }
 
@@ -197,8 +205,7 @@ fn infer_control_type(schema: &Value) -> Option<(&'static str, &'static str)> {
         }
         if let Some(one_of) = resolved.get("oneOf").and_then(Value::as_array) {
             if one_of.iter().all(|v| {
-                v.get("type").and_then(Value::as_str) == Some("string")
-                    && v.get("enum").is_some()
+                v.get("type").and_then(Value::as_str) == Some("string") && v.get("enum").is_some()
             }) {
                 return Some(("enum", "select"));
             }
@@ -217,7 +224,9 @@ fn infer_control_type(schema: &Value) -> Option<(&'static str, &'static str)> {
                 // Check format hints
                 if let Some(format) = resolved.get("format").and_then(Value::as_str) {
                     match format {
-                        "uint32" | "uint64" | "int32" | "int64" => return Some(("integer", "number")),
+                        "uint32" | "uint64" | "int32" | "int64" => {
+                            return Some(("integer", "number"));
+                        }
                         "float" | "double" => return Some(("float", "number")),
                         _ => {}
                     }
@@ -289,21 +298,40 @@ mod tests {
         let fields = group["children"].as_array().expect("group children");
 
         // Collect field paths
-        let paths: Vec<&str> = fields.iter()
+        let paths: Vec<&str> = fields
+            .iter()
             .filter_map(|f| f.get("path").and_then(Value::as_str))
             .collect();
 
-        assert!(paths.contains(&"sub_agent.max_concurrent"), "should have max_concurrent");
-        assert!(paths.contains(&"sub_agent.default_max_turns"), "should have default_max_turns");
-        assert!(paths.contains(&"sub_agent.hard_max_turns"), "should have hard_max_turns");
-        assert!(paths.contains(&"sub_agent.timeout_secs"), "should have timeout_secs");
-        assert!(paths.contains(&"sub_agent.worktree_enabled"), "should have worktree_enabled");
+        assert!(
+            paths.contains(&"sub_agent.max_concurrent"),
+            "should have max_concurrent"
+        );
+        assert!(
+            paths.contains(&"sub_agent.default_max_turns"),
+            "should have default_max_turns"
+        );
+        assert!(
+            paths.contains(&"sub_agent.hard_max_turns"),
+            "should have hard_max_turns"
+        );
+        assert!(
+            paths.contains(&"sub_agent.timeout_secs"),
+            "should have timeout_secs"
+        );
+        assert!(
+            paths.contains(&"sub_agent.worktree_enabled"),
+            "should have worktree_enabled"
+        );
 
         // Verify control types
         for field in fields {
             match field.get("path").and_then(Value::as_str) {
                 Some("sub_agent.worktree_enabled") => {
-                    assert_eq!(field["control"], "switch", "worktree_enabled should be switch");
+                    assert_eq!(
+                        field["control"], "switch",
+                        "worktree_enabled should be switch"
+                    );
                     assert_eq!(field["valueType"], "boolean");
                 }
                 Some(p) if p.starts_with("sub_agent.") && p != "sub_agent.worktree_enabled" => {
@@ -332,17 +360,27 @@ mod tests {
         let group = &children[0];
         let fields = group["children"].as_array().expect("group children");
 
-        let paths: Vec<&str> = fields.iter()
+        let paths: Vec<&str> = fields
+            .iter()
             .filter_map(|f| f.get("path").and_then(Value::as_str))
             .collect();
 
         assert!(paths.contains(&"rag.enabled"), "should have enabled");
-        assert!(paths.contains(&"rag.storage_path"), "should have storage_path");
+        assert!(
+            paths.contains(&"rag.storage_path"),
+            "should have storage_path"
+        );
         assert!(paths.contains(&"rag.chunk_size"), "should have chunk_size");
-        assert!(paths.contains(&"rag.chunk_overlap"), "should have chunk_overlap");
+        assert!(
+            paths.contains(&"rag.chunk_overlap"),
+            "should have chunk_overlap"
+        );
         assert!(paths.contains(&"rag.top_k"), "should have top_k");
         // embedding is a nested object — should be skipped by is_map_type check
-        assert!(!paths.contains(&"rag.embedding"), "embedding is an object and should be skipped");
+        assert!(
+            !paths.contains(&"rag.embedding"),
+            "embedding is an object and should be skipped"
+        );
     }
 
     #[test]
@@ -360,7 +398,11 @@ mod tests {
 
         // Validate paths against AppConfig schema
         let result = super::super::path_validator::validate_settings_paths(&[section]);
-        assert!(result.is_ok(), "generated section paths should be valid: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "generated section paths should be valid: {:?}",
+            result
+        );
     }
 
     #[test]

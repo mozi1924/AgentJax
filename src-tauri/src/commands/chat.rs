@@ -23,13 +23,13 @@ use crate::time_context::{build_temporal_context_system_item, render_timed_messa
 use crate::tools::ToolCatalog;
 use crate::tools::ToolExecutionContext;
 use chat_client_metadata::{split_local_client_metadata, validate_conversation_dynamic_tools};
-use std::sync::Arc;
 use chat_events::{ChatStreamEvent, emit_mapped_stream_event, next_event_index};
-use serde_json::Value;
 use chat_prompt_tokens::{load_conversation_prompt_token_count, resolve_prompt_counting_model};
 use chat_stream_observer::ChatStreamObserver;
 use chat_title::schedule_title_generation;
 use chat_utils::{chrono_like_now_id, now_unix_ms, run_blocking};
+use serde_json::Value;
+use std::sync::Arc;
 use tauri::{Emitter, Manager, State};
 use tokio::sync::watch;
 
@@ -40,7 +40,11 @@ pub async fn chat_stream(
     mcp_manager: State<'_, std::sync::Arc<crate::mcp::McpManager>>,
     req: ChatRequest,
 ) -> Result<ChatResponse, String> {
-    let agent_id = req.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID).to_string();
+    let agent_id = req
+        .agent_id
+        .as_deref()
+        .unwrap_or(crate::config::constants::DEFAULT_AGENT_ID)
+        .to_string();
 
     // Load FullConfig: shared providers/config + agent-specific settings
     let full_config = config::load_full_config(&agent_id)?;
@@ -105,17 +109,21 @@ pub async fn chat_stream(
     let recovery_note = {
         let conversation_id = conversation_id.clone();
         let agent_id = agent_id.clone();
-        run_blocking(move || conversation_store::build_recovery_developer_note(&agent_id, &conversation_id).map_err(|e| e.to_string()))
-            .await
-            .ok()
-            .flatten()
+        run_blocking(move || {
+            conversation_store::build_recovery_developer_note(&agent_id, &conversation_id)
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .ok()
+        .flatten()
     };
 
     let mut tools_catalog =
         ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config, &agent_config);
 
     // ── Resolve model early for dynamic LCM threshold computation ───────
-    let resolved_model = resolve_prompt_counting_model(&config, &agent_config, req.model.as_deref());
+    let resolved_model =
+        resolve_prompt_counting_model(&config, &agent_config, req.model.as_deref());
 
     // ── Compute effective LCM thresholds (dynamic or manual) ────────────
     let effective_lcm_config = {
@@ -148,8 +156,13 @@ pub async fn chat_stream(
     };
 
     // ── LCM: Initialize context management (always on) ──────────────────
-    let lcm_engine =
-        crate::lcm::open_lcm_engine_with_summarizer(&agent_id, &conversation_id, &effective_lcm_config, &config, &agent_config)?;
+    let lcm_engine = crate::lcm::open_lcm_engine_with_summarizer(
+        &agent_id,
+        &conversation_id,
+        &effective_lcm_config,
+        &config,
+        &agent_config,
+    )?;
     tools_catalog.set_context_tools(lcm_engine.store().clone());
 
     // Ensure LCM conversation metadata exists.
@@ -178,15 +191,20 @@ pub async fn chat_stream(
         let input_text = input_text.clone();
         let agent_id = agent_id.clone();
         run_blocking(move || {
-            conversation_store::append_line(&agent_id, conversation_store::AppendLineInput {
-                conversation_id,
-                line: conversation_store::ConversationLine::User(conversation_store::UserLine {
-                    id: format!("msg-user-{request_id}"),
-                    ts: user_message_ts,
-                    request_id,
-                    text: input_text,
-                }),
-            })
+            conversation_store::append_line(
+                &agent_id,
+                conversation_store::AppendLineInput {
+                    conversation_id,
+                    line: conversation_store::ConversationLine::User(
+                        conversation_store::UserLine {
+                            id: format!("msg-user-{request_id}"),
+                            ts: user_message_ts,
+                            request_id,
+                            text: input_text,
+                        },
+                    ),
+                },
+            )
             .map_err(|e| e.to_string())
         })
         .await?;
@@ -197,7 +215,10 @@ pub async fn chat_stream(
 
     // ── Apply token budget truncation now that we know the model ──────
     if let Some(resolved_model) = resolved_model.as_ref() {
-        let budget = conversation_store::TokenBudget::for_model(&resolved_model.provider.kind, &resolved_model.model_id);
+        let budget = conversation_store::TokenBudget::for_model(
+            &resolved_model.provider.kind,
+            &resolved_model.model_id,
+        );
         context.input_items = conversation_store::truncate_items_to_budget(
             std::mem::take(&mut context.input_items),
             &budget,
@@ -247,9 +268,9 @@ pub async fn chat_stream(
             if let Ok(store) = crate::memory::MemoryStore::open(memory_base)
                 && let Ok(Some(memory_item)) =
                     crate::memory::build_memory_context(&store, &agent_config.memory)
-                {
-                    system_items.push(memory_item);
-                }
+            {
+                system_items.push(memory_item);
+            }
         }
         let current_user_item = build_user_input_item(
             &resolved_model.provider.kind,
@@ -297,7 +318,8 @@ pub async fn chat_stream(
     runtime_req.client_metadata = sanitized_client_metadata;
     // Create sub-agent event channel: event_tx goes to tool execution,
     // event_rx is consumed by a forwarding task that emits to the frontend.
-    let (sub_event_tx, mut sub_event_rx) = tokio::sync::mpsc::unbounded_channel::<crate::sub_agents::SubAgentEvent>();
+    let (sub_event_tx, mut sub_event_rx) =
+        tokio::sync::mpsc::unbounded_channel::<crate::sub_agents::SubAgentEvent>();
     // Spawn forwarding task so sub-agent events reach the frontend.
     let forward_window = closure_window.clone();
     let forward_request_id = closure_request_id.clone();
@@ -323,9 +345,16 @@ pub async fn chat_stream(
         let mut index = 0u64;
         while let Some(event) = street_event_rx.recv().await {
             let (kind, delta, tool_name) = match &event {
-                crate::street::StreetEvent::Deposited { item_id: _, title, priority, .. } => {
-                    ("street_notification".to_string(), Some(title.clone()), Some(priority.as_str().to_string()))
-                }
+                crate::street::StreetEvent::Deposited {
+                    item_id: _,
+                    title,
+                    priority,
+                    ..
+                } => (
+                    "street_notification".to_string(),
+                    Some(title.clone()),
+                    Some(priority.as_str().to_string()),
+                ),
                 crate::street::StreetEvent::Cleared { count, .. } => {
                     ("street_cleared".to_string(), Some(count.to_string()), None)
                 }
@@ -409,7 +438,9 @@ pub async fn chat_stream(
             let count = pending.len();
             let formatted = crate::street::format_street_items(&pending);
             crate::street::StreetManager::mark_delivered(&conversation_id);
-            vec![crate::street::build_street_context_system_item(count, &formatted)]
+            vec![crate::street::build_street_context_system_item(
+                count, &formatted,
+            )]
         } else {
             Vec::new()
         }
@@ -455,7 +486,8 @@ pub async fn chat_stream(
     // main turn completes.
     {
         use crate::sub_agents::runner::run_sub_agent;
-        let pending = crate::sub_agents::manager::SubAgentManager::collect_pending(&conversation_id);
+        let pending =
+            crate::sub_agents::manager::SubAgentManager::collect_pending(&conversation_id);
         if !pending.is_empty() {
             let tools_catalog_arc = Arc::new(tools_catalog);
             let sub_semaphore = crate::sub_agents::manager::sub_agent_semaphore();
@@ -469,9 +501,21 @@ pub async fn chat_stream(
                 let _handle = tokio::spawn(async move {
                     // Acquire concurrency permit before starting execution.
                     let _permit = sem_perm.acquire().await;
-                    run_sub_agent(task, spec, spawn_config, spawn_agent_config, spawn_catalog, spawn_event_tx).await;
+                    run_sub_agent(
+                        task,
+                        spec,
+                        spawn_config,
+                        spawn_agent_config,
+                        spawn_catalog,
+                        spawn_event_tx,
+                    )
+                    .await;
                 });
-                log::info!("Sub-agent {} spawned for conv={}", agent_id, conversation_id);
+                log::info!(
+                    "Sub-agent {} spawned for conv={}",
+                    agent_id,
+                    conversation_id
+                );
             }
         }
     }
@@ -578,7 +622,10 @@ pub async fn load_conversation(
     let mut detail = conversation_store::load_conversation(&agent_id, &req.conversation_id)?;
     if let Some(detail_ref) = detail.as_mut() {
         detail_ref.context_token_count =
-            match conversation_store::load_conversation_token_usage_count(&agent_id, &conversation_id)? {
+            match conversation_store::load_conversation_token_usage_count(
+                &agent_id,
+                &conversation_id,
+            )? {
                 Some(count) => count,
                 None => {
                     load_conversation_prompt_token_count(
@@ -599,7 +646,8 @@ pub fn load_conversation_dynamic_tools(
     req: LoadConversationDynamicToolsRequest,
 ) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
     let agent_id = resolve_agent_id(req.agent_id.as_deref());
-    conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id).map_err(|e| e.to_string())
+    conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -609,8 +657,13 @@ pub fn replace_conversation_dynamic_tools(
     let agent_id = resolve_agent_id(req.agent_id.as_deref());
     validate_conversation_dynamic_tools(&req.tools)?;
     conversation_store::ensure_conversation(&agent_id, &req.conversation_id)?;
-    conversation_store::update_conversation_dynamic_tools(&agent_id, &req.conversation_id, req.tools)?;
-    conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id).map_err(|e| e.to_string())
+    conversation_store::update_conversation_dynamic_tools(
+        &agent_id,
+        &req.conversation_id,
+        req.tools,
+    )?;
+    conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -620,8 +673,13 @@ pub fn upsert_conversation_dynamic_tool(
     let agent_id = resolve_agent_id(req.agent_id.as_deref());
     validate_conversation_dynamic_tools(std::slice::from_ref(&req.tool))?;
     conversation_store::ensure_conversation(&agent_id, &req.conversation_id)?;
-    conversation_store::upsert_conversation_dynamic_tool(&agent_id, &req.conversation_id, req.tool)?;
-    conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id).map_err(|e| e.to_string())
+    conversation_store::upsert_conversation_dynamic_tool(
+        &agent_id,
+        &req.conversation_id,
+        req.tool,
+    )?;
+    conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -634,8 +692,13 @@ pub fn remove_conversation_dynamic_tool(
         return Err("toolName cannot be empty".to_string());
     }
     conversation_store::ensure_conversation(&agent_id, &req.conversation_id)?;
-    conversation_store::remove_conversation_dynamic_tool(&agent_id, &req.conversation_id, tool_name)?;
-    conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id).map_err(|e| e.to_string())
+    conversation_store::remove_conversation_dynamic_tool(
+        &agent_id,
+        &req.conversation_id,
+        tool_name,
+    )?;
+    conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -646,7 +709,8 @@ pub fn rename_conversation(
     let agent_id = resolve_agent_id(req.agent_id.as_deref());
     let _ = registry.cancel_title_request(&req.conversation_id)?;
 
-    conversation_store::rename_conversation(&agent_id, &req.conversation_id, &req.title).map_err(|e| e.to_string())
+    conversation_store::rename_conversation(&agent_id, &req.conversation_id, &req.title)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -658,7 +722,8 @@ pub fn delete_conversation(
     registry.mark_conversation_deleted(&req.conversation_id)?;
     registry.cancel_conversation_tasks(&req.conversation_id)?;
 
-    conversation_store::delete_conversation(&agent_id, &req.conversation_id).map_err(|e| e.to_string())
+    conversation_store::delete_conversation(&agent_id, &req.conversation_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -760,8 +825,7 @@ mod tests {
 
     #[test]
     fn dynamic_tool_commands_support_replace_upsert_and_remove() {
-        let _guard = config::test_env_lock()
-            .blocking_lock();
+        let _guard = config::test_env_lock().blocking_lock();
         let _home = setup_test_home();
         let conversation_id = format!("conv-dtool-cmd-{}", Uuid::new_v4());
 

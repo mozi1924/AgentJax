@@ -122,7 +122,11 @@ impl Tool for LlmMapTool {
         })
     }
 
-    async fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
+    async fn execute(
+        &self,
+        arguments: &Value,
+        context: &ToolExecutionContext,
+    ) -> AgentJaxResult<Value> {
         let args: LlmMapArgs = serde_json::from_value(arguments.clone())
             .map_err(|e| AgentJaxError::tool(format!("Invalid arguments for llm_map: {e}")))?;
 
@@ -142,13 +146,20 @@ impl Tool for LlmMapTool {
         let input_content = std::fs::read_to_string(&input_path)
             .map_err(|e| AgentJaxError::internal(format!("Failed to read input file: {e}")))?;
 
-        let input_lines: Vec<String> = input_content.lines().filter(|l| !l.trim().is_empty()).map(|s| s.to_string()).collect();
+        let input_lines: Vec<String> = input_content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|s| s.to_string())
+            .collect();
         if input_lines.is_empty() {
             return Err(AgentJaxError::tool("Input file is empty".to_string()));
         }
 
         let total = input_lines.len();
-        let model_ref = context.model_id.clone().unwrap_or_else(|| "default".to_string());
+        let model_ref = context
+            .model_id
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
         let prompt_template = args.prompt;
         let output_schema = args.output_schema;
         let concurrency = args.concurrency.max(1);
@@ -210,11 +221,10 @@ impl Tool for LlmMapTool {
                             || {
                                 let p = prompt.clone();
                                 let m = model.clone();
-                                async move {
-                                    call_llm_for_item(&p, &m).await
-                                }
+                                async move { call_llm_for_item(&p, &m).await }
                             },
-                        ).await;
+                        )
+                        .await;
 
                         match result {
                             RetryResult::Success(output) => {
@@ -265,17 +275,21 @@ impl Tool for LlmMapTool {
                     output_items.push(val.clone());
                 }
                 Err(e) => {
-                    output_lines.push(serde_json::to_string(&json!({
-                        "error": e
-                    })).unwrap_or_default());
+                    output_lines.push(
+                        serde_json::to_string(&json!({
+                            "error": e
+                        }))
+                        .unwrap_or_default(),
+                    );
                 }
             }
         }
 
         // Write output file.
         if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AgentJaxError::internal(format!("Failed to create output directory: {e}")))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                AgentJaxError::internal(format!("Failed to create output directory: {e}"))
+            })?;
         }
         std::fs::write(&output_path, output_lines.join("\n"))
             .map_err(|e| AgentJaxError::internal(format!("Failed to write output file: {e}")))?;
@@ -297,8 +311,7 @@ impl Tool for LlmMapTool {
     }
 }
 
-impl LlmMapTool {
-}
+impl LlmMapTool {}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -307,8 +320,11 @@ fn get_workspace_dir(context: &ToolExecutionContext) -> AgentJaxResult<PathBuf> 
     let conv_id = context.conversation_id.as_deref().ok_or_else(|| {
         AgentJaxError::tool("llm_map requires a conversation context".to_string())
     })?;
-    let path = crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, conv_id)
-        .map_err(|e| AgentJaxError::internal(format!("Failed to resolve workspace: {e}")))?;
+    let path = crate::conversation_store::conversation_workspace_path(
+        crate::config::constants::DEFAULT_AGENT_ID,
+        conv_id,
+    )
+    .map_err(|e| AgentJaxError::internal(format!("Failed to resolve workspace: {e}")))?;
     Ok(path)
 }
 
@@ -344,18 +360,15 @@ async fn call_llm_for_item(prompt: &str, model_ref: &str) -> AgentJaxResult<Valu
         .unwrap_or_default()
         .normalize();
 
-    let response = crate::provider_api::stream_response(
-        &config,
-        &agent,
-        &request,
-        &mut cancel_rx,
-        |_| Ok(()),
-    )
-    .await?;
+    let response =
+        crate::provider_api::stream_response(&config, &agent, &request, &mut cancel_rx, |_| Ok(()))
+            .await?;
 
     let text = response.output_text.trim().to_string();
     if text.is_empty() {
-        return Err(AgentJaxError::internal("LLM returned empty response".to_string()));
+        return Err(AgentJaxError::internal(
+            "LLM returned empty response".to_string(),
+        ));
     }
 
     // Try to parse as JSON (the model may output structured data).
@@ -371,9 +384,13 @@ fn validate_against_schema(value: &Value, schema: &Value) -> crate::error::Agent
     // Basic validation: check that required top-level keys exist.
     if let Some(required) = schema.get("required").and_then(|v| v.as_array()) {
         for key in required {
-            let key_str = key.as_str().ok_or_else(|| "Invalid schema: required key is not a string".to_string())?;
+            let key_str = key
+                .as_str()
+                .ok_or_else(|| "Invalid schema: required key is not a string".to_string())?;
             if value.get(key_str).is_none() {
-                return Err(AgentJaxError::tool(format!("Missing required field: '{key_str}'")));
+                return Err(AgentJaxError::tool(format!(
+                    "Missing required field: '{key_str}'"
+                )));
             }
         }
     }

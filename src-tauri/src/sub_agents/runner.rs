@@ -12,7 +12,7 @@ use crate::config::{AgentConfig, AppConfig};
 use crate::provider_api::types::ProviderStreamEvent;
 use crate::sub_agents::events::SubAgentEvent;
 use crate::sub_agents::lcm_context::SubAgentLcmContext;
-use crate::sub_agents::manager::{SubAgentManager, SubAgentTask, HARD_MAX_TURNS};
+use crate::sub_agents::manager::{HARD_MAX_TURNS, SubAgentManager, SubAgentTask};
 use crate::sub_agents::types::SubAgentSpec;
 use crate::sub_agents::worktree::Worktree;
 use crate::tools::ToolCatalog;
@@ -135,7 +135,9 @@ pub async fn run_sub_agent(
     tokio::spawn(async move {
         loop {
             let changed = task_cancel_rx.changed().await;
-            if changed.is_err() { break; }
+            if changed.is_err() {
+                break;
+            }
             if *task_cancel_rx.borrow() {
                 let _ = merged_cancel_tx.send(true);
                 let _ = cancel_fwd_event_tx.send(SubAgentEvent::Cancelled {
@@ -168,14 +170,15 @@ pub async fn run_sub_agent(
             // Map provider events to sub-agent events for progress tracking.
             match &event {
                 ProviderStreamEvent::HopAssistantText { text, phase, .. }
-                    if phase.is_none_or(|p| p.as_str() != "commentary") => {
-                        let _ = closure_event_tx.send(SubAgentEvent::Progress {
-                            agent_id: closure_agent_id.clone(),
-                            text: text.chars().take(200).collect(),
-                            turns_completed: 0,
-                            turns_remaining: max_turns,
-                        });
-                    }
+                    if phase.is_none_or(|p| p.as_str() != "commentary") =>
+                {
+                    let _ = closure_event_tx.send(SubAgentEvent::Progress {
+                        agent_id: closure_agent_id.clone(),
+                        text: text.chars().take(200).collect(),
+                        turns_completed: 0,
+                        turns_remaining: max_turns,
+                    });
+                }
                 ProviderStreamEvent::ToolCallStarted { call_id, name, .. } => {
                     let _ = closure_event_tx.send(SubAgentEvent::ToolCallStarted {
                         agent_id: closure_agent_id.clone(),
@@ -207,17 +210,15 @@ pub async fn run_sub_agent(
     )
     .await;
 
-
     match result {
         Ok((response, _timeline)) => {
             // Try to parse the output as JSON; fall back to wrapping in a result object.
-            let parsed_result = if let Ok(val) =
-                serde_json::from_str::<Value>(&response.output_text)
-            {
-                val
-            } else {
-                json!({ "result": response.output_text })
-            };
+            let parsed_result =
+                if let Ok(val) = serde_json::from_str::<Value>(&response.output_text) {
+                    val
+                } else {
+                    json!({ "result": response.output_text })
+                };
 
             let _ = event_tx.send(SubAgentEvent::Completed {
                 agent_id: agent_id.clone(),
@@ -241,9 +242,10 @@ pub async fn run_sub_agent(
 
     // ── Cleanup ───────────────────────────────────────────────────────────
     if let Some(wt) = _worktree
-        && let Err(e) = wt.cleanup() {
-            log::warn!("Sub-agent {}: worktree cleanup failed: {e}", agent_id);
-        }
+        && let Err(e) = wt.cleanup()
+    {
+        log::warn!("Sub-agent {}: worktree cleanup failed: {e}", agent_id);
+    }
 
     log::info!("Sub-agent {}: finished", agent_id);
 }
@@ -259,7 +261,9 @@ pub async fn run_memory_agent(
     spec: SubAgentSpec,
     app_config: Arc<AppConfig>,
     agent_config: Arc<AgentConfig>,
-    mut signal_rx: tokio::sync::watch::Receiver<Option<crate::sub_agents::types::MemoryAgentSignal>>,
+    mut signal_rx: tokio::sync::watch::Receiver<
+        Option<crate::sub_agents::types::MemoryAgentSignal>,
+    >,
 ) {
     let agent_id = &spec.agent_id;
     log::info!("Memory agent {}: started", agent_id);
@@ -272,7 +276,10 @@ pub async fn run_memory_agent(
     ) {
         Ok(store) => store,
         Err(e) => {
-            log::error!("Memory agent {}: failed to open memory store: {e}", agent_id);
+            log::error!(
+                "Memory agent {}: failed to open memory store: {e}",
+                agent_id
+            );
             return;
         }
     };
@@ -307,7 +314,8 @@ pub async fn run_memory_agent(
                 };
 
                 // Load parent conversation context from LCM.
-                let conv_context = load_conversation_context(&spec.parent_conversation_id).unwrap_or_default();
+                let conv_context =
+                    load_conversation_context(&spec.parent_conversation_id).unwrap_or_default();
 
                 // Build the prompt instructing the LLM to classify and act.
                 // Now includes both the memory index AND the actual conversation context
@@ -358,7 +366,10 @@ pub async fn run_memory_agent(
                         }
                         // Parse the LLM output for memory operations.
                         execute_memory_operations(
-                            &memory_store, &text, agent_id, &spec.parent_conversation_id,
+                            &memory_store,
+                            &text,
+                            agent_id,
+                            &spec.parent_conversation_id,
                         );
                     }
                     Err(e) => {
@@ -374,10 +385,7 @@ pub async fn run_memory_agent(
 fn build_memory_agent_prompt(index_content: &str, conversation_context: &str) -> String {
     let has_memories = index_content.contains("\n## ");
     let memory_context = if has_memories {
-        format!(
-            "## Existing Memory Index\n\n{}\n\n---\n",
-            index_content
-        )
+        format!("## Existing Memory Index\n\n{}\n\n---\n", index_content)
     } else {
         "No existing memories found.\n\n".to_string()
     };
@@ -441,12 +449,18 @@ fn execute_memory_operations(
     let parsed: serde_json::Value = match serde_json::from_str(json_str) {
         Ok(v) => v,
         Err(e) => {
-            log::warn!("Memory agent {}: failed to parse LLM output as JSON: {e}", agent_id);
+            log::warn!(
+                "Memory agent {}: failed to parse LLM output as JSON: {e}",
+                agent_id
+            );
             return;
         }
     };
 
-    let action = parsed.get("action").and_then(|v| v.as_str()).unwrap_or("ignore");
+    let action = parsed
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("ignore");
 
     match action {
         "ignore" => {
@@ -454,13 +468,23 @@ fn execute_memory_operations(
         }
         "create" | "append" | "update" => {
             let name = parsed.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let description = parsed.get("description").and_then(|v| v.as_str()).unwrap_or("");
+            let description = parsed
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let body = parsed.get("body").and_then(|v| v.as_str()).unwrap_or("");
-            let memory_type_str = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("project");
+            let memory_type_str = parsed
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("project");
             let tags: Vec<String> = parsed
                 .get("tags")
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|t| t.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
 
             if name.is_empty() || body.is_empty() {
@@ -498,18 +522,20 @@ fn execute_memory_operations(
                 Ok(()) => {
                     log::info!("Memory agent {}: {action}d memory '{}'", agent_id, name);
                     // Deposit into Street for proactive context injection.
-                    crate::street::StreetManager::deposit(
-                        crate::street::StreetItem::new(
-                            parent_conv_id,
-                            crate::street::StreetSource::MemoryAgent,
-                            crate::street::Priority::Low,
-                            &format!("Memory updated: '{}' ({})", name, action),
-                            serde_json::json!({"action": action, "name": name, "type": memory_type_str}),
-                        ),
-                    );
+                    crate::street::StreetManager::deposit(crate::street::StreetItem::new(
+                        parent_conv_id,
+                        crate::street::StreetSource::MemoryAgent,
+                        crate::street::Priority::Low,
+                        &format!("Memory updated: '{}' ({})", name, action),
+                        serde_json::json!({"action": action, "name": name, "type": memory_type_str}),
+                    ));
                 }
                 Err(e) => {
-                    log::warn!("Memory agent {}: failed to {action} memory '{}': {e}", agent_id, name);
+                    log::warn!(
+                        "Memory agent {}: failed to {action} memory '{}': {e}",
+                        agent_id,
+                        name
+                    );
                 }
             }
         }
@@ -549,36 +575,47 @@ fn load_conversation_context(parent_conv_id: &str) -> Option<String> {
 
     // Open the parent conversation's LCM store
     let lcm_config = LcmConfig::default();
-    let store_path = match crate::lcm::lcm_store_path(crate::config::constants::DEFAULT_AGENT_ID, parent_conv_id) {
+    let store_path = match crate::lcm::lcm_store_path(
+        crate::config::constants::DEFAULT_AGENT_ID,
+        parent_conv_id,
+    ) {
         Ok(p) => p,
         Err(e) => {
-            log::warn!("Memory agent: failed to get LCM store path for '{}': {e}", parent_conv_id);
+            log::warn!(
+                "Memory agent: failed to get LCM store path for '{}': {e}",
+                parent_conv_id
+            );
             return None;
         }
     };
     let store = match LcmStore::open(&store_path, lcm_config.clone()) {
         Ok(s) => Arc::new(s),
         Err(e) => {
-            log::warn!("Memory agent: failed to open LCM store for '{}': {e}", parent_conv_id);
+            log::warn!(
+                "Memory agent: failed to open LCM store for '{}': {e}",
+                parent_conv_id
+            );
             return None;
         }
     };
-    let engine = LcmEngine::new(
-        store,
-        Arc::new(crate::lcm::NoopSummarizer),
-        lcm_config,
-    );
+    let engine = LcmEngine::new(store, Arc::new(crate::lcm::NoopSummarizer), lcm_config);
 
     // Rebuild active context for the parent conversation
     if let Err(e) = engine.rebuild_active_context(parent_conv_id) {
-        log::warn!("Memory agent: failed to rebuild LCM context for '{}': {e}", parent_conv_id);
+        log::warn!(
+            "Memory agent: failed to rebuild LCM context for '{}': {e}",
+            parent_conv_id
+        );
         return None;
     }
 
     let context_items = match engine.active_context_snapshot() {
         Ok(entries) => engine.context_to_provider_items(&entries),
         Err(e) => {
-            log::warn!("Memory agent: failed to snapshot LCM context for '{}': {e}", parent_conv_id);
+            log::warn!(
+                "Memory agent: failed to snapshot LCM context for '{}': {e}",
+                parent_conv_id
+            );
             return None;
         }
     };
@@ -590,8 +627,12 @@ fn load_conversation_context(parent_conv_id: &str) -> Option<String> {
     // Format the context items into a readable string
     let mut output = String::new();
     for item in &context_items {
-        let role = item.get("role").and_then(|v| v.as_str()).unwrap_or("unknown");
-        let text = item.get("content")
+        let role = item
+            .get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let text = item
+            .get("content")
             .and_then(|v| v.as_array())
             .and_then(|arr| arr.first())
             .and_then(|c| c.get("text"))

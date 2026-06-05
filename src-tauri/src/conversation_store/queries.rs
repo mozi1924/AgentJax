@@ -1,15 +1,12 @@
 use super::file_io::{read_conversation_file, read_conversation_meta, summary_from_meta};
 use super::locks::{cached_summary, replace_cached_summary, with_conversation_lock};
-use super::paths::{
-    conversation_messages_path, conversation_metadata_path, list_conversation_ids,
-
-};
+use super::paths::{conversation_messages_path, conversation_metadata_path, list_conversation_ids};
 use super::types::{
     CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY, CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY,
     CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY, CONVERSATION_TOKEN_USAGE_METADATA_KEY,
-    ConversationDetail, ConversationDynamicTool, ConversationLine,
-    ConversationMeta, ConversationMountedMcpServer, ConversationMountedToolDefinition,
-    ConversationMountedToolSource, ConversationSummary, TitleGenerationCandidate,
+    ConversationDetail, ConversationDynamicTool, ConversationLine, ConversationMeta,
+    ConversationMountedMcpServer, ConversationMountedToolDefinition, ConversationMountedToolSource,
+    ConversationSummary, TitleGenerationCandidate,
 };
 use serde_json::Value;
 
@@ -44,7 +41,10 @@ fn token_usage_count_from_meta(meta: &ConversationMeta) -> Option<usize> {
         })
 }
 
-pub fn load_conversation_token_usage_count(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<Option<usize>> {
+pub fn load_conversation_token_usage_count(
+    agent_id: &str,
+    conversation_id: &str,
+) -> crate::error::AgentJaxResult<Option<usize>> {
     let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
@@ -57,7 +57,9 @@ pub fn load_conversation_token_usage_count(agent_id: &str, conversation_id: &str
 
 // ── List all conversations ────────────────────────────────────────────────
 
-pub fn list_conversations(agent_id: &str) -> crate::error::AgentJaxResult<Vec<ConversationSummary>> {
+pub fn list_conversations(
+    agent_id: &str,
+) -> crate::error::AgentJaxResult<Vec<ConversationSummary>> {
     let mut out = Vec::new();
 
     for conversation_id in list_conversation_ids(agent_id)? {
@@ -69,7 +71,9 @@ pub fn list_conversations(agent_id: &str) -> crate::error::AgentJaxResult<Vec<Co
             let metadata_path = conversation_metadata_path(agent_id, &conversation_id)?;
             let meta = if let Some(meta) = read_conversation_meta(&metadata_path)? {
                 meta
-            } else if let Some(meta) = try_load_meta_from_lcm(agent_id, &conversation_id, &metadata_path)? {
+            } else if let Some(meta) =
+                try_load_meta_from_lcm(agent_id, &conversation_id, &metadata_path)?
+            {
                 meta
             } else {
                 return Ok(None);
@@ -93,7 +97,8 @@ fn try_load_meta_from_lcm(
     conversation_id: &str,
     _metadata_path: &std::path::Path,
 ) -> crate::error::AgentJaxResult<Option<ConversationMeta>> {
-    let db_path = crate::conversation_store::paths::conversation_lcm_db_path(agent_id, conversation_id)?;
+    let db_path =
+        crate::conversation_store::paths::conversation_lcm_db_path(agent_id, conversation_id)?;
 
     if !db_path.exists() {
         return Ok(None);
@@ -103,14 +108,21 @@ fn try_load_meta_from_lcm(
     let store = crate::lcm::LcmStore::open(&db_path, lcm_config)
         .map_err(|e| format!("Failed to open LCM store for '{}': {}", conversation_id, e))?;
 
-    store
-        .get_conversation_meta(conversation_id)
-        .map_err(|e| crate::error::AgentJaxError::internal(format!("Failed to query LCM meta for '{}': {}", conversation_id, e)).with_error_source(&e))
+    store.get_conversation_meta(conversation_id).map_err(|e| {
+        crate::error::AgentJaxError::internal(format!(
+            "Failed to query LCM meta for '{}': {}",
+            conversation_id, e
+        ))
+        .with_error_source(&e)
+    })
 }
 
 // ── Load full conversation detail ─────────────────────────────────────────
 
-pub fn load_conversation(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<Option<ConversationDetail>> {
+pub fn load_conversation(
+    agent_id: &str,
+    conversation_id: &str,
+) -> crate::error::AgentJaxResult<Option<ConversationDetail>> {
     let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
@@ -143,7 +155,8 @@ fn try_load_from_lcm(
     conversation_id: &str,
     metadata_path: &std::path::Path,
 ) -> crate::error::AgentJaxResult<Option<ConversationDetail>> {
-    let db_path = crate::conversation_store::paths::conversation_lcm_db_path(agent_id, conversation_id)?;
+    let db_path =
+        crate::conversation_store::paths::conversation_lcm_db_path(agent_id, conversation_id)?;
 
     if !db_path.exists() {
         return Ok(None);
@@ -164,8 +177,7 @@ fn try_load_from_lcm(
     // Convert LCM StoredMessages to ConversationLines.
     // Thinking content is read directly from the StoredMessage.thinking field
     // (no separate reasoning_chains enrichment needed).
-    let lines: Vec<ConversationLine> =
-        crate::lcm::stored_messages_to_conversation_lines(&messages);
+    let lines: Vec<ConversationLine> = crate::lcm::stored_messages_to_conversation_lines(&messages);
 
     // Read metadata from the legacy metadata.json (title, timestamps, etc.).
     let (title, title_source, context_token_count) =
@@ -180,7 +192,11 @@ fn try_load_from_lcm(
                 token_usage_count_from_meta(&meta).unwrap_or(0),
             )
         } else {
-            ("New Conversation".to_string(), "pending".to_string(), 0usize)
+            (
+                "New Conversation".to_string(),
+                "pending".to_string(),
+                0usize,
+            )
         };
 
     Ok(Some(ConversationDetail {
@@ -266,8 +282,12 @@ pub fn load_conversation_dynamic_tools(
             return Ok(Vec::new());
         };
 
-        serde_json::from_value::<Vec<ConversationDynamicTool>>(value.clone())
-            .map_err(|err| crate::error::AgentJaxError::internal(format!("Failed to parse conversation dynamic tools: {err}")).with_error_source(&err))
+        serde_json::from_value::<Vec<ConversationDynamicTool>>(value.clone()).map_err(|err| {
+            crate::error::AgentJaxError::internal(format!(
+                "Failed to parse conversation dynamic tools: {err}"
+            ))
+            .with_error_source(&err)
+        })
     })
 }
 
@@ -287,7 +307,12 @@ pub fn load_conversation_mounted_tool_sources(
             .get(CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY)
         {
             return serde_json::from_value::<Vec<ConversationMountedToolSource>>(value.clone())
-                .map_err(|err| crate::error::AgentJaxError::internal(format!("Failed to parse mounted tool sources metadata: {err}")).with_error_source(&err));
+                .map_err(|err| {
+                    crate::error::AgentJaxError::internal(format!(
+                        "Failed to parse mounted tool sources metadata: {err}"
+                    ))
+                    .with_error_source(&err)
+                });
         }
 
         // Fallback to legacy MCP servers key

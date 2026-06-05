@@ -52,8 +52,7 @@ fn write_test_config(home: &Path) -> std::path::PathBuf {
 
 #[test]
 fn snapshot_redacts_secret_values() {
-    let _guard = crate::config::test_env_lock()
-        .blocking_lock();
+    let _guard = crate::config::test_env_lock().blocking_lock();
     let home =
         std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&home).expect("create home");
@@ -85,8 +84,7 @@ fn snapshot_redacts_secret_values() {
 
 #[test]
 fn apply_patch_updates_scalar_values() {
-    let _guard = crate::config::test_env_lock()
-        .blocking_lock();
+    let _guard = crate::config::test_env_lock().blocking_lock();
     let home =
         std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&home).expect("create home");
@@ -108,7 +106,12 @@ fn apply_patch_updates_scalar_values() {
 
     assert_eq!(updated.values["request_timeout_seconds"], Value::from(33));
     // agent-specific paths are written to agent.yaml
-    let agent_path = path.parent().unwrap().join("agents").join("main").join("agent.yaml");
+    let agent_path = path
+        .parent()
+        .unwrap()
+        .join("agents")
+        .join("main")
+        .join("agent.yaml");
     if agent_path.exists() {
         let raw = fs::read_to_string(&agent_path).expect("read agent config");
         assert!(raw.contains("request_timeout_seconds: 33"));
@@ -122,8 +125,7 @@ fn apply_patch_updates_scalar_values() {
 
 #[test]
 fn apply_patch_rejects_invalid_collection_keys() {
-    let _guard = crate::config::test_env_lock()
-        .blocking_lock();
+    let _guard = crate::config::test_env_lock().blocking_lock();
     let home =
         std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&home).expect("create home");
@@ -152,8 +154,7 @@ fn apply_patch_rejects_invalid_collection_keys() {
 
 #[test]
 fn apply_patch_updates_tool_manager_policy() {
-    let _guard = crate::config::test_env_lock()
-        .blocking_lock();
+    let _guard = crate::config::test_env_lock().blocking_lock();
     let home =
         std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&home).expect("create home");
@@ -178,7 +179,12 @@ fn apply_patch_updates_tool_manager_policy() {
         Value::Bool(false)
     );
     // agent-specific paths are written to agent.yaml
-    let agent_path = path.parent().unwrap().join("agents").join("main").join("agent.yaml");
+    let agent_path = path
+        .parent()
+        .unwrap()
+        .join("agents")
+        .join("main")
+        .join("agent.yaml");
     if agent_path.exists() {
         let raw = fs::read_to_string(&agent_path).expect("read agent config");
         assert!(raw.contains("tool_manager:"));
@@ -193,8 +199,7 @@ fn apply_patch_updates_tool_manager_policy() {
 
 #[test]
 fn apply_patch_supports_escaped_model_profile_keys_with_dots() {
-    let _guard = crate::config::test_env_lock()
-        .blocking_lock();
+    let _guard = crate::config::test_env_lock().blocking_lock();
     let home =
         std::env::temp_dir().join(format!("agentjax-settings-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&home).expect("create home");

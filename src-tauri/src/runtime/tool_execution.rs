@@ -273,7 +273,11 @@ mod tests {
     #[tokio::test]
     async fn scheduler_can_emit_completed_event_before_finish() {
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let (_cancel_tx, cancel_rx) = watch::channel(false);
         let mut scheduler =
@@ -337,7 +341,11 @@ mod tests {
     #[tokio::test]
     async fn scheduler_background_task_uses_shared_semaphore() {
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let (_cancel_tx, cancel_rx) = watch::channel(false);
         let conversation_id = "conv-runtime-awaiter-test";
@@ -381,9 +389,12 @@ mod tests {
                     Ok(())
                 })
                 .expect("drain completed tools");
-            if events.iter().filter(|event| {
-                matches!(event, ProviderStreamEvent::ToolCallExecuted { .. })
-            }).count() >= 2 {
+            if events
+                .iter()
+                .filter(|event| matches!(event, ProviderStreamEvent::ToolCallExecuted { .. }))
+                .count()
+                >= 2
+            {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;

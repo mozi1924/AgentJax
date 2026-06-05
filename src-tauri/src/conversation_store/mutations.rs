@@ -7,10 +7,7 @@ use super::locks::{
     cached_line_id_exists, insert_cached_line_id, invalidate_cached_conversation_index,
     replace_cached_line_ids, replace_cached_summary, with_conversation_lock,
 };
-use super::paths::{
-    conversation_messages_path, conversation_metadata_path,
-    ensure_session_layout,
-};
+use super::paths::{conversation_messages_path, conversation_metadata_path, ensure_session_layout};
 use super::types::{
     AppendLineInput, CONVERSATION_DYNAMIC_TOOLS_METADATA_KEY,
     CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY, CONVERSATION_MOUNTED_TOOL_SOURCES_METADATA_KEY,
@@ -26,13 +23,19 @@ use std::fs;
 
 // ── Ensure existence ──────────────────────────────────────────────────────
 
-pub fn ensure_conversation(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<ConversationMeta> {
+pub fn ensure_conversation(
+    agent_id: &str,
+    conversation_id: &str,
+) -> crate::error::AgentJaxResult<ConversationMeta> {
     with_conversation_lock(conversation_id, || {
         ensure_conversation_inner(agent_id, conversation_id)
     })
 }
 
-fn ensure_conversation_inner(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<ConversationMeta> {
+fn ensure_conversation_inner(
+    agent_id: &str,
+    conversation_id: &str,
+) -> crate::error::AgentJaxResult<ConversationMeta> {
     let metadata_path = conversation_metadata_path(agent_id, conversation_id)?;
     let messages_path = conversation_messages_path(agent_id, conversation_id)?;
     if let Some(mut data) = read_conversation_file(&metadata_path, &messages_path)? {
@@ -80,11 +83,16 @@ fn ensure_conversation_inner(agent_id: &str, conversation_id: &str) -> crate::er
 }
 
 /// Ensure LCM conversation_meta row exists for this conversation.
-fn ensure_lcm_conversation_meta(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<()> {
-    let db_path = match crate::conversation_store::paths::conversation_lcm_db_path(agent_id, conversation_id) {
-        Ok(p) => p,
-        Err(_) => return Ok(()),
-    };
+fn ensure_lcm_conversation_meta(
+    agent_id: &str,
+    conversation_id: &str,
+) -> crate::error::AgentJaxResult<()> {
+    let db_path =
+        match crate::conversation_store::paths::conversation_lcm_db_path(agent_id, conversation_id)
+        {
+            Ok(p) => p,
+            Err(_) => return Ok(()),
+        };
     let lcm_config = crate::lcm::LcmConfig::default();
     let store = crate::lcm::LcmStore::open(&db_path, lcm_config)
         .map_err(|e| format!("Failed to open LCM store: {e}"))?;
@@ -99,7 +107,9 @@ fn ensure_lcm_conversation_meta(agent_id: &str, conversation_id: &str) -> crate:
 pub fn append_line(agent_id: &str, input: AppendLineInput) -> crate::error::AgentJaxResult<()> {
     let conversation_id = input.conversation_id.clone();
     let agent_id = agent_id.to_string();
-    with_conversation_lock(&conversation_id, move || append_line_inner(&agent_id, input))
+    with_conversation_lock(&conversation_id, move || {
+        append_line_inner(&agent_id, input)
+    })
 }
 
 // ── Update existing line (in-place replace by id) ─────────────────────────
@@ -107,10 +117,16 @@ pub fn append_line(agent_id: &str, input: AppendLineInput) -> crate::error::Agen
 pub fn update_line(agent_id: &str, input: UpdateLineInput) -> crate::error::AgentJaxResult<()> {
     let conversation_id = input.conversation_id.clone();
     let agent_id = agent_id.to_string();
-    with_conversation_lock(&conversation_id, move || update_line_inner(&agent_id, input))
+    with_conversation_lock(&conversation_id, move || {
+        update_line_inner(&agent_id, input)
+    })
 }
 
-pub fn conversation_line_exists(agent_id: &str, conversation_id: &str, line_id: &str) -> crate::error::AgentJaxResult<bool> {
+pub fn conversation_line_exists(
+    agent_id: &str,
+    conversation_id: &str,
+    line_id: &str,
+) -> crate::error::AgentJaxResult<bool> {
     let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
         let messages_path = conversation_messages_path(&agent_id, conversation_id)?;
@@ -134,7 +150,8 @@ pub fn update_conversation_token_usage(
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
         let messages_path = conversation_messages_path(&agent_id, conversation_id)?;
-        let mut meta = load_or_create_meta(&agent_id, conversation_id, &metadata_path, &messages_path)?;
+        let mut meta =
+            load_or_create_meta(&agent_id, conversation_id, &metadata_path, &messages_path)?;
 
         let aggregate_usage = aggregate_usage.unwrap_or(latest_usage);
 
@@ -178,7 +195,12 @@ pub fn update_conversation_token_usage(
 fn append_line_inner(agent_id: &str, input: AppendLineInput) -> crate::error::AgentJaxResult<()> {
     let metadata_path = conversation_metadata_path(agent_id, &input.conversation_id)?;
     let messages_path = conversation_messages_path(agent_id, &input.conversation_id)?;
-    let mut meta = load_or_create_meta(agent_id, &input.conversation_id, &metadata_path, &messages_path)?;
+    let mut meta = load_or_create_meta(
+        agent_id,
+        &input.conversation_id,
+        &metadata_path,
+        &messages_path,
+    )?;
 
     // Deduplicate: skip if line with same id already exists.
     if line_id_exists(&input.conversation_id, &messages_path, input.line.id())? {
@@ -206,7 +228,12 @@ fn append_line_inner(agent_id: &str, input: AppendLineInput) -> crate::error::Ag
 fn update_line_inner(agent_id: &str, input: UpdateLineInput) -> crate::error::AgentJaxResult<()> {
     let metadata_path = conversation_metadata_path(agent_id, &input.conversation_id)?;
     let messages_path = conversation_messages_path(agent_id, &input.conversation_id)?;
-    let current_meta = load_or_create_meta(agent_id, &input.conversation_id, &metadata_path, &messages_path)?;
+    let current_meta = load_or_create_meta(
+        agent_id,
+        &input.conversation_id,
+        &metadata_path,
+        &messages_path,
+    )?;
     let replacement = input.line.clone();
     let line_id = input.line_id.clone();
 
@@ -367,7 +394,8 @@ pub fn update_conversation_mounted_tool_sources(
     with_conversation_lock(conversation_id, || {
         let metadata_path = conversation_metadata_path(&agent_id, conversation_id)?;
         let messages_path = conversation_messages_path(&agent_id, conversation_id)?;
-        let mut meta = load_or_create_meta(&agent_id, conversation_id, &metadata_path, &messages_path)?;
+        let mut meta =
+            load_or_create_meta(&agent_id, conversation_id, &metadata_path, &messages_path)?;
 
         meta.metadata
             .remove(CONVERSATION_MOUNTED_MCP_SERVERS_METADATA_KEY);
@@ -399,7 +427,8 @@ fn update_auto_title_inner(
 ) -> crate::error::AgentJaxResult<Option<ConversationSummary>> {
     let metadata_path = conversation_metadata_path(agent_id, conversation_id)?;
     let messages_path = conversation_messages_path(agent_id, conversation_id)?;
-    let Some(mut meta) = load_existing_meta(agent_id, conversation_id, &metadata_path, &messages_path)?
+    let Some(mut meta) =
+        load_existing_meta(agent_id, conversation_id, &metadata_path, &messages_path)?
     else {
         return Ok(None);
     };
@@ -421,14 +450,20 @@ fn update_auto_title_inner(
 
 // ── Delete ────────────────────────────────────────────────────────────────
 
-pub fn delete_conversation(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<bool> {
+pub fn delete_conversation(
+    agent_id: &str,
+    conversation_id: &str,
+) -> crate::error::AgentJaxResult<bool> {
     let agent_id = agent_id.to_string();
     with_conversation_lock(conversation_id, || {
         delete_conversation_inner(&agent_id, conversation_id)
     })
 }
 
-fn delete_conversation_inner(agent_id: &str, conversation_id: &str) -> crate::error::AgentJaxResult<bool> {
+fn delete_conversation_inner(
+    agent_id: &str,
+    conversation_id: &str,
+) -> crate::error::AgentJaxResult<bool> {
     let dir = crate::conversation_store::paths::conversation_dir_path(agent_id, conversation_id)?;
     if !dir.exists() {
         invalidate_cached_conversation_index(conversation_id)?;

@@ -97,8 +97,9 @@ fn build_plugin_entry(
     plugin_manager: &PluginManagerConfig,
 ) -> PluginEntrySnapshot {
     let manifest = &package.manifest;
-    let entry_config: Option<&PluginEntryConfig> =
-        plugin_manager.plugins.get(&manifest.id.to_ascii_lowercase());
+    let entry_config: Option<&PluginEntryConfig> = plugin_manager
+        .plugins
+        .get(&manifest.id.to_ascii_lowercase());
     let enabled = entry_config.map(|e| e.enabled).unwrap_or(true);
 
     let sandbox = &manifest.sandbox;

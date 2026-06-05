@@ -74,14 +74,19 @@ fn parse_variables(value: Option<&Value>) -> AgentJaxResult<Vec<CalculatorVariab
 fn validate_variable_name(name: &str) -> AgentJaxResult<()> {
     let mut chars = name.chars();
     let Some(first) = chars.next() else {
-        return Err(agentjax_err!("Variable names cannot be empty.", ToolExecution));
+        return Err(agentjax_err!(
+            "Variable names cannot be empty.",
+            ToolExecution
+        ));
     };
 
     if !(first.is_ascii_alphabetic() || first == '_')
         || !chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
     {
         return Err(agentjax_err!(
-            format!("Variable '{name}' is not a valid fend identifier. Use letters, numbers, and underscores, and do not start with a number."),
+            format!(
+                "Variable '{name}' is not a valid fend identifier. Use letters, numbers, and underscores, and do not start with a number."
+            ),
             ToolExecution
         ));
     }
@@ -122,7 +127,10 @@ fn parse_variable_expression(name: &str, raw: &Value) -> AgentJaxResult<String> 
 fn validate_expression_budget(expression: &str) -> AgentJaxResult<()> {
     if expression.len() > MAX_EXPRESSION_LENGTH {
         return Err(agentjax_err!(
-            format!("Expression is too long ({} characters). The calculator currently limits inputs to {MAX_EXPRESSION_LENGTH} characters to avoid runaway evaluations.", expression.len()),
+            format!(
+                "Expression is too long ({} characters). The calculator currently limits inputs to {MAX_EXPRESSION_LENGTH} characters to avoid runaway evaluations.",
+                expression.len()
+            ),
             ToolExecution
         ));
     }

@@ -7,13 +7,10 @@
 //! The shared `config.yaml` at the root holds provider credentials, MCP server
 //! definitions, and plugin manager settings that are shared across all agents.
 
-use crate::config::constants::{
-    AGENT_CONFIG_FILE_NAME, DEFAULT_TIMEOUT_SECONDS,
-};
+use crate::config::constants::{AGENT_CONFIG_FILE_NAME, DEFAULT_TIMEOUT_SECONDS};
 use crate::config::prompt_composer::{PromptComposerConfig, normalize_prompt_composer};
 use crate::config::schema::{
-    ContextManagementConfig, MemoryConfig, RagConfig, SubAgentConfig,
-    ToolManagerConfig,
+    ContextManagementConfig, MemoryConfig, RagConfig, SubAgentConfig, ToolManagerConfig,
 };
 use crate::error::{AgentJaxError, AgentJaxResult};
 use schemars::JsonSchema;
@@ -162,9 +159,7 @@ impl AgentRegistry {
 
         for entry in entries {
             let entry = entry.map_err(|e| {
-                AgentJaxError::config(format!(
-                    "Failed to inspect agent directory entry: {e}"
-                ))
+                AgentJaxError::config(format!("Failed to inspect agent directory entry: {e}"))
             })?;
             let path = entry.path();
             if !path.is_dir() {
@@ -184,7 +179,9 @@ impl AgentRegistry {
 
     /// Check if an agent with the given ID exists.
     pub fn agent_exists(&self, agent_id: &str) -> bool {
-        self.agent_dir(agent_id).join(AGENT_CONFIG_FILE_NAME).exists()
+        self.agent_dir(agent_id)
+            .join(AGENT_CONFIG_FILE_NAME)
+            .exists()
     }
 
     /// Get the directory for a specific agent.
@@ -319,7 +316,11 @@ pub struct FullConfig {
 impl FullConfig {
     /// Create a new FullConfig from its parts.
     pub fn new(shared: crate::config::AppConfig, agent: AgentConfig, agent_id: AgentId) -> Self {
-        Self { shared, agent, agent_id }
+        Self {
+            shared,
+            agent,
+            agent_id,
+        }
     }
 
     /// Convenience: get the active provider key (from agent config).
@@ -356,7 +357,8 @@ impl FullConfig {
         requested: Option<&str>,
     ) -> AgentJaxResult<crate::config::ResolvedModelConfig> {
         // Delegate to AppConfig's resolve method using agent config defaults.
-        self.shared.resolve_model_profile_with_agent(requested, &self.agent)
+        self.shared
+            .resolve_model_profile_with_agent(requested, &self.agent)
     }
 }
 
@@ -439,7 +441,9 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("agent-del-{}", uuid::Uuid::new_v4()));
         let registry = AgentRegistry::with_dir(tmp.clone());
 
-        registry.create_agent("temp", &default_agent_config()).unwrap();
+        registry
+            .create_agent("temp", &default_agent_config())
+            .unwrap();
         assert!(registry.agent_exists("temp"));
 
         registry.delete_agent("temp").unwrap();

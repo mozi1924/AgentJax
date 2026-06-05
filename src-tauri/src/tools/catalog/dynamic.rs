@@ -27,8 +27,13 @@ impl ToolCatalog {
             return Ok(());
         };
 
-        let dynamic_tools =
-            crate::conversation_store::load_conversation_dynamic_tools(context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID), conversation_id)?;
+        let dynamic_tools = crate::conversation_store::load_conversation_dynamic_tools(
+            context
+                .agent_id
+                .as_deref()
+                .unwrap_or(crate::config::constants::DEFAULT_AGENT_ID),
+            conversation_id,
+        )?;
         for dynamic_tool in dynamic_tools {
             let crate::conversation_store::ConversationDynamicTool {
                 name,

@@ -15,8 +15,12 @@ use uuid::Uuid;
 
 fn lcm_engine_for_test(conversation_id: &str) -> Arc<crate::lcm::LcmEngine> {
     let config = crate::lcm::LcmConfig::default();
-    crate::lcm::open_lcm_engine(crate::config::constants::DEFAULT_AGENT_ID, conversation_id, &config)
-        .expect("Failed to open LCM engine for test")
+    crate::lcm::open_lcm_engine(
+        crate::config::constants::DEFAULT_AGENT_ID,
+        conversation_id,
+        &config,
+    )
+    .expect("Failed to open LCM engine for test")
 }
 
 static RUSTLS_CRYPTO_PROVIDER: Once = Once::new();
@@ -75,8 +79,11 @@ async fn run_real_gateway_turn_with_config(
     );
 
     let conversation_id = format!("test-real-gateway-{}", Uuid::new_v4());
-    crate::conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id)
-        .expect("ensure conversation workspace");
+    crate::conversation_store::ensure_conversation(
+        crate::config::constants::DEFAULT_AGENT_ID,
+        &conversation_id,
+    )
+    .expect("ensure conversation workspace");
 
     let tools_catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &agent);
     let req = ChatRequest {
@@ -118,7 +125,7 @@ async fn run_real_gateway_turn_with_config(
             &tools_catalog,
             &lcm_engine_for_test(&conversation_id),
             &mut cancel_rx,
-            None, // sub_agent_event_tx
+            None,       // sub_agent_event_tx
             Vec::new(), // street_items
             move |event| {
                 stream_events_for_closure
@@ -483,8 +490,11 @@ async fn run_real_gateway_turn_with_full_catalog(
     );
 
     let conversation_id = format!("test-smoke-subagent-{}", Uuid::new_v4());
-    crate::conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id)
-        .expect("ensure conversation workspace");
+    crate::conversation_store::ensure_conversation(
+        crate::config::constants::DEFAULT_AGENT_ID,
+        &conversation_id,
+    )
+    .expect("ensure conversation workspace");
 
     let tools_catalog = ToolCatalog::new_with_home_plugins(
         Arc::new(crate::mcp::McpManager::new()),
@@ -525,7 +535,9 @@ async fn run_real_gateway_turn_with_full_catalog(
     let run_result = tokio::time::timeout(
         Duration::from_secs(300),
         AgentRuntime::run_turn(
-            &config,            &agent,            &req,
+            &config,
+            &agent,
+            &req,
             &conversation_id,
             crate::conversation_store_utils::now_unix_ms(),
             Vec::new(),
@@ -533,7 +545,7 @@ async fn run_real_gateway_turn_with_full_catalog(
             &tools_catalog,
             &lcm_engine,
             &mut cancel_rx,
-            None, // sub_agent_event_tx
+            None,       // sub_agent_event_tx
             Vec::new(), // street_items
             move |event| {
                 stream_events_for_closure
@@ -593,7 +605,10 @@ async fn real_gateway_spawn_sub_agent_and_check_status() {
         event.get("type").and_then(|v| v.as_str()) == Some("toolCall")
             && event.get("name").and_then(|v| v.as_str()) == Some("spawn_sub_agent")
     });
-    assert!(spawn_call, "Expected spawn_sub_agent tool call, got timeline: {timeline_events:?}");
+    assert!(
+        spawn_call,
+        "Expected spawn_sub_agent tool call, got timeline: {timeline_events:?}"
+    );
 
     // Verify sub_agent_status was called.
     let status_call = timeline_events.iter().any(|event| {
@@ -684,7 +699,10 @@ async fn real_gateway_multi_sub_agent_concurrent() {
                 && event.get("name").and_then(|v| v.as_str()) == Some("spawn_sub_agent")
         })
         .count();
-    assert!(spawn_count >= 2, "Expected at least 2 spawn_sub_agent calls, got {spawn_count}");
+    assert!(
+        spawn_count >= 2,
+        "Expected at least 2 spawn_sub_agent calls, got {spawn_count}"
+    );
 
     assert!(
         response.output_text.contains("并发子代理测试通过"),
@@ -730,11 +748,13 @@ async fn real_gateway_scope_narrowing_rejects_empty_kept_work() {
         event.get("type").and_then(|v| v.as_str()) == Some("toolCall")
             && event.get("name").and_then(|v| v.as_str()) == Some("spawn_sub_agent")
     });
-    assert!(spawn_call, "Expected spawn_sub_agent tool call. Root agent should be exempt from scope-narrowing.");
+    assert!(
+        spawn_call,
+        "Expected spawn_sub_agent tool call. Root agent should be exempt from scope-narrowing."
+    );
 
     assert!(
-        response.output_text.contains("根代理豁免通过")
-            || response.output_text.contains("agentId"),
+        response.output_text.contains("根代理豁免通过") || response.output_text.contains("agentId"),
         "Root agent should be exempt from scope-narrowing. Output: {}",
         response.output_text
     );
@@ -820,7 +840,10 @@ async fn real_gateway_lcm_grep_and_describe() {
         event.get("type").and_then(|v| v.as_str()) == Some("toolCall")
             && event.get("name").and_then(|v| v.as_str()) == Some("lcm_grep")
     });
-    assert!(grep_call, "Expected lcm_grep tool call in: {timeline_events:?}");
+    assert!(
+        grep_call,
+        "Expected lcm_grep tool call in: {timeline_events:?}"
+    );
 
     assert!(
         response.output_text.contains("LCM工具冒烟测试通过"),

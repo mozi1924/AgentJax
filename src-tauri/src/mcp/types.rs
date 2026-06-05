@@ -40,7 +40,10 @@ pub fn resolve_server_runtime(
         McpTransportKind::Stdio => {
             if server_config.command.is_empty() {
                 return Err(agentjax_err!(
-                    format!("MCP server '{}' requires `command` for stdio transport", server_id),
+                    format!(
+                        "MCP server '{}' requires `command` for stdio transport",
+                        server_id
+                    ),
                     Config
                 ));
             }
@@ -64,7 +67,10 @@ pub fn resolve_server_runtime(
         McpTransportKind::StreamableHttp => {
             let uri = server_config.uri.clone().ok_or_else(|| {
                 agentjax_err!(
-                    format!("MCP server '{}' requires `uri` for streamable_http transport", server_id),
+                    format!(
+                        "MCP server '{}' requires `uri` for streamable_http transport",
+                        server_id
+                    ),
                     Config
                 )
             })?;
@@ -80,8 +86,12 @@ pub fn resolve_server_runtime(
         }
     };
 
-    let fingerprint = serde_json::to_string(&connection)
-        .map_err(|e| AgentJaxError::internal(format!("Failed to serialize MCP server '{server_id}' config: {e}")).with_error_source(&e))?;
+    let fingerprint = serde_json::to_string(&connection).map_err(|e| {
+        AgentJaxError::internal(format!(
+            "Failed to serialize MCP server '{server_id}' config: {e}"
+        ))
+        .with_error_source(&e)
+    })?;
 
     Ok(McpResolvedServerRuntime {
         enabled: server_config.enabled,

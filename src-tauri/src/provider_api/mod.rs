@@ -16,10 +16,10 @@ pub mod capabilities;
 pub mod circuit_breaker;
 pub mod core;
 pub mod network;
+pub(crate) mod plugin;
 pub(crate) mod protocol;
 pub mod registry;
 pub mod retry;
-pub(crate) mod plugin;
 pub mod types;
 
 use crate::config::AgentConfig;
@@ -29,22 +29,31 @@ use serde_json::Value;
 
 pub use capabilities::ProviderCapabilities;
 pub use types::{
-    EmbeddingRequest, EmbeddingResponse,
-    ModelReasoningCapability, ProviderModelDescriptor, ProviderModelMetadata,
-    ProviderPendingToolCall, ProviderStreamEvent, ResponseStreamRequest,
+    EmbeddingRequest, EmbeddingResponse, ModelReasoningCapability, ProviderModelDescriptor,
+    ProviderModelMetadata, ProviderPendingToolCall, ProviderStreamEvent, ResponseStreamRequest,
     ResponseStreamResult,
 };
 
 // ── Public API Functions ────────────────────────────────────────────────────
 
 pub fn get_capabilities(provider_kind: &str) -> AgentJaxResult<ProviderCapabilities> {
-    registry::provider_capabilities(provider_kind)
-        .ok_or_else(|| AgentJaxError::config(format!("Unsupported provider kind '{}'. Register a provider plugin to enable it.", provider_kind)))
+    registry::provider_capabilities(provider_kind).ok_or_else(|| {
+        AgentJaxError::config(format!(
+            "Unsupported provider kind '{}'. Register a provider plugin to enable it.",
+            provider_kind
+        ))
+    })
 }
 
-pub fn get_tool_schema_format(provider_kind: &str) -> AgentJaxResult<crate::tools::ToolSchemaFormat> {
-    registry::provider_tool_schema_format(provider_kind)
-        .ok_or_else(|| AgentJaxError::config(format!("Unsupported provider kind '{}'. Register a provider plugin to enable it.", provider_kind)))
+pub fn get_tool_schema_format(
+    provider_kind: &str,
+) -> AgentJaxResult<crate::tools::ToolSchemaFormat> {
+    registry::provider_tool_schema_format(provider_kind).ok_or_else(|| {
+        AgentJaxError::config(format!(
+            "Unsupported provider kind '{}'. Register a provider plugin to enable it.",
+            provider_kind
+        ))
+    })
 }
 
 pub fn extract_pending_tool_calls(
@@ -102,13 +111,18 @@ where
     // `thinking` are injected for both native protocol and JS plugin paths.
     let mut req = req.clone();
     for (key, value) in &resolved.request.extra_body {
-        req.extra_body.entry(key.clone()).or_insert_with(|| value.clone());
+        req.extra_body
+            .entry(key.clone())
+            .or_insert_with(|| value.clone());
     }
 
     // DeepSeek requires `thinking: {"type": "enabled"}` to activate thinking
     // mode. Without it, `reasoning_effort` alone is ignored by the API.
     if resolved.provider.kind == "deepseek"
-        && req.reasoning_effort.as_deref().is_some_and(|e| !e.trim().is_empty())
+        && req
+            .reasoning_effort
+            .as_deref()
+            .is_some_and(|e| !e.trim().is_empty())
         && !req.extra_body.contains_key("thinking")
     {
         req.extra_body.insert(
@@ -118,7 +132,11 @@ where
     }
 
     // Determine which protocol to use
-    let protocol = resolve_protocol(&resolved.provider.kind, &resolved.model_id, resolved.api_protocol.as_deref());
+    let protocol = resolve_protocol(
+        &resolved.provider.kind,
+        &resolved.model_id,
+        resolved.api_protocol.as_deref(),
+    );
     if let Some(ref protocol) = protocol {
         let mut on_delta = on_delta;
         protocol::stream_response(
@@ -154,7 +172,7 @@ pub async fn embed_text(
     let provider = config.resolved_provider(provider_key)?;
     let protocol = resolve_protocol(&provider.kind, model_id, None);
     match protocol.as_deref() {
-        Some("embeddings") => protocol::embed("embeddings", &provider, model_id, input).await  /* protocol already known to be "embeddings" */,
+        Some("embeddings") => protocol::embed("embeddings", &provider, model_id, input).await, /* protocol already known to be "embeddings" */,
         Some(other) => Err(AgentJaxError::config(format!(
             "Provider '{}' uses protocol '{other}' which does not support embedding",
             provider_key
@@ -196,9 +214,13 @@ pub async fn fetch_remote_models(
     let protocol = resolve_protocol(&provider.kind, "", None);
     let mut fetched_models: Vec<ProviderModelDescriptor> = if protocol.is_some() {
         let endpoint = format!("{}/models", provider.api_endpoint().trim_end_matches('/'));
-        protocol::fetch_remote_models(&provider, &endpoint, crate::config::constants::DEFAULT_TIMEOUT_SECONDS)
-            .await
-            .unwrap_or_default()
+        protocol::fetch_remote_models(
+            &provider,
+            &endpoint,
+            crate::config::constants::DEFAULT_TIMEOUT_SECONDS,
+        )
+        .await
+        .unwrap_or_default()
     } else {
         Vec::new()
     };

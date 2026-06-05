@@ -36,9 +36,7 @@ static SUB_AGENT_SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
 /// Each spawned sub-agent acquires a permit from this semaphore before starting
 /// to execute, limiting the total number of concurrently running sub-agents.
 pub(crate) fn sub_agent_semaphore() -> &'static tokio::sync::Semaphore {
-    SUB_AGENT_SEMAPHORE.get_or_init(|| {
-        tokio::sync::Semaphore::new(MAX_CONCURRENT_SUB_AGENTS)
-    })
+    SUB_AGENT_SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(MAX_CONCURRENT_SUB_AGENTS))
 }
 
 // ── SubAgentTask ──────────────────────────────────────────────────────────────
@@ -54,7 +52,9 @@ pub(crate) struct SubAgentTask {
     pub notify: Notify,
     /// Signal sender for the memory sub-agent (Only populated for Memory type).
     /// The chat handler uses this to send TurnCompleted/Terminate signals.
-    pub memory_signal_tx: Mutex<Option<tokio::sync::watch::Sender<Option<crate::sub_agents::types::MemoryAgentSignal>>>>,
+    pub memory_signal_tx: Mutex<
+        Option<tokio::sync::watch::Sender<Option<crate::sub_agents::types::MemoryAgentSignal>>>,
+    >,
 }
 
 // ── Global Registry ───────────────────────────────────────────────────────────
@@ -67,10 +67,7 @@ fn registry() -> &'static Mutex<HashMap<String, Arc<SubAgentTask>>> {
 
 // ── Visibility ────────────────────────────────────────────────────────────────
 
-fn agent_visible_to_conversation(
-    task: &SubAgentTask,
-    conversation_id: Option<&str>,
-) -> bool {
+fn agent_visible_to_conversation(task: &SubAgentTask, conversation_id: Option<&str>) -> bool {
     match (
         conversation_id,
         task.state
@@ -169,7 +166,9 @@ fn prune_terminal_agents_locked(
             }
             Some((
                 agent_id.clone(),
-                state.completed_at_unix_ms.unwrap_or(state.started_at_unix_ms),
+                state
+                    .completed_at_unix_ms
+                    .unwrap_or(state.started_at_unix_ms),
             ))
         })
         .collect();
@@ -211,7 +210,11 @@ fn prune_agents() -> usize {
     let mut guard = registry()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    prune_terminal_agents_locked(&mut guard, TERMINAL_AGENT_RETENTION_MS, MAX_RETAINED_TERMINAL_AGENTS)
+    prune_terminal_agents_locked(
+        &mut guard,
+        TERMINAL_AGENT_RETENTION_MS,
+        MAX_RETAINED_TERMINAL_AGENTS,
+    )
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -282,12 +285,13 @@ impl SubAgentManager {
     #[allow(dead_code)]
     pub fn append_progress(task: &Arc<SubAgentTask>, text: String) {
         if let Ok(mut state) = task.state.lock()
-            && state.status == SubAgentStatus::Running {
-                state.progress_messages.push(ProgressMessage {
-                    text,
-                    ts: now_unix_ms(),
-                });
-            }
+            && state.status == SubAgentStatus::Running
+        {
+            state.progress_messages.push(ProgressMessage {
+                text,
+                ts: now_unix_ms(),
+            });
+        }
     }
 
     /// Mark a sub-agent as completed with a result.
@@ -303,11 +307,8 @@ impl SubAgentManager {
             }
             state.status = SubAgentStatus::Completed;
             state.completed_at_unix_ms = Some(completed_at);
-            state.duration_ms = Some(
-                completed_at
-                    .saturating_sub(state.started_at_unix_ms)
-                    .max(0) as u64,
-            );
+            state.duration_ms =
+                Some(completed_at.saturating_sub(state.started_at_unix_ms).max(0) as u64);
             state.result = Some(result.clone());
             (
                 state.spec.parent_conversation_id.clone(),
@@ -322,7 +323,10 @@ impl SubAgentManager {
             &conv_id,
             crate::street::StreetSource::SubAgent,
             crate::street::Priority::Normal,
-            &format!("Sub-agent '{}' ({}) completed successfully", agent_id, type_str),
+            &format!(
+                "Sub-agent '{}' ({}) completed successfully",
+                agent_id, type_str
+            ),
             result,
         ));
     }
@@ -340,11 +344,8 @@ impl SubAgentManager {
             }
             state.status = SubAgentStatus::Failed;
             state.completed_at_unix_ms = Some(completed_at);
-            state.duration_ms = Some(
-                completed_at
-                    .saturating_sub(state.started_at_unix_ms)
-                    .max(0) as u64,
-            );
+            state.duration_ms =
+                Some(completed_at.saturating_sub(state.started_at_unix_ms).max(0) as u64);
             state.error = Some(error.clone());
             (
                 state.spec.parent_conversation_id.clone(),
@@ -369,12 +370,8 @@ impl SubAgentManager {
     }
 
     /// Cancel a sub-agent by ID.
-    pub fn cancel(
-        agent_id: &str,
-        conversation_id: Option<&str>,
-    ) -> AgentJaxResult<Value> {
-        let task = resolve_task(agent_id, conversation_id)
-            .map_err(AgentJaxError::not_found)?;
+    pub fn cancel(agent_id: &str, conversation_id: Option<&str>) -> AgentJaxResult<Value> {
+        let task = resolve_task(agent_id, conversation_id).map_err(AgentJaxError::not_found)?;
 
         let should_abort = {
             let completed_at = now_unix_ms();
@@ -385,11 +382,8 @@ impl SubAgentManager {
             if state.status == SubAgentStatus::Running || state.status == SubAgentStatus::Pending {
                 state.status = SubAgentStatus::Cancelled;
                 state.completed_at_unix_ms = Some(completed_at);
-                state.duration_ms = Some(
-                    completed_at
-                        .saturating_sub(state.started_at_unix_ms)
-                        .max(0) as u64,
-                );
+                state.duration_ms =
+                    Some(completed_at.saturating_sub(state.started_at_unix_ms).max(0) as u64);
                 state.error = Some("Sub-agent was cancelled".to_string());
                 true
             } else {
@@ -445,7 +439,8 @@ impl SubAgentManager {
             .map(|task| {
                 // Atomically transition to Running under the registry lock.
                 let spec = {
-                    let mut state = task.state
+                    let mut state = task
+                        .state
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                     state.status = SubAgentStatus::Running;
@@ -457,9 +452,7 @@ impl SubAgentManager {
     }
 
     /// Find the memory sub-agent for a given conversation, if one exists.
-    pub fn get_memory_agent_for_conversation(
-        conversation_id: &str,
-    ) -> Option<Arc<SubAgentTask>> {
+    pub fn get_memory_agent_for_conversation(conversation_id: &str) -> Option<Arc<SubAgentTask>> {
         let guard = registry()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -486,10 +479,11 @@ impl SubAgentManager {
     ) -> bool {
         if let Some(task) = Self::get_memory_agent_for_conversation(conversation_id)
             && let Ok(tx_guard) = task.memory_signal_tx.lock()
-                && let Some(tx) = tx_guard.as_ref() {
-                    let _ = tx.send(Some(signal));
-                    return true;
-                }
+            && let Some(tx) = tx_guard.as_ref()
+        {
+            let _ = tx.send(Some(signal));
+            return true;
+        }
         false
     }
 
@@ -530,11 +524,8 @@ impl SubAgentManager {
                     let completed_at = now_unix_ms();
                     state.status = SubAgentStatus::Cancelled;
                     state.completed_at_unix_ms = Some(completed_at);
-                    state.duration_ms = Some(
-                        completed_at
-                            .saturating_sub(state.started_at_unix_ms)
-                            .max(0) as u64,
-                    );
+                    state.duration_ms =
+                        Some(completed_at.saturating_sub(state.started_at_unix_ms).max(0) as u64);
                     state.error = Some("Conversation was cancelled".to_string());
                     true
                 } else {
@@ -577,12 +568,8 @@ impl SubAgentManager {
     }
 
     /// Get a snapshot of a specific sub-agent.
-    pub fn status(
-        agent_id: &str,
-        conversation_id: Option<&str>,
-    ) -> AgentJaxResult<Value> {
-        let task = resolve_task(agent_id, conversation_id)
-            .map_err(AgentJaxError::not_found)?;
+    pub fn status(agent_id: &str, conversation_id: Option<&str>) -> AgentJaxResult<Value> {
+        let task = resolve_task(agent_id, conversation_id).map_err(AgentJaxError::not_found)?;
         let snapshot = serialize_task(&task);
         let is_terminal = snapshot
             .get("status")
@@ -625,8 +612,7 @@ impl SubAgentManager {
         timeout_ms: Option<u64>,
         conversation_id: Option<&str>,
     ) -> AgentJaxResult<Value> {
-        let task = resolve_task(agent_id, conversation_id)
-            .map_err(AgentJaxError::not_found)?;
+        let task = resolve_task(agent_id, conversation_id).map_err(AgentJaxError::not_found)?;
 
         let timeout_ms = timeout_ms.unwrap_or(30_000).clamp(1, 300_000); // 30s default, 5min max
 
@@ -651,12 +637,10 @@ impl SubAgentManager {
             }
         }
 
-        let timed_out = tokio::time::timeout(
-            std::time::Duration::from_millis(timeout_ms),
-            notified,
-        )
-        .await
-        .is_err();
+        let timed_out =
+            tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), notified)
+                .await
+                .is_err();
 
         let snapshot = serialize_task(&task);
         let completed = snapshot
@@ -712,10 +696,7 @@ mod tests {
         let conv_id = format!("conv_reg_{}", uuid::Uuid::new_v4().simple());
         let spec = make_spec("test_agent_1", &conv_id);
         let task = SubAgentManager::register(spec);
-        assert_eq!(
-            task.state.lock().unwrap().status,
-            SubAgentStatus::Pending
-        );
+        assert_eq!(task.state.lock().unwrap().status, SubAgentStatus::Pending);
 
         let list = SubAgentManager::list(Some(&conv_id));
         assert_eq!(list.len(), 1);
@@ -835,10 +816,7 @@ mod tests {
             .unwrap();
         assert!(result["ok"].as_bool().unwrap());
         assert!(!result["timedOut"].as_bool().unwrap());
-        assert_eq!(
-            result["agent"]["status"].as_str().unwrap(),
-            "completed"
-        );
+        assert_eq!(result["agent"]["status"].as_str().unwrap(), "completed");
     }
 
     #[tokio::test]
@@ -852,10 +830,7 @@ mod tests {
             .await
             .unwrap();
         assert!(result["timedOut"].as_bool().unwrap());
-        assert_eq!(
-            result["agent"]["status"].as_str().unwrap(),
-            "running"
-        );
+        assert_eq!(result["agent"]["status"].as_str().unwrap(), "running");
     }
 
     #[cfg(test)]
@@ -886,8 +861,7 @@ mod tests {
         );
 
         let mut guard = registry().lock().unwrap();
-        let removed =
-            prune_terminal_agents_locked(&mut guard, TERMINAL_AGENT_RETENTION_MS, 200);
+        let removed = prune_terminal_agents_locked(&mut guard, TERMINAL_AGENT_RETENTION_MS, 200);
         assert!(removed >= 1, "Expected at least 1 pruned, got {removed}");
     }
 }

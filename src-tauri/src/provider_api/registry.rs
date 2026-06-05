@@ -1,8 +1,8 @@
 use crate::agentjax_err;
 use crate::config::{ModelRequestConfig, ProviderConfig, ProviderModelConfig};
 use crate::plugin_runtime::{
-    BuiltinModelDescriptor, PluginPackage, PluginProviderDefinition,
-    builtin_plugin_packages, provider_definitions_for_package,
+    BuiltinModelDescriptor, PluginPackage, PluginProviderDefinition, builtin_plugin_packages,
+    provider_definitions_for_package,
 };
 use crate::tools::ToolSchemaFormat;
 use serde_json::Value;
@@ -286,7 +286,8 @@ fn build_default_config(
                 "httpHeaders" => {
                     if config.http_headers.is_empty() {
                         if let Some(obj) = default_val.as_object() {
-                            config.http_headers = obj.iter()
+                            config.http_headers = obj
+                                .iter()
                                 .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                                 .collect();
                         }
@@ -295,7 +296,8 @@ fn build_default_config(
                 "envHttpHeaders" => {
                     if config.env_http_headers.is_empty() {
                         if let Some(obj) = default_val.as_object() {
-                            config.env_http_headers = obj.iter()
+                            config.env_http_headers = obj
+                                .iter()
                                 .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                                 .collect();
                         }
@@ -304,7 +306,8 @@ fn build_default_config(
                 "queryParams" => {
                     if config.query_params.is_empty() {
                         if let Some(obj) = default_val.as_object() {
-                            config.query_params = obj.iter()
+                            config.query_params = obj
+                                .iter()
                                 .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                                 .collect();
                         }
@@ -313,7 +316,8 @@ fn build_default_config(
                 "modelsEndpointCandidates" => {
                     if config.models_endpoint_candidates.is_empty() {
                         if let Some(arr) = default_val.as_array() {
-                            config.models_endpoint_candidates = arr.iter()
+                            config.models_endpoint_candidates = arr
+                                .iter()
                                 .filter_map(|v| v.as_str().map(String::from))
                                 .collect();
                         }
@@ -364,7 +368,9 @@ fn build_default_config(
                     }
                 }
                 other => {
-                    config.extension_fields.entry(other.to_string())
+                    config
+                        .extension_fields
+                        .entry(other.to_string())
                         .or_insert(default_val);
                 }
             }

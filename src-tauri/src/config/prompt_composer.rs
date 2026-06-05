@@ -26,8 +26,6 @@ pub enum PromptBlockSource {
     Plugin,
 }
 
-
-
 // ── Structs ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
@@ -162,9 +160,7 @@ pub fn normalize_prompt_composer(composer: PromptComposerConfig) -> PromptCompos
     all_blocks.extend(user_blocks);
     all_blocks.extend(resolved_builtins);
 
-    PromptComposerConfig {
-        blocks: all_blocks,
-    }
+    PromptComposerConfig { blocks: all_blocks }
 }
 
 // ── Compilation ────────────────────────────────────────────────────────────

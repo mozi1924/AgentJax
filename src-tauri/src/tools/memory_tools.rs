@@ -5,9 +5,9 @@
 
 use crate::agentjax_home;
 use crate::error::{AgentJaxError, AgentJaxResult};
-use crate::memory::types::{MemoryFrontmatter, MemoryType, ParsedMemory};
-use crate::memory::store::MemoryStore;
 use crate::memory::search::search_memories;
+use crate::memory::store::MemoryStore;
+use crate::memory::types::{MemoryFrontmatter, MemoryType, ParsedMemory};
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -106,8 +106,7 @@ impl Tool for MemoryWriteTool {
 
         let store = open_memory_store()?;
 
-        let memory_type = MemoryType::from_str(&args.memory_type)
-            .unwrap_or(MemoryType::Project);
+        let memory_type = MemoryType::from_str(&args.memory_type).unwrap_or(MemoryType::Project);
 
         // Extract [[wikilinks]] from body.
         let links = extract_wikilinks(&args.body);

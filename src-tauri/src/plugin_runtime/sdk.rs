@@ -55,7 +55,10 @@ mod tests {
 })()
 "#,
         );
-        assert!(result.is_ok(), "SDK module should load and export all helpers");
+        assert!(
+            result.is_ok(),
+            "SDK module should load and export all helpers"
+        );
     }
 
     #[test]

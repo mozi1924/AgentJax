@@ -45,7 +45,10 @@ impl McpManager {
         let resolved = resolve_server_runtime(server_id, config, runtime_config)?;
         if !resolved.enabled {
             self.shutdown_service(server_id).await;
-            return Err(agentjax_err!(format!("MCP server '{}' is disabled", server_id), Config));
+            return Err(agentjax_err!(
+                format!("MCP server '{}' is disabled", server_id),
+                Config
+            ));
         }
 
         let server_lock = self.server_lock(server_id).await;
@@ -54,9 +57,10 @@ impl McpManager {
         {
             let services = self.services.lock().await;
             if let Some(entry) = services.get(server_id)
-                && entry.fingerprint == resolved.fingerprint {
-                    return Ok(entry.service.peer().clone());
-                }
+                && entry.fingerprint == resolved.fingerprint
+            {
+                return Ok(entry.service.peer().clone());
+            }
         }
 
         self.shutdown_service(server_id).await;

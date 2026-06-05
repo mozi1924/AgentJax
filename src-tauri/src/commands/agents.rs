@@ -74,7 +74,10 @@ pub struct DeleteAgentRequest {
 #[tauri::command]
 pub fn list_agents(state: State<'_, AgentRegistryState>) -> Result<Vec<AgentSummary>, String> {
     let agent_ids = state.registry.list_agents().map_err(|e| e.to_string())?;
-    Ok(agent_ids.iter().map(|id| AgentSummary::from(id.as_str())).collect())
+    Ok(agent_ids
+        .iter()
+        .map(|id| AgentSummary::from(id.as_str()))
+        .collect())
 }
 
 /// Create a new agent profile.
@@ -91,12 +94,18 @@ pub fn create_agent(
         return Err("Agent ID cannot be empty".to_string());
     }
     if agent_id == DEFAULT_AGENT_ID {
-        return Err(format!("Cannot create reserved agent '{}'", DEFAULT_AGENT_ID));
+        return Err(format!(
+            "Cannot create reserved agent '{}'",
+            DEFAULT_AGENT_ID
+        ));
     }
 
     let config = if let Some(template) = &req.template_id {
         // Clone from an existing agent's config
-        let template_config = state.registry.load_agent_config(template).map_err(|e| e.to_string())?;
+        let template_config = state
+            .registry
+            .load_agent_config(template)
+            .map_err(|e| e.to_string())?;
         template_config
     } else {
         AgentConfig::default()
@@ -120,7 +129,10 @@ pub fn delete_agent(
 ) -> Result<bool, String> {
     let agent_id = req.agent_id.trim().to_lowercase();
     if agent_id == DEFAULT_AGENT_ID {
-        return Err(format!("Cannot delete the default agent '{}'", DEFAULT_AGENT_ID));
+        return Err(format!(
+            "Cannot delete the default agent '{}'",
+            DEFAULT_AGENT_ID
+        ));
     }
 
     state

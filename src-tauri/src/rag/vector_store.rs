@@ -8,12 +8,14 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow_array::{Array, ArrayRef, FixedSizeListArray, Float32Array, Int32Array, RecordBatch, StringArray};
+use arrow_array::{
+    Array, ArrayRef, FixedSizeListArray, Float32Array, Int32Array, RecordBatch, StringArray,
+};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use futures_util::StreamExt;
 
-use lancedb::query::{ExecutableQuery, QueryBase};
 use crate::error::{AgentJaxError, AgentJaxResult};
+use lancedb::query::{ExecutableQuery, QueryBase};
 
 use super::types::{Chunk, SearchConfig, SearchResult};
 
@@ -66,24 +68,16 @@ impl VectorStore {
         let db = lancedb::connect(&self.db_path)
             .execute()
             .await
-            .map_err(|e| {
-                AgentJaxError::embedding(format!("Failed to open LanceDB: {e}"))
-            })?;
+            .map_err(|e| AgentJaxError::embedding(format!("Failed to open LanceDB: {e}")))?;
 
         let table_name = "document_chunks";
         let existing = db.open_table(table_name).execute().await;
 
         match existing {
             Ok(table) => {
-                table
-                    .add(batches.clone())
-                    .execute()
-                    .await
-                    .map_err(|e| {
-                        AgentJaxError::embedding(format!(
-                            "Failed to add to LanceDB table: {e}"
-                        ))
-                    })?;
+                table.add(batches.clone()).execute().await.map_err(|e| {
+                    AgentJaxError::embedding(format!("Failed to add to LanceDB table: {e}"))
+                })?;
             }
             Err(_) => {
                 // Table doesn't exist — create it with schema
@@ -91,9 +85,7 @@ impl VectorStore {
                     .execute()
                     .await
                     .map_err(|e| {
-                        AgentJaxError::embedding(format!(
-                            "Failed to create LanceDB table: {e}"
-                        ))
+                        AgentJaxError::embedding(format!("Failed to create LanceDB table: {e}"))
                     })?;
             }
         }
@@ -138,15 +130,15 @@ impl VectorStore {
         query_builder = query_builder.limit(config.top_k);
 
         // Execute and collect results
-        let mut stream = query_builder.execute().await.map_err(|e| {
-            AgentJaxError::embedding(format!("LanceDB search failed: {e}"))
-        })?;
+        let mut stream = query_builder
+            .execute()
+            .await
+            .map_err(|e| AgentJaxError::embedding(format!("LanceDB search failed: {e}")))?;
 
         let mut batches = Vec::new();
         while let Some(batch_result) = stream.next().await {
-            let batch = batch_result.map_err(|e| {
-                AgentJaxError::embedding(format!("LanceDB stream error: {e}"))
-            })?;
+            let batch = batch_result
+                .map_err(|e| AgentJaxError::embedding(format!("LanceDB stream error: {e}")))?;
             batches.push(batch);
         }
 
@@ -172,9 +164,7 @@ impl VectorStore {
         table
             .delete(format!("document_id = '{document_id}'").as_str())
             .await
-            .map_err(|e| {
-                AgentJaxError::embedding(format!("Failed to delete from LanceDB: {e}"))
-            })?;
+            .map_err(|e| AgentJaxError::embedding(format!("Failed to delete from LanceDB: {e}")))?;
 
         Ok(())
     }
@@ -202,9 +192,8 @@ impl VectorStore {
         let mut seen = std::collections::HashSet::new();
 
         while let Some(batch_result) = stream.next().await {
-            let batch = batch_result.map_err(|e| {
-                AgentJaxError::embedding(format!("LanceDB stream error: {e}"))
-            })?;
+            let batch = batch_result
+                .map_err(|e| AgentJaxError::embedding(format!("LanceDB stream error: {e}")))?;
 
             if let Some(col) = batch.column_by_name("document_id") {
                 let arr = col.as_any().downcast_ref::<StringArray>().unwrap();
@@ -325,13 +314,12 @@ impl VectorStore {
                 })?;
 
             // Try to get _distance column (LanceDB uses this for vector distance)
-            let distances: Option<Vec<f32>> =
-                batch.column_by_name("_distance").map(|c| {
-                    c.as_any()
-                        .downcast_ref::<Float32Array>()
-                        .map(|arr| arr.values().to_vec())
-                        .unwrap_or_default()
-                });
+            let distances: Option<Vec<f32>> = batch.column_by_name("_distance").map(|c| {
+                c.as_any()
+                    .downcast_ref::<Float32Array>()
+                    .map(|arr| arr.values().to_vec())
+                    .unwrap_or_default()
+            });
 
             for i in 0..batch.num_rows() {
                 let score = distances

@@ -159,7 +159,6 @@ impl ContextManagementConfig {
             tokenizer_model_id: self.tokenizer_model_id.clone(),
         }
     }
-
 }
 
 // ── AppConfig ─────────────────────────────────────────────────────────────────
@@ -351,7 +350,6 @@ pub struct PluginPermissionOverride {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow_env_read: Option<bool>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
@@ -747,7 +745,6 @@ impl Default for McpServerConfig {
         }
     }
 }
-
 
 impl Default for McpRuntimeConfig {
     fn default() -> Self {

@@ -1,8 +1,8 @@
 use super::ToolCatalog;
 use super::names::{mount_tool_name_for_server, prefixed_mcp_tool_name};
 use super::schemas::{
-    build_manage_mcp_server_tool_schema, normalize_mcp_tool_definitions,
-    BACKGROUND_TASK_NAME, build_background_task_schema,
+    BACKGROUND_TASK_NAME, build_background_task_schema, build_manage_mcp_server_tool_schema,
+    normalize_mcp_tool_definitions,
 };
 use crate::plugin_runtime::{prefixed_plugin_tool_name, registered_tools_for_manifest};
 use crate::tools::{ToolExecutionContext, ToolSchemaFormat, humanize_tool_name};
@@ -141,14 +141,32 @@ impl ToolCatalog {
         sources.push(self.control_tools_snapshot(&mounted_servers));
 
         let categories = vec![
-            ToolManagerCategory { id: "native".to_string(), label_key: "settings.tools.category.native".to_string() },
-            ToolManagerCategory { id: "context".to_string(), label_key: "settings.tools.category.context".to_string() },
-            ToolManagerCategory { id: "mcp".to_string(), label_key: "settings.tools.category.mcp".to_string() },
-            ToolManagerCategory { id: "plugin".to_string(), label_key: "settings.tools.category.plugin".to_string() },
-            ToolManagerCategory { id: "session".to_string(), label_key: "settings.tools.category.session".to_string() },
+            ToolManagerCategory {
+                id: "native".to_string(),
+                label_key: "settings.tools.category.native".to_string(),
+            },
+            ToolManagerCategory {
+                id: "context".to_string(),
+                label_key: "settings.tools.category.context".to_string(),
+            },
+            ToolManagerCategory {
+                id: "mcp".to_string(),
+                label_key: "settings.tools.category.mcp".to_string(),
+            },
+            ToolManagerCategory {
+                id: "plugin".to_string(),
+                label_key: "settings.tools.category.plugin".to_string(),
+            },
+            ToolManagerCategory {
+                id: "session".to_string(),
+                label_key: "settings.tools.category.session".to_string(),
+            },
         ];
 
-        ToolManagerSnapshot { sources, categories }
+        ToolManagerSnapshot {
+            sources,
+            categories,
+        }
     }
 
     fn native_tools_snapshot(&self) -> ToolManagerSourceSnapshot {
@@ -448,7 +466,14 @@ impl ToolCatalog {
             .conversation_id
             .as_deref()
             .and_then(|conversation_id| {
-                crate::conversation_store::load_conversation_dynamic_tools(context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID), conversation_id).ok()
+                crate::conversation_store::load_conversation_dynamic_tools(
+                    context
+                        .agent_id
+                        .as_deref()
+                        .unwrap_or(crate::config::constants::DEFAULT_AGENT_ID),
+                    conversation_id,
+                )
+                .ok()
             })
             .unwrap_or_default()
             .into_iter()

@@ -45,15 +45,22 @@ pub fn get_settings_snapshot(agent_id: Option<&str>) -> AgentJaxResult<SettingsS
     let agent_id = resolve_settings_agent_id(agent_id);
 
     let config_path = config::init_config_if_missing()?;
-    let raw = fs::read_to_string(&config_path)
-        .map_err(|e| AgentJaxError::config(format!("Failed to read config file {}: {e}", config_path.display())).with_error_source(&e))?;
+    let raw = fs::read_to_string(&config_path).map_err(|e| {
+        AgentJaxError::config(format!(
+            "Failed to read config file {}: {e}",
+            config_path.display()
+        ))
+        .with_error_source(&e)
+    })?;
     let config = config::load_config()?;
     let agent_config = config::load_agent_config(&agent_id)?;
 
     snapshot_from_config_with_agent(&config, &agent_config, &config_path, &raw)
 }
 
-pub fn get_settings_ui_snapshot(agent_id: Option<&str>) -> AgentJaxResult<settings_ui::SettingsUiSnapshot> {
+pub fn get_settings_ui_snapshot(
+    agent_id: Option<&str>,
+) -> AgentJaxResult<settings_ui::SettingsUiSnapshot> {
     let snapshot = get_settings_snapshot(agent_id)?;
     Ok(settings_ui::SettingsUiSnapshot {
         snapshot,
@@ -67,8 +74,10 @@ pub(super) fn snapshot_from_config_with_agent(
     config_path: &Path,
     raw: &str,
 ) -> AgentJaxResult<SettingsSnapshot> {
-    let mut values = serde_json::to_value(config)
-        .map_err(|e| AgentJaxError::config(format!("Failed to serialize config snapshot: {e}")).with_error_source(&e))?;
+    let mut values = serde_json::to_value(config).map_err(|e| {
+        AgentJaxError::config(format!("Failed to serialize config snapshot: {e}"))
+            .with_error_source(&e)
+    })?;
 
     // Merge agent config fields into the values object so the frontend
     // sees a unified view of both shared and agent-specific settings.

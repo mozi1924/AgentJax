@@ -127,9 +127,24 @@ mod tests {
         let store = MemoryStore::open(dir.clone()).expect("open");
 
         let memories = vec![
-            ("project-architecture", "Overview of AgentJax architecture", vec!["architecture", "rust"], "The project uses Tauri v2 with React frontend and Rust backend."),
-            ("sub-agent-design", "Design of the sub-agent module", vec!["sub-agent", "async"], "Sub-agents run asynchronously via tokio::spawn."),
-            ("getting-started", "Getting started guide", vec!["guide"], "To start developing, run pnpm install and pnpm dev."),
+            (
+                "project-architecture",
+                "Overview of AgentJax architecture",
+                vec!["architecture", "rust"],
+                "The project uses Tauri v2 with React frontend and Rust backend.",
+            ),
+            (
+                "sub-agent-design",
+                "Design of the sub-agent module",
+                vec!["sub-agent", "async"],
+                "Sub-agents run asynchronously via tokio::spawn.",
+            ),
+            (
+                "getting-started",
+                "Getting started guide",
+                vec!["guide"],
+                "To start developing, run pnpm install and pnpm dev.",
+            ),
         ];
 
         for (name, desc, tags, body) in &memories {

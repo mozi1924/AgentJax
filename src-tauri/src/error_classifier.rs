@@ -95,7 +95,10 @@ impl RawProviderError {
         match self.status_code {
             Some(401) | Some(403) => AgentJaxError {
                 kind: ErrorKind::ProviderAuth,
-                message: format!("Authentication failed ({status}): {msg}", status = self.status_code.unwrap()),
+                message: format!(
+                    "Authentication failed ({status}): {msg}",
+                    status = self.status_code.unwrap()
+                ),
                 retryable: false,
                 provider_key: self.provider_key,
                 source: None,
@@ -117,7 +120,10 @@ impl RawProviderError {
 
             Some(408) | Some(500) | Some(502) | Some(503) | Some(504) => AgentJaxError {
                 kind: ErrorKind::ProviderUnavailable,
-                message: format!("Provider unavailable ({status}): {msg}", status = self.status_code.unwrap()),
+                message: format!(
+                    "Provider unavailable ({status}): {msg}",
+                    status = self.status_code.unwrap()
+                ),
                 retryable: true,
                 provider_key: self.provider_key,
                 source: None,
@@ -125,7 +131,10 @@ impl RawProviderError {
 
             Some(400) | Some(404) | Some(422) => AgentJaxError {
                 kind: ErrorKind::Config,
-                message: format!("Request rejected ({status}): {msg}", status = self.status_code.unwrap()),
+                message: format!(
+                    "Request rejected ({status}): {msg}",
+                    status = self.status_code.unwrap()
+                ),
                 retryable: false,
                 provider_key: self.provider_key,
                 source: None,
@@ -159,15 +168,9 @@ pub fn classify_reqwest_error(err: &reqwest::Error, provider_key: Option<&str>) 
     }
     if let Some(status) = err.status() {
         let msg = err.to_string();
-        return RawProviderError::from_http_status(
-            status.as_u16(),
-            msg,
-            provider_key,
-        )
-        .classify();
+        return RawProviderError::from_http_status(status.as_u16(), msg, provider_key).classify();
     }
-    AgentJaxError::network(format!("Request failed: {err}"))
-        .with_provider(provider)
+    AgentJaxError::network(format!("Request failed: {err}")).with_provider(provider)
 }
 
 /// Classify from standard HTTP status and body.
@@ -193,8 +196,8 @@ mod tests {
 
     #[test]
     fn test_classify_401() {
-        let err = RawProviderError::from_http_status(401, "Invalid API key", Some("openai"))
-            .classify();
+        let err =
+            RawProviderError::from_http_status(401, "Invalid API key", Some("openai")).classify();
         assert_eq!(err.kind, ErrorKind::ProviderAuth);
         assert!(!err.retryable);
         assert_eq!(err.provider_key.as_deref(), Some("openai"));
@@ -202,8 +205,8 @@ mod tests {
 
     #[test]
     fn test_classify_403() {
-        let err = RawProviderError::from_http_status(403, "Forbidden", Some("anthropic"))
-            .classify();
+        let err =
+            RawProviderError::from_http_status(403, "Forbidden", Some("anthropic")).classify();
         assert_eq!(err.kind, ErrorKind::ProviderAuth);
         assert!(!err.retryable);
     }
@@ -227,39 +230,41 @@ mod tests {
 
     #[test]
     fn test_classify_500() {
-        let err = RawProviderError::from_http_status(500, "Internal error", None::<&str>)
-            .classify();
+        let err =
+            RawProviderError::from_http_status(500, "Internal error", None::<&str>).classify();
         assert_eq!(err.kind, ErrorKind::ProviderUnavailable);
         assert!(err.retryable);
     }
 
     #[test]
     fn test_classify_400() {
-        let err = RawProviderError::from_http_status(400, "Bad request", None::<&str>)
-            .classify();
+        let err = RawProviderError::from_http_status(400, "Bad request", None::<&str>).classify();
         assert_eq!(err.kind, ErrorKind::Config);
         assert!(!err.retryable);
     }
 
     #[test]
     fn test_classify_incomplete() {
-        let err = RawProviderError::from_http_status(200, "OK", None::<&str>)
-            .classify();
+        let err = RawProviderError::from_http_status(200, "OK", None::<&str>).classify();
         assert_eq!(err.kind, ErrorKind::Internal);
         assert!(err.retryable);
     }
 
     #[test]
     fn test_classify_unknown_status() {
-        let err = RawProviderError::from_http_status(499, "Unknown", None::<&str>)
-            .classify();
+        let err = RawProviderError::from_http_status(499, "Unknown", None::<&str>).classify();
         assert_eq!(err.kind, ErrorKind::Internal);
         assert!(err.retryable);
     }
 
     #[test]
     fn test_http_error_helper() {
-        let err = classify_http_error(429, "rate limit", Some("openai"), Some(Duration::from_secs(10)));
+        let err = classify_http_error(
+            429,
+            "rate limit",
+            Some("openai"),
+            Some(Duration::from_secs(10)),
+        );
         assert_eq!(err.kind, ErrorKind::ProviderRateLimited);
     }
 }

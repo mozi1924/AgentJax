@@ -42,9 +42,10 @@ pub async fn start_transport(
                 .with_error_source(&e)
             })?;
 
-            ().serve(transport)
-                .await
-                .map_err(|e| AgentJaxError::internal(format!("Failed to initialize MCP stdio connection: {e}")).with_error_source(&e))
+            ().serve(transport).await.map_err(|e| {
+                AgentJaxError::internal(format!("Failed to initialize MCP stdio connection: {e}"))
+                    .with_error_source(&e)
+            })
         }
         McpConnectionSpec::StreamableHttp {
             uri,
@@ -68,9 +69,12 @@ pub async fn start_transport(
             }
 
             let transport = StreamableHttpClientTransport::from_config(config);
-            ().serve(transport)
-                .await
-                .map_err(|e| AgentJaxError::internal(format!("Failed to initialize MCP streamable_http connection: {e}")).with_error_source(&e))
+            ().serve(transport).await.map_err(|e| {
+                AgentJaxError::internal(format!(
+                    "Failed to initialize MCP streamable_http connection: {e}"
+                ))
+                .with_error_source(&e)
+            })
         }
     }
 }
@@ -104,9 +108,10 @@ fn resolve_stdio_executable(
     for base in std::env::split_paths(&path_value) {
         let candidate = base.join(trimmed);
         if candidate.is_file()
-            && let Some(resolved) = path_to_string(&candidate) {
-                return resolved;
-            }
+            && let Some(resolved) = path_to_string(&candidate)
+        {
+            return resolved;
+        }
     }
 
     trimmed.to_string()
@@ -130,10 +135,15 @@ fn parse_headers(
 ) -> AgentJaxResult<HashMap<reqwest::header::HeaderName, reqwest::header::HeaderValue>> {
     let mut parsed = HashMap::new();
     for (name, value) in headers {
-        let header_name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
-            .map_err(|e| AgentJaxError::config(format!("Invalid HTTP header name '{name}': {e}")).with_error_source(&e))?;
-        let header_value = reqwest::header::HeaderValue::from_str(value)
-            .map_err(|e| AgentJaxError::config(format!("Invalid HTTP header value for '{name}': {e}")).with_error_source(&e))?;
+        let header_name =
+            reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|e| {
+                AgentJaxError::config(format!("Invalid HTTP header name '{name}': {e}"))
+                    .with_error_source(&e)
+            })?;
+        let header_value = reqwest::header::HeaderValue::from_str(value).map_err(|e| {
+            AgentJaxError::config(format!("Invalid HTTP header value for '{name}': {e}"))
+                .with_error_source(&e)
+        })?;
         parsed.insert(header_name, header_value);
     }
 

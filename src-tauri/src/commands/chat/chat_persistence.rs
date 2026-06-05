@@ -83,50 +83,60 @@ pub fn persist_tool_progress_event(
                 .unwrap_or(Value::Null);
 
             if event_kind == "tool_call_started"
-                || !conversation_store::conversation_line_exists(agent_id, conversation_id, &line_id)?
+                || !conversation_store::conversation_line_exists(
+                    agent_id,
+                    conversation_id,
+                    &line_id,
+                )?
             {
                 // First write is append-only so crashes still leave an
                 // in-progress tool marker. Later updates merge arguments.
-                conversation_store::append_line(agent_id, conversation_store::AppendLineInput {
-                    conversation_id: conversation_id.to_string(),
-                    line: ConversationLine::Tool(ToolLine {
-                        id: line_id.clone(),
-                        ts,
-                        started_ts,
-                        completed_ts: None,
-                        request_id: request_id.to_string(),
-                        call_id: tool_call_id.to_string(),
-                        name: name.to_string(),
-                        display_name: tool_display_name.map(str::to_string),
-                        description: tool_description.map(str::to_string),
-                        icon: tool_icon.map(str::to_string),
-                        args: args.clone(),
-                        output: None,
-                        status: ToolStatus::Pending,
-                    }),
-                })?;
+                conversation_store::append_line(
+                    agent_id,
+                    conversation_store::AppendLineInput {
+                        conversation_id: conversation_id.to_string(),
+                        line: ConversationLine::Tool(ToolLine {
+                            id: line_id.clone(),
+                            ts,
+                            started_ts,
+                            completed_ts: None,
+                            request_id: request_id.to_string(),
+                            call_id: tool_call_id.to_string(),
+                            name: name.to_string(),
+                            display_name: tool_display_name.map(str::to_string),
+                            description: tool_description.map(str::to_string),
+                            icon: tool_icon.map(str::to_string),
+                            args: args.clone(),
+                            output: None,
+                            status: ToolStatus::Pending,
+                        }),
+                    },
+                )?;
             }
 
             if event_kind == "tool_call_done" {
-                conversation_store::update_line(agent_id, conversation_store::UpdateLineInput {
-                    conversation_id: conversation_id.to_string(),
-                    line_id,
-                    line: ConversationLine::Tool(ToolLine {
-                        id: format!("tool-{request_id}-{tool_call_id}"),
-                        ts,
-                        started_ts: 0,
-                        completed_ts: None,
-                        request_id: request_id.to_string(),
-                        call_id: tool_call_id.to_string(),
-                        name: name.to_string(),
-                        display_name: tool_display_name.map(str::to_string),
-                        description: tool_description.map(str::to_string),
-                        icon: tool_icon.map(str::to_string),
-                        args,
-                        output: None,
-                        status: ToolStatus::Pending,
-                    }),
-                })?;
+                conversation_store::update_line(
+                    agent_id,
+                    conversation_store::UpdateLineInput {
+                        conversation_id: conversation_id.to_string(),
+                        line_id,
+                        line: ConversationLine::Tool(ToolLine {
+                            id: format!("tool-{request_id}-{tool_call_id}"),
+                            ts,
+                            started_ts: 0,
+                            completed_ts: None,
+                            request_id: request_id.to_string(),
+                            call_id: tool_call_id.to_string(),
+                            name: name.to_string(),
+                            display_name: tool_display_name.map(str::to_string),
+                            description: tool_description.map(str::to_string),
+                            icon: tool_icon.map(str::to_string),
+                            args,
+                            output: None,
+                            status: ToolStatus::Pending,
+                        }),
+                    },
+                )?;
             }
 
             Ok(())
@@ -141,29 +151,32 @@ pub fn persist_tool_progress_event(
                 ToolStatus::Failed
             };
 
-            conversation_store::update_line(agent_id, conversation_store::UpdateLineInput {
-                conversation_id: conversation_id.to_string(),
-                line_id,
-                line: ConversationLine::Tool(ToolLine {
-                    id: format!("tool-{request_id}-{tool_call_id}"),
-                    ts: completed_ts,
-                    started_ts: started_at_unix_ms.unwrap_or(0),
-                    completed_ts: Some(completed_ts),
-                    request_id: request_id.to_string(),
-                    call_id: tool_call_id.to_string(),
-                    name: tool_name
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or("unknown_tool")
-                        .to_string(),
-                    display_name: tool_display_name.map(str::to_string),
-                    description: tool_description.map(str::to_string),
-                    icon: tool_icon.map(str::to_string),
-                    args: Value::Null, // preserved from the Pending entry; not overwritten
-                    output: Some(output),
-                    status,
-                }),
-            })
+            conversation_store::update_line(
+                agent_id,
+                conversation_store::UpdateLineInput {
+                    conversation_id: conversation_id.to_string(),
+                    line_id,
+                    line: ConversationLine::Tool(ToolLine {
+                        id: format!("tool-{request_id}-{tool_call_id}"),
+                        ts: completed_ts,
+                        started_ts: started_at_unix_ms.unwrap_or(0),
+                        completed_ts: Some(completed_ts),
+                        request_id: request_id.to_string(),
+                        call_id: tool_call_id.to_string(),
+                        name: tool_name
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or("unknown_tool")
+                            .to_string(),
+                        display_name: tool_display_name.map(str::to_string),
+                        description: tool_description.map(str::to_string),
+                        icon: tool_icon.map(str::to_string),
+                        args: Value::Null, // preserved from the Pending entry; not overwritten
+                        output: Some(output),
+                        status,
+                    }),
+                },
+            )
             .map_err(|e| e.to_string())
         }
         _ => Ok(()),
@@ -189,8 +202,12 @@ pub fn persist_assistant_line(
         return Ok(());
     }
     let ts = now_unix_ms();
-    let thinking = thinking.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-    let thinking_token_count = thinking.as_ref().map(|t| crate::lcm::types::estimate_tokens(t));
+    let thinking = thinking
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let thinking_token_count = thinking
+        .as_ref()
+        .map(|t| crate::lcm::types::estimate_tokens(t));
     let line = ConversationLine::Assistant(AssistantLine {
         id: format!("asst-{request_id}-{}", ts),
         ts,
@@ -202,9 +219,12 @@ pub fn persist_assistant_line(
         thinking_token_count,
         status: AssistantStatus::Done,
     });
-    conversation_store::append_line(agent_id, conversation_store::AppendLineInput {
-        conversation_id: conversation_id.to_string(),
-        line,
-    })
+    conversation_store::append_line(
+        agent_id,
+        conversation_store::AppendLineInput {
+            conversation_id: conversation_id.to_string(),
+            line,
+        },
+    )
     .map_err(|e| e.to_string())
 }

@@ -116,17 +116,11 @@ mod tests {
         // Key fields that the frontend CollectionEditor expects.
         assert_eq!(obj.get("enabled").map(|v| v.as_bool()), Some(Some(true)));
         assert_eq!(obj.get("unfolded").map(|v| v.as_bool()), Some(Some(false)));
-        assert_eq!(
-            obj.get("command").and_then(|v| v.as_str()),
-            Some("")
-        );
+        assert_eq!(obj.get("command").and_then(|v| v.as_str()), Some(""));
         assert!(obj.contains_key("args"));
         assert!(obj.contains_key("env"));
         assert!(obj.contains_key("headers"));
-        assert_eq!(
-            obj.get("transport").and_then(|v| v.as_str()),
-            Some("stdio")
-        );
+        assert_eq!(obj.get("transport").and_then(|v| v.as_str()), Some("stdio"));
 
         // The special-case path "mcp.servers" must resolve.
         let injected = lookup_default_item("mcp.servers");
@@ -135,8 +129,8 @@ mod tests {
 
     #[test]
     fn provider_default_serializes() {
-        let value = serde_json::to_value(ProviderConfig::default())
-            .expect("ProviderConfig must serialize");
+        let value =
+            serde_json::to_value(ProviderConfig::default()).expect("ProviderConfig must serialize");
         let obj = value.as_object().expect("default must be an object");
         assert_eq!(obj.get("kind").and_then(|v| v.as_str()), Some(""));
         assert!(obj.contains_key("models"));
@@ -153,10 +147,7 @@ mod tests {
         assert_eq!(obj.get("enabled").and_then(|v| v.as_bool()), Some(true));
 
         // Fields that are None/empty should be absent (skip_serializing_if).
-        assert!(
-            !obj.contains_key("name"),
-            "None name should be skipped"
-        );
+        assert!(!obj.contains_key("name"), "None name should be skipped");
     }
 
     #[test]

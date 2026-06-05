@@ -201,7 +201,11 @@ impl ToolCatalogSnapshot {
                             ))
                             .catch_unwind()
                             .await
-                            .unwrap_or_else(|_| Err::<Value, _>(crate::error::AgentJaxError::internal("Background tool task panicked")));
+                            .unwrap_or_else(|_| {
+                                Err::<Value, _>(crate::error::AgentJaxError::internal(
+                                    "Background tool task panicked",
+                                ))
+                            });
                             background_jobs::complete_job(&job_for_task, result);
                         });
                         background_jobs::register_job_handle(&job, handle);
@@ -269,7 +273,7 @@ impl ToolCatalogSnapshot {
                         action
                     ))),
                 }
-            },
+            }
             ToolSnapshotEntry::ManageMcpServer {
                 server_id,
                 server_config,
@@ -361,7 +365,10 @@ async fn execute_manage_mcp_server(
             let mounted_tools = super::schemas::normalize_mcp_tool_definitions(raw_tools);
             if mounted_tools.is_empty() {
                 return Err(crate::agentjax_err!(
-                    format!("MCP server '{}' did not expose any tools to mount", server_id),
+                    format!(
+                        "MCP server '{}' did not expose any tools to mount",
+                        server_id
+                    ),
                     ToolExecution
                 ));
             }
@@ -412,7 +419,10 @@ async fn execute_manage_mcp_server(
             },
         }),
         _ => Err(crate::agentjax_err!(
-            format!("Unsupported action '{}' for MCP server control tool '{}'. Use one of: mount, unmount, status.", action, control_tool),
+            format!(
+                "Unsupported action '{}' for MCP server control tool '{}'. Use one of: mount, unmount, status.",
+                action, control_tool
+            ),
             ToolExecution
         )),
     }

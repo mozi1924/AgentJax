@@ -54,7 +54,11 @@ impl Tool for CalculatorTool {
         })
     }
 
-    async fn execute(&self, arguments: &Value, _context: &ToolExecutionContext) -> AgentJaxResult<Value> {
+    async fn execute(
+        &self,
+        arguments: &Value,
+        _context: &ToolExecutionContext,
+    ) -> AgentJaxResult<Value> {
         let request = calculator::parse_request(arguments)?;
         calculator::execute(request)
     }

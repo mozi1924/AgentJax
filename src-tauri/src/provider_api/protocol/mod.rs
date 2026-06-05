@@ -13,9 +13,9 @@
 //!
 //! See [`builtin_protocols`] for the global registry accessor.
 
-pub(crate) mod responses;
 pub(crate) mod chat;
 pub(crate) mod embeddings;
+pub(crate) mod responses;
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -37,9 +37,7 @@ use tokio::sync::watch;
 
 static CIRCUIT_BREAKERS: std::sync::LazyLock<
     crate::provider_api::circuit_breaker::CircuitBreakerRegistry,
-> = std::sync::LazyLock::new(
-    crate::provider_api::circuit_breaker::CircuitBreakerRegistry::new,
-);
+> = std::sync::LazyLock::new(crate::provider_api::circuit_breaker::CircuitBreakerRegistry::new);
 
 // ── Streaming Dispatch ──────────────────────────────────────────────────────
 
@@ -65,15 +63,25 @@ where
     let result = match protocol {
         "responses" => {
             responses::stream_response(
-                config, provider_key, provider_config, model_id,
-                req, cancel_rx, on_delta,
+                config,
+                provider_key,
+                provider_config,
+                model_id,
+                req,
+                cancel_rx,
+                on_delta,
             )
             .await
         }
         "chat_completions" => {
             chat::stream_response(
-                config, provider_key, provider_config, model_id,
-                req, cancel_rx, on_delta,
+                config,
+                provider_key,
+                provider_config,
+                model_id,
+                req,
+                cancel_rx,
+                on_delta,
             )
             .await
         }
@@ -153,10 +161,9 @@ pub async fn fetch_remote_models(
         ));
     }
 
-    let body: Value = response
-        .json()
-        .await
-        .map_err(|err| AgentJaxError::internal(format!("Failed to parse models response: {err}")))?;
+    let body: Value = response.json().await.map_err(|err| {
+        AgentJaxError::internal(format!("Failed to parse models response: {err}"))
+    })?;
 
     let models = body
         .get("data")
@@ -312,8 +319,7 @@ impl ProtocolRegistry {
     ///
     /// If a protocol with the same name is already registered, it is replaced.
     pub fn register(&mut self, protocol: Box<dyn Protocol>) {
-        self.protocols
-            .insert(protocol.name().to_string(), protocol);
+        self.protocols.insert(protocol.name().to_string(), protocol);
     }
 
     /// Look up a protocol by name.
@@ -368,7 +374,13 @@ impl Protocol for ResponsesProtocol {
     ) -> AgentJaxResult<ResponseStreamResult> {
         let cb = |event| on_delta(event);
         responses::stream_response(
-            config, provider_key, provider_config, model_id, req, cancel_rx, cb,
+            config,
+            provider_key,
+            provider_config,
+            model_id,
+            req,
+            cancel_rx,
+            cb,
         )
         .await
     }
@@ -410,7 +422,13 @@ impl Protocol for ChatCompletionsProtocol {
     ) -> AgentJaxResult<ResponseStreamResult> {
         let cb = |event| on_delta(event);
         chat::stream_response(
-            config, provider_key, provider_config, model_id, req, cancel_rx, cb,
+            config,
+            provider_key,
+            provider_config,
+            model_id,
+            req,
+            cancel_rx,
+            cb,
         )
         .await
     }

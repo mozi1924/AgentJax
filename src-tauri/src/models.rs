@@ -10,7 +10,7 @@
 //! This replaces the old single-file YAML cache (`models-cache.yaml`) with
 //! a per-provider JSON layout that stores the original API response.
 
-use crate::config::{self, AppConfig, AgentConfig};
+use crate::config::{self, AgentConfig, AppConfig};
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::provider_api;
 use crate::provider_api::types::ProviderModelDescriptor;
@@ -83,7 +83,9 @@ pub async fn get_model_catalog(sync_if_stale: bool) -> AgentJaxResult<ModelCatal
     let cfg = config::load_config()?;
     let cache_base_path = model_cache_base_path()?;
     // Load the active agent's config for per-agent model defaults.
-    let agent = config::load_agent_config(&cfg.active_agent_id).unwrap_or_default().normalize();
+    let agent = config::load_agent_config(&cfg.active_agent_id)
+        .unwrap_or_default()
+        .normalize();
 
     if sync_if_stale {
         let _ = sync_remote_model_cache_if_stale(&cfg).await;
@@ -95,9 +97,7 @@ pub async fn get_model_catalog(sync_if_stale: bool) -> AgentJaxResult<ModelCatal
 
     let effective_models = configured_models.clone();
 
-    let active_cache_entry = all_cached_models
-        .providers
-        .get(&agent.active_provider);
+    let active_cache_entry = all_cached_models.providers.get(&agent.active_provider);
 
     Ok(ModelCatalog {
         config_path: config_path.display().to_string(),
@@ -108,9 +108,7 @@ pub async fn get_model_catalog(sync_if_stale: bool) -> AgentJaxResult<ModelCatal
         cached_models,
         effective_models,
         model_options: build_model_catalog_entries(&cfg, &all_cached_models)?,
-        cache_stale: active_cache_entry
-            .map(is_cache_stale)
-            .unwrap_or(true),
+        cache_stale: active_cache_entry.map(is_cache_stale).unwrap_or(true),
         last_synced_unix: active_cache_entry.map(|entry| entry.last_synced_unix),
     })
 }
@@ -164,7 +162,13 @@ fn provider_cache_path(provider_key: &str) -> AgentJaxResult<PathBuf> {
 
 fn sanitize_dir_name(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -174,13 +178,19 @@ fn load_provider_cache(provider_key: &str) -> AgentJaxResult<Option<ProviderCach
         return Ok(None);
     }
     let raw = fs::read_to_string(&path).map_err(|e| {
-        AgentJaxError::internal(format!("Failed to read model cache {}: {e}", path.display()))
+        AgentJaxError::internal(format!(
+            "Failed to read model cache {}: {e}",
+            path.display()
+        ))
     })?;
     if raw.trim().is_empty() {
         return Ok(None);
     }
     let cache: ProviderCache = serde_json::from_str(&raw).map_err(|e| {
-        AgentJaxError::config(format!("Invalid JSON in model cache {}: {e}", path.display()))
+        AgentJaxError::config(format!(
+            "Invalid JSON in model cache {}: {e}",
+            path.display()
+        ))
     })?;
     Ok(Some(cache))
 }
@@ -191,11 +201,13 @@ fn save_provider_cache(provider_key: &str, cache: &ProviderCache) -> AgentJaxRes
         AgentJaxError::internal(format!("Failed to create cache dir {}: {e}", dir.display()))
     })?;
     let path = dir.join("cache.json");
-    let json = serde_json::to_string_pretty(cache).map_err(|e| {
-        AgentJaxError::internal(format!("Failed to serialize model cache: {e}"))
-    })?;
+    let json = serde_json::to_string_pretty(cache)
+        .map_err(|e| AgentJaxError::internal(format!("Failed to serialize model cache: {e}")))?;
     fs::write(&path, json).map_err(|e| {
-        AgentJaxError::internal(format!("Failed to write model cache {}: {e}", path.display()))
+        AgentJaxError::internal(format!(
+            "Failed to write model cache {}: {e}",
+            path.display()
+        ))
     })?;
     Ok(())
 }
@@ -230,7 +242,10 @@ fn load_all_provider_caches(cfg: &AppConfig) -> AgentJaxResult<AllProviderCaches
 }
 
 /// Load cached model IDs for the active provider.
-fn load_cached_models_for_active(cfg: &AppConfig, agent: &AgentConfig) -> AgentJaxResult<Vec<String>> {
+fn load_cached_models_for_active(
+    cfg: &AppConfig,
+    agent: &AgentConfig,
+) -> AgentJaxResult<Vec<String>> {
     let all = load_all_provider_caches(cfg)?;
     Ok(all
         .providers
@@ -387,22 +402,16 @@ fn build_model_catalog_entries(
                 continue;
             }
 
-            let cached_levels = all_cached
-                .providers
-                .get(provider_key)
-                .and_then(|cached| {
-                    cached
-                        .models
-                        .iter()
-                        .find(|m| &m.id == model_key)
-                        .map(|m| m.supported_reasoning_levels.as_slice())
-                });
+            let cached_levels = all_cached.providers.get(provider_key).and_then(|cached| {
+                cached
+                    .models
+                    .iter()
+                    .find(|m| &m.id == model_key)
+                    .map(|m| m.supported_reasoning_levels.as_slice())
+            });
 
-            let reasoning = provider_api::get_reasoning_capability(
-                &provider.kind,
-                model_key,
-                cached_levels,
-            )?;
+            let reasoning =
+                provider_api::get_reasoning_capability(&provider.kind, model_key, cached_levels)?;
 
             let configured_reasoning_effort = model_cfg
                 .request

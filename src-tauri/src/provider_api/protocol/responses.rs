@@ -24,12 +24,14 @@ pub async fn stream_response<F>(
 where
     F: FnMut(ProviderStreamEvent) -> AgentJaxResult<()> + Send,
 {
-    let timeout_seconds = provider_config.resolved_timeout_seconds(
-        crate::config::constants::DEFAULT_TIMEOUT_SECONDS,
-    );
+    let timeout_seconds =
+        provider_config.resolved_timeout_seconds(crate::config::constants::DEFAULT_TIMEOUT_SECONDS);
     let client = build_client(timeout_seconds)?;
 
-    let base_url = provider_config.api_endpoint().trim_end_matches('/').to_string();
+    let base_url = provider_config
+        .api_endpoint()
+        .trim_end_matches('/')
+        .to_string();
     let url = format!("{base_url}/responses");
 
     let body = build_response_payload(model_id, req);
@@ -80,8 +82,12 @@ where
 
     if !stream_done && !buffer.trim().is_empty() {
         let _ = process_responses_event(
-            &buffer, &mut state,
-            &mut response_id, &mut output_text, &mut output_items, &mut usage,
+            &buffer,
+            &mut state,
+            &mut response_id,
+            &mut output_text,
+            &mut output_items,
+            &mut usage,
             &mut on_delta,
         )?;
     }
@@ -98,12 +104,15 @@ where
     }
 
     let final_response_id = if response_id.is_empty() {
-        ProviderIdFactory::new(provider_key).response_id().to_string()
+        ProviderIdFactory::new(provider_key)
+            .response_id()
+            .to_string()
     } else {
         response_id
     };
 
-    let usage_hops = usage.clone()
+    let usage_hops = usage
+        .clone()
         .map(|u| ProviderUsageRecord {
             response_id: final_response_id.clone(),
             usage: u,
@@ -134,8 +143,11 @@ fn build_response_payload(model_id: &str, req: &ResponseStreamRequest) -> Value 
         "stream": true,
     });
 
-    let instructions = req.instructions_override.as_deref()
-        .filter(|s| !s.trim().is_empty()).map(String::from);
+    let instructions = req
+        .instructions_override
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(String::from);
     if let Some(ref instructions) = instructions {
         payload["instructions"] = json!(instructions);
     }
@@ -145,14 +157,30 @@ fn build_response_payload(model_id: &str, req: &ResponseStreamRequest) -> Value 
             payload["reasoning"] = json!({ "effort": trimmed });
         }
     }
-    if let Some(ref tools) = req.tools && !tools.is_empty() { payload["tools"] = Value::Array(tools.clone()); }
-    if let Some(ref tool_choice) = req.tool_choice { payload["tool_choice"] = tool_choice.clone(); }
-    if let Some(ref text) = req.text { payload["text"] = text.clone(); }
-    if let Some(ref include) = req.include && !include.is_empty() { payload["include"] = Value::Array(include.iter().map(|s| json!(s)).collect()); }
+    if let Some(ref tools) = req.tools
+        && !tools.is_empty()
+    {
+        payload["tools"] = Value::Array(tools.clone());
+    }
+    if let Some(ref tool_choice) = req.tool_choice {
+        payload["tool_choice"] = tool_choice.clone();
+    }
+    if let Some(ref text) = req.text {
+        payload["text"] = text.clone();
+    }
+    if let Some(ref include) = req.include
+        && !include.is_empty()
+    {
+        payload["include"] = Value::Array(include.iter().map(|s| json!(s)).collect());
+    }
 
     // ── Extra body fields (provider-specific passthrough) ──
     for (key, value) in &req.extra_body {
-        if !payload.as_object().map(|o| o.contains_key(key)).unwrap_or(false) {
+        if !payload
+            .as_object()
+            .map(|o| o.contains_key(key))
+            .unwrap_or(false)
+        {
             payload[key] = value.clone();
         }
     }
@@ -160,25 +188,40 @@ fn build_response_payload(model_id: &str, req: &ResponseStreamRequest) -> Value 
 }
 
 fn normalize_input_items(items: &[Value]) -> Value {
-    let normalized: Vec<Value> = items.iter().map(|item| {
-        let mut cloned = item.clone();
-        if let Some(obj) = cloned.as_object_mut() {
-            let item_type = obj.get("type").and_then(Value::as_str).unwrap_or("");
-            if item_type != "function_call" && item_type != "function_call_output" {
-                obj.remove("id");
-            }
-            let role = obj.get("role").and_then(Value::as_str).unwrap_or("").to_string();
-            if let Some(content) = obj.get_mut("content").and_then(|v| v.as_array_mut()) {
-                for part in content.iter_mut() {
-                    let part_type = part.get("type").and_then(Value::as_str).unwrap_or("").to_string();
-                    if matches!(part_type.as_str(), "text" | "input_text" | "output_text") {
-                        part["type"] = json!(if role == "assistant" { "output_text" } else { "input_text" });
+    let normalized: Vec<Value> = items
+        .iter()
+        .map(|item| {
+            let mut cloned = item.clone();
+            if let Some(obj) = cloned.as_object_mut() {
+                let item_type = obj.get("type").and_then(Value::as_str).unwrap_or("");
+                if item_type != "function_call" && item_type != "function_call_output" {
+                    obj.remove("id");
+                }
+                let role = obj
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                if let Some(content) = obj.get_mut("content").and_then(|v| v.as_array_mut()) {
+                    for part in content.iter_mut() {
+                        let part_type = part
+                            .get("type")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        if matches!(part_type.as_str(), "text" | "input_text" | "output_text") {
+                            part["type"] = json!(if role == "assistant" {
+                                "output_text"
+                            } else {
+                                "input_text"
+                            });
+                        }
                     }
                 }
             }
-        }
-        cloned
-    }).collect();
+            cloned
+        })
+        .collect();
     Value::Array(normalized)
 }
 
@@ -195,22 +238,31 @@ fn process_responses_event(
     on_delta: &mut dyn FnMut(ProviderStreamEvent) -> AgentJaxResult<()>,
 ) -> AgentJaxResult<bool> {
     let data = extract_sse_data(event_block);
-    if data.is_empty() || data == "[DONE]" { return Ok(data == "[DONE]"); }
+    if data.is_empty() || data == "[DONE]" {
+        return Ok(data == "[DONE]");
+    }
 
     let value: Value = serde_json::from_str(&data)
         .map_err(|_| AgentJaxError::internal("Failed to parse SSE JSON"))?;
     if let Some(err) = value.get("error") {
-        return Err(AgentJaxError::internal(format!("Responses API error: {err}")));
+        return Err(AgentJaxError::internal(format!(
+            "Responses API error: {err}"
+        )));
     }
 
-    if let Some(id) = value.pointer("/response/id")
+    if let Some(id) = value
+        .pointer("/response/id")
         .or_else(|| value.get("response_id"))
         .or_else(|| value.get("id"))
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
-    { *response_id = id.to_string(); }
+    {
+        *response_id = id.to_string();
+    }
 
-    if let Some(u) = parse_responses_usage(&value) { *usage = Some(u); }
+    if let Some(u) = parse_responses_usage(&value) {
+        *usage = Some(u);
+    }
 
     let type_str = value.get("type").and_then(Value::as_str).unwrap_or("");
     let done = type_str == "response.completed" || type_str == "response.done";
@@ -225,7 +277,10 @@ fn process_responses_event(
                     on_delta(ProviderStreamEvent::OutputTextStarted)?;
                 }
                 output_text.push_str(delta);
-                on_delta(ProviderStreamEvent::OutputTextDelta { delta: delta.to_string(), phase: None })?;
+                on_delta(ProviderStreamEvent::OutputTextDelta {
+                    delta: delta.to_string(),
+                    phase: None,
+                })?;
             }
         }
         "response.output_item.added" => {
@@ -233,9 +288,21 @@ fn process_responses_event(
                 && item.get("type").and_then(Value::as_str) == Some("function_call")
             {
                 on_delta(ProviderStreamEvent::ToolCallStarted {
-                    item_id: item.get("id").and_then(Value::as_str).unwrap_or("").to_string(),
-                    call_id: item.get("call_id").and_then(Value::as_str).unwrap_or("").to_string(),
-                    name: item.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+                    item_id: item
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    call_id: item
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    name: item
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
                     presentation: None,
                 })?;
             }
@@ -243,8 +310,16 @@ fn process_responses_event(
         "response.function_call_arguments.delta" => {
             if let Some(delta) = value.get("delta").and_then(Value::as_str) {
                 on_delta(ProviderStreamEvent::ToolCallArgumentsDelta {
-                    item_id: value.get("item_id").and_then(Value::as_str).unwrap_or("").to_string(),
-                    call_id: value.get("call_id").and_then(Value::as_str).unwrap_or("").to_string(),
+                    item_id: value
+                        .get("item_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    call_id: value
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
                     delta: delta.to_string(),
                 })?;
             }
@@ -253,10 +328,22 @@ fn process_responses_event(
             if let Some(call_id) = value.get("call_id").and_then(Value::as_str) {
                 state.completed_tool_calls.push(call_id.to_string());
                 on_delta(ProviderStreamEvent::ToolCallCompleted {
-                    item_id: value.get("item_id").and_then(Value::as_str).unwrap_or("").to_string(),
+                    item_id: value
+                        .get("item_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
                     call_id: call_id.to_string(),
-                    name: value.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
-                    arguments: value.get("arguments").and_then(Value::as_str).unwrap_or("{}").to_string(),
+                    name: value
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    arguments: value
+                        .get("arguments")
+                        .and_then(Value::as_str)
+                        .unwrap_or("{}")
+                        .to_string(),
                     presentation: None,
                 })?;
             }
@@ -265,21 +352,28 @@ fn process_responses_event(
             if let Some(item) = value.get("item")
                 && item.get("type").and_then(Value::as_str) == Some("message")
             {
-                let text = item.get("content")
+                let text = item
+                    .get("content")
                     .and_then(Value::as_array)
-                    .map(|content| content.iter().filter_map(|part| part.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join(""))
+                    .map(|content| {
+                        content
+                            .iter()
+                            .filter_map(|part| part.get("text").and_then(Value::as_str))
+                            .collect::<Vec<_>>()
+                            .join("")
+                    })
                     .unwrap_or_default();
                 if !text.trim().is_empty() {
                     on_delta(ProviderStreamEvent::AssistantMessageCompleted {
-                        text, phase: None, response_id: response_id.clone(),
+                        text,
+                        phase: None,
+                        response_id: response_id.clone(),
                     })?;
                 }
             }
         }
         // ── Reasoning / thinking events ──────────────────────────
-        "response.reasoning.summary_part.added"
-            if !state.reasoning_started =>
-        {
+        "response.reasoning.summary_part.added" if !state.reasoning_started => {
             state.reasoning_started = true;
             on_delta(ProviderStreamEvent::ReasoningStarted)?;
         }
@@ -292,15 +386,19 @@ fn process_responses_event(
                     on_delta(ProviderStreamEvent::ReasoningStarted)?;
                 }
                 state.reasoning_buffer.push_str(delta);
-                on_delta(ProviderStreamEvent::ReasoningDelta { delta: delta.to_string() })?;
+                on_delta(ProviderStreamEvent::ReasoningDelta {
+                    delta: delta.to_string(),
+                })?;
             }
         }
         "response.reasoning.summary_part.done"
             if state.reasoning_started && !state.reasoning_buffer.is_empty() =>
         {
             state.reasoning_started = false;
-            let total_tokens = value.get("total_tokens")
-                .and_then(|v| v.as_u64()).map(|v| v as usize);
+            let total_tokens = value
+                .get("total_tokens")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
             on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens })?;
             output_items.push(json!({
                 "type": "reasoning",
@@ -326,8 +424,11 @@ fn process_responses_event(
 
 fn extract_sse_data(event_block: &str) -> String {
     let trimmed = event_block.trim();
-    if trimmed.starts_with('{') || trimmed.starts_with('[') { return trimmed.to_string(); }
-    trimmed.lines()
+    if trimmed.starts_with('{') || trimmed.starts_with('[') {
+        return trimmed.to_string();
+    }
+    trimmed
+        .lines()
         .filter(|line| line.starts_with("data:"))
         .map(|line| line[5..].trim_start())
         .collect::<Vec<_>>()
@@ -335,9 +436,13 @@ fn extract_sse_data(event_block: &str) -> String {
 }
 
 fn parse_responses_usage(value: &Value) -> Option<ProviderUsage> {
-    let usage_value = value.pointer("/response/usage").or_else(|| value.get("usage")).unwrap_or(value);
+    let usage_value = value
+        .pointer("/response/usage")
+        .or_else(|| value.get("usage"))
+        .unwrap_or(value);
     let usage: ProviderUsage = serde_json::from_value(usage_value.clone()).ok()?;
-    (usage.prompt_tokens > 0 || usage.completion_tokens > 0 || usage.total_tokens > 0).then_some(usage)
+    (usage.prompt_tokens > 0 || usage.completion_tokens > 0 || usage.total_tokens > 0)
+        .then_some(usage)
 }
 
 struct ResponsesStreamState {
@@ -348,5 +453,12 @@ struct ResponsesStreamState {
 }
 
 impl ResponsesStreamState {
-    fn new() -> Self { Self { emitted_output_started: false, reasoning_started: false, reasoning_buffer: String::new(), completed_tool_calls: Vec::new() } }
+    fn new() -> Self {
+        Self {
+            emitted_output_started: false,
+            reasoning_started: false,
+            reasoning_buffer: String::new(),
+            completed_tool_calls: Vec::new(),
+        }
+    }
 }

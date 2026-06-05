@@ -28,8 +28,12 @@ impl ProviderConfig {
                 .and_then(|obj| obj.get("properties").and_then(|p| p.as_object()))
         {
             for (key, property_schema) in properties {
-                let Some(default_val) = property_schema.get("default") else { continue };
-                if default_val.is_null() { continue; }
+                let Some(default_val) = property_schema.get("default") else {
+                    continue;
+                };
+                if default_val.is_null() {
+                    continue;
+                }
                 self.fill_typed_field_from_schema(key, default_val);
             }
         }
@@ -53,7 +57,11 @@ impl ProviderConfig {
             self.stream_transport = registry::provider_definition(&self.kind)
                 .map(|def| def.default_config.stream_transport.clone())
                 .unwrap_or_else(|| {
-                    if self.supports_websockets { "websocket".to_string() } else { "sse".to_string() }
+                    if self.supports_websockets {
+                        "websocket".to_string()
+                    } else {
+                        "sse".to_string()
+                    }
                 });
         } else {
             self.stream_transport = transport;
@@ -77,10 +85,16 @@ impl ProviderConfig {
         let mut normalized_models = BTreeMap::new();
         for (raw_key, mut model_cfg) in std::mem::take(&mut self.models) {
             let model_key = raw_key.trim().to_string();
-            if model_key.is_empty() { continue; }
+            if model_key.is_empty() {
+                continue;
+            }
             if let Some(ref n) = model_cfg.name {
                 let trimmed = n.trim().to_string();
-                model_cfg.name = if trimmed.is_empty() { None } else { Some(trimmed) };
+                model_cfg.name = if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                };
             }
             model_cfg.request.normalize();
             normalized_models.insert(model_key, model_cfg);
@@ -135,7 +149,8 @@ impl ProviderConfig {
             "httpHeaders" => {
                 if self.http_headers.is_empty() {
                     if let Some(obj) = default_val.as_object() {
-                        self.http_headers = obj.iter()
+                        self.http_headers = obj
+                            .iter()
                             .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                             .collect();
                     }
@@ -144,7 +159,8 @@ impl ProviderConfig {
             "envHttpHeaders" => {
                 if self.env_http_headers.is_empty() {
                     if let Some(obj) = default_val.as_object() {
-                        self.env_http_headers = obj.iter()
+                        self.env_http_headers = obj
+                            .iter()
                             .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                             .collect();
                     }
@@ -153,7 +169,8 @@ impl ProviderConfig {
             "queryParams" => {
                 if self.query_params.is_empty() {
                     if let Some(obj) = default_val.as_object() {
-                        self.query_params = obj.iter()
+                        self.query_params = obj
+                            .iter()
                             .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                             .collect();
                     }
@@ -162,7 +179,8 @@ impl ProviderConfig {
             "modelsEndpointCandidates" => {
                 if self.models_endpoint_candidates.is_empty() {
                     if let Some(arr) = default_val.as_array() {
-                        self.models_endpoint_candidates = arr.iter()
+                        self.models_endpoint_candidates = arr
+                            .iter()
                             .filter_map(|v| v.as_str().map(String::from))
                             .collect();
                     }
@@ -213,7 +231,8 @@ impl ProviderConfig {
             // Unknown key → store in extension_fields for provider-specific settings.
             other => {
                 if !self.extension_fields.contains_key(other) {
-                    self.extension_fields.insert(other.to_string(), default_val.clone());
+                    self.extension_fields
+                        .insert(other.to_string(), default_val.clone());
                 }
             }
         }
@@ -460,9 +479,10 @@ impl AppConfig {
         let (provider_key, requested_model) = parse_model_ref(full_ref)?;
         let provider = self.providers.get(&provider_key)?.clone();
         if let Some(model_cfg) = provider.models.get(&requested_model).cloned()
-            && model_cfg.enabled {
-                return Some((provider_key, provider, requested_model, model_cfg));
-            }
+            && model_cfg.enabled
+        {
+            return Some((provider_key, provider, requested_model, model_cfg));
+        }
 
         let matched = provider.models.iter().find_map(|(model_key, model_cfg)| {
             if model_cfg.enabled && model_key == &requested_model {
@@ -489,11 +509,9 @@ impl AppConfig {
         requested: Option<&str>,
     ) -> AgentJaxResult<ResolvedModelConfig> {
         // Fall back to loading the main agent config for model defaults.
-        let agent = crate::config::load_agent_config(
-            crate::config::constants::DEFAULT_AGENT_ID,
-        )
-        .unwrap_or_default()
-        .normalize();
+        let agent = crate::config::load_agent_config(crate::config::constants::DEFAULT_AGENT_ID)
+            .unwrap_or_default()
+            .normalize();
         self.resolve_model_profile_with_agent(requested, &agent)
     }
 
@@ -548,9 +566,11 @@ impl AppConfig {
 
     pub fn resolved_provider(&self, provider_key: &str) -> AgentJaxResult<ProviderConfig> {
         let key = provider_key.trim().to_lowercase();
-        self.providers
-            .get(&key)
-            .cloned()
-            .ok_or_else(|| agentjax_err!(format!("Provider '{}' not found in config", provider_key), Config))
+        self.providers.get(&key).cloned().ok_or_else(|| {
+            agentjax_err!(
+                format!("Provider '{}' not found in config", provider_key),
+                Config
+            )
+        })
     }
 }

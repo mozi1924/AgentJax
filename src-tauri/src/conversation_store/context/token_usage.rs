@@ -48,7 +48,10 @@ pub fn count_conversation_context_tokens(
 ) -> crate::error::AgentJaxResult<ConversationTokenUsage> {
     let mut items = super::builders::build_context_items(lines);
     items = super::sanitizer::sanitize_tool_call_pairs(items);
-    items = super::truncation::truncate_context_items_preserving_tool_pairs(items, super::policy::MAX_CONTEXT_ITEMS_PER_REQUEST);
+    items = super::truncation::truncate_context_items_preserving_tool_pairs(
+        items,
+        super::policy::MAX_CONTEXT_ITEMS_PER_REQUEST,
+    );
     count_request_prompt_tokens(model, None, &items, &[])
 }
 
@@ -88,7 +91,10 @@ pub fn count_conversation_prompt_tokens(
 }
 
 /// Count token usage for already-built chat messages.
-pub fn count_messages_tokens(model: &str, messages: &[TokenCountMessage]) -> crate::error::AgentJaxResult<usize> {
+pub fn count_messages_tokens(
+    model: &str,
+    messages: &[TokenCountMessage],
+) -> crate::error::AgentJaxResult<usize> {
     if messages.is_empty() {
         return Ok(0);
     }
@@ -126,7 +132,10 @@ pub fn count_text_tokens(model: &str, text: &str) -> crate::error::AgentJaxResul
 }
 
 /// Count token usage for serialized tool schemas.
-pub fn count_tool_schema_tokens(model: &str, tools: &[Value]) -> crate::error::AgentJaxResult<usize> {
+pub fn count_tool_schema_tokens(
+    model: &str,
+    tools: &[Value],
+) -> crate::error::AgentJaxResult<usize> {
     if tools.is_empty() {
         return Ok(0);
     }
@@ -183,8 +192,7 @@ mod tests {
             }),
         ];
 
-        let usage =
-            count_conversation_context_tokens("openai/gpt-5-mini", &lines).unwrap();
+        let usage = count_conversation_context_tokens("openai/gpt-5-mini", &lines).unwrap();
         assert!(usage.context_tokens > 0);
         assert_eq!(usage.context_tokens, usage.prompt_tokens);
     }

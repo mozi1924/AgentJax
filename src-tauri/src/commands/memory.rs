@@ -58,8 +58,8 @@ pub fn get_memory(req: GetMemoryRequest) -> Result<serde_json::Value, String> {
 #[tauri::command]
 pub fn search_memories(req: SearchMemoriesRequest) -> Result<serde_json::Value, String> {
     let store = open_memory_store()?;
-    let results = search_memories_impl(&store, &req.query, req.max_results)
-        .map_err(|e| e.to_string())?;
+    let results =
+        search_memories_impl(&store, &req.query, req.max_results).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "ok": true,
         "query": req.query,

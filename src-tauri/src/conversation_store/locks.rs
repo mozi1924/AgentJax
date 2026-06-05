@@ -37,9 +37,12 @@ where
     F: FnOnce() -> AgentJaxResult<T>,
 {
     let lock = conversation_lock(conversation_id)?;
-    let _guard = lock
-        .lock()
-        .map_err(|_| agentjax_err!(format!("Conversation lock is poisoned for '{conversation_id}'"), Internal))?;
+    let _guard = lock.lock().map_err(|_| {
+        agentjax_err!(
+            format!("Conversation lock is poisoned for '{conversation_id}'"),
+            Internal
+        )
+    })?;
     action()
 }
 

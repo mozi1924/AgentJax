@@ -34,23 +34,18 @@ impl SubAgentLcmContext {
         agent_id: &str,
         base_lcm_config: &LcmConfig,
     ) -> AgentJaxResult<Self> {
-        let sub_conv_id = format!("{}/sub-agent/{}/{}", parent_conv_id, subagent_type, agent_id);
+        let sub_conv_id = format!(
+            "{}/sub-agent/{}/{}",
+            parent_conv_id, subagent_type, agent_id
+        );
         let db_path = sub_agent_lcm_store_path(parent_conv_id, agent_id)?;
 
         // Use smaller thresholds for sub-agents since they have limited scope.
         let sub_lcm_config = LcmConfig {
-            soft_token_threshold: base_lcm_config
-                .soft_token_threshold
-                .min(4000),
-            hard_token_threshold: base_lcm_config
-                .hard_token_threshold
-                .min(8000),
-            truncation_max_tokens: base_lcm_config
-                .truncation_max_tokens
-                .min(128),
-            compaction_timeout_secs: base_lcm_config
-                .compaction_timeout_secs
-                .min(10),
+            soft_token_threshold: base_lcm_config.soft_token_threshold.min(4000),
+            hard_token_threshold: base_lcm_config.hard_token_threshold.min(8000),
+            truncation_max_tokens: base_lcm_config.truncation_max_tokens.min(128),
+            compaction_timeout_secs: base_lcm_config.compaction_timeout_secs.min(10),
             ..base_lcm_config.clone()
         };
 
@@ -96,26 +91,21 @@ impl SubAgentLcmContext {
 /// Return the path to the LCM SQLite database for a sub-agent.
 ///
 /// Database location: `~/.agentjax/sessions/{parent_conv_id}/sub_agents/{agent_id}/lcm.db`
-fn sub_agent_lcm_store_path(
-    parent_conv_id: &str,
-    agent_id: &str,
-) -> AgentJaxResult<PathBuf> {
-    let session_dir = crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, parent_conv_id)
-        .map_err(|e| {
-            AgentJaxError::internal(format!("Failed to get workspace path: {e}"))
-        })?
-        .parent()
-        .ok_or_else(|| {
-            AgentJaxError::not_found(format!(
-                "Invalid conversation workspace path for '{parent_conv_id}'"
-            ))
-        })?
-        .to_path_buf();
+fn sub_agent_lcm_store_path(parent_conv_id: &str, agent_id: &str) -> AgentJaxResult<PathBuf> {
+    let session_dir = crate::conversation_store::conversation_workspace_path(
+        crate::config::constants::DEFAULT_AGENT_ID,
+        parent_conv_id,
+    )
+    .map_err(|e| AgentJaxError::internal(format!("Failed to get workspace path: {e}")))?
+    .parent()
+    .ok_or_else(|| {
+        AgentJaxError::not_found(format!(
+            "Invalid conversation workspace path for '{parent_conv_id}'"
+        ))
+    })?
+    .to_path_buf();
 
-    Ok(session_dir
-        .join("sub_agents")
-        .join(agent_id)
-        .join("lcm.db"))
+    Ok(session_dir.join("sub_agents").join(agent_id).join("lcm.db"))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -144,12 +134,9 @@ mod tests {
         assert!(ctx.conversation_id.contains("/sub-agent/explore/"));
         assert!(ctx.conversation_id.contains("agent-test"));
         // Cleanup: remove the test directory.
-        let db_path = sub_agent_lcm_store_path("test-conv", "agent-test")
-            .expect("db path");
+        let db_path = sub_agent_lcm_store_path("test-conv", "agent-test").expect("db path");
         if let Some(parent) = db_path.parent() {
-            let _ = std::fs::remove_dir_all(
-                parent.parent().unwrap_or(parent),
-            );
+            let _ = std::fs::remove_dir_all(parent.parent().unwrap_or(parent));
         }
     }
 
@@ -168,12 +155,9 @@ mod tests {
         // it was created successfully with capped values.
         assert!(ctx.conversation_id.contains("agent-capped"));
         // Cleanup.
-        let db_path = sub_agent_lcm_store_path("test-conv", "agent-capped")
-            .expect("db path");
+        let db_path = sub_agent_lcm_store_path("test-conv", "agent-capped").expect("db path");
         if let Some(parent) = db_path.parent() {
-            let _ = std::fs::remove_dir_all(
-                parent.parent().unwrap_or(parent),
-            );
+            let _ = std::fs::remove_dir_all(parent.parent().unwrap_or(parent));
         }
     }
 }

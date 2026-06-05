@@ -1,7 +1,9 @@
 #[tauri::command]
 pub fn open_devtools(window: tauri::WebviewWindow) -> Result<(), String> {
     let config = crate::config::load_config()?;
-    let agent = crate::config::load_agent_config(&config.active_agent_id).unwrap_or_default().normalize();
+    let agent = crate::config::load_agent_config(&config.active_agent_id)
+        .unwrap_or_default()
+        .normalize();
     if !agent.enable_developer_tools {
         return Err("Developer tools are disabled in settings".to_string());
     }

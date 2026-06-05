@@ -7,9 +7,9 @@
 //! - Summaries: kind, compaction level, children, file references, full text
 //! - File references: path, MIME type, token count, exploration summary
 
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::lcm::store::LcmStore;
 use crate::lcm::types::LcmId;
-use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -83,11 +83,12 @@ impl Tool for LcmDescribeTool {
             .map_err(|e| AgentJaxError::internal(format!("lcm_describe failed: {e}")))?;
 
         match result {
-            Some(desc) => {
-                serde_json::to_value(&desc)
-                    .map_err(|e| AgentJaxError::internal(format!("Failed to serialize describe result: {e}")))
-            }
-            None => Err(AgentJaxError::not_found(format!("No LCM entity found with id: {id}"))),
+            Some(desc) => serde_json::to_value(&desc).map_err(|e| {
+                AgentJaxError::internal(format!("Failed to serialize describe result: {e}"))
+            }),
+            None => Err(AgentJaxError::not_found(format!(
+                "No LCM entity found with id: {id}"
+            ))),
         }
     }
 }

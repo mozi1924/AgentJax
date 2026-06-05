@@ -20,7 +20,7 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
-        const DEFAULT_CATALOG_TOOL_COUNT: usize = 8;
+    const DEFAULT_CATALOG_TOOL_COUNT: usize = 8;
 
     struct TestHomeGuard {
         home: std::path::PathBuf,
@@ -216,7 +216,8 @@ mod tests {
         let time_tool = SystemTimeTool;
         let args = json!({});
         let res = time_tool
-            .execute(&args, &ToolExecutionContext::default()).await
+            .execute(&args, &ToolExecutionContext::default())
+            .await
             .unwrap();
 
         assert!(res.get("localTime").is_some());
@@ -230,53 +231,77 @@ mod tests {
         let ctx = ToolExecutionContext::default();
 
         let write_err = writer
-            .execute(&json!({"filename": "x.txt", "content": "x"}), &ctx).await
+            .execute(&json!({"filename": "x.txt", "content": "x"}), &ctx)
+            .await
             .unwrap_err();
         assert!(write_err.contains("Missing conversation context"));
 
         let read_err = reader
-            .execute(&json!({"filename": "x.txt"}), &ctx).await
+            .execute(&json!({"filename": "x.txt"}), &ctx)
+            .await
             .unwrap_err();
         assert!(read_err.contains("Missing conversation context"));
     }
 
     #[tokio::test]
     async fn test_file_tools_workspace_isolated_by_conversation() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let reader = FileReaderTool;
         let writer = FileWriterTool;
         let conversation_a = format!("test-workspace-a-{}", uuid::Uuid::new_v4());
         let conversation_b = format!("test-workspace-b-{}", uuid::Uuid::new_v4());
 
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_a).unwrap();
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_b).unwrap();
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_a,
+        )
+        .unwrap();
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_b,
+        )
+        .unwrap();
 
         let ctx_a = ToolExecutionContext::with_conversation_id(conversation_a.clone());
         let ctx_b = ToolExecutionContext::with_conversation_id(conversation_b.clone());
 
         let filename = "nested/same_name.txt";
         writer
-            .execute(&json!({"path": filename, "content": "from-a"}), &ctx_a).await
+            .execute(&json!({"path": filename, "content": "from-a"}), &ctx_a)
+            .await
             .unwrap();
         writer
-            .execute(&json!({"path": filename, "content": "from-b"}), &ctx_b).await
+            .execute(&json!({"path": filename, "content": "from-b"}), &ctx_b)
+            .await
             .unwrap();
 
-        let read_a = reader.execute(&json!({"path": filename}), &ctx_a).await.unwrap();
-        let read_b = reader.execute(&json!({"path": filename}), &ctx_b).await.unwrap();
+        let read_a = reader
+            .execute(&json!({"path": filename}), &ctx_a)
+            .await
+            .unwrap();
+        let read_b = reader
+            .execute(&json!({"path": filename}), &ctx_b)
+            .await
+            .unwrap();
         assert_eq!(read_a["content"], "from-a");
         assert_eq!(read_b["content"], "from-b");
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_a).unwrap();
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_b).unwrap();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_a,
+        )
+        .unwrap();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_b,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
     async fn test_file_tools_support_nested_paths_and_reject_workspace_escape() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
@@ -285,7 +310,11 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-file-paths-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         snapshot
@@ -301,22 +330,27 @@ mod tests {
                 "read_file",
                 &json!({"path": "src/components/Sidebar.tsx"}),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
         assert_eq!(read_res["content"], "export const sidebar = true;\n");
 
         let err = snapshot
-            .execute("read_file", &json!({"path": "../outside.txt"}), &ctx).await
+            .execute("read_file", &json!({"path": "../outside.txt"}), &ctx)
+            .await
             .unwrap_err();
         assert!(err.contains("escapes the conversation workspace"));
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
     async fn test_directory_tools_list_stat_and_mkdir() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
@@ -325,11 +359,16 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-directory-tools-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         snapshot
-            .execute("mkdir", &json!({"path": "src/components"}), &ctx).await
+            .execute("mkdir", &json!({"path": "src/components"}), &ctx)
+            .await
             .unwrap();
         snapshot
             .execute(
@@ -343,10 +382,14 @@ mod tests {
                 "write_file",
                 &json!({"path": "README.md", "content": "# Demo\n"}),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
 
-        let root_listing = snapshot.execute("list_files", &json!({}), &ctx).await.unwrap();
+        let root_listing = snapshot
+            .execute("list_files", &json!({}), &ctx)
+            .await
+            .unwrap();
         let root_entries = root_listing["entries"].as_array().unwrap();
         assert!(
             root_entries
@@ -360,7 +403,8 @@ mod tests {
                 "list_files",
                 &json!({"path": "src", "recursive": true}),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
         let recursive_entries = recursive_listing["entries"].as_array().unwrap();
         assert!(
@@ -369,13 +413,16 @@ mod tests {
                 .any(|entry| entry["path"] == "src/components/Button.tsx")
         );
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
     async fn test_read_file_truncates_large_text_preview() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
@@ -384,7 +431,11 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-read-truncation-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         let content = "0123456789abcdef".repeat(4_096);
@@ -393,7 +444,8 @@ mod tests {
                 "write_file",
                 &json!({"path": "logs/large.txt", "content": content}),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
 
         let preview = snapshot
@@ -401,7 +453,8 @@ mod tests {
                 "read_file",
                 &json!({"path": "logs/large.txt", "max_bytes": 1024}),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
 
         assert_eq!(preview["truncated"], true);
@@ -412,13 +465,16 @@ mod tests {
         assert_eq!(preview_content.len(), 1024);
         assert_eq!(preview_content, &"0123456789abcdef".repeat(64));
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
     async fn test_content_sniffing_detects_extensionless_text_files() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
@@ -427,7 +483,11 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-content-sniffing-text-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         snapshot
@@ -439,18 +499,22 @@ mod tests {
             .unwrap();
 
         let read = snapshot
-            .execute("read_file", &json!({"path": "notes/README"}), &ctx).await
+            .execute("read_file", &json!({"path": "notes/README"}), &ctx)
+            .await
             .unwrap();
         assert_eq!(read["contentKind"], "text");
         assert_eq!(read["mediaType"], "text/plain");
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
     async fn test_list_files_truncates_by_output_size() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
@@ -459,7 +523,11 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-list-truncation-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         for index in 0..400 {
@@ -480,7 +548,8 @@ mod tests {
                 "list_files",
                 &json!({"path": "many", "recursive": true, "max_entries": 1000}),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
 
         assert_eq!(listing["truncated"], true);
@@ -489,13 +558,16 @@ mod tests {
         assert!(reasons.iter().any(|reason| reason == "max_output_chars"));
         assert!(listing["approxOutputChars"].as_u64().unwrap() > 0);
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
     async fn test_content_sniffing_rejects_binary_files_disguised_as_text() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
@@ -504,10 +576,18 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-content-sniffing-binary-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
-        let workspace = conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        let workspace = conversation_store::conversation_workspace_path(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
         let disguised_binary = workspace.join("assets/fake-notes.txt");
         std::fs::create_dir_all(disguised_binary.parent().unwrap()).unwrap();
         std::fs::write(
@@ -517,17 +597,21 @@ mod tests {
         .unwrap();
 
         let read_err = snapshot
-            .execute("read_file", &json!({"path": "assets/fake-notes.txt"}), &ctx).await
+            .execute("read_file", &json!({"path": "assets/fake-notes.txt"}), &ctx)
+            .await
             .unwrap_err();
         assert!(read_err.contains("Portable Network Graphics"));
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
     async fn test_binary_files_are_rejected_by_text_tools() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
@@ -536,16 +620,25 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-binary-guards-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
-        let workspace = conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        let workspace = conversation_store::conversation_workspace_path(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
         let binary_path = workspace.join("assets/image.bin");
         std::fs::create_dir_all(binary_path.parent().unwrap()).unwrap();
         std::fs::write(&binary_path, [0_u8, 159, 146, 150, 0]).unwrap();
 
         let read_err = snapshot
-            .execute("read_file", &json!({"path": "assets/image.bin"}), &ctx).await
+            .execute("read_file", &json!({"path": "assets/image.bin"}), &ctx)
+            .await
             .unwrap_err();
         assert!(read_err.contains("non-text/binary"));
 
@@ -563,7 +656,8 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap_err();
         assert!(replace_err.contains("Refusing to edit"));
 
@@ -572,17 +666,21 @@ mod tests {
                 "write_file",
                 &json!({"path": "assets/image.bin", "content": "hello"}),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap_err();
         assert!(write_err.contains("Refusing to write"));
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
     async fn test_text_edit_tools_and_structured_patch_are_deterministic() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
@@ -591,7 +689,11 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-text-edits-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         snapshot
@@ -602,7 +704,8 @@ mod tests {
                     "content": "fn main() {\n    println!(\"hello\");\n}\n"
                 }),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
 
         snapshot
@@ -619,7 +722,8 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
 
         snapshot
@@ -636,7 +740,8 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
 
         snapshot
@@ -653,7 +758,8 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
 
         snapshot
@@ -670,7 +776,8 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
 
         snapshot
@@ -692,24 +799,29 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
 
         let final_file = snapshot
-            .execute("read_file", &json!({"path": "src/main.rs"}), &ctx).await
+            .execute("read_file", &json!({"path": "src/main.rs"}), &ctx)
+            .await
             .unwrap();
         assert_eq!(
             final_file["content"],
             "fn main() {\n    let value = 3;\n    // greeting\n    println!(\"hi\");\n    println!(\"done\");\n}\n"
         );
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
     async fn test_apply_patch_is_atomic_when_a_later_edit_fails() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
@@ -718,7 +830,11 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-apply-patch-atomic-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         snapshot
@@ -729,7 +845,8 @@ mod tests {
                     "content": "alpha\nbeta\ngamma\n"
                 }),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap();
 
         let err = snapshot
@@ -751,22 +868,32 @@ mod tests {
                     ]
                 }),
                 &ctx,
-            ).await
+            )
+            .await
             .unwrap_err();
         assert!(err.contains("Patch edit 2 failed"));
 
         let final_file = snapshot
-            .execute("read_file", &json!({"path": "notes/example.txt"}), &ctx).await
+            .execute("read_file", &json!({"path": "notes/example.txt"}), &ctx)
+            .await
             .unwrap();
         assert_eq!(final_file["content"], "alpha\nbeta\ngamma\n");
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).unwrap();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
     async fn test_tool_catalog_snapshot_freezes_native_tool_view() {
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let ctx = ToolExecutionContext {
             app_config: Some(std::sync::Arc::new(config.clone())),
             ..Default::default()
@@ -819,7 +946,11 @@ mod tests {
     #[tokio::test]
     async fn test_background_task_start_wait_and_list() {
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let ctx = ToolExecutionContext::default();
 
@@ -875,9 +1006,19 @@ mod tests {
     #[tokio::test]
     async fn test_background_task_is_conversation_scoped() {
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
-        let ctx_a = ToolExecutionContext::with_conversation_id(format!("test-bg-a-{}", uuid::Uuid::new_v4()));
-        let ctx_b = ToolExecutionContext::with_conversation_id(format!("test-bg-b-{}", uuid::Uuid::new_v4()));
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
+        let ctx_a = ToolExecutionContext::with_conversation_id(format!(
+            "test-bg-a-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let ctx_b = ToolExecutionContext::with_conversation_id(format!(
+            "test-bg-b-{}",
+            uuid::Uuid::new_v4()
+        ));
         let snapshot = catalog.snapshot(&ctx_a).await;
 
         let started = snapshot
@@ -934,7 +1075,11 @@ mod tests {
     #[tokio::test]
     async fn test_background_task_cancel() {
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let ctx = ToolExecutionContext::default();
 
@@ -951,7 +1096,11 @@ mod tests {
         crate::tools::background_jobs::register_job_handle(&job, handle);
 
         let cancelled = snapshot
-            .execute("background_task", &json!({ "action": "cancel", "jobId": job_id }), &ctx)
+            .execute(
+                "background_task",
+                &json!({ "action": "cancel", "jobId": job_id }),
+                &ctx,
+            )
             .await
             .expect("cancel background job");
         assert_eq!(cancelled["ok"], true);
@@ -1074,12 +1223,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_tool_catalog_includes_conversation_dynamic_tool_alias() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let conversation_id = format!("test-dynamic-tools-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).expect("ensure conversation");
-        conversation_store::update_conversation_dynamic_tools(crate::config::constants::DEFAULT_AGENT_ID, 
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .expect("ensure conversation");
+        conversation_store::update_conversation_dynamic_tools(
+            crate::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
             vec![conversation_store::ConversationDynamicTool {
                 name: "math_alias".to_string(),
@@ -1101,9 +1254,15 @@ mod tests {
         .expect("persist dynamic tools");
 
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let snapshot = catalog
-            .snapshot(&ToolExecutionContext::with_conversation_id(conversation_id.clone()))
+            .snapshot(&ToolExecutionContext::with_conversation_id(
+                conversation_id.clone(),
+            ))
             .await;
 
         assert!(snapshot.active_tool_names().contains("math_alias"));
@@ -1127,17 +1286,25 @@ mod tests {
             .expect("execute aliased tool");
         assert_eq!(result["result"].as_f64(), Some(19.0));
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).ok();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .ok();
     }
 
     #[tokio::test]
     async fn test_dynamic_mcp_tool_alias_defaults_to_layout_grid_icon() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let conversation_id = format!("test-dynamic-mcp-tools-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).expect("ensure conversation");
-        conversation_store::update_conversation_dynamic_tools(crate::config::constants::DEFAULT_AGENT_ID, 
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .expect("ensure conversation");
+        conversation_store::update_conversation_dynamic_tools(
+            crate::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
             vec![conversation_store::ConversationDynamicTool {
                 name: "docs_search".to_string(),
@@ -1160,10 +1327,19 @@ mod tests {
         .expect("persist dynamic tools");
 
         let mut config = AppConfig::default();
-        config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        config
+            .mcp
+            .servers
+            .insert("openai_docs".to_string(), McpServerConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let snapshot = catalog
-            .snapshot(&ToolExecutionContext::with_conversation_id(conversation_id.clone()))
+            .snapshot(&ToolExecutionContext::with_conversation_id(
+                conversation_id.clone(),
+            ))
             .await;
 
         assert_eq!(
@@ -1173,15 +1349,26 @@ mod tests {
             Some("LayoutGrid")
         );
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).ok();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .ok();
     }
 
     #[tokio::test]
     async fn test_unmounted_mcp_server_exposes_only_mount_tool() {
         let mut config = AppConfig::default();
-        config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
+        config
+            .mcp
+            .servers
+            .insert("openai_docs".to_string(), McpServerConfig::default());
 
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
         assert!(snapshot.schemas().iter().any(|schema| {
@@ -1210,9 +1397,16 @@ mod tests {
     #[tokio::test]
     async fn test_mounted_mcp_server_exposes_server_tools_and_control_tool() {
         let mut config = AppConfig::default();
-        config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
+        config
+            .mcp
+            .servers
+            .insert("openai_docs".to_string(), McpServerConfig::default());
 
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let mut mounted_servers = MountedToolSourceSessions::new();
         mounted_servers.insert(
             "openai_docs".to_string(),
@@ -1309,8 +1503,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_home_plugin_package_is_exposed_and_executable() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let home = setup_test_home();
         let plugin_dir = home.home.join("plugins").join("home-demo");
         std::fs::create_dir_all(&plugin_dir).expect("create plugin dir");
@@ -1380,12 +1573,16 @@ globalThis.AgentJaxPlugin = {
 
     #[tokio::test]
     async fn test_snapshot_restores_persisted_mounted_mcp_server_from_conversation_metadata() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let conversation_id = format!("test-mounted-mcp-{}", uuid::Uuid::new_v4());
-        conversation_store::ensure_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).expect("ensure conversation");
-        conversation_store::update_conversation_mounted_tool_sources(crate::config::constants::DEFAULT_AGENT_ID, 
+        conversation_store::ensure_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .expect("ensure conversation");
+        conversation_store::update_conversation_mounted_tool_sources(
+            crate::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
             vec![conversation_store::ConversationMountedToolSource {
                 source_id: "openai_docs".to_string(),
@@ -1407,10 +1604,19 @@ globalThis.AgentJaxPlugin = {
         .expect("persist mounted tool sources");
 
         let mut config = AppConfig::default();
-        config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        config
+            .mcp
+            .servers
+            .insert("openai_docs".to_string(), McpServerConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let snapshot = catalog
-            .snapshot(&ToolExecutionContext::with_conversation_id(conversation_id.clone()))
+            .snapshot(&ToolExecutionContext::with_conversation_id(
+                conversation_id.clone(),
+            ))
             .await;
 
         assert!(
@@ -1424,13 +1630,16 @@ globalThis.AgentJaxPlugin = {
                 .contains("mcp__openai_docs__search_openai_docs")
         );
 
-        conversation_store::delete_conversation(crate::config::constants::DEFAULT_AGENT_ID, &conversation_id).ok();
+        conversation_store::delete_conversation(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            &conversation_id,
+        )
+        .ok();
     }
 
     #[tokio::test]
     async fn test_unfolded_mcp_server_bypasses_control_tool_and_exposes_tools() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let _home = setup_test_home();
 
         let mut config = AppConfig::default();
@@ -1443,7 +1652,11 @@ globalThis.AgentJaxPlugin = {
             },
         );
 
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
         assert!(
@@ -1456,9 +1669,16 @@ globalThis.AgentJaxPlugin = {
     #[tokio::test]
     async fn test_tool_manager_snapshot_groups_sources_without_eager_mcp_discovery() {
         let mut config = AppConfig::default();
-        config.mcp.servers.insert("openai_docs".to_string(), McpServerConfig::default());
+        config
+            .mcp
+            .servers
+            .insert("openai_docs".to_string(), McpServerConfig::default());
 
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let snapshot = catalog.tool_manager_snapshot(Default::default()).await;
 
         let native_source = snapshot
@@ -1521,9 +1741,16 @@ globalThis.AgentJaxPlugin = {
     #[tokio::test]
     async fn test_tool_manager_mcp_discovery_failure_is_source_scoped() {
         let mut config = AppConfig::default();
-        config.mcp.servers.insert("broken".to_string(), McpServerConfig::default());
+        config
+            .mcp
+            .servers
+            .insert("broken".to_string(), McpServerConfig::default());
 
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let snapshot = catalog
             .tool_manager_snapshot(crate::tools::ToolManagerSnapshotRequest {
                 source_id: Some("broken".to_string()),
@@ -1604,9 +1831,13 @@ globalThis.AgentJaxPlugin = {
             },
             ..Default::default()
         };
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &agent_config)
-            .with_plugin_manifests(vec![plugin_manifest])
-            .expect("plugin manifest should validate");
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &agent_config,
+        )
+        .with_plugin_manifests(vec![plugin_manifest])
+        .expect("plugin manifest should validate");
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
         assert!(!snapshot.active_tool_names().contains("calculator"));
@@ -1634,8 +1865,11 @@ globalThis.AgentJaxPlugin = {
             "calculator".to_string(),
             ToolEnabledConfig { enabled: true },
         );
-        let reenabled_catalog =
-            ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &reenabled_agent);
+        let reenabled_catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &reenabled_agent,
+        );
         let reenabled_snapshot = reenabled_catalog
             .snapshot(&ToolExecutionContext::default())
             .await;
@@ -1648,8 +1882,7 @@ globalThis.AgentJaxPlugin = {
 
     #[tokio::test]
     async fn test_tool_manager_mcp_exposure_unfolded_replaces_control_with_server_tools() {
-        let _guard = crate::config::test_env_lock()
-            .lock().await;
+        let _guard = crate::config::test_env_lock().lock().await;
         let home = setup_test_home();
         let server_script = home.home.join("mock-mcp-server.js");
         std::fs::write(
@@ -1716,7 +1949,11 @@ rl.on('line', (line) => {
                 tools: Default::default(),
             },
         );
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &agent_config);
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &agent_config,
+        );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
         assert!(
@@ -1736,7 +1973,11 @@ rl.on('line', (line) => {
     #[tokio::test]
     async fn test_catalog_includes_llm_map() {
         let config = crate::config::AppConfig::default();
-        let catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &crate::config::AgentConfig::default());
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &config,
+            &crate::config::AgentConfig::default(),
+        );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
         assert!(
@@ -1748,7 +1989,12 @@ rl.on('line', (line) => {
             .iter()
             .find(|s| s.get("name").and_then(|v| v.as_str()) == Some("llm_map"))
             .expect("llm_map schema");
-        assert!(schema["description"].as_str().unwrap_or("").contains("JSONL"));
+        assert!(
+            schema["description"]
+                .as_str()
+                .unwrap_or("")
+                .contains("JSONL")
+        );
     }
 
     #[tokio::test]
@@ -1762,7 +2008,9 @@ rl.on('line', (line) => {
             "outputPath": "/tmp/out.jsonl"
         });
         let result = tool.execute(&args, &ctx).await;
-        assert!(result.is_err(), "llm_map should fail without conversation context");
+        assert!(
+            result.is_err(),
+            "llm_map should fail without conversation context"
+        );
     }
-
 }

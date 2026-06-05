@@ -3,9 +3,9 @@
 //! Coordinates chunking, embedding, and vector store operations into
 //! a single `RagIndex` interface.
 
+use crate::agentjax_home;
 use crate::config::{AppConfig, RagConfig};
 use crate::error::{AgentJaxError, AgentJaxResult};
-use crate::agentjax_home;
 use crate::provider_api;
 use crate::provider_api::types::EmbeddingRequest;
 
@@ -35,7 +35,10 @@ impl RagIndex {
     /// Opens the vector store and initializes the chunker from the
     /// configured RAG settings. Embedding is performed via the
     /// unified `provider_api` protocol layer.
-    pub async fn from_config(config: &RagConfig, default_provider_key: &str) -> AgentJaxResult<Self> {
+    pub async fn from_config(
+        config: &RagConfig,
+        default_provider_key: &str,
+    ) -> AgentJaxResult<Self> {
         let home = agentjax_home::agentjax_home_dir()?;
         let store_path = home.join(&config.storage_path);
         let store = VectorStore::open(&store_path).await?;
@@ -44,7 +47,10 @@ impl RagIndex {
         // Resolve the provider key and model for embedding from the config.
         // If `embedding.provider_key` is set, use it; otherwise default to
         // the provided fallback (typically the agent's active_provider).
-        let provider_key = config.embedding.provider_key.clone()
+        let provider_key = config
+            .embedding
+            .provider_key
+            .clone()
             .filter(|k| !k.is_empty())
             .unwrap_or_else(|| default_provider_key.to_string());
         let embedding_model = config.embedding.model.clone();
@@ -148,7 +154,9 @@ impl RagIndex {
         )
         .await?;
 
-        let query_vector = response.embeddings.first()
+        let query_vector = response
+            .embeddings
+            .first()
             .ok_or_else(|| AgentJaxError::embedding("Empty embedding response"))?
             .clone();
 

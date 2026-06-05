@@ -142,19 +142,16 @@ impl PluginInstance {
         //    headerMap, usageFrom, etc.) are available as globals.
         let sdk_bootstrap: &'static str =
             include_str!("../../builtin-plugins/sdk/sdk-bootstrap.js");
-        runtime.execute_script("<agentjax-sdk-bootstrap>", sdk_bootstrap).map_err(|err| {
-            PluginRuntimeError::JavaScript(format!(
-                "failed to evaluate SDK bootstrap: {err}"
-            ))
-        })?;
+        runtime
+            .execute_script("<agentjax-sdk-bootstrap>", sdk_bootstrap)
+            .map_err(|err| {
+                PluginRuntimeError::JavaScript(format!("failed to evaluate SDK bootstrap: {err}"))
+            })?;
 
         // 2. Evaluate the plugin entrypoint into the persistent isolate so
         //    `globalThis.AgentJaxPlugin` stays alive for subsequent calls.
-        let (entrypoint_name, source) = resolve_entrypoint_script(
-            &manifest,
-            root_dir.as_deref(),
-            entrypoint_source,
-        )?;
+        let (entrypoint_name, source) =
+            resolve_entrypoint_script(&manifest, root_dir.as_deref(), entrypoint_source)?;
         runtime
             .execute_script(entrypoint_name, source)
             .map_err(|err| {
@@ -164,10 +161,7 @@ impl PluginInstance {
                 ))
             })?;
 
-        Ok(Self {
-            manifest,
-            runtime,
-        })
+        Ok(Self { manifest, runtime })
     }
 
     /// Call a JS function path: `AgentJaxPlugin.providers[kind][fn](arg)`.
@@ -281,7 +275,9 @@ impl PluginInstance {
     }
 
     /// Extract provider definitions from the plugin's entrypoint.
-    pub fn extract_provider_definitions(&mut self) -> PluginRuntimeResult<Vec<PluginProviderDefinition>> {
+    pub fn extract_provider_definitions(
+        &mut self,
+    ) -> PluginRuntimeResult<Vec<PluginProviderDefinition>> {
         let result = self
             .runtime
             .execute_script(
@@ -319,8 +315,9 @@ impl PluginInstance {
 
         deno_core::scope!(scope, &mut self.runtime);
         let local = v8::Local::new(scope, result);
-        serde_v8::from_v8::<Vec<PluginProviderDefinition>>(scope, local)
-            .map_err(|err| PluginRuntimeError::JavaScript(format!("invalid provider definitions: {err}")))
+        serde_v8::from_v8::<Vec<PluginProviderDefinition>>(scope, local).map_err(|err| {
+            PluginRuntimeError::JavaScript(format!("invalid provider definitions: {err}"))
+        })
     }
 }
 
@@ -429,17 +426,18 @@ impl DenoCorePluginRuntime {
     }
 
     /// Execute a tool call on a registered plugin.
-    pub fn execute_tool_call(&mut self, call: PluginToolCall) -> PluginRuntimeResult<PluginToolResult> {
+    pub fn execute_tool_call(
+        &mut self,
+        call: PluginToolCall,
+    ) -> PluginRuntimeResult<PluginToolResult> {
         let instance = self
             .plugins
             .get_mut(&call.plugin_id)
             .ok_or_else(|| PluginRuntimeError::UnknownPlugin(call.plugin_id.clone()))?;
 
         // Apply execution timeout guard
-        let _timeout_guard = install_execution_timeout(
-            &mut instance.runtime,
-            call.sandbox.max_execution_ms,
-        );
+        let _timeout_guard =
+            install_execution_timeout(&mut instance.runtime, call.sandbox.max_execution_ms);
 
         // IMPORTANT: deno_core module_loader causes HandleScope issues in
         // temporary async contexts. We evaluate the call synchronously but
@@ -490,9 +488,9 @@ pub fn provider_definitions_for_package(
     // If the manifest already defines one or more providers with `model_routing`
     // or `builtin_models` (Phase 2 declarative schema), the JS step is skipped.
     // This avoids creating a JsRuntime for purely declarative provider plugins.
-    let is_fully_declarative = providers.iter().any(|p| {
-        !p.model_routing.is_empty() || !p.builtin_models.is_empty()
-    });
+    let is_fully_declarative = providers
+        .iter()
+        .any(|p| !p.model_routing.is_empty() || !p.builtin_models.is_empty());
 
     if is_fully_declarative {
         return Ok(providers);
@@ -511,9 +509,7 @@ pub fn provider_definitions_for_package(
 /// Unlike `DenoCorePluginRuntime::register_package`, each call creates a fresh
 /// `JsRuntime`. This is safe for async callers that need synchronous JS calls
 /// before/after `.await` boundaries since `JsRuntime` is not `Send`.
-pub fn create_temp_plugin_instance(
-    package: &PluginPackage,
-) -> PluginRuntimeResult<PluginInstance> {
+pub fn create_temp_plugin_instance(package: &PluginPackage) -> PluginRuntimeResult<PluginInstance> {
     let module_loader = create_sdk_module_loader();
     PluginInstance::new(
         package.manifest.clone(),
@@ -533,10 +529,7 @@ fn resolve_entrypoint_script(
     entrypoint_source: Option<String>,
 ) -> PluginRuntimeResult<(String, String)> {
     if let Some(source) = entrypoint_source {
-        return Ok((
-            format!("<agentjax-plugin:{}>", manifest.id),
-            source,
-        ));
+        return Ok((format!("<agentjax-plugin:{}>", manifest.id), source));
     }
 
     let root = root_dir.ok_or_else(|| {

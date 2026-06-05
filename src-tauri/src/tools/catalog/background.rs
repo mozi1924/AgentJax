@@ -14,7 +14,12 @@ pub(super) fn background_tool_name(arguments: &Value) -> AgentJaxResult<String> 
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-        .ok_or_else(|| agentjax_err!("background_task action='start' requires a non-empty toolName", ToolExecution))
+        .ok_or_else(|| {
+            agentjax_err!(
+                "background_task action='start' requires a non-empty toolName",
+                ToolExecution
+            )
+        })
 }
 
 pub(super) fn background_tool_arguments(arguments: &Value) -> Value {
@@ -33,7 +38,12 @@ pub(super) fn background_job_id(arguments: &Value) -> AgentJaxResult<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-        .ok_or_else(|| agentjax_err!("background_task action='wait' requires a non-empty jobId", ToolExecution))
+        .ok_or_else(|| {
+            agentjax_err!(
+                "background_task action='wait' requires a non-empty jobId",
+                ToolExecution
+            )
+        })
 }
 
 pub(super) fn background_wait_timeout_ms(arguments: &Value) -> Option<u64> {
@@ -73,10 +83,13 @@ pub(super) async fn execute_backgroundable_entry(
                     &tool_name,
                     arguments,
                 )
-                .await}
-        ToolSnapshotEntry::Plugin { .. } => {
-            Err(crate::error::AgentJaxError::tool("Plugin tools are not supported as background jobs yet"))
+                .await
         }
-        _ => Err(crate::error::AgentJaxError::tool("Only native and MCP tools can run as background jobs")),
+        ToolSnapshotEntry::Plugin { .. } => Err(crate::error::AgentJaxError::tool(
+            "Plugin tools are not supported as background jobs yet",
+        )),
+        _ => Err(crate::error::AgentJaxError::tool(
+            "Only native and MCP tools can run as background jobs",
+        )),
     }
 }

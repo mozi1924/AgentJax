@@ -28,7 +28,10 @@ impl LocalTokenizerManager {
             tokenizer
                 .encode(text, true)
                 .map(|encoding| encoding.get_ids().len())
-                .map_err(|err| AgentJaxError::internal(format!("Tokenization error: {err}")).with_source(err.to_string()))
+                .map_err(|err| {
+                    AgentJaxError::internal(format!("Tokenization error: {err}"))
+                        .with_source(err.to_string())
+                })
         }) {
             Ok(count) => count,
             Err(err) => {
@@ -45,13 +48,15 @@ impl LocalTokenizerManager {
     fn get_or_load_tokenizer(&self, model: &str) -> crate::error::AgentJaxResult<Arc<Tokenizer>> {
         let tokenizer_id = tokenizer_id_for_model(model)?;
         if let Ok(cache) = self.cache.lock()
-            && let Some(tokenizer) = cache.get(tokenizer_id) {
-                return Ok(Arc::clone(tokenizer));
-            }
+            && let Some(tokenizer) = cache.get(tokenizer_id)
+        {
+            return Ok(Arc::clone(tokenizer));
+        }
         if let Ok(failed_loads) = self.failed_loads.lock()
-            && let Some(err) = failed_loads.get(tokenizer_id) {
-                return Err(AgentJaxError::internal(err.clone()));
-            }
+            && let Some(err) = failed_loads.get(tokenizer_id)
+        {
+            return Err(AgentJaxError::internal(err.clone()));
+        }
 
         let tokenizer = match Tokenizer::from_pretrained(tokenizer_id, None) {
             Ok(tokenizer) => Arc::new(tokenizer),
@@ -112,7 +117,10 @@ fn normalize_model_name(model: &str) -> String {
 fn tokenizer_id_for_model(model: &str) -> crate::error::AgentJaxResult<&'static str> {
     let normalized = normalize_model_name(model).to_ascii_lowercase();
     if normalized.is_empty() {
-        return Err(agentjax_err!("Model name cannot be empty for token counting", Config));
+        return Err(agentjax_err!(
+            "Model name cannot be empty for token counting",
+            Config
+        ));
     }
 
     if normalized.contains("claude") {

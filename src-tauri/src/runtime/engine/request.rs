@@ -90,13 +90,13 @@ pub(super) fn ensure_tool_call_output_pairs(
         if matches!(
             item.get("type").and_then(Value::as_str),
             Some("function_call_output") | Some("custom_tool_call_output")
-        )
-            && let Some(call_id) = item.get("call_id").and_then(Value::as_str)
-                && let Some(missing_call) = missing_call_by_id.get(call_id)
-                    && !inserted.contains(call_id) {
-                        stitched.push(missing_call.clone());
-                        inserted.insert(call_id.to_string());
-                    }
+        ) && let Some(call_id) = item.get("call_id").and_then(Value::as_str)
+            && let Some(missing_call) = missing_call_by_id.get(call_id)
+            && !inserted.contains(call_id)
+        {
+            stitched.push(missing_call.clone());
+            inserted.insert(call_id.to_string());
+        }
         stitched.push(item);
     }
 

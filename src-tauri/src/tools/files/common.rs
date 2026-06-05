@@ -52,30 +52,43 @@ pub struct TextFileRead {
 /// touches disk.
 pub fn get_workspace_dir(context: &ToolExecutionContext) -> AgentJaxResult<PathBuf> {
     if let Some(agent_id) = &context.sub_agent_id
-        && let Some(spec) = crate::sub_agents::manager::SubAgentManager::get_spec(agent_id) {
-            let parent_id = &spec.parent_conversation_id;
-            let dir = if spec.use_worktree {
-                conversation_store::conversation_workspace_path(context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID), parent_id)?
-                    .parent()
-                    .ok_or_else(|| agentjax_err!("Invalid parent workspace path", ToolExecution))?
-                    .join("sub_agents")
-                    .join(agent_id)
-                    .join("worktree")
-            } else {
-                conversation_store::conversation_workspace_path(context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID), parent_id)?
-            };
+        && let Some(spec) = crate::sub_agents::manager::SubAgentManager::get_spec(agent_id)
+    {
+        let parent_id = &spec.parent_conversation_id;
+        let dir = if spec.use_worktree {
+            conversation_store::conversation_workspace_path(
+                context
+                    .agent_id
+                    .as_deref()
+                    .unwrap_or(crate::config::constants::DEFAULT_AGENT_ID),
+                parent_id,
+            )?
+            .parent()
+            .ok_or_else(|| agentjax_err!("Invalid parent workspace path", ToolExecution))?
+            .join("sub_agents")
+            .join(agent_id)
+            .join("worktree")
+        } else {
+            conversation_store::conversation_workspace_path(
+                context
+                    .agent_id
+                    .as_deref()
+                    .unwrap_or(crate::config::constants::DEFAULT_AGENT_ID),
+                parent_id,
+            )?
+        };
 
-            if !dir.exists() {
-                fs::create_dir_all(&dir).map_err(|err| {
-                    AgentJaxError::tool(format!(
-                        "Failed to create workspace directory {}: {err}",
-                        dir.display()
-                    ))
-                    .with_error_source(&err)
-                })?;
-            }
-            return Ok(dir);
+        if !dir.exists() {
+            fs::create_dir_all(&dir).map_err(|err| {
+                AgentJaxError::tool(format!(
+                    "Failed to create workspace directory {}: {err}",
+                    dir.display()
+                ))
+                .with_error_source(&err)
+            })?;
         }
+        return Ok(dir);
+    }
 
     let dir = if let Some(conversation_id) = context
         .conversation_id
@@ -83,7 +96,13 @@ pub fn get_workspace_dir(context: &ToolExecutionContext) -> AgentJaxResult<PathB
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        conversation_store::conversation_workspace_path(context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID), conversation_id)?
+        conversation_store::conversation_workspace_path(
+            context
+                .agent_id
+                .as_deref()
+                .unwrap_or(crate::config::constants::DEFAULT_AGENT_ID),
+            conversation_id,
+        )?
     } else {
         return Err(agentjax_err!(
             "Missing conversation context for file tool. File tools require a conversation workspace.",
@@ -207,8 +226,9 @@ pub fn parse_tool_args<T>(arguments: &Value, tool_name: &str) -> AgentJaxResult<
 where
     T: for<'de> Deserialize<'de>,
 {
-    serde_json::from_value(arguments.clone())
-        .map_err(|err| AgentJaxError::tool(format!("Invalid arguments for tool '{tool_name}': {err}")))
+    serde_json::from_value(arguments.clone()).map_err(|err| {
+        AgentJaxError::tool(format!("Invalid arguments for tool '{tool_name}': {err}"))
+    })
 }
 
 pub fn detect_binary_reason_from_bytes(bytes: &[u8]) -> Option<&'static str> {
@@ -232,8 +252,10 @@ pub fn detect_binary_reason_from_bytes(bytes: &[u8]) -> Option<&'static str> {
 }
 
 pub fn read_file_sample(path: &Path, max_bytes: usize) -> AgentJaxResult<Vec<u8>> {
-    let metadata = fs::metadata(path)
-        .map_err(|err| AgentJaxError::tool(format!("Failed to stat file {}: {err}", path.display())).with_error_source(&err))?;
+    let metadata = fs::metadata(path).map_err(|err| {
+        AgentJaxError::tool(format!("Failed to stat file {}: {err}", path.display()))
+            .with_error_source(&err)
+    })?;
     if !metadata.is_file() {
         return Ok(Vec::new());
     }
@@ -245,12 +267,17 @@ pub fn read_file_sample(path: &Path, max_bytes: usize) -> AgentJaxResult<Vec<u8>
         return Ok(Vec::new());
     }
 
-    let file = fs::File::open(path)
-        .map_err(|err| AgentJaxError::tool(format!("Failed to open file {}: {err}", path.display())).with_error_source(&err))?;
+    let file = fs::File::open(path).map_err(|err| {
+        AgentJaxError::tool(format!("Failed to open file {}: {err}", path.display()))
+            .with_error_source(&err)
+    })?;
     let mut sample = Vec::with_capacity(sample_len);
     file.take(sample_len as u64)
         .read_to_end(&mut sample)
-        .map_err(|err| AgentJaxError::tool(format!("Failed to inspect file {}: {err}", path.display())).with_error_source(&err))?;
+        .map_err(|err| {
+            AgentJaxError::tool(format!("Failed to inspect file {}: {err}", path.display()))
+                .with_error_source(&err)
+        })?;
 
     Ok(sample)
 }
@@ -306,8 +333,10 @@ pub fn format_is_text_candidate(format: FileFormat) -> bool {
 }
 
 pub fn detect_file_type(path: &Path) -> AgentJaxResult<FileTypeDetection> {
-    let metadata = fs::metadata(path)
-        .map_err(|err| AgentJaxError::tool(format!("Failed to stat file {}: {err}", path.display())).with_error_source(&err))?;
+    let metadata = fs::metadata(path).map_err(|err| {
+        AgentJaxError::tool(format!("Failed to stat file {}: {err}", path.display()))
+            .with_error_source(&err)
+    })?;
     if !metadata.is_dir() && !metadata.is_file() {
         return Ok(FileTypeDetection {
             detected_format: "Other".to_string(),
@@ -336,10 +365,17 @@ pub fn detect_file_type(path: &Path) -> AgentJaxResult<FileTypeDetection> {
         });
     }
 
-    let file = fs::File::open(path)
-        .map_err(|err| AgentJaxError::tool(format!("Failed to open file {}: {err}", path.display())).with_error_source(&err))?;
-    let detected = FileFormat::from_reader(file)
-        .map_err(|err| AgentJaxError::tool(format!("Failed to detect file type for {}: {err}", path.display())).with_error_source(&err))?;
+    let file = fs::File::open(path).map_err(|err| {
+        AgentJaxError::tool(format!("Failed to open file {}: {err}", path.display()))
+            .with_error_source(&err)
+    })?;
+    let detected = FileFormat::from_reader(file).map_err(|err| {
+        AgentJaxError::tool(format!(
+            "Failed to detect file type for {}: {err}",
+            path.display()
+        ))
+        .with_error_source(&err)
+    })?;
     let sample = read_file_sample(path, TEXT_DETECTION_SAMPLE_BYTES)?;
     let sample_reason = detect_binary_reason_from_bytes(&sample);
     let text_candidate = format_is_text_candidate(detected);
@@ -484,22 +520,35 @@ pub fn read_text_file(
         ));
     }
 
-    let metadata = fs::metadata(path)
-        .map_err(|err| AgentJaxError::tool(format!("Failed to stat file {}: {err}", path.display())).with_error_source(&err))?;
+    let metadata = fs::metadata(path).map_err(|err| {
+        AgentJaxError::tool(format!("Failed to stat file {}: {err}", path.display()))
+            .with_error_source(&err)
+    })?;
     let total_bytes = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
     let read_limit = max_bytes.saturating_add(4);
     let bytes_to_read = total_bytes.min(read_limit);
 
-    let file = fs::File::open(path)
-        .map_err(|err| AgentJaxError::tool(format!("Failed to open file {}: {err}", path.display())).with_error_source(&err))?;
+    let file = fs::File::open(path).map_err(|err| {
+        AgentJaxError::tool(format!("Failed to open file {}: {err}", path.display()))
+            .with_error_source(&err)
+    })?;
     let mut buffer = Vec::with_capacity(bytes_to_read);
     file.take(bytes_to_read as u64)
         .read_to_end(&mut buffer)
-        .map_err(|err| AgentJaxError::tool(format!("Failed to read file {}: {err}", path.display())).with_error_source(&err))?;
+        .map_err(|err| {
+            AgentJaxError::tool(format!("Failed to read file {}: {err}", path.display()))
+                .with_error_source(&err)
+        })?;
 
     let preview = truncate_to_utf8_boundary(&buffer, max_bytes)?;
     let content = std::str::from_utf8(preview)
-        .map_err(|err| AgentJaxError::tool(format!("Failed to decode file {} as UTF-8: {err}", path.display())).with_error_source(&err))?
+        .map_err(|err| {
+            AgentJaxError::tool(format!(
+                "Failed to decode file {} as UTF-8: {err}",
+                path.display()
+            ))
+            .with_error_source(&err)
+        })?
         .to_string();
 
     Ok(TextFileRead {
@@ -514,8 +563,10 @@ pub fn read_text_file(
 pub fn write_text_file(path: &Path, content: &str) -> AgentJaxResult<()> {
     ensure_text_path_for_write(path)?;
     ensure_parent_dir_exists(path)?;
-    fs::write(path, content)
-        .map_err(|err| AgentJaxError::tool(format!("Failed to write file {}: {err}", path.display())).with_error_source(&err))
+    fs::write(path, content).map_err(|err| {
+        AgentJaxError::tool(format!("Failed to write file {}: {err}", path.display()))
+            .with_error_source(&err)
+    })
 }
 
 pub fn count_lines(content: &str) -> usize {
@@ -572,8 +623,8 @@ pub fn stat_value(path: &Path, metadata: &fs::Metadata) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_agents::types::{SubAgentSpec, SubAgentType};
     use crate::sub_agents::manager::SubAgentManager;
+    use crate::sub_agents::types::{SubAgentSpec, SubAgentType};
 
     #[test]
     fn test_get_workspace_dir_for_main_agent() {

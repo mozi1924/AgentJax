@@ -19,11 +19,9 @@
 //! - The original messages are always retained in the Immutable Store
 
 use crate::lcm::store::LcmStore;
-use crate::lcm::types::{
-    LcmError, MessageId, SummaryChild, SummaryId, SummaryKind, SummaryNode,
-};
 #[cfg(test)]
 use crate::lcm::types::StoredMessage;
+use crate::lcm::types::{LcmError, MessageId, SummaryChild, SummaryId, SummaryKind, SummaryNode};
 #[cfg(test)]
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -115,7 +113,6 @@ impl SummaryDag {
     }
 
     // ── Traversal ─────────────────────────────────────────────────────
-
 }
 
 // ── Test-only helpers ─────────────────────────────────────────────────────────
@@ -123,7 +120,10 @@ impl SummaryDag {
 /// Get all descendant message IDs for a summary node via BFS.
 /// Only available in test builds.
 #[cfg(test)]
-pub fn get_descendant_messages(dag: &SummaryDag, summary_id: &SummaryId) -> Result<Vec<MessageId>, LcmError> {
+pub fn get_descendant_messages(
+    dag: &SummaryDag,
+    summary_id: &SummaryId,
+) -> Result<Vec<MessageId>, LcmError> {
     use std::collections::VecDeque;
     let mut messages = Vec::new();
     let mut visited = HashSet::new();
@@ -241,7 +241,12 @@ mod tests {
         store.persist_message(&msg1).unwrap();
         store.persist_message(&msg2).unwrap();
 
-        let summary = make_summary("sum-1", "User greeted and asked a question", SummaryKind::Leaf, 1);
+        let summary = make_summary(
+            "sum-1",
+            "User greeted and asked a question",
+            SummaryKind::Leaf,
+            1,
+        );
 
         dag.create_leaf_summary(&summary, &[msg1.id.clone(), msg2.id.clone()])
             .unwrap();

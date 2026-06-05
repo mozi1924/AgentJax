@@ -25,16 +25,16 @@
 //! - **Lossless Retrievability**: Every message can be recovered via
 //!   `lcm_expand`, regardless of compaction depth.
 
+#[cfg(test)]
+use crate::lcm::compaction::NoopSummarizer;
 use crate::lcm::compaction::{CompactionEngine, Summarizer};
 use crate::lcm::dag::SummaryDag;
 use crate::lcm::store::LcmStore;
-use crate::lcm::types::{
-    ContextEntry, FileRefId, LcmConfig, LcmError, LcmId, MessageId,
-    StoredMessage, SummaryChild, SummaryId, SummaryKind, estimate_tokens,
-};
 use crate::lcm::types::MessageRole;
-#[cfg(test)]
-use crate::lcm::compaction::NoopSummarizer;
+use crate::lcm::types::{
+    ContextEntry, FileRefId, LcmConfig, LcmError, LcmId, MessageId, StoredMessage, SummaryChild,
+    SummaryId, SummaryKind, estimate_tokens,
+};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -94,11 +94,7 @@ impl LcmEngine {
     /// The `summarizer` is used for Level 1 and Level 2 compaction.
     /// Pass `Arc::new(NoopSummarizer)` if you want to force Level 3
     /// truncation only (useful for testing or when no LLM is available).
-    pub fn new(
-        store: Arc<LcmStore>,
-        summarizer: Arc<dyn Summarizer>,
-        config: LcmConfig,
-    ) -> Self {
+    pub fn new(store: Arc<LcmStore>, summarizer: Arc<dyn Summarizer>, config: LcmConfig) -> Self {
         let dag = SummaryDag::new(store.clone());
         let truncation_max_tokens = config.truncation_max_tokens;
 
@@ -157,7 +153,9 @@ impl LcmEngine {
         };
 
         let Some(mut rx) = rx_opt else {
-            log::error!("LCM: Compaction receiver already taken (spawn_compaction_task called twice?)");
+            log::error!(
+                "LCM: Compaction receiver already taken (spawn_compaction_task called twice?)"
+            );
             return;
         };
 
@@ -294,9 +292,10 @@ impl LcmEngine {
         self.ensure_below_hard_threshold().await?;
 
         // Return current active context snapshot.
-        let ctx = self.active_context.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire context lock: {e}"))
-        })?;
+        let ctx = self
+            .active_context
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire context lock: {e}")))?;
         Ok(ctx.entries.clone())
     }
 
@@ -348,7 +347,8 @@ impl LcmEngine {
                 }
             }
 
-            let soft = ctx.token_count > self.config.soft_token_threshold && !ctx.compaction_running;
+            let soft =
+                ctx.token_count > self.config.soft_token_threshold && !ctx.compaction_running;
             let hard = ctx.token_count > self.config.hard_token_threshold;
             (soft, hard)
         }; // MutexGuard dropped here
@@ -364,17 +364,19 @@ impl LcmEngine {
         }
 
         // Return final active context snapshot.
-        let ctx = self.active_context.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire context lock: {e}"))
-        })?;
+        let ctx = self
+            .active_context
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire context lock: {e}")))?;
         Ok(ctx.entries.clone())
     }
 
     /// Get the current active context snapshot without modifying anything.
     pub fn active_context_snapshot(&self) -> Result<Vec<ContextEntry>, LcmError> {
-        let ctx = self.active_context.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire context lock: {e}"))
-        })?;
+        let ctx = self
+            .active_context
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire context lock: {e}")))?;
         Ok(ctx.entries.clone())
     }
 
@@ -382,9 +384,10 @@ impl LcmEngine {
     /// Currently only used in tests.
     #[allow(dead_code)]
     pub fn token_count(&self) -> Result<u32, LcmError> {
-        let ctx = self.active_context.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire context lock: {e}"))
-        })?;
+        let ctx = self
+            .active_context
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire context lock: {e}")))?;
         Ok(ctx.token_count)
     }
 
@@ -411,9 +414,10 @@ impl LcmEngine {
     /// Check if the active context is currently above the hard threshold.
     #[allow(dead_code)]
     pub fn is_above_hard_threshold(&self) -> Result<bool, LcmError> {
-        let ctx = self.active_context.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire context lock: {e}"))
-        })?;
+        let ctx = self
+            .active_context
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire context lock: {e}")))?;
         Ok(ctx.token_count > self.config.hard_token_threshold)
     }
 
@@ -551,8 +555,7 @@ impl LcmEngine {
 
             let message_ids: Vec<MessageId> = messages.iter().map(|m| m.id.clone()).collect();
 
-            self.dag
-                .create_leaf_summary(&summary_node, &message_ids)?;
+            self.dag.create_leaf_summary(&summary_node, &message_ids)?;
 
             // Atomically replace messages with summary pointer in active context.
             self.replace_in_active_context(
@@ -560,7 +563,10 @@ impl LcmEngine {
                 ContextEntry::SummaryPointer {
                     summary_id: summary_node.id.clone(),
                     text: summary_text,
-                    child_ids: message_ids.into_iter().map(|id| LcmId::from(id.as_str())).collect(),
+                    child_ids: message_ids
+                        .into_iter()
+                        .map(|id| LcmId::from(id.as_str()))
+                        .collect(),
                     file_refs: propagated_file_refs,
                 },
             )?;
@@ -701,9 +707,10 @@ impl LcmEngine {
             return Ok(msg.conversation_id.clone());
         }
         if let Some(sid) = summary_ids.first()
-            && let Some(summary) = self.store.get_summary(sid)? {
-                return Ok(summary.conversation_id);
-            }
+            && let Some(summary) = self.store.get_summary(sid)?
+        {
+            return Ok(summary.conversation_id);
+        }
         Err(LcmError::Compaction(
             "Cannot infer conversation ID for compaction".to_string(),
         ))
@@ -715,9 +722,10 @@ impl LcmEngine {
         old_entries: &[ContextEntry],
         new_entry: ContextEntry,
     ) -> Result<(), LcmError> {
-        let mut ctx = self.active_context.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire context lock: {e}"))
-        })?;
+        let mut ctx = self
+            .active_context
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire context lock: {e}")))?;
 
         // Collect IDs of messages being removed from active context.
         let removed_ids: HashSet<String> = old_entries
@@ -736,7 +744,8 @@ impl LcmEngine {
                 ContextEntry::RawMessage { content, .. } => estimate_tokens(content),
                 ContextEntry::SummaryPointer { text, .. } => estimate_tokens(text),
                 ContextEntry::FilePointer {
-                    exploration_summary, ..
+                    exploration_summary,
+                    ..
                 } => estimate_tokens(exploration_summary),
             })
             .sum();
@@ -745,7 +754,8 @@ impl LcmEngine {
             ContextEntry::RawMessage { content, .. } => estimate_tokens(content),
             ContextEntry::SummaryPointer { text, .. } => estimate_tokens(text),
             ContextEntry::FilePointer {
-                exploration_summary, ..
+                exploration_summary,
+                ..
             } => estimate_tokens(exploration_summary),
         };
 
@@ -773,9 +783,7 @@ impl LcmEngine {
                 _ => None,
             };
 
-            let is_in_old_block = entry_id
-                .as_ref()
-                .is_some_and(|id| old_ids.contains(id));
+            let is_in_old_block = entry_id.as_ref().is_some_and(|id| old_ids.contains(id));
 
             if !replaced && is_in_old_block {
                 if !skip_until_done {
@@ -852,33 +860,34 @@ impl LcmEngine {
                     // This message is covered by a summary — show the summary
                     // pointer instead of the raw message.
                     if seen_summaries.insert(summary_id.to_string())
-                        && let Some(summary) = self.store.get_summary(summary_id)? {
-                            let children = self.store.get_summary_children(summary_id)?;
-                            let child_ids: Vec<LcmId> = children
-                                .iter()
-                                .flat_map(|c| match c {
-                                    SummaryChild::Messages { ids } => {
-                                        ids.iter().map(|id| LcmId::from(id.as_str()))
-                                            .collect::<Vec<_>>()
-                                    }
-                                    SummaryChild::Summaries { ids } => {
-                                        ids.iter().map(|id| LcmId::from(id.as_str()))
-                                            .collect::<Vec<_>>()
-                                    }
-                                })
-                                .collect();
+                        && let Some(summary) = self.store.get_summary(summary_id)?
+                    {
+                        let children = self.store.get_summary_children(summary_id)?;
+                        let child_ids: Vec<LcmId> = children
+                            .iter()
+                            .flat_map(|c| match c {
+                                SummaryChild::Messages { ids } => ids
+                                    .iter()
+                                    .map(|id| LcmId::from(id.as_str()))
+                                    .collect::<Vec<_>>(),
+                                SummaryChild::Summaries { ids } => ids
+                                    .iter()
+                                    .map(|id| LcmId::from(id.as_str()))
+                                    .collect::<Vec<_>>(),
+                            })
+                            .collect();
 
-                            let entry = ContextEntry::SummaryPointer {
-                                summary_id: summary_id.clone(),
-                                text: summary.text.clone(),
-                                child_ids,
-                                file_refs: summary.file_refs.clone(),
-                            };
+                        let entry = ContextEntry::SummaryPointer {
+                            summary_id: summary_id.clone(),
+                            text: summary.text.clone(),
+                            child_ids,
+                            file_refs: summary.file_refs.clone(),
+                        };
 
-                            token_count += estimate_tokens(&summary.text);
-                            entries.push(entry);
-                            active_ids.insert(summary_id.to_string());
-                        }
+                        token_count += estimate_tokens(&summary.text);
+                        entries.push(entry);
+                        active_ids.insert(summary_id.to_string());
+                    }
                 }
                 None => {
                     // Raw message — include directly.
@@ -922,7 +931,13 @@ impl LcmEngine {
 
         for entry in entries {
             match entry {
-                ContextEntry::RawMessage { role, content, thinking, metadata, .. } => {
+                ContextEntry::RawMessage {
+                    role,
+                    content,
+                    thinking,
+                    metadata,
+                    ..
+                } => {
                     // ── Structured tool messages (via metadata) ────────────
                     // When a message carries a `message_type` in its metadata,
                     // reconstruct the proper Responses-API item shape so that
@@ -1011,7 +1026,9 @@ impl LcmEngine {
                     }
                     items.push(item);
                 }
-                ContextEntry::SummaryPointer { text, child_ids, .. } => {
+                ContextEntry::SummaryPointer {
+                    text, child_ids, ..
+                } => {
                     // Render summary as a developer/assistant note with
                     // expansion hints so the model knows it can drill down.
                     let child_count = child_ids.len();
@@ -1051,9 +1068,6 @@ impl LcmEngine {
 
         items
     }
-
-
-
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -1116,7 +1130,11 @@ mod tests {
     #[tokio::test]
     async fn test_token_count_tracking() {
         let engine = make_engine();
-        let msg = make_msg("msg-1", "Hello, world! This is a test message.", MessageRole::User);
+        let msg = make_msg(
+            "msg-1",
+            "Hello, world! This is a test message.",
+            MessageRole::User,
+        );
 
         engine.process_message(&msg).await.unwrap();
         let count = engine.token_count().unwrap();
@@ -1134,9 +1152,7 @@ mod tests {
         engine.store.persist_message(&msg1).unwrap();
         engine.store.persist_message(&msg2).unwrap();
 
-        let entries = engine
-            .rebuild_active_context("test-conv")
-            .unwrap();
+        let entries = engine.rebuild_active_context("test-conv").unwrap();
         assert_eq!(entries.len(), 2);
     }
 
@@ -1238,5 +1254,4 @@ mod tests {
         let items = engine.context_to_provider_items(&entries);
         assert_eq!(items.len(), 3);
     }
-
 }

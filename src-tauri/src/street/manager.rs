@@ -7,9 +7,7 @@
 //! conversation's event channel (for frontend auto-trigger). On the next turn,
 //! items are collected, formatted, and injected into the system prefix.
 
-use crate::street::types::{
-    StreetEvent, StreetItem, StreetItemStatus, StreetSnapshot,
-};
+use crate::street::types::{StreetEvent, StreetItem, StreetItemStatus, StreetSnapshot};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::mpsc;
@@ -76,9 +74,7 @@ impl StreetManager {
                 if let Some(pos) = items
                     .iter()
                     .enumerate()
-                    .min_by_key(|(_, i)| {
-                        i.lock().ok().map(|i| i.timestamp).unwrap_or(i64::MAX)
-                    })
+                    .min_by_key(|(_, i)| i.lock().ok().map(|i| i.timestamp).unwrap_or(i64::MAX))
                     .map(|(idx, _)| idx)
                 {
                     items.remove(pos);
@@ -140,10 +136,11 @@ impl StreetManager {
         if let Some(items) = guard.get(conversation_id) {
             for item in items {
                 if let Ok(mut i) = item.lock()
-                    && i.status == StreetItemStatus::Pending {
-                        i.status = StreetItemStatus::Delivered;
-                        count += 1;
-                    }
+                    && i.status == StreetItemStatus::Pending
+                {
+                    i.status = StreetItemStatus::Delivered;
+                    count += 1;
+                }
             }
         }
 
@@ -170,10 +167,12 @@ impl StreetManager {
         if let Some(items) = guard.get(conversation_id) {
             for item in items {
                 if let Ok(mut i) = item.lock()
-                    && i.id == item_id && i.status == StreetItemStatus::Pending {
-                        i.status = StreetItemStatus::Dismissed;
-                        return true;
-                    }
+                    && i.id == item_id
+                    && i.status == StreetItemStatus::Pending
+                {
+                    i.status = StreetItemStatus::Dismissed;
+                    return true;
+                }
             }
         }
         false
@@ -248,10 +247,7 @@ impl StreetManager {
     // ── Event channel management ─────────────────────────────────────────
 
     /// Register or replace the event channel sender for a conversation.
-    pub fn register_event_channel(
-        conversation_id: &str,
-        tx: mpsc::UnboundedSender<StreetEvent>,
-    ) {
+    pub fn register_event_channel(conversation_id: &str, tx: mpsc::UnboundedSender<StreetEvent>) {
         let mut guard = channels()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());

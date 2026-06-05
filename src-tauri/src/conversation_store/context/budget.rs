@@ -181,10 +181,11 @@ fn build_tool_pair_map(items: &[serde_json::Value]) -> std::collections::HashSet
             call_ids.insert(call_id, idx);
             pairs.insert(idx);
         } else if (type_str == "function_call_output" || type_str == "custom_tool_call_output")
-            && let Some(&call_idx) = call_ids.get(call_id) {
-                pairs.insert(idx);
-                pairs.insert(call_idx);
-            }
+            && let Some(&call_idx) = call_ids.get(call_id)
+        {
+            pairs.insert(idx);
+            pairs.insert(call_idx);
+        }
     }
 
     pairs
@@ -209,8 +210,7 @@ fn adjust_for_tool_pair_boundary(
         let counterpart_before = (0..start).any(|i| tool_pairs.contains(&i));
         if counterpart_before {
             // Move start back to include the first element of this pair.
-            let pair_start = (0..start).rfind(|i| tool_pairs.contains(i))
-                .unwrap_or(0);
+            let pair_start = (0..start).rfind(|i| tool_pairs.contains(i)).unwrap_or(0);
             return pair_start;
         }
     }
@@ -237,7 +237,8 @@ mod tests {
 
     #[test]
     fn unlimited_budget_passes_items_through() {
-        let items = vec![json!({"role": "user", "content": [{"type": "input_text", "text": "hello"}]})];
+        let items =
+            vec![json!({"role": "user", "content": [{"type": "input_text", "text": "hello"}]})];
         let budget = TokenBudget::unlimited();
         let result = truncate_items_to_budget(items.clone(), &budget);
         assert_eq!(result.len(), 1);
@@ -261,11 +262,26 @@ mod tests {
 
     #[test]
     fn resolve_gpt_variants() {
-        assert_eq!(TokenBudget::for_model("openai", "gpt-4-turbo").context_window, 128_000);
-        assert_eq!(TokenBudget::for_model("openai", "gpt-4-32k").context_window, 32_768);
-        assert_eq!(TokenBudget::for_model("openai", "gpt-4o-20240806").context_window, 128_000);
-        assert_eq!(TokenBudget::for_model("openai", "gpt-5-mini-20260501").context_window, 400_000);
-        assert_eq!(TokenBudget::for_model("openai", "gpt-3.5-turbo").context_window, 16_384);
+        assert_eq!(
+            TokenBudget::for_model("openai", "gpt-4-turbo").context_window,
+            128_000
+        );
+        assert_eq!(
+            TokenBudget::for_model("openai", "gpt-4-32k").context_window,
+            32_768
+        );
+        assert_eq!(
+            TokenBudget::for_model("openai", "gpt-4o-20240806").context_window,
+            128_000
+        );
+        assert_eq!(
+            TokenBudget::for_model("openai", "gpt-5-mini-20260501").context_window,
+            400_000
+        );
+        assert_eq!(
+            TokenBudget::for_model("openai", "gpt-3.5-turbo").context_window,
+            16_384
+        );
     }
 
     #[test]
@@ -280,8 +296,14 @@ mod tests {
 
     #[test]
     fn unknown_models_in_openai_fallback_to_128k() {
-        assert_eq!(TokenBudget::for_model("openai", "deepseek-r1").context_window, 128_000);
-        assert_eq!(TokenBudget::for_model("openai", "deepseek-v3").context_window, 128_000);
+        assert_eq!(
+            TokenBudget::for_model("openai", "deepseek-r1").context_window,
+            128_000
+        );
+        assert_eq!(
+            TokenBudget::for_model("openai", "deepseek-v3").context_window,
+            128_000
+        );
     }
 
     #[test]

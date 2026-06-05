@@ -127,7 +127,9 @@ impl RetryStrategy {
         if attempt == 0 || self.base_delay_ms == 0 {
             return Duration::from_millis(self.base_delay_ms);
         }
-        let exponential = self.base_delay_ms.saturating_mul(2_u64.saturating_pow(attempt));
+        let exponential = self
+            .base_delay_ms
+            .saturating_mul(2_u64.saturating_pow(attempt));
         let clamped = exponential.min(self.max_delay_ms);
 
         if self.jitter {
@@ -294,30 +296,33 @@ mod tests {
 
     #[test]
     fn test_for_error_kind() {
-        assert_eq!(RetryStrategy::for_error_kind(&ErrorKind::ProviderAuth).max_attempts, 1);
+        assert_eq!(
+            RetryStrategy::for_error_kind(&ErrorKind::ProviderAuth).max_attempts,
+            1
+        );
         assert!(RetryStrategy::for_error_kind(&ErrorKind::ProviderRateLimited).max_attempts >= 2);
         assert!(RetryStrategy::for_error_kind(&ErrorKind::ProviderUnavailable).max_attempts >= 2);
         assert!(RetryStrategy::for_error_kind(&ErrorKind::Network).max_attempts >= 2);
-        assert_eq!(RetryStrategy::for_error_kind(&ErrorKind::Config).max_attempts, 1);
+        assert_eq!(
+            RetryStrategy::for_error_kind(&ErrorKind::Config).max_attempts,
+            1
+        );
     }
 
     #[tokio::test]
     async fn test_retry_success() {
         let call_count = std::sync::atomic::AtomicU32::new(0);
-        let result = retry_with_backoff(
-            RetryStrategy::server_error(),
-            || {
-                let count = &call_count;
-                async move {
-                    let prev = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    if prev < 1 {
-                        Err(AgentJaxError::internal("try again"))
-                    } else {
-                        Ok(42)
-                    }
+        let result = retry_with_backoff(RetryStrategy::server_error(), || {
+            let count = &call_count;
+            async move {
+                let prev = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if prev < 1 {
+                    Err(AgentJaxError::internal("try again"))
+                } else {
+                    Ok(42)
                 }
-            },
-        )
+            }
+        })
         .await;
 
         match result {
@@ -328,12 +333,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_exhausted() {
-        let result = retry_with_backoff(
-            RetryStrategy::server_error(),
-            || async {
-                Err::<i32, _>(AgentJaxError::internal("always fails"))
-            },
-        )
+        let result = retry_with_backoff(RetryStrategy::server_error(), || async {
+            Err::<i32, _>(AgentJaxError::internal("always fails"))
+        })
         .await;
 
         match result {
@@ -344,12 +346,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_non_retryable_error() {
-        let result = retry_with_backoff(
-            RetryStrategy::server_error(),
-            || async {
-                Err::<i32, _>(AgentJaxError::provider_auth("openai", "bad key"))
-            },
-        )
+        let result = retry_with_backoff(RetryStrategy::server_error(), || async {
+            Err::<i32, _>(AgentJaxError::provider_auth("openai", "bad key"))
+        })
         .await;
 
         match result {

@@ -19,7 +19,10 @@ impl ToolCatalog {
             return MountedToolSourceSessions::new();
         };
 
-        let agent_id = context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID);
+        let agent_id = context
+            .agent_id
+            .as_deref()
+            .unwrap_or(crate::config::constants::DEFAULT_AGENT_ID);
         let stored_sources = match crate::conversation_store::load_conversation_mounted_tool_sources(
             agent_id,
             conversation_id,
@@ -144,18 +147,23 @@ impl ToolCatalog {
             return server_config.clone();
         };
 
-        let workspace =
-            match crate::conversation_store::conversation_workspace_path(context.agent_id.as_deref().unwrap_or(crate::config::constants::DEFAULT_AGENT_ID), conversation_id) {
-                Ok(path) => path,
-                Err(err) => {
-                    log::warn!(
-                        "Failed to resolve workspace for conversation '{}' as MCP cwd fallback: {}",
-                        conversation_id,
-                        err
-                    );
-                    return server_config.clone();
-                }
-            };
+        let workspace = match crate::conversation_store::conversation_workspace_path(
+            context
+                .agent_id
+                .as_deref()
+                .unwrap_or(crate::config::constants::DEFAULT_AGENT_ID),
+            conversation_id,
+        ) {
+            Ok(path) => path,
+            Err(err) => {
+                log::warn!(
+                    "Failed to resolve workspace for conversation '{}' as MCP cwd fallback: {}",
+                    conversation_id,
+                    err
+                );
+                return server_config.clone();
+            }
+        };
 
         let mut next = server_config.clone();
         next.cwd = Some(workspace.to_string_lossy().to_string());

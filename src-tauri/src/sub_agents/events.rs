@@ -64,10 +64,7 @@ pub enum SubAgentEvent {
     },
 
     /// Sub-agent was cancelled.
-    Cancelled {
-        agent_id: String,
-        reason: String,
-    },
+    Cancelled { agent_id: String, reason: String },
 }
 
 /// Map a `SubAgentEvent` to the corresponding `ChatStreamEvent` payload.
@@ -111,28 +108,46 @@ pub fn sub_agent_event_to_chat_stream_event(
         SubAgentEvent::Spawned { subagent_type, .. } => {
             chat_event.tool_name = Some(format!("sub_agent ({})", subagent_type));
         }
-        SubAgentEvent::Progress { text, turns_completed, turns_remaining, .. } => {
+        SubAgentEvent::Progress {
+            text,
+            turns_completed,
+            turns_remaining,
+            ..
+        } => {
             chat_event.delta = Some(format!(
                 "[turns {}/{} remaining] {}",
                 turns_completed, turns_remaining, text
             ));
         }
-        SubAgentEvent::ToolCallStarted { call_id, tool_name, .. } => {
+        SubAgentEvent::ToolCallStarted {
+            call_id, tool_name, ..
+        } => {
             chat_event.tool_call_id = Some(call_id.clone());
             chat_event.tool_name = Some(tool_name.clone());
         }
-        SubAgentEvent::ToolCallCompleted { call_id, tool_name, tool_status, .. } => {
+        SubAgentEvent::ToolCallCompleted {
+            call_id,
+            tool_name,
+            tool_status,
+            ..
+        } => {
             chat_event.tool_call_id = Some(call_id.clone());
             chat_event.tool_name = Some(tool_name.clone());
             chat_event.tool_status = Some(tool_status.clone());
         }
-        SubAgentEvent::Completed { result, duration_ms, .. } => {
+        SubAgentEvent::Completed {
+            result,
+            duration_ms,
+            ..
+        } => {
             chat_event.delta = serde_json::to_string(result)
                 .ok()
                 .or_else(|| Some("completed".to_string()));
             chat_event.tool_duration_ms = Some(*duration_ms);
         }
-        SubAgentEvent::Failed { error, duration_ms, .. } => {
+        SubAgentEvent::Failed {
+            error, duration_ms, ..
+        } => {
             chat_event.error = Some(error.clone());
             chat_event.tool_duration_ms = Some(*duration_ms);
         }

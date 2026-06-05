@@ -18,12 +18,12 @@
 //! messages_fts(search_text) — virtual FTS5 table
 //! ```
 
+use crate::conversation_store_utils::normalize_title_source;
 use crate::lcm::types::{
     ConversationMeta, DescribeResult, FileRefId, FileReference, GrepResult, LcmConfig, LcmError,
-    LcmId, MessageId, MessageRole, PaginatedGrepResults, StoredMessage,
-    SummaryChild, SummaryId, SummaryKind, SummaryNode,
+    LcmId, MessageId, MessageRole, PaginatedGrepResults, StoredMessage, SummaryChild, SummaryId,
+    SummaryKind, SummaryNode,
 };
-use crate::conversation_store_utils::normalize_title_source;
 use rusqlite::{Connection, params};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -62,7 +62,10 @@ impl LcmStore {
         }
 
         let conn = Connection::open(&db_path).map_err(|e| {
-            LcmError::Store(format!("Failed to open LCM store at {}: {e}", db_path.display()))
+            LcmError::Store(format!(
+                "Failed to open LCM store at {}: {e}",
+                db_path.display()
+            ))
         })?;
 
         // Enable WAL mode for better concurrent read performance.
@@ -86,9 +89,8 @@ impl LcmStore {
     /// Open an in-memory LCM store (for testing).
     #[cfg(test)]
     pub fn open_in_memory(config: LcmConfig) -> Result<Self, LcmError> {
-        let conn = Connection::open_in_memory().map_err(|e| {
-            LcmError::Store(format!("Failed to open in-memory LCM store: {e}"))
-        })?;
+        let conn = Connection::open_in_memory()
+            .map_err(|e| LcmError::Store(format!("Failed to open in-memory LCM store: {e}")))?;
 
         conn.execute_batch("PRAGMA foreign_keys=ON;")
             .map_err(|e| LcmError::Store(format!("Failed to set pragmas: {e}")))?;
@@ -105,13 +107,13 @@ impl LcmStore {
 
     /// Initialize the database schema, creating tables if they don't exist.
     fn initialize_schema(&self) -> Result<(), LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
-        conn.execute_batch(CREATE_SCHEMA_SQL).map_err(|e| {
-            LcmError::Store(format!("Failed to initialize LCM schema: {e}"))
-        })?;
+        conn.execute_batch(CREATE_SCHEMA_SQL)
+            .map_err(|e| LcmError::Store(format!("Failed to initialize LCM schema: {e}")))?;
 
         // Migrations: add columns that may not exist in older databases.
         // SQLite does not support IF NOT EXISTS for ALTER TABLE ADD COLUMN,
@@ -146,9 +148,10 @@ impl LcmStore {
     /// This is the primary write path. Messages are **never modified**
     /// after insertion — only `covered_by` may be updated during compaction.
     pub fn persist_message(&self, msg: &StoredMessage) -> Result<(), LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         let metadata_json = serde_json::to_string(&msg.metadata).unwrap_or_default();
         let file_refs_json = serde_json::to_string(&msg.file_refs).unwrap_or_default();
@@ -177,9 +180,10 @@ impl LcmStore {
 
     /// Persist multiple messages in a single transaction.
     pub fn persist_messages(&self, messages: &[StoredMessage]) -> Result<(), LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         let tx = conn
             .unchecked_transaction()
@@ -225,9 +229,10 @@ impl LcmStore {
 
     /// Retrieve a message by its ID.
     pub fn get_message(&self, id: &MessageId) -> Result<Option<StoredMessage>, LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         let mut stmt = conn
             .prepare(
@@ -270,9 +275,10 @@ impl LcmStore {
         &self,
         conversation_id: &str,
     ) -> Result<Vec<StoredMessage>, LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         let mut stmt = conn
             .prepare(
@@ -329,9 +335,10 @@ impl LcmStore {
         cursor: Option<&str>,
         page_size: usize,
     ) -> Result<PaginatedGrepResults, LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         // Build the base query. We search the messages_fts table and join
         // back to messages for full data.
@@ -358,10 +365,14 @@ impl LcmStore {
 
         // Pagination cursor.
         if let Some(c) = cursor {
-            let cursor_idx: usize = c.parse().map_err(|_| {
-                LcmError::Store("Invalid pagination cursor".to_string())
-            })?;
-            sql.push_str(&format!(" LIMIT ?{} OFFSET ?{}", param_values.len() + 1, param_values.len() + 2));
+            let cursor_idx: usize = c
+                .parse()
+                .map_err(|_| LcmError::Store("Invalid pagination cursor".to_string()))?;
+            sql.push_str(&format!(
+                " LIMIT ?{} OFFSET ?{}",
+                param_values.len() + 1,
+                param_values.len() + 2
+            ));
             param_values.push(Box::new(page_size as i64));
             param_values.push(Box::new(cursor_idx as i64));
         } else {
@@ -371,11 +382,12 @@ impl LcmStore {
 
         sql.push_str(" ORDER BY m.timestamp_unix_ms DESC");
 
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
 
-        let mut stmt = conn.prepare(&sql).map_err(|e| {
-            LcmError::Store(format!("Failed to prepare FTS query: {e}"))
-        })?;
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| LcmError::Store(format!("Failed to prepare FTS query: {e}")))?;
 
         let rows = stmt
             .query_map(params_ref.as_slice(), |row| {
@@ -422,9 +434,7 @@ impl LcmStore {
         }
 
         let next_cursor = if has_more {
-            let current_offset: usize = cursor
-                .and_then(|c| c.parse().ok())
-                .unwrap_or(0);
+            let current_offset: usize = cursor.and_then(|c| c.parse().ok()).unwrap_or(0);
             Some((current_offset + page_size).to_string())
         } else {
             None
@@ -442,9 +452,10 @@ impl LcmStore {
 
     /// Insert a new summary node into the DAG.
     pub fn insert_summary(&self, summary: &SummaryNode) -> Result<(), LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         conn.execute(
             "INSERT OR IGNORE INTO summaries (id, conversation_id, kind, text, token_count, created_at_unix_ms, compaction_level)
@@ -470,9 +481,10 @@ impl LcmStore {
         summary_id: &SummaryId,
         child: &SummaryChild,
     ) -> Result<(), LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         match child {
             SummaryChild::Messages { ids } => {
@@ -521,15 +533,20 @@ impl LcmStore {
         summary_id: &SummaryId,
         parent_id: &SummaryId,
     ) -> Result<(), LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         conn.execute(
             "INSERT OR IGNORE INTO summary_parents (summary_id, parent_id) VALUES (?1, ?2)",
             params![summary_id.as_str(), parent_id.as_str()],
         )
-        .map_err(|e| LcmError::Store(format!("Failed to add parent {parent_id} to summary {summary_id}: {e}")))?;
+        .map_err(|e| {
+            LcmError::Store(format!(
+                "Failed to add parent {parent_id} to summary {summary_id}: {e}"
+            ))
+        })?;
 
         Ok(())
     }
@@ -564,9 +581,10 @@ impl LcmStore {
         message_ids: &[MessageId],
         summary_id: &SummaryId,
     ) -> Result<(), LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         let tx = conn
             .unchecked_transaction()
@@ -580,9 +598,7 @@ impl LcmStore {
             for id in message_ids {
                 stmt.execute(params![summary_id.as_str(), id.as_str()])
                     .map_err(|e| {
-                        LcmError::Store(format!(
-                            "Failed to mark message {id} as covered: {e}"
-                        ))
+                        LcmError::Store(format!("Failed to mark message {id} as covered: {e}"))
                     })?;
             }
         }
@@ -595,9 +611,10 @@ impl LcmStore {
 
     /// Get a summary node by ID.
     pub fn get_summary(&self, id: &SummaryId) -> Result<Option<SummaryNode>, LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         let mut stmt = conn
             .prepare(
@@ -616,7 +633,7 @@ impl LcmStore {
                     token_count: row.get(4)?,
                     created_at_unix_ms: row.get(5)?,
                     compaction_level: row.get(6)?,
-                    parents: Vec::new(),   // populated below
+                    parents: Vec::new(), // populated below
                     file_refs: Vec::new(),
                 })
             })
@@ -634,10 +651,14 @@ impl LcmStore {
     }
 
     /// Get the children of a summary node.
-    pub fn get_summary_children(&self, summary_id: &SummaryId) -> Result<Vec<SummaryChild>, LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+    pub fn get_summary_children(
+        &self,
+        summary_id: &SummaryId,
+    ) -> Result<Vec<SummaryChild>, LcmError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         let mut stmt = conn
             .prepare(
@@ -685,9 +706,10 @@ impl LcmStore {
 
     /// Get a file reference by ID.
     pub fn get_file_ref(&self, id: &FileRefId) -> Result<Option<FileReference>, LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         let mut stmt = conn
             .prepare(
@@ -769,10 +791,7 @@ impl LcmStore {
     ///
     /// Recursively traverses the DAG: if a child is itself a summary,
     /// it is expanded recursively. Returns all raw messages at the leaves.
-    pub fn expand_summary(
-        &self,
-        summary_id: &SummaryId,
-    ) -> Result<Vec<StoredMessage>, LcmError> {
+    pub fn expand_summary(&self, summary_id: &SummaryId) -> Result<Vec<StoredMessage>, LcmError> {
         let mut all_messages: Vec<StoredMessage> = Vec::new();
         let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -824,9 +843,10 @@ impl LcmStore {
         &self,
         conversation_id: &str,
     ) -> Result<ConversationMeta, LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         let existing = conn
             .query_row(
@@ -890,9 +910,10 @@ impl LcmStore {
         &self,
         conversation_id: &str,
     ) -> Result<Option<ConversationMeta>, LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         conn.query_row(
             "SELECT conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json, version, last_message_preview
@@ -930,9 +951,10 @@ impl LcmStore {
         message_count_delta: Option<i32>,
         metadata: Option<&BTreeMap<String, Value>>,
     ) -> Result<(), LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -941,8 +963,7 @@ impl LcmStore {
 
         // Build dynamic UPDATE.
         let mut sets: Vec<String> = vec!["updated_at_unix_ms = ?".to_string()];
-        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> =
-            vec![Box::new(now_ms)];
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(now_ms)];
 
         if let Some(t) = title {
             sets.push("title = ?".to_string());
@@ -971,9 +992,8 @@ impl LcmStore {
         let params_ref: Vec<&dyn rusqlite::types::ToSql> =
             param_values.iter().map(|p| p.as_ref()).collect();
 
-        conn.execute(&sql, params_ref.as_slice()).map_err(|e| {
-            LcmError::Store(format!("Failed to update conversation meta: {e}"))
-        })?;
+        conn.execute(&sql, params_ref.as_slice())
+            .map_err(|e| LcmError::Store(format!("Failed to update conversation meta: {e}")))?;
 
         Ok(())
     }
@@ -983,9 +1003,10 @@ impl LcmStore {
     /// Remove all data for a conversation from the LCM store.
     #[allow(dead_code)]
     pub fn delete_conversation(&self, conversation_id: &str) -> Result<(), LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         let tx = conn
             .unchecked_transaction()
@@ -1044,9 +1065,10 @@ impl LcmStore {
     /// Run VACUUM to reclaim disk space and optimize the database.
     #[allow(dead_code)]
     pub fn vacuum(&self) -> Result<(), LcmError> {
-        let conn = self.conn.lock().map_err(|e| {
-            LcmError::Concurrency(format!("Failed to acquire store lock: {e}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
 
         conn.execute_batch(
             "INSERT INTO messages_fts(messages_fts) VALUES('rebuild');
@@ -1224,13 +1246,14 @@ fn parse_summary_kind(s: &str) -> Result<SummaryKind, rusqlite::Error> {
 fn build_fts_query(pattern: &str) -> String {
     // FTS5 special characters: must be enclosed in double quotes to be
     // treated as literals, or escaped. We use a simple quoted approach.
-    let cleaned = pattern
-        .replace('"', "\"\"")
-        .replace('\'', "''");
+    let cleaned = pattern.replace('"', "\"\"").replace('\'', "''");
 
     // If the pattern looks like a regex with special chars, do a simple
     // substring match. Otherwise, do a token-based match.
-    if cleaned.chars().any(|c| c == '*' || c == '?' || c == '.' || c == '|') {
+    if cleaned
+        .chars()
+        .any(|c| c == '*' || c == '?' || c == '.' || c == '|')
+    {
         // Contains regex-like chars — use LIKE-compatible search.
         // FTS5 doesn't natively support regex; we fall back to simple
         // token matching.

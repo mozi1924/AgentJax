@@ -4,8 +4,8 @@
 //! items and keeps the transformation steps separated so new context rules can
 //! be added without expanding one oversized file.
 
-mod builders;
 mod budget;
+mod builders;
 mod policy;
 mod sanitizer;
 mod token_usage;
@@ -24,11 +24,11 @@ use policy::MAX_CONTEXT_ITEMS_PER_REQUEST;
 use sanitizer::sanitize_tool_call_pairs;
 use truncation::truncate_context_items_preserving_tool_pairs;
 
-pub use budget::{TokenBudget, truncate_items_to_budget, estimate_input_items_tokens};
+pub use budget::{TokenBudget, estimate_input_items_tokens, truncate_items_to_budget};
 pub use token_usage::{
     ConversationTokenUsage, TokenCountFunctionCall, TokenCountMessage,
-    count_conversation_prompt_tokens, count_messages_tokens,
-    count_request_prompt_tokens, count_text_tokens, count_tool_schema_tokens,
+    count_conversation_prompt_tokens, count_messages_tokens, count_request_prompt_tokens,
+    count_text_tokens, count_tool_schema_tokens,
 };
 pub use types::ConversationContext;
 
@@ -121,10 +121,8 @@ fn load_context_from_lcm(
     let lines = crate::lcm::stored_messages_to_conversation_lines(&messages);
     let mut input_items = build_context_items(&lines);
     input_items = sanitize_tool_call_pairs(input_items);
-    input_items = truncate_context_items_preserving_tool_pairs(
-        input_items,
-        MAX_CONTEXT_ITEMS_PER_REQUEST,
-    );
+    input_items =
+        truncate_context_items_preserving_tool_pairs(input_items, MAX_CONTEXT_ITEMS_PER_REQUEST);
     if let Some(budget) = budget {
         input_items = truncate_items_to_budget(input_items, budget);
     }

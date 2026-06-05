@@ -123,8 +123,7 @@ pub fn attach_tool_output_time_metadata(
 #[cfg(test)]
 mod tests {
     use super::{
-        attach_tool_output_time_metadata, build_temporal_context_system_item,
-        render_timed_message,
+        attach_tool_output_time_metadata, build_temporal_context_system_item, render_timed_message,
     };
     use serde_json::json;
 

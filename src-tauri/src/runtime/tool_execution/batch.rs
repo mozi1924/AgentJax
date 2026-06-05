@@ -51,8 +51,11 @@ pub(super) fn finalize_executed_records(
                 .or_insert(1);
         }
 
-        let tool_input_item =
-            crate::provider_api::build_tool_result_input_item(provider_kind, &call_id, &output_str)?;
+        let tool_input_item = crate::provider_api::build_tool_result_input_item(
+            provider_kind,
+            &call_id,
+            &output_str,
+        )?;
         tool_results_items.push(tool_input_item);
         state_changes.extend(record_state_changes);
 

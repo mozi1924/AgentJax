@@ -3,8 +3,8 @@ mod evaluator;
 mod request;
 mod types;
 
-pub(crate) use request::parse_request;
 use crate::error::AgentJaxResult;
+pub(crate) use request::parse_request;
 use serde_json::Value;
 use types::CalculatorMode;
 pub(crate) use types::CalculatorRequest;

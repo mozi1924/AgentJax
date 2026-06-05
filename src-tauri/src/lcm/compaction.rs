@@ -15,7 +15,9 @@
 //! its input**. If a level fails to reduce token count, the system escalates.
 //! Level 3 guarantees convergence by using a non-LLM deterministic truncation.
 
-use crate::lcm::types::{FileRefId, LcmError, MessageRole, StoredMessage, SummaryKind, SummaryNode, SummaryId};
+use crate::lcm::types::{
+    FileRefId, LcmError, MessageRole, StoredMessage, SummaryId, SummaryKind, SummaryNode,
+};
 use std::sync::Arc;
 
 /// A token-counting function: takes text, returns an estimated token count.
@@ -61,8 +63,7 @@ impl Summarizer for NoopSummarizer {
         // Return the content unchanged — this will fail the convergence check
         // and cause immediate escalation to Level 3.
         Err(LcmError::Compaction(
-            "No summarizer configured — use LcmConfig to set a summarization provider"
-                .to_string(),
+            "No summarizer configured — use LcmConfig to set a summarization provider".to_string(),
         ))
     }
 }
@@ -215,8 +216,14 @@ impl CompactionEngine {
         let tail_chars = max_chars / 3; // ~33% from end
 
         let head: String = text.chars().take(head_chars).collect();
-        let tail: String = text.chars().rev().take(tail_chars).collect::<String>()
-            .chars().rev().collect();
+        let tail: String = text
+            .chars()
+            .rev()
+            .take(tail_chars)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
 
         format!(
             "{head}\n\n[... {omitted} chars truncated by LCM Level 3 compaction ...]\n\n{tail}",
@@ -318,8 +325,14 @@ mod tests {
         let engine = CompactionEngine::new(summarizer, 512, test_token_counter());
 
         let messages = vec![
-            make_msg("1", "This is a very long message with many tokens indeed yes absolutely"),
-            make_msg("2", "Another long message that adds more tokens to the count here"),
+            make_msg(
+                "1",
+                "This is a very long message with many tokens indeed yes absolutely",
+            ),
+            make_msg(
+                "2",
+                "Another long message that adds more tokens to the count here",
+            ),
         ];
 
         let (summary, level) = engine.escalate_summarize(&messages, 20).await.unwrap();
@@ -349,9 +362,7 @@ mod tests {
         let summarizer = Arc::new(FailingSummarizer);
         let engine = CompactionEngine::new(summarizer, 100, test_token_counter());
 
-        let messages = vec![
-            make_msg("1", "Some message that needs summarizing"),
-        ];
+        let messages = vec![make_msg("1", "Some message that needs summarizing")];
 
         let (_, level) = engine.escalate_summarize(&messages, 10).await.unwrap();
         // Should escalate directly to Level 3.
@@ -373,7 +384,10 @@ mod tests {
         let result = CompactionEngine::deterministic_truncate(&text, 25);
         // The result includes marker text, so it can exceed the char budget.
         // But it should be much shorter than the original 500 chars.
-        assert!(result.chars().count() < 200, "Truncated text should be significantly shorter than original");
+        assert!(
+            result.chars().count() < 200,
+            "Truncated text should be significantly shorter than original"
+        );
         assert!(result.contains("truncated by LCM"));
         assert!(result.starts_with('A'));
         assert!(result.ends_with('A'));
@@ -381,10 +395,7 @@ mod tests {
 
     #[test]
     fn test_concat_messages() {
-        let messages = vec![
-            make_msg("1", "Hello"),
-            make_msg("2", "World"),
-        ];
+        let messages = vec![make_msg("1", "Hello"), make_msg("2", "World")];
         let text = CompactionEngine::concat_messages(&messages);
         assert!(text.contains("[User]: Hello"));
         assert!(text.contains("[User]: World"));

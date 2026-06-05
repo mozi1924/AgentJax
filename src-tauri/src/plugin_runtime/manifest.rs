@@ -131,7 +131,6 @@ pub struct PluginProviderDefinition {
     pub supports_protocols: Vec<String>,
 
     // ── New Phase 2 fields (declarative, no JS needed) ──────────────────
-
     /// Ordered glob-based model routing rules.
     /// When non-empty, used instead of `supports_protocols` heuristics.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -229,13 +228,21 @@ impl PluginManifest {
     /// Validate a manifest before the host accepts it into the registry.
     pub fn validate(&self) -> super::PluginRuntimeResult<()> {
         if self.id.trim().is_empty() {
-            return Err(super::PluginRuntimeError::InvalidManifest("plugin id cannot be empty".to_string()));
+            return Err(super::PluginRuntimeError::InvalidManifest(
+                "plugin id cannot be empty".to_string(),
+            ));
         }
         if self.name.trim().is_empty() {
-            return Err(super::PluginRuntimeError::InvalidManifest(format!("plugin '{}' is missing a name", self.id)));
+            return Err(super::PluginRuntimeError::InvalidManifest(format!(
+                "plugin '{}' is missing a name",
+                self.id
+            )));
         }
         if self.entrypoint.trim().is_empty() {
-            return Err(super::PluginRuntimeError::InvalidManifest(format!("plugin '{}' is missing an entrypoint", self.id)));
+            return Err(super::PluginRuntimeError::InvalidManifest(format!(
+                "plugin '{}' is missing an entrypoint",
+                self.id
+            )));
         }
         if self.api_version != PLUGIN_API_VERSION {
             return Err(super::PluginRuntimeError::InvalidManifest(format!(
@@ -290,7 +297,10 @@ impl PluginManifest {
     }
 }
 
-fn validate_settings_sections(plugin_id: &str, sections: &[Value]) -> super::PluginRuntimeResult<()> {
+fn validate_settings_sections(
+    plugin_id: &str,
+    sections: &[Value],
+) -> super::PluginRuntimeResult<()> {
     let mut ids = HashSet::new();
     for section in sections {
         walk_settings_node(plugin_id, section, &mut ids)?;
@@ -303,16 +313,20 @@ fn walk_settings_node(
     node: &Value,
     ids: &mut HashSet<String>,
 ) -> super::PluginRuntimeResult<()> {
-    let object = node
-        .as_object()
-        .ok_or_else(|| super::PluginRuntimeError::InvalidManifest(format!("plugin '{plugin_id}' settings schema node must be an object")))?;
+    let object = node.as_object().ok_or_else(|| {
+        super::PluginRuntimeError::InvalidManifest(format!(
+            "plugin '{plugin_id}' settings schema node must be an object"
+        ))
+    })?;
     let id = object
         .get("id")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
-            super::PluginRuntimeError::InvalidManifest(format!("plugin '{plugin_id}' settings schema node is missing a non-empty id"))
+            super::PluginRuntimeError::InvalidManifest(format!(
+                "plugin '{plugin_id}' settings schema node is missing a non-empty id"
+            ))
         })?;
     if !ids.insert(id.to_string()) {
         return Err(super::PluginRuntimeError::InvalidManifest(format!(
@@ -322,7 +336,9 @@ fn walk_settings_node(
 
     if let Some(children) = object.get("children") {
         let children = children.as_array().ok_or_else(|| {
-            super::PluginRuntimeError::InvalidManifest(format!("plugin '{plugin_id}' settings schema node '{id}' children must be an array"))
+            super::PluginRuntimeError::InvalidManifest(format!(
+                "plugin '{plugin_id}' settings schema node '{id}' children must be an array"
+            ))
         })?;
         for child in children {
             walk_settings_node(plugin_id, child, ids)?;
@@ -331,7 +347,9 @@ fn walk_settings_node(
 
     if let Some(tabs) = object.get("tabs") {
         let tabs = tabs.as_array().ok_or_else(|| {
-            super::PluginRuntimeError::InvalidManifest(format!("plugin '{plugin_id}' settings schema node '{id}' tabs must be an array"))
+            super::PluginRuntimeError::InvalidManifest(format!(
+                "plugin '{plugin_id}' settings schema node '{id}' tabs must be an array"
+            ))
         })?;
         for tab in tabs {
             if let Some(children) = tab.get("children") {

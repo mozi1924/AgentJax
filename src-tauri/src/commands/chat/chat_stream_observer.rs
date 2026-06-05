@@ -4,8 +4,8 @@ use super::chat_persistence::{
 use crate::conversation_store;
 use crate::provider_api::types::{ProviderStreamEvent, ProviderUsage, ResponseStreamResult};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Persists provider stream side effects and maintains local token estimates.
 #[derive(Clone)]
@@ -51,7 +51,10 @@ impl ChatStreamObserver {
         if !delta.is_empty() {
             if let Ok(mut guard) = self.accumulated_thinking.lock() {
                 let new_val = match guard.take() {
-                    Some(mut existing) => { existing.push_str(delta); existing }
+                    Some(mut existing) => {
+                        existing.push_str(delta);
+                        existing
+                    }
                     None => delta.to_string(),
                 };
                 *guard = Some(new_val);
@@ -60,7 +63,10 @@ impl ChatStreamObserver {
     }
 
     fn take_thinking(&self) -> Option<String> {
-        self.accumulated_thinking.lock().ok().and_then(|mut g| g.take())
+        self.accumulated_thinking
+            .lock()
+            .ok()
+            .and_then(|mut g| g.take())
     }
 
     pub(super) fn handle_provider_event(&self, event: &ProviderStreamEvent) -> Option<usize> {
@@ -77,20 +83,27 @@ impl ChatStreamObserver {
                 presentation,
                 ..
             } => {
-                let _ = persist_tool_progress_event(ToolProgressPersistInput {
-                    agent_id: &self.agent_id,
-                    conversation_id: &self.conversation_id,
-                    request_id: &self.request_id,
-                    event_kind: "tool_call_started",
-                    tool_call_id: call_id,
-                    tool_name: Some(name),
-                    tool_display_name: presentation.as_ref().map(|meta| meta.display_name.as_str()),
-                    tool_description: presentation.as_ref().map(|meta| meta.description.as_str()),
-                    tool_icon: presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
-                    payload: None,
-                    started_at_unix_ms: None,
-                    completed_at_unix_ms: None,
-                }, self.jsonl_backup_enabled);
+                let _ = persist_tool_progress_event(
+                    ToolProgressPersistInput {
+                        agent_id: &self.agent_id,
+                        conversation_id: &self.conversation_id,
+                        request_id: &self.request_id,
+                        event_kind: "tool_call_started",
+                        tool_call_id: call_id,
+                        tool_name: Some(name),
+                        tool_display_name: presentation
+                            .as_ref()
+                            .map(|meta| meta.display_name.as_str()),
+                        tool_description: presentation
+                            .as_ref()
+                            .map(|meta| meta.description.as_str()),
+                        tool_icon: presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
+                        payload: None,
+                        started_at_unix_ms: None,
+                        completed_at_unix_ms: None,
+                    },
+                    self.jsonl_backup_enabled,
+                );
             }
             ProviderStreamEvent::ToolCallCompleted {
                 call_id,
@@ -99,20 +112,27 @@ impl ChatStreamObserver {
                 presentation,
                 ..
             } => {
-                let _ = persist_tool_progress_event(ToolProgressPersistInput {
-                    agent_id: &self.agent_id,
-                    conversation_id: &self.conversation_id,
-                    request_id: &self.request_id,
-                    event_kind: "tool_call_done",
-                    tool_call_id: call_id,
-                    tool_name: Some(name),
-                    tool_display_name: presentation.as_ref().map(|meta| meta.display_name.as_str()),
-                    tool_description: presentation.as_ref().map(|meta| meta.description.as_str()),
-                    tool_icon: presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
-                    payload: Some(arguments),
-                    started_at_unix_ms: None,
-                    completed_at_unix_ms: None,
-                }, self.jsonl_backup_enabled);
+                let _ = persist_tool_progress_event(
+                    ToolProgressPersistInput {
+                        agent_id: &self.agent_id,
+                        conversation_id: &self.conversation_id,
+                        request_id: &self.request_id,
+                        event_kind: "tool_call_done",
+                        tool_call_id: call_id,
+                        tool_name: Some(name),
+                        tool_display_name: presentation
+                            .as_ref()
+                            .map(|meta| meta.display_name.as_str()),
+                        tool_description: presentation
+                            .as_ref()
+                            .map(|meta| meta.description.as_str()),
+                        tool_icon: presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
+                        payload: Some(arguments),
+                        started_at_unix_ms: None,
+                        completed_at_unix_ms: None,
+                    },
+                    self.jsonl_backup_enabled,
+                );
                 self.add_tool_call_argument_tokens(name, presentation.as_ref(), arguments);
             }
             ProviderStreamEvent::ToolCallExecuted {
@@ -124,39 +144,47 @@ impl ChatStreamObserver {
                 presentation,
                 ..
             } => {
-                let _ = persist_tool_progress_event(ToolProgressPersistInput {
-                    agent_id: &self.agent_id,
-                    conversation_id: &self.conversation_id,
-                    request_id: &self.request_id,
-                    event_kind: "tool_call_exec",
-                    tool_call_id: call_id,
-                    tool_name: Some(name),
-                    tool_display_name: presentation.as_ref().map(|meta| meta.display_name.as_str()),
-                    tool_description: presentation.as_ref().map(|meta| meta.description.as_str()),
-                    tool_icon: presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
-                    payload: Some(output),
-                    started_at_unix_ms: Some(*started_at_unix_ms),
-                    completed_at_unix_ms: Some(*completed_at_unix_ms),
-                }, self.jsonl_backup_enabled);
+                let _ = persist_tool_progress_event(
+                    ToolProgressPersistInput {
+                        agent_id: &self.agent_id,
+                        conversation_id: &self.conversation_id,
+                        request_id: &self.request_id,
+                        event_kind: "tool_call_exec",
+                        tool_call_id: call_id,
+                        tool_name: Some(name),
+                        tool_display_name: presentation
+                            .as_ref()
+                            .map(|meta| meta.display_name.as_str()),
+                        tool_description: presentation
+                            .as_ref()
+                            .map(|meta| meta.description.as_str()),
+                        tool_icon: presentation.as_ref().and_then(|meta| meta.icon.as_deref()),
+                        payload: Some(output),
+                        started_at_unix_ms: Some(*started_at_unix_ms),
+                        completed_at_unix_ms: Some(*completed_at_unix_ms),
+                    },
+                    self.jsonl_backup_enabled,
+                );
                 self.add_text_tokens(output);
             }
             ProviderStreamEvent::AssistantMessageCompleted {
                 text,
                 phase,
                 response_id,
+            } if *phase == Some(crate::message_phase::AssistantPhase::Commentary) => {
+                let thinking = self.take_thinking();
+                let _ = persist_assistant_line(
+                    &self.agent_id,
+                    &self.conversation_id,
+                    &self.request_id,
+                    response_id,
+                    *phase,
+                    text,
+                    thinking.as_deref(),
+                    self.jsonl_backup_enabled,
+                );
+                self.add_text_tokens(text);
             }
-                if *phase == Some(crate::message_phase::AssistantPhase::Commentary) => {
-                    let thinking = self.take_thinking();
-                    let _ = persist_assistant_line(                        &self.agent_id,                        &self.conversation_id,
-                        &self.request_id,
-                        response_id,
-                        *phase,
-                        text,
-                        thinking.as_deref(),
-                        self.jsonl_backup_enabled,
-                    );
-                    self.add_text_tokens(text);
-                }
             ProviderStreamEvent::HopAssistantText {
                 text,
                 phase,
@@ -201,13 +229,14 @@ impl ChatStreamObserver {
                     &latest_usage_record.usage,
                     response.usage.as_ref(),
                     &response.usage_hops,
-                ) {
+                )
+            {
                 log::warn!(
                     "Failed to persist provider token usage for conversation '{}': {}",
                     self.conversation_id,
                     err
                 );
-                }
+            }
         } else {
             let fallback_total = self.fallback_token_count.load(Ordering::Relaxed);
             self.visible_token_count
@@ -228,13 +257,14 @@ impl ChatStreamObserver {
                     &fallback_usage,
                     None,
                     &[],
-                ) {
-                    log::warn!(
-                        "Failed to persist estimated token usage for conversation '{}': {}",
-                        self.conversation_id,
-                        err
-                    );
-                }
+                )
+            {
+                log::warn!(
+                    "Failed to persist estimated token usage for conversation '{}': {}",
+                    self.conversation_id,
+                    err
+                );
+            }
         }
 
         self.visible_token_count.load(Ordering::Relaxed)

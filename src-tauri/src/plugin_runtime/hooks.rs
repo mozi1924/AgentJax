@@ -169,7 +169,9 @@ impl HookRegistry {
 
     /// Check whether any hooks are registered at the given point.
     pub fn has_hooks(&self, point: ContextHookPoint) -> bool {
-        self.hooks.get(&point).is_some_and(|hooks| !hooks.is_empty())
+        self.hooks
+            .get(&point)
+            .is_some_and(|hooks| !hooks.is_empty())
     }
 
     /// Return all hooks registered at the given point.
@@ -203,11 +205,15 @@ impl HookRegistry {
         data: &ToolResultData,
     ) -> Option<ToolResultTransform> {
         for hook in self.hooks_at(ContextHookPoint::OnToolResult) {
-            if let ContextHook::ToolResult { plugin_id: pid, handler } = hook
+            if let ContextHook::ToolResult {
+                plugin_id: pid,
+                handler,
+            } = hook
                 && pid == plugin_id
-                    && let Some(transform) = handler(data) {
-                        return Some(transform);
-                    }
+                && let Some(transform) = handler(data)
+            {
+                return Some(transform);
+            }
         }
         None
     }
@@ -243,7 +249,9 @@ pub fn serialize_hook_registration(
         "onContextAssemble" | "OnContextAssemble" => Ok(ContextHookPoint::OnContextAssemble),
         "onBeforeTruncation" | "OnBeforeTruncation" => Ok(ContextHookPoint::OnBeforeTruncation),
         "onToolResult" | "OnToolResult" => Ok(ContextHookPoint::OnToolResult),
-        other => Err(super::PluginRuntimeError::InvalidManifest(format!("Unknown context hook point: '{other}'"))),
+        other => Err(super::PluginRuntimeError::InvalidManifest(format!(
+            "Unknown context hook point: '{other}'"
+        ))),
     }
 }
 
@@ -290,7 +298,9 @@ mod tests {
             handler: |data| {
                 if data.plugin_id == "plugin-a" {
                     Some(ToolResultTransform {
-                        transformed_output: Some(json!({"hook": "transformed", "original": data.output})),
+                        transformed_output: Some(
+                            json!({"hook": "transformed", "original": data.output}),
+                        ),
                     })
                 } else {
                     None
@@ -329,10 +339,16 @@ mod tests {
             handler: |_| ContextAssembleResult::default(),
         });
 
-        assert_eq!(registry.hooks_at(ContextHookPoint::OnContextAssemble).len(), 2);
+        assert_eq!(
+            registry.hooks_at(ContextHookPoint::OnContextAssemble).len(),
+            2
+        );
 
         registry.unregister_plugin("plugin-a");
-        assert_eq!(registry.hooks_at(ContextHookPoint::OnContextAssemble).len(), 1);
+        assert_eq!(
+            registry.hooks_at(ContextHookPoint::OnContextAssemble).len(),
+            1
+        );
         assert_eq!(
             registry.hooks_at(ContextHookPoint::OnContextAssemble)[0].plugin_id(),
             "plugin-b"

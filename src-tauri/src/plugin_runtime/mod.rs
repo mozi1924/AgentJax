@@ -19,9 +19,7 @@ pub use api::{
     prefixed_plugin_tool_name, registered_tools_for_manifest,
 };
 pub use builtin::builtin_plugin_packages;
-pub use discovery::{
-    PluginPackage, discover_all_plugin_packages, discover_home_plugin_packages,
-};
+pub use discovery::{PluginPackage, discover_all_plugin_packages, discover_home_plugin_packages};
 // AuthConfig/AuthPlacement re-exported for future phases (credential injection generalization).
 #[allow(unused_imports)]
 pub use manifest::{
@@ -36,12 +34,12 @@ pub use sandbox::SandboxPolicy;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::api::PLUGIN_API_VERSION;
     use super::discovery::{PLUGIN_MANIFEST_FILE, load_plugin_package};
     use super::manifest::PluginToolKind;
     use super::orchestration::{ToolCallBatch, ToolCallRequest, ToolCallSource};
     use super::runtime::DenoCorePluginRuntime;
+    use super::*;
     use serde_json::json;
 
     #[test]
@@ -200,9 +198,7 @@ mod tests {
             providers: Vec::new(),
             sandbox: sandbox.clone(),
         };
-        let mut runtime = DenoCorePluginRuntime::new(
-            SandboxPolicy::default(),
-        );
+        let mut runtime = DenoCorePluginRuntime::new(SandboxPolicy::default());
 
         runtime
             .register_package(PluginPackage {
@@ -278,9 +274,19 @@ mod tests {
             .map(|package| package.manifest.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(packages.len(), 2, "Expected 2 built-in provider plugins (openai, deepseek), got: {plugin_ids:?}");
-        assert!(plugin_ids.contains(&"agentjax.provider.openai"), "Expected openai plugin, got: {plugin_ids:?}");
-        assert!(plugin_ids.contains(&"agentjax.provider.deepseek"), "Expected deepseek plugin, got: {plugin_ids:?}");
+        assert_eq!(
+            packages.len(),
+            2,
+            "Expected 2 built-in provider plugins (openai, deepseek), got: {plugin_ids:?}"
+        );
+        assert!(
+            plugin_ids.contains(&"agentjax.provider.openai"),
+            "Expected openai plugin, got: {plugin_ids:?}"
+        );
+        assert!(
+            plugin_ids.contains(&"agentjax.provider.deepseek"),
+            "Expected deepseek plugin, got: {plugin_ids:?}"
+        );
 
         for package in packages {
             let providers = provider_definitions_for_package(&package)
@@ -303,8 +309,16 @@ mod tests {
             // Phase 2: provider definition is now in manifest (declarative JSON),
             // not in JS. The JS entrypoint still exists for backward compat but
             // the provider metadata comes from the manifest.
-            assert_eq!(package.manifest.providers.len(), 1, "provider definition should be in plugin.json");
-            assert_eq!(providers.len(), 1, "provider_definitions_for_package should yield 1 provider");
+            assert_eq!(
+                package.manifest.providers.len(),
+                1,
+                "provider definition should be in plugin.json"
+            );
+            assert_eq!(
+                providers.len(),
+                1,
+                "provider_definitions_for_package should yield 1 provider"
+            );
         }
     }
 
@@ -427,9 +441,7 @@ globalThis.AgentJaxPlugin = {
         let package = load_plugin_package(&root).expect("load plugin package");
         assert_eq!(package.manifest.settings_sections.len(), 1);
         assert_eq!(package.manifest.settings_data["items"][0]["id"], "primary");
-        let mut runtime = DenoCorePluginRuntime::new(
-            SandboxPolicy::default(),
-        );
+        let mut runtime = DenoCorePluginRuntime::new(SandboxPolicy::default());
         runtime
             .register_package(package)
             .expect("register plugin package");

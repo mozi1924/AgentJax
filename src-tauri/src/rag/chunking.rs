@@ -104,7 +104,11 @@ impl Chunker {
                 self.chunk_size.saturating_sub(self.overlap)
             };
 
-            start += if advance > 0 { advance } else { self.chunk_size };
+            start += if advance > 0 {
+                advance
+            } else {
+                self.chunk_size
+            };
             index += 1;
         }
 
@@ -177,7 +181,10 @@ mod tests {
             .zip(chunks[1].content.chars())
             .take_while(|(a, b)| a == b)
             .count();
-        assert!(overlap_found >= 3, "expected overlap between chunks, got {overlap_found}");
+        assert!(
+            overlap_found >= 3,
+            "expected overlap between chunks, got {overlap_found}"
+        );
     }
 
     #[test]

@@ -138,32 +138,32 @@ impl Summarizer for ProviderSummarizer {
 
         // ── Retry with backoff on empty/incomplete responses ──
         let config = &self.config;
-        let response = retry_with_backoff(
-            RetryStrategy::empty_response(),
-            || async {
-                let mut cancel_rx = watch::channel(false).1;
-                let result = crate::provider_api::stream_response(
-                    config,
-                    &self.agent_config,
-                    &request,
-                    &mut cancel_rx,
-                    |_| Ok(()),
-                )
-                .await;
+        let response = retry_with_backoff(RetryStrategy::empty_response(), || async {
+            let mut cancel_rx = watch::channel(false).1;
+            let result = crate::provider_api::stream_response(
+                config,
+                &self.agent_config,
+                &request,
+                &mut cancel_rx,
+                |_| Ok(()),
+            )
+            .await;
 
-                // If the response is empty or very short, treat as retryable.
-                match &result {
-                    Ok(res) if res.output_text.trim().len() < 10 => {
-                        Err(crate::error::AgentJaxError::internal(
-                            format!("Summarization returned empty/short response ({} chars)", res.output_text.len())
-                        ))
-                    }
-                    _ => result.map_err(|e| crate::error::AgentJaxError::internal(
-                        format!("Summarization API call failed: {e}")
-                    )),
+            // If the response is empty or very short, treat as retryable.
+            match &result {
+                Ok(res) if res.output_text.trim().len() < 10 => {
+                    Err(crate::error::AgentJaxError::internal(format!(
+                        "Summarization returned empty/short response ({} chars)",
+                        res.output_text.len()
+                    )))
                 }
-            },
-        )
+                _ => result.map_err(|e| {
+                    crate::error::AgentJaxError::internal(format!(
+                        "Summarization API call failed: {e}"
+                    ))
+                }),
+            }
+        })
         .await
         .into_result()
         .map_err(|e| LcmError::Compaction(format!("Summarization failed after retry: {e}")))?;

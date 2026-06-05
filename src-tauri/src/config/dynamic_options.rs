@@ -309,7 +309,9 @@ fn registered_providers() -> Vec<Box<dyn DynamicOptionsProvider>> {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /// Build the full dynamic options map by delegating to all registered providers.
-pub fn build_dynamic_options(config: &AppConfig) -> AgentJaxResult<BTreeMap<String, Vec<SettingsOption>>> {
+pub fn build_dynamic_options(
+    config: &AppConfig,
+) -> AgentJaxResult<BTreeMap<String, Vec<SettingsOption>>> {
     let providers = registered_providers();
     let mut options = BTreeMap::new();
     for provider in &providers {

@@ -29,7 +29,6 @@ pub struct SandboxPolicy {
     pub allowed_hosts: Vec<String>,
 }
 
-
 /// Errors returned when a sandbox policy check fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)] // Reserved for future use
@@ -83,10 +82,13 @@ impl SandboxPolicy {
         }
         if let Some(host) = host
             && !self.allowed_hosts.is_empty()
-                && !self.allowed_hosts.iter().any(|allowed| host_matches(allowed, host))
-            {
-                return Err(SandboxViolation::HostNotAllowed(host.to_string()));
-            }
+            && !self
+                .allowed_hosts
+                .iter()
+                .any(|allowed| host_matches(allowed, host))
+        {
+            return Err(SandboxViolation::HostNotAllowed(host.to_string()));
+        }
         Ok(())
     }
 

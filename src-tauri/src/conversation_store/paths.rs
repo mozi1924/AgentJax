@@ -17,8 +17,13 @@ pub fn conversations_dir_path(agent_id: &str) -> AgentJaxResult<PathBuf> {
 pub fn ensure_conversations_dir(agent_id: &str) -> AgentJaxResult<PathBuf> {
     let dir = conversations_dir_path(agent_id)?;
     if !dir.exists() {
-        fs::create_dir_all(&dir)
-            .map_err(|e| AgentJaxError::internal(format!("Failed to create conversations dir {}: {e}", dir.display())).with_error_source(&e))?;
+        fs::create_dir_all(&dir).map_err(|e| {
+            AgentJaxError::internal(format!(
+                "Failed to create conversations dir {}: {e}",
+                dir.display()
+            ))
+            .with_error_source(&e)
+        })?;
     }
     Ok(dir)
 }
@@ -29,15 +34,24 @@ pub fn conversation_dir_path(agent_id: &str, conversation_id: &str) -> AgentJaxR
     Ok(dir.join(safe))
 }
 
-pub fn conversation_metadata_path(agent_id: &str, conversation_id: &str) -> AgentJaxResult<PathBuf> {
+pub fn conversation_metadata_path(
+    agent_id: &str,
+    conversation_id: &str,
+) -> AgentJaxResult<PathBuf> {
     Ok(conversation_dir_path(agent_id, conversation_id)?.join(METADATA_FILE_NAME))
 }
 
-pub fn conversation_messages_path(agent_id: &str, conversation_id: &str) -> AgentJaxResult<PathBuf> {
+pub fn conversation_messages_path(
+    agent_id: &str,
+    conversation_id: &str,
+) -> AgentJaxResult<PathBuf> {
     Ok(conversation_dir_path(agent_id, conversation_id)?.join(MESSAGES_FILE_NAME))
 }
 
-pub fn conversation_workspace_path(agent_id: &str, conversation_id: &str) -> AgentJaxResult<PathBuf> {
+pub fn conversation_workspace_path(
+    agent_id: &str,
+    conversation_id: &str,
+) -> AgentJaxResult<PathBuf> {
     Ok(conversation_dir_path(agent_id, conversation_id)?.join(WORKSPACE_DIR_NAME))
 }
 
@@ -63,11 +77,19 @@ pub fn list_conversation_ids(agent_id: &str) -> AgentJaxResult<Vec<String>> {
     let dir = ensure_conversations_dir(agent_id)?;
     let mut out = Vec::new();
 
-    let entries = fs::read_dir(&dir)
-        .map_err(|e| AgentJaxError::internal(format!("Failed to read conversations dir {}: {e}", dir.display())).with_error_source(&e))?;
+    let entries = fs::read_dir(&dir).map_err(|e| {
+        AgentJaxError::internal(format!(
+            "Failed to read conversations dir {}: {e}",
+            dir.display()
+        ))
+        .with_error_source(&e)
+    })?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| AgentJaxError::internal(format!("Failed to inspect conversation file entry: {e}")).with_error_source(&e))?;
+        let entry = entry.map_err(|e| {
+            AgentJaxError::internal(format!("Failed to inspect conversation file entry: {e}"))
+                .with_error_source(&e)
+        })?;
         let path = entry.path();
 
         if !path.is_dir() {
@@ -83,12 +105,11 @@ pub fn list_conversation_ids(agent_id: &str) -> AgentJaxResult<Vec<String>> {
             continue;
         }
         if let Some(name) = path.file_name().and_then(|s| s.to_str())
-            && !name.trim().is_empty() {
-                out.push(name.to_string());
-            }
+            && !name.trim().is_empty()
+        {
+            out.push(name.to_string());
+        }
     }
 
     Ok(out)
 }
-
-

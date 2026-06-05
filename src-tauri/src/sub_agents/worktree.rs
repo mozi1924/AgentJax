@@ -26,9 +26,15 @@ impl Worktree {
     /// it out into an isolated directory.
     pub fn create(agent_id: &str, parent_conv_id: &str) -> AgentJaxResult<Self> {
         // Build the worktree path.
-        let session_dir = crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, parent_conv_id)
-            .map_err(|e| AgentJaxError::internal(format!("Failed to get workspace path: {e}")))?;
-        let worktree_path = session_dir.join("sub_agents").join(agent_id).join("worktree");
+        let session_dir = crate::conversation_store::conversation_workspace_path(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            parent_conv_id,
+        )
+        .map_err(|e| AgentJaxError::internal(format!("Failed to get workspace path: {e}")))?;
+        let worktree_path = session_dir
+            .join("sub_agents")
+            .join(agent_id)
+            .join("worktree");
 
         // Create the git worktree.
         let output = std::process::Command::new("git")
@@ -40,9 +46,7 @@ impl Worktree {
                 "HEAD",
             ])
             .output()
-            .map_err(|e| {
-                AgentJaxError::internal(format!("Failed to spawn git worktree: {e}"))
-            })?;
+            .map_err(|e| AgentJaxError::internal(format!("Failed to spawn git worktree: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -81,7 +85,9 @@ impl Worktree {
                 self.manual_cleanup(&path_str)
             }
             Err(e) => {
-                log::warn!("Failed to run git worktree remove for {path_str}: {e}. Falling back to manual cleanup.");
+                log::warn!(
+                    "Failed to run git worktree remove for {path_str}: {e}. Falling back to manual cleanup."
+                );
                 self.manual_cleanup(&path_str)
             }
         }
@@ -135,13 +141,12 @@ mod tests {
     fn test_worktree_path_includes_agent_id() {
         let parent = "test-conv";
         let agent = "agent-wt-test";
-        let session_dir =
-            crate::conversation_store::conversation_workspace_path(crate::config::constants::DEFAULT_AGENT_ID, parent)
-                .expect("workspace path");
-        let worktree_path = session_dir
-            .join("sub_agents")
-            .join(agent)
-            .join("worktree");
+        let session_dir = crate::conversation_store::conversation_workspace_path(
+            crate::config::constants::DEFAULT_AGENT_ID,
+            parent,
+        )
+        .expect("workspace path");
+        let worktree_path = session_dir.join("sub_agents").join(agent).join("worktree");
         let path_str = worktree_path.to_string_lossy();
         assert!(path_str.contains("sub_agents"));
         assert!(path_str.contains(agent));

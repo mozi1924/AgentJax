@@ -109,9 +109,10 @@ fn inject_credential(request: &mut PluginHttpRequest, credential: &str) {
 
     // Skip injection when the user-configured `resolvedHttpHeaders` already
     // carries an auth header (e.g. per-provider static tokens).
-    let has_auth = request.headers.keys().any(|k| {
-        matches!(k.to_lowercase().as_str(), "authorization" | "x-api-key")
-    });
+    let has_auth = request
+        .headers
+        .keys()
+        .any(|k| matches!(k.to_lowercase().as_str(), "authorization" | "x-api-key"));
     if has_auth {
         return;
     }
@@ -184,8 +185,12 @@ where
         ))
     })?;
     let context = plugin_context(&resolved, req);
-    let mut request: PluginHttpRequest =
-        call_provider_function(&package, &resolved.provider.kind, "buildStreamRequest", context)?;
+    let mut request: PluginHttpRequest = call_provider_function(
+        &package,
+        &resolved.provider.kind,
+        "buildStreamRequest",
+        context,
+    )?;
     // Credential is injected server-side — it never enters the JS plugin runtime.
     if let Some(credential) = &resolved.provider.resolved_credential() {
         inject_credential(&mut request, credential);
@@ -244,11 +249,9 @@ pub async fn fetch_remote_models(
     let provider = config.resolved_provider(provider_key)?;
     // Use the default agent config for prompt assembly (catalog sync doesn't
     // need agent-specific prompts).
-    let agent = crate::config::load_agent_config(
-        crate::config::constants::DEFAULT_AGENT_ID,
-    )
-    .unwrap_or_default()
-    .normalize();
+    let agent = crate::config::load_agent_config(crate::config::constants::DEFAULT_AGENT_ID)
+        .unwrap_or_default()
+        .normalize();
     let prompt_assembly = agent.compile_prompt_assembly();
     let resolved = ResolvedModelConfig {
         profile_key: "<catalog-sync>".to_string(),
@@ -256,9 +259,8 @@ pub async fn fetch_remote_models(
         model_ref: format!("{provider_key}/<catalog-sync>"),
         system_prompt: prompt_assembly.instructions_text.clone(),
         prompt_assembly,
-        timeout_seconds: provider.resolved_timeout_seconds(
-            crate::config::constants::DEFAULT_TIMEOUT_SECONDS,
-        ),
+        timeout_seconds: provider
+            .resolved_timeout_seconds(crate::config::constants::DEFAULT_TIMEOUT_SECONDS),
         provider,
         model_id: String::new(),
         request: Default::default(),
@@ -271,13 +273,12 @@ pub async fn fetch_remote_models(
         ))
     })?;
     let empty_request = ResponseStreamRequest::default();
-    let mut request: PluginHttpRequest =
-        call_provider_function(
-            &package,
-            &resolved.provider.kind,
-            "buildModelsRequest",
-            plugin_context(&resolved, &empty_request),
-        )?;
+    let mut request: PluginHttpRequest = call_provider_function(
+        &package,
+        &resolved.provider.kind,
+        "buildModelsRequest",
+        plugin_context(&resolved, &empty_request),
+    )?;
     if let Some(credential) = &resolved.provider.resolved_credential() {
         inject_credential(&mut request, credential);
     }
@@ -334,7 +335,6 @@ pub fn get_model_metadata(
         }),
     )
 }
-
 
 /// Shared finalization: call the plugin's `finalizeStream`, collect results,
 /// and build the `ResponseStreamResult`. Extracted from the SSE and WebSocket
@@ -401,7 +401,6 @@ fn finalize_and_build_result(
         model_profile: resolved.profile_key.clone(),
         model_id: resolved.model_id.clone(),
         capabilities,
-
     })
 }
 
@@ -417,9 +416,15 @@ async fn stream_sse_request(
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(resolved.timeout_seconds))
         .build()
-        .map_err(|err| AgentJaxError::network(format!("Failed to initialize provider HTTP client: {err}")))?;
-    let method = Method::from_str(request.method.trim())
-        .map_err(|err| AgentJaxError::config(format!("Invalid provider plugin HTTP method '{}': {err}", request.method)))?;
+        .map_err(|err| {
+            AgentJaxError::network(format!("Failed to initialize provider HTTP client: {err}"))
+        })?;
+    let method = Method::from_str(request.method.trim()).map_err(|err| {
+        AgentJaxError::config(format!(
+            "Invalid provider plugin HTTP method '{}': {err}",
+            request.method
+        ))
+    })?;
     let mut builder = client.request(method, request.url.clone());
     if let Some(body) = &request.body {
         builder = builder.json(body);
@@ -511,8 +516,16 @@ async fn stream_sse_request(
     }
 
     finalize_and_build_result(
-        package, provider_kind, resolved, state, response_id,
-        output_text, output_items, usage, capabilities, on_delta,
+        package,
+        provider_kind,
+        resolved,
+        state,
+        response_id,
+        output_text,
+        output_items,
+        usage,
+        capabilities,
+        on_delta,
     )
 }
 
@@ -530,33 +543,42 @@ async fn stream_websocket_request(
     use tokio_tungstenite::tungstenite::Message;
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-    let mut ws_req = request.url.clone().into_client_request()
-        .map_err(|err| AgentJaxError::config(format!("Invalid provider websocket URL '{}': {err}", request.url)))?;
+    let mut ws_req = request.url.clone().into_client_request().map_err(|err| {
+        AgentJaxError::config(format!(
+            "Invalid provider websocket URL '{}': {err}",
+            request.url
+        ))
+    })?;
 
     // Apply headers from request
     for (key, value) in &request.headers {
         let key = key.trim();
         let value = value.trim();
-        if !key.is_empty() && !value.is_empty()
-            && let Ok(header_name) = tokio_tungstenite::tungstenite::http::header::HeaderName::from_bytes(key.as_bytes())
-                && let Ok(header_value) = tokio_tungstenite::tungstenite::http::header::HeaderValue::from_str(value) {
-                    ws_req.headers_mut().insert(header_name, header_value);
-                }
+        if !key.is_empty()
+            && !value.is_empty()
+            && let Ok(header_name) =
+                tokio_tungstenite::tungstenite::http::header::HeaderName::from_bytes(key.as_bytes())
+            && let Ok(header_value) =
+                tokio_tungstenite::tungstenite::http::header::HeaderValue::from_str(value)
+        {
+            ws_req.headers_mut().insert(header_name, header_value);
+        }
     }
 
-    let (ws_stream, _) = connect_async(ws_req)
-        .await
-        .map_err(|err| AgentJaxError::network(format!("Failed to connect to provider websocket: {err}")))?;
+    let (ws_stream, _) = connect_async(ws_req).await.map_err(|err| {
+        AgentJaxError::network(format!("Failed to connect to provider websocket: {err}"))
+    })?;
 
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
     // Send initial request body if present
     if let Some(body) = &request.body {
-        let body_str = serde_json::to_string(body)
-            .map_err(|err| AgentJaxError::internal(format!("Failed to serialize websocket request body: {err}")))?;
-        ws_tx.send(Message::text(body_str))
-            .await
-            .map_err(|err| AgentJaxError::network(format!("Failed to send websocket initial message: {err}")))?;
+        let body_str = serde_json::to_string(body).map_err(|err| {
+            AgentJaxError::internal(format!("Failed to serialize websocket request body: {err}"))
+        })?;
+        ws_tx.send(Message::text(body_str)).await.map_err(|err| {
+            AgentJaxError::network(format!("Failed to send websocket initial message: {err}"))
+        })?;
     }
 
     let mut state = json!({});
@@ -605,8 +627,16 @@ async fn stream_websocket_request(
     }
 
     finalize_and_build_result(
-        package, provider_kind, resolved, state, response_id,
-        output_text, output_items, usage, capabilities, on_delta,
+        package,
+        provider_kind,
+        resolved,
+        state,
+        response_id,
+        output_text,
+        output_items,
+        usage,
+        capabilities,
+        on_delta,
     )
 }
 
@@ -622,7 +652,7 @@ fn apply_stream_step(
     output_items: &mut Vec<Value>,
     usage: &mut Option<ProviderUsage>,
     on_delta: &mut ProviderEventSink<'_>,
-    ) -> AgentJaxResult<bool> {
+) -> AgentJaxResult<bool> {
     let step: PluginStreamStep = call_provider_function(
         package,
         provider_kind,
@@ -650,13 +680,22 @@ fn apply_stream_step(
     Ok(step.done)
 }
 
-async fn send_json_request(request: &PluginHttpRequest, timeout_seconds: u64) -> AgentJaxResult<Value> {
+async fn send_json_request(
+    request: &PluginHttpRequest,
+    timeout_seconds: u64,
+) -> AgentJaxResult<Value> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_seconds))
         .build()
-        .map_err(|err| AgentJaxError::network(format!("Failed to initialize provider HTTP client: {err}")))?;
-    let method = Method::from_str(request.method.trim())
-        .map_err(|err| AgentJaxError::config(format!("Invalid provider plugin HTTP method '{}': {err}", request.method)))?;
+        .map_err(|err| {
+            AgentJaxError::network(format!("Failed to initialize provider HTTP client: {err}"))
+        })?;
+    let method = Method::from_str(request.method.trim()).map_err(|err| {
+        AgentJaxError::config(format!(
+            "Invalid provider plugin HTTP method '{}': {err}",
+            request.method
+        ))
+    })?;
     let mut builder = client.request(method, request.url.clone());
     if let Some(body) = &request.body {
         builder = builder.json(body);
@@ -664,7 +703,9 @@ async fn send_json_request(request: &PluginHttpRequest, timeout_seconds: u64) ->
     let response = apply_headers_to_reqwest(builder, &request.headers)?
         .send()
         .await
-        .map_err(|err| AgentJaxError::network(format!("Failed to reach provider endpoint: {err}")))?;
+        .map_err(|err| {
+            AgentJaxError::network(format!("Failed to reach provider endpoint: {err}"))
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -686,10 +727,9 @@ async fn send_json_request(request: &PluginHttpRequest, timeout_seconds: u64) ->
         ));
     }
 
-    response
-        .json::<Value>()
-        .await
-        .map_err(|err| AgentJaxError::internal(format!("Failed to parse provider endpoint JSON: {err}")))
+    response.json::<Value>().await.map_err(|err| {
+        AgentJaxError::internal(format!("Failed to parse provider endpoint JSON: {err}"))
+    })
 }
 
 fn plugin_context(resolved: &ResolvedModelConfig, req: &ResponseStreamRequest) -> Value {
@@ -720,7 +760,10 @@ fn resolved_context(resolved: &ResolvedModelConfig) -> Value {
 
     // Remove credential from the top-level and from provider.customSettings
     // so the raw API key never enters the JS plugin runtime.
-    if let Some(ref mut m) = obj.pointer_mut("/provider/customSettings").and_then(Value::as_object_mut) {
+    if let Some(ref mut m) = obj
+        .pointer_mut("/provider/customSettings")
+        .and_then(Value::as_object_mut)
+    {
         m.remove("credential");
     }
 
@@ -744,8 +787,9 @@ where
     T: for<'de> Deserialize<'de>,
 {
     use crate::error::AgentJaxError;
-    let mut instance = create_temp_plugin_instance(package)
-        .map_err(|err| AgentJaxError::internal(format!("Failed to create plugin instance: {err}")))?;
+    let mut instance = create_temp_plugin_instance(package).map_err(|err| {
+        AgentJaxError::internal(format!("Failed to create plugin instance: {err}"))
+    })?;
     instance
         .call_provider_function::<T>(provider_kind, function_name, argument)
         .map_err(|err| AgentJaxError::tool(err.to_string()))

@@ -35,7 +35,11 @@ pub struct Chunk {
 
 impl Chunk {
     /// Create a new chunk.
-    pub fn new(document_id: impl Into<String>, chunk_index: usize, content: impl Into<String>) -> Self {
+    pub fn new(
+        document_id: impl Into<String>,
+        chunk_index: usize,
+        content: impl Into<String>,
+    ) -> Self {
         let content: String = content.into();
         let id = format!("{}_{}", document_id.into(), chunk_index);
         Self {

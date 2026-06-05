@@ -144,10 +144,7 @@ fn validate_node(
     match kind {
         Some("field") => {
             if let Some(path) = node.get("path").and_then(Value::as_str) {
-                let node_id = node
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("<no id>");
+                let node_id = node.get("id").and_then(Value::as_str).unwrap_or("<no id>");
                 if let Err(path_errors) = validate_field_path(path, ctx_schema, root_schema) {
                     for err in path_errors {
                         errors.push(format!(
@@ -160,10 +157,7 @@ fn validate_node(
 
         Some("collection") => {
             if let Some(collection_path) = node.get("path").and_then(Value::as_str) {
-                let node_id = node
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("<no id>");
+                let node_id = node.get("id").and_then(Value::as_str).unwrap_or("<no id>");
 
                 match resolve_collection_item_schema(collection_path, ctx_schema, root_schema) {
                     Ok(item_schema) => {
@@ -181,7 +175,11 @@ fn validate_node(
                                 }
                             }
                         }
-                        return if errors.is_empty() { Ok(()) } else { Err(errors) };
+                        return if errors.is_empty() {
+                            Ok(())
+                        } else {
+                            Err(errors)
+                        };
                     }
                     Err(msg) => {
                         errors.push(format!(
@@ -258,7 +256,10 @@ fn validate_field_path(
 
         if has_properties {
             // Move into the property's schema for the next segment
-            let props = current.get("properties").and_then(|p| p.as_object()).unwrap();
+            let props = current
+                .get("properties")
+                .and_then(|p| p.as_object())
+                .unwrap();
             current = props.get(*segment).unwrap();
             continue;
         }
@@ -304,9 +305,8 @@ fn resolve_collection_item_schema(
 
     for (i, segment) in segments.iter().enumerate() {
         if i < last_idx {
-            let resolved =
-                resolve_schema_property(&current, segment, root_schema)
-                    .map_err(|e| format!("segment \"{segment}\": {e}"))?;
+            let resolved = resolve_schema_property(&current, segment, root_schema)
+                .map_err(|e| format!("segment \"{segment}\": {e}"))?;
             current = resolved.clone();
         } else {
             // Last segment: resolve to find the collection item type
@@ -383,8 +383,6 @@ pub(crate) fn resolve_schema_property<'a>(
     Err(format!("no property \"{segment}\" found"))
 }
 
-
-
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -417,12 +415,24 @@ mod tests {
         serde_json::from_str(src).expect("static JSON should be valid")
     }
 
-    fn general() -> Value { load_section(GENERAL_JSON) }
-    fn providers() -> Value { load_section(PROVIDERS_JSON) }
-    fn mcp() -> Value { load_section(MCP_JSON) }
-    fn context_mgmt() -> Value { load_section(CONTEXT_MGMT_JSON) }
-    fn memory() -> Value { load_section(MEMORY_JSON) }
-    fn prompt_composer() -> Value { load_section(PROMPT_COMPOSER_JSON) }
+    fn general() -> Value {
+        load_section(GENERAL_JSON)
+    }
+    fn providers() -> Value {
+        load_section(PROVIDERS_JSON)
+    }
+    fn mcp() -> Value {
+        load_section(MCP_JSON)
+    }
+    fn context_mgmt() -> Value {
+        load_section(CONTEXT_MGMT_JSON)
+    }
+    fn memory() -> Value {
+        load_section(MEMORY_JSON)
+    }
+    fn prompt_composer() -> Value {
+        load_section(PROMPT_COMPOSER_JSON)
+    }
 
     // ── Unit: field path validation ──────────────────────────────────────
 
@@ -475,10 +485,17 @@ mod tests {
         let root = merged_schema();
         let pm = def(&root, "ProviderModelConfig");
         for path in &[
-            "name", "enabled", "api_protocol", "request.temperature",
-            "request.top_p", "request.top_k", "request.max_output_tokens",
-            "request.frequency_penalty", "request.presence_penalty",
-            "request.reasoning_effort", "request.extra_body",
+            "name",
+            "enabled",
+            "api_protocol",
+            "request.temperature",
+            "request.top_p",
+            "request.top_k",
+            "request.max_output_tokens",
+            "request.frequency_penalty",
+            "request.presence_penalty",
+            "request.reasoning_effort",
+            "request.extra_body",
         ] {
             assert!(
                 validate_field_path(path, &pm, &root).is_ok(),
@@ -492,10 +509,21 @@ mod tests {
         let root = merged_schema();
         let ms = def(&root, "McpServerConfig");
         for path in &[
-            "enabled", "transport", "command", "args", "env", "cwd",
-            "use_global_stdio_env", "inherit_parent_env", "uri",
-            "auth_header", "headers", "allow_stateless",
-            "channel_buffer_capacity", "reinit_on_expired_session", "unfolded",
+            "enabled",
+            "transport",
+            "command",
+            "args",
+            "env",
+            "cwd",
+            "use_global_stdio_env",
+            "inherit_parent_env",
+            "uri",
+            "auth_header",
+            "headers",
+            "allow_stateless",
+            "channel_buffer_capacity",
+            "reinit_on_expired_session",
+            "unfolded",
         ] {
             assert!(
                 validate_field_path(path, &ms, &root).is_ok(),
@@ -513,7 +541,10 @@ mod tests {
         match resolve_collection_item_schema("providers", &root, &root) {
             Ok(s) => {
                 assert!(s.get("properties").is_some(), "should have properties");
-                assert!(s.get("properties").and_then(|p| p.get("kind")).is_some(), "ProviderConfig should have 'kind'");
+                assert!(
+                    s.get("properties").and_then(|p| p.get("kind")).is_some(),
+                    "ProviderConfig should have 'kind'"
+                );
             }
             Err(e) => panic!("resolve providers failed: {e}"),
         }
@@ -524,7 +555,12 @@ mod tests {
         let root = merged_schema();
         match resolve_collection_item_schema("mcp.servers", &root, &root) {
             Ok(s) => {
-                assert!(s.get("properties").and_then(|p| p.get("transport")).is_some(), "McpServerConfig should have 'transport'");
+                assert!(
+                    s.get("properties")
+                        .and_then(|p| p.get("transport"))
+                        .is_some(),
+                    "McpServerConfig should have 'transport'"
+                );
             }
             Err(e) => panic!("resolve mcp.servers failed: {e}"),
         }

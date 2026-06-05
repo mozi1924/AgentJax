@@ -14,25 +14,25 @@ use crate::plugin_runtime::{
     PluginManifest, PluginPackage, discover_all_plugin_packages, prefixed_plugin_tool_name,
     registered_tools_for_manifest,
 };
+use crate::tools::memory_tools::{MemoryRecallTool, MemorySearchTool, MemoryWriteTool};
+use crate::tools::sub_agent_tools::SubAgentTool;
 use crate::tools::{
     CalculatorTool, EditFileTool, FileReaderTool, FileWriterTool, ListFilesTool, MkdirTool,
     SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation, ToolSchemaFormat,
     format_tool_schema, humanize_tool_name,
 };
-use crate::tools::memory_tools::{MemoryRecallTool, MemorySearchTool, MemoryWriteTool};
-use crate::tools::sub_agent_tools::SubAgentTool;
 #[allow(unused_imports)]
 pub use manager_snapshot::{
     ToolManagerSchemaFormat, ToolManagerSnapshot, ToolManagerSnapshotRequest,
     ToolManagerSourceSnapshot, ToolManagerSourceType, ToolManagerToolSnapshot,
 };
+use names::{
+    mount_tool_name_for_server, prefixed_mcp_tool_name, presentation_for_manage_mcp_server,
+};
 #[allow(unused_imports)]
 pub use plugin_manager_snapshot::{
     DeclaredPermissions, EffectivePermissions, PluginEntryPolicyPaths, PluginEntrySnapshot,
     PluginManagerSnapshot, build_plugin_manager_snapshot,
-};
-use names::{
-    mount_tool_name_for_server, prefixed_mcp_tool_name, presentation_for_manage_mcp_server,
 };
 use schemas::{
     BACKGROUND_TASK_NAME, build_background_task_schema, build_manage_mcp_server_tool_schema,
@@ -139,7 +139,10 @@ impl ToolCatalog {
         for manifest in manifests {
             manifest.validate().map_err(|e| e.to_string())?;
             if self.plugin_manifests.contains_key(&manifest.id) {
-                return Err(agentjax_err!(format!("plugin '{}' is already registered", manifest.id), Config));
+                return Err(agentjax_err!(
+                    format!("plugin '{}' is already registered", manifest.id),
+                    Config
+                ));
             }
             self.plugin_manifests.insert(manifest.id.clone(), manifest);
         }
@@ -159,7 +162,10 @@ impl ToolCatalog {
             if manifests.contains_key(&manifest.id)
                 || self.plugin_manifests.contains_key(&manifest.id)
             {
-                return Err(agentjax_err!(format!("plugin '{}' is already registered", manifest.id), Config));
+                return Err(agentjax_err!(
+                    format!("plugin '{}' is already registered", manifest.id),
+                    Config
+                ));
             }
             // Validate the manifest without creating a JsRuntime -
             // tool execution creates a temp PluginInstance on demand.
@@ -232,11 +238,9 @@ impl ToolCatalog {
             .as_ref()
             .map(|a| a.memory.enabled)
             .or_else(|| {
-                crate::config::load_agent_config(
-                    crate::config::constants::DEFAULT_AGENT_ID,
-                )
-                .ok()
-                .map(|a| a.normalize().memory.enabled)
+                crate::config::load_agent_config(crate::config::constants::DEFAULT_AGENT_ID)
+                    .ok()
+                    .map(|a| a.normalize().memory.enabled)
             })
             .unwrap_or(false);
 

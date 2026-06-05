@@ -25,12 +25,14 @@ pub async fn stream_response<F>(
 where
     F: FnMut(ProviderStreamEvent) -> AgentJaxResult<()> + Send,
 {
-    let timeout_seconds = provider_config.resolved_timeout_seconds(
-        crate::config::constants::DEFAULT_TIMEOUT_SECONDS,
-    );
+    let timeout_seconds =
+        provider_config.resolved_timeout_seconds(crate::config::constants::DEFAULT_TIMEOUT_SECONDS);
     let client = build_client(timeout_seconds)?;
 
-    let base_url = provider_config.api_endpoint().trim_end_matches('/').to_string();
+    let base_url = provider_config
+        .api_endpoint()
+        .trim_end_matches('/')
+        .to_string();
     let url = format!("{base_url}/chat/completions");
 
     let body = build_chat_payload(model_id, req);
@@ -81,8 +83,12 @@ where
 
     if !stream_done && !buffer.trim().is_empty() {
         let _ = process_chat_event(
-            &buffer, &mut state,
-            &mut response_id, &mut output_text, &mut output_items, &mut usage,
+            &buffer,
+            &mut state,
+            &mut response_id,
+            &mut output_text,
+            &mut output_items,
+            &mut usage,
             &mut on_delta,
         )?;
     }
@@ -111,12 +117,15 @@ where
     };
 
     let final_response_id = if response_id.is_empty() {
-        ProviderIdFactory::new(provider_key).response_id().to_string()
+        ProviderIdFactory::new(provider_key)
+            .response_id()
+            .to_string()
     } else {
         response_id
     };
 
-    let usage_hops = usage.clone()
+    let usage_hops = usage
+        .clone()
         .map(|u| ProviderUsageRecord {
             response_id: final_response_id.clone(),
             usage: u,
@@ -141,8 +150,11 @@ where
 
 fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
     let mut messages: Vec<Value> = Vec::new();
-    let instructions = req.instructions_override.as_deref()
-        .filter(|s| !s.trim().is_empty()).map(String::from);
+    let instructions = req
+        .instructions_override
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(String::from);
     if let Some(ref instructions) = instructions {
         messages.push(json!({"role": "system", "content": instructions}));
     }
@@ -154,10 +166,18 @@ fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
     });
     if let Some(ref effort) = req.reasoning_effort {
         let trimmed = effort.trim().to_lowercase();
-        if !trimmed.is_empty() { payload["reasoning_effort"] = json!(trimmed); }
+        if !trimmed.is_empty() {
+            payload["reasoning_effort"] = json!(trimmed);
+        }
     }
-    if let Some(ref tools) = req.tools && !tools.is_empty() { payload["tools"] = Value::Array(tools.clone()); }
-    if let Some(ref tool_choice) = req.tool_choice { payload["tool_choice"] = tool_choice.clone(); }
+    if let Some(ref tools) = req.tools
+        && !tools.is_empty()
+    {
+        payload["tools"] = Value::Array(tools.clone());
+    }
+    if let Some(ref tool_choice) = req.tool_choice {
+        payload["tool_choice"] = tool_choice.clone();
+    }
     if let Some(ref text) = req.text
         && let Some(format) = text.get("format")
     {
@@ -166,13 +186,16 @@ fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
                 payload["response_format"] = json!({"type": "json_object"});
             }
             Some("json_schema") => {
-                let name = format.get("name")
+                let name = format
+                    .get("name")
                     .and_then(Value::as_str)
                     .unwrap_or("response");
-                let schema = format.get("schema")
+                let schema = format
+                    .get("schema")
                     .cloned()
                     .unwrap_or_else(|| json!({"type": "object"}));
-                let strict = format.get("strict")
+                let strict = format
+                    .get("strict")
                     .and_then(Value::as_bool)
                     .unwrap_or(true);
                 payload["response_format"] = json!({
@@ -188,12 +211,24 @@ fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
         }
     }
     // ── Sampling parameters ──
-    if let Some(temperature) = req.temperature { payload["temperature"] = json!(temperature); }
-    if let Some(top_p) = req.top_p { payload["top_p"] = json!(top_p); }
-    if let Some(presence_penalty) = req.presence_penalty { payload["presence_penalty"] = json!(presence_penalty); }
-    if let Some(frequency_penalty) = req.frequency_penalty { payload["frequency_penalty"] = json!(frequency_penalty); }
-    if let Some(max_tokens) = req.max_tokens { payload["max_tokens"] = json!(max_tokens); }
-    if let Some(max_completion_tokens) = req.max_completion_tokens { payload["max_completion_tokens"] = json!(max_completion_tokens); }
+    if let Some(temperature) = req.temperature {
+        payload["temperature"] = json!(temperature);
+    }
+    if let Some(top_p) = req.top_p {
+        payload["top_p"] = json!(top_p);
+    }
+    if let Some(presence_penalty) = req.presence_penalty {
+        payload["presence_penalty"] = json!(presence_penalty);
+    }
+    if let Some(frequency_penalty) = req.frequency_penalty {
+        payload["frequency_penalty"] = json!(frequency_penalty);
+    }
+    if let Some(max_tokens) = req.max_tokens {
+        payload["max_tokens"] = json!(max_tokens);
+    }
+    if let Some(max_completion_tokens) = req.max_completion_tokens {
+        payload["max_completion_tokens"] = json!(max_completion_tokens);
+    }
     if let Some(reasoning_budget) = req.reasoning_budget_tokens {
         // Chat Completions may not have a standard field for reasoning budget tokens.
         // Some providers (e.g. OpenAI o-series) accept it via reasoning_effort only.
@@ -205,7 +240,11 @@ fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
     for (key, value) in &req.extra_body {
         // Skip keys that are already set as standard parameters to avoid
         // overriding explicit fields with extra_body values.
-        if !payload.as_object().map(|o| o.contains_key(key)).unwrap_or(false) {
+        if !payload
+            .as_object()
+            .map(|o| o.contains_key(key))
+            .unwrap_or(false)
+        {
             payload[key] = value.clone();
         }
     }
@@ -219,8 +258,15 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
             "function_call" => {
                 let call_id = item.get("call_id").and_then(Value::as_str).unwrap_or("");
                 let name = item.get("name").and_then(Value::as_str).unwrap_or("");
-                let arguments = item.get("arguments")
-                    .map(|a| if a.is_string() { a.as_str().unwrap_or("{}").to_string() } else { a.to_string() })
+                let arguments = item
+                    .get("arguments")
+                    .map(|a| {
+                        if a.is_string() {
+                            a.as_str().unwrap_or("{}").to_string()
+                        } else {
+                            a.to_string()
+                        }
+                    })
                     .unwrap_or_else(|| "{}".to_string());
                 messages.push(json!({
                     "role": "assistant",
@@ -262,7 +308,9 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
                     _ => "user",
                 };
                 let content_value = item.get("content").cloned().unwrap_or(Value::Null);
-                if content_value.is_null() { continue; }
+                if content_value.is_null() {
+                    continue;
+                }
                 if let Some(arr) = content_value.as_array() {
                     // Chat Completions uses "text" type, while Responses API uses
                     // "input_text". Treat both equivalently so cross-protocol
@@ -275,19 +323,23 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
                         // For non-text parts (images, files, etc.), pass the
                         // array as-is but normalize known Responses API types
                         // to Chat Completions equivalents.
-                        let normalized: Vec<Value> = arr.iter().map(|part| {
-                            let mut p = part.clone();
-                            match p.get("type").and_then(Value::as_str) {
-                                Some("input_text") | Some("output_text") => {
-                                    p["type"] = json!("text");
+                        let normalized: Vec<Value> = arr
+                            .iter()
+                            .map(|part| {
+                                let mut p = part.clone();
+                                match p.get("type").and_then(Value::as_str) {
+                                    Some("input_text") | Some("output_text") => {
+                                        p["type"] = json!("text");
+                                    }
+                                    _ => {}
                                 }
-                                _ => {}
-                            }
-                            p
-                        }).collect();
+                                p
+                            })
+                            .collect();
                         messages.push(json!({"role": role, "content": normalized}));
                     } else {
-                        let text = arr.iter()
+                        let text = arr
+                            .iter()
                             .filter_map(|part| part.get("text").and_then(Value::as_str))
                             .collect::<Vec<_>>()
                             .join("");
@@ -318,21 +370,30 @@ fn process_chat_event(
     usage: &mut Option<ProviderUsage>,
     on_delta: &mut dyn FnMut(ProviderStreamEvent) -> AgentJaxResult<()>,
 ) -> AgentJaxResult<bool> {
-    let data = event_block.lines()
+    let data = event_block
+        .lines()
         .filter(|line| line.starts_with("data:"))
         .map(|line| line[5..].trim_start())
         .collect::<Vec<_>>()
         .join("\n");
 
-    if data.is_empty() || data == "[DONE]" { return Ok(data == "[DONE]"); }
+    if data.is_empty() || data == "[DONE]" {
+        return Ok(data == "[DONE]");
+    }
 
     let value: Value = serde_json::from_str(&data)
         .map_err(|_| AgentJaxError::internal("Failed to parse Chat Completions SSE JSON"))?;
     if let Some(err) = value.get("error") {
-        return Err(AgentJaxError::internal(format!("Chat Completions error: {err}")));
+        return Err(AgentJaxError::internal(format!(
+            "Chat Completions error: {err}"
+        )));
     }
 
-    if let Some(id) = value.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+    if let Some(id) = value
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+    {
         *response_id = id.to_string();
     }
     if let Some(u) = parse_chat_usage(&value) {
@@ -347,7 +408,11 @@ fn process_chat_event(
 
     if let Some(choices) = value.get("choices").and_then(Value::as_array) {
         for choice in choices {
-            let delta = choice.get("delta").and_then(Value::as_object).cloned().unwrap_or_default();
+            let delta = choice
+                .get("delta")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
 
             if let Some(content) = delta.get("reasoning_content").and_then(Value::as_str)
                 && !content.is_empty()
@@ -356,7 +421,9 @@ fn process_chat_event(
                     state.reasoning_started = true;
                     on_delta(ProviderStreamEvent::ReasoningStarted)?;
                 }
-                on_delta(ProviderStreamEvent::ReasoningDelta { delta: content.to_string() })?;
+                on_delta(ProviderStreamEvent::ReasoningDelta {
+                    delta: content.to_string(),
+                })?;
                 state.reasoning_buffer.push_str(content);
             }
 
@@ -382,32 +449,56 @@ fn process_chat_event(
                     on_delta(ProviderStreamEvent::OutputTextStarted)?;
                 }
                 output_text.push_str(content);
-                on_delta(ProviderStreamEvent::OutputTextDelta { delta: content.to_string(), phase: None })?;
+                on_delta(ProviderStreamEvent::OutputTextDelta {
+                    delta: content.to_string(),
+                    phase: None,
+                })?;
             }
 
             if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
                 for tc in tool_calls {
                     let index = tc.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
-                    let entry = state.tool_calls.entry(index).or_insert_with(|| ChatToolCallEntry {
-                        item_id: format!("item_chat_{index}"),
-                        call_id: tc.get("id").and_then(Value::as_str).unwrap_or("").to_string(),
-                        name: String::new(),
-                        arguments: String::new(),
-                        started: false,
-                        completed: false,
-                    });
-                    if let Some(id) = tc.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) { entry.call_id = id.to_string(); }
-                    if let Some(name) = tc.pointer("/function/name").and_then(Value::as_str) { entry.name.push_str(name); }
+                    let entry =
+                        state
+                            .tool_calls
+                            .entry(index)
+                            .or_insert_with(|| ChatToolCallEntry {
+                                item_id: format!("item_chat_{index}"),
+                                call_id: tc
+                                    .get("id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_string(),
+                                name: String::new(),
+                                arguments: String::new(),
+                                started: false,
+                                completed: false,
+                            });
+                    if let Some(id) = tc
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.is_empty())
+                    {
+                        entry.call_id = id.to_string();
+                    }
+                    if let Some(name) = tc.pointer("/function/name").and_then(Value::as_str) {
+                        entry.name.push_str(name);
+                    }
                     if !entry.started && !entry.name.is_empty() {
                         entry.started = true;
                         on_delta(ProviderStreamEvent::ToolCallStarted {
-                            item_id: entry.item_id.clone(), call_id: entry.call_id.clone(), name: entry.name.clone(), presentation: None,
+                            item_id: entry.item_id.clone(),
+                            call_id: entry.call_id.clone(),
+                            name: entry.name.clone(),
+                            presentation: None,
                         })?;
                     }
                     if let Some(args) = tc.pointer("/function/arguments").and_then(Value::as_str) {
                         entry.arguments.push_str(args);
                         on_delta(ProviderStreamEvent::ToolCallArgumentsDelta {
-                            item_id: entry.item_id.clone(), call_id: entry.call_id.clone(), delta: args.to_string(),
+                            item_id: entry.item_id.clone(),
+                            call_id: entry.call_id.clone(),
+                            delta: args.to_string(),
                         })?;
                     }
                 }
@@ -425,15 +516,31 @@ fn process_chat_event(
                     state.reasoning_buffer.clear();
                 }
                 if finish_reason == "tool_calls" {
-                    let entries: Vec<(String, String, String, String)> = state.tool_calls.values()
+                    let entries: Vec<(String, String, String, String)> = state
+                        .tool_calls
+                        .values()
                         .filter(|e| !e.completed && !e.name.is_empty())
-                        .map(|e| (e.item_id.clone(), e.call_id.clone(), e.name.clone(), e.arguments.clone()))
+                        .map(|e| {
+                            (
+                                e.item_id.clone(),
+                                e.call_id.clone(),
+                                e.name.clone(),
+                                e.arguments.clone(),
+                            )
+                        })
                         .collect();
                     for (item_id, call_id, name, arguments) in entries {
-                        if let Some(entry) = state.tool_calls.values_mut().find(|e| e.call_id == call_id) { entry.completed = true; }
+                        if let Some(entry) =
+                            state.tool_calls.values_mut().find(|e| e.call_id == call_id)
+                        {
+                            entry.completed = true;
+                        }
                         on_delta(ProviderStreamEvent::ToolCallCompleted {
-                            item_id: item_id.clone(), call_id: call_id.clone(), name: name.clone(),
-                            arguments: arguments.clone(), presentation: None,
+                            item_id: item_id.clone(),
+                            call_id: call_id.clone(),
+                            name: name.clone(),
+                            arguments: arguments.clone(),
+                            presentation: None,
                         })?;
                         output_items.push(json!({"type": "function_call", "id": item_id, "call_id": call_id, "name": name, "arguments": arguments}));
                     }
@@ -452,7 +559,8 @@ fn process_chat_event(
 
 fn parse_chat_usage(value: &Value) -> Option<ProviderUsage> {
     let usage: ProviderUsage = serde_json::from_value(value.get("usage")?.clone()).ok()?;
-    (usage.prompt_tokens > 0 || usage.completion_tokens > 0 || usage.total_tokens > 0).then_some(usage)
+    (usage.prompt_tokens > 0 || usage.completion_tokens > 0 || usage.total_tokens > 0)
+        .then_some(usage)
 }
 
 struct ChatStreamState {
@@ -472,5 +580,12 @@ struct ChatToolCallEntry {
 }
 
 impl ChatStreamState {
-    fn new() -> Self { Self { emitted_output_started: false, reasoning_started: false, reasoning_buffer: String::new(), tool_calls: BTreeMap::new() } }
+    fn new() -> Self {
+        Self {
+            emitted_output_started: false,
+            reasoning_started: false,
+            reasoning_buffer: String::new(),
+            tool_calls: BTreeMap::new(),
+        }
+    }
 }

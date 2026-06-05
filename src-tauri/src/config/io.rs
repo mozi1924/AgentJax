@@ -28,20 +28,31 @@ pub struct ConfigUpgradeResult {
 }
 
 pub fn config_dir_path() -> AgentJaxResult<PathBuf> {
-    crate::agentjax_home::agentjax_home_dir()}
+    crate::agentjax_home::agentjax_home_dir()
+}
 
 pub fn init_config_if_missing() -> AgentJaxResult<PathBuf> {
     let dir = config_dir_path()?;
     if !dir.exists() {
-        fs::create_dir_all(&dir)
-            .map_err(|e| AgentJaxError::config(format!("Failed to create config directory {}: {e}", dir.display())).with_error_source(&e))?;
+        fs::create_dir_all(&dir).map_err(|e| {
+            AgentJaxError::config(format!(
+                "Failed to create config directory {}: {e}",
+                dir.display()
+            ))
+            .with_error_source(&e)
+        })?;
     }
 
     let path = dir.join(CONFIG_FILE_NAME);
     if !path.exists() {
         let template = default_config_yaml();
-        fs::write(&path, template)
-            .map_err(|e| AgentJaxError::config(format!("Failed to create config file {}: {e}", path.display())).with_error_source(&e))?;
+        fs::write(&path, template).map_err(|e| {
+            AgentJaxError::config(format!(
+                "Failed to create config file {}: {e}",
+                path.display()
+            ))
+            .with_error_source(&e)
+        })?;
     }
 
     Ok(path)
@@ -155,7 +166,9 @@ pub fn get_config_info() -> AgentJaxResult<ConfigInfo> {
     let path = init_config_if_missing()?;
     let config = load_config()?;
     // Attempt to read the active agent's config for per-agent defaults.
-    let agent = load_agent_config(&config.active_agent_id).unwrap_or_default().normalize();
+    let agent = load_agent_config(&config.active_agent_id)
+        .unwrap_or_default()
+        .normalize();
     let active_provider = agent.active_provider.clone();
     let active_provider_config = config.resolved_provider(&active_provider)?;
 
@@ -175,9 +188,7 @@ pub fn get_config_info() -> AgentJaxResult<ConfigInfo> {
 fn default_config_yaml() -> String {
     let config = AppConfig::default();
     let yaml_body = serialize_config_to_yaml(&config)
-        .unwrap_or_else(|e| {
-            panic!("Failed to serialize default config to YAML: {e}")
-        });
+        .unwrap_or_else(|e| panic!("Failed to serialize default config to YAML: {e}"));
     let mut lines = [
         "# AgentJax configuration".to_string(),
         "# Home directory: AGENTJAX_HOME (default: ~/.agentjax)".to_string(),
@@ -192,19 +203,31 @@ fn default_config_yaml() -> String {
 }
 
 fn read_config_file(path: &Path) -> AgentJaxResult<String> {
-    fs::read_to_string(path)
-        .map_err(|e| AgentJaxError::config(format!("Failed to read config file {}: {e}", path.display())).with_error_source(&e))
+    fs::read_to_string(path).map_err(|e| {
+        AgentJaxError::config(format!(
+            "Failed to read config file {}: {e}",
+            path.display()
+        ))
+        .with_error_source(&e)
+    })
 }
 
 fn parse_config_yaml(path: &Path, raw: &str) -> AgentJaxResult<AppConfig> {
-    serde_yaml::from_str(raw).map_err(|e| AgentJaxError::config(format!("Invalid YAML in {}: {e}", path.display())).with_error_source(&e))
+    serde_yaml::from_str(raw).map_err(|e| {
+        AgentJaxError::config(format!("Invalid YAML in {}: {e}", path.display()))
+            .with_error_source(&e)
+    })
 }
 
 pub fn serialize_config_to_yaml(normalized: &AppConfig) -> AgentJaxResult<String> {
     // Prompt composer blocks are now per-agent; the shared config.yaml does not
     // contain them. Future YAML abbreviation logic should go here if needed.
-    serde_yaml::to_string(normalized)
-        .map_err(|e| AgentJaxError::config(format!("Failed to serialize normalized config to YAML: {e}")).with_error_source(&e))
+    serde_yaml::to_string(normalized).map_err(|e| {
+        AgentJaxError::config(format!(
+            "Failed to serialize normalized config to YAML: {e}"
+        ))
+        .with_error_source(&e)
+    })
 }
 
 fn persist_config_if_changed(
@@ -212,12 +235,17 @@ fn persist_config_if_changed(
     raw: &str,
     normalized: &AppConfig,
 ) -> AgentJaxResult<bool> {
-    let source_value: serde_yaml::Value = serde_yaml::from_str(raw)
-        .map_err(|e| AgentJaxError::config(format!("Invalid YAML in {}: {e}", path.display())).with_error_source(&e))?;
+    let source_value: serde_yaml::Value = serde_yaml::from_str(raw).map_err(|e| {
+        AgentJaxError::config(format!("Invalid YAML in {}: {e}", path.display()))
+            .with_error_source(&e)
+    })?;
 
     let normalized_yaml = serialize_config_to_yaml(normalized)?;
-    let normalized_value: serde_yaml::Value = serde_yaml::from_str(&normalized_yaml)
-        .map_err(|e| AgentJaxError::config(format!("Failed to parse normalized config YAML: {e}")).with_error_source(&e))?;
+    let normalized_value: serde_yaml::Value =
+        serde_yaml::from_str(&normalized_yaml).map_err(|e| {
+            AgentJaxError::config(format!("Failed to parse normalized config YAML: {e}"))
+                .with_error_source(&e)
+        })?;
 
     if source_value == normalized_value {
         return Ok(false);

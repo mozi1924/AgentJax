@@ -47,7 +47,10 @@ struct TextEditOutcome {
 
 fn count_occurrences(content: &str, needle: &str, label: &str) -> AgentJaxResult<usize> {
     if needle.is_empty() {
-        return Err(agentjax_err!(format!("{label} cannot be empty"), ToolExecution));
+        return Err(agentjax_err!(
+            format!("{label} cannot be empty"),
+            ToolExecution
+        ));
     }
 
     Ok(content.match_indices(needle).count())
@@ -62,12 +65,17 @@ fn replace_exact_text(
 ) -> AgentJaxResult<TextEditOutcome> {
     let occurrences = count_occurrences(content, needle, label)?;
     if occurrences == 0 {
-        return Err(agentjax_err!(format!("Could not find the requested {label} in the file"), ToolExecution));
+        return Err(agentjax_err!(
+            format!("Could not find the requested {label} in the file"),
+            ToolExecution
+        ));
     }
 
     if !replace_all && occurrences > 1 {
         return Err(agentjax_err!(
-            format!("Found {occurrences} matches for the requested {label}; rerun with replace_all=true to update every occurrence"),
+            format!(
+                "Found {occurrences} matches for the requested {label}; rerun with replace_all=true to update every occurrence"
+            ),
             ToolExecution
         ));
     }
@@ -102,7 +110,9 @@ fn insert_relative_to_anchor(
 
     if !insert_all && occurrences > 1 {
         return Err(agentjax_err!(
-            format!("Found {occurrences} anchor matches for {label}; rerun with insert_all=true to apply the insertion at every match"),
+            format!(
+                "Found {occurrences} anchor matches for {label}; rerun with insert_all=true to apply the insertion at every match"
+            ),
             ToolExecution
         ));
     }
@@ -114,9 +124,12 @@ fn insert_relative_to_anchor(
             content.replace(anchor, &format!("{insertion}{anchor}"))
         }
     } else {
-        let index = content
-            .find(anchor)
-            .ok_or_else(|| agentjax_err!(format!("Could not find the requested anchor text for {label}"), ToolExecution))?;
+        let index = content.find(anchor).ok_or_else(|| {
+            agentjax_err!(
+                format!("Could not find the requested anchor text for {label}"),
+                ToolExecution
+            )
+        })?;
         let split_index = if insert_after {
             index + anchor.len()
         } else {
@@ -174,7 +187,10 @@ fn apply_text_patch_plan(
     edits: &[TextPatchEdit],
 ) -> AgentJaxResult<(String, Vec<Value>)> {
     if edits.is_empty() {
-        return Err(agentjax_err!("Patch must contain at least one edit", ToolExecution));
+        return Err(agentjax_err!(
+            "Patch must contain at least one edit",
+            ToolExecution
+        ));
     }
 
     let mut next_content = content.to_string();
@@ -253,7 +269,11 @@ impl Tool for EditFileTool {
         })
     }
 
-    async fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
+    async fn execute(
+        &self,
+        arguments: &Value,
+        context: &ToolExecutionContext,
+    ) -> AgentJaxResult<Value> {
         let args = super::common::parse_tool_args::<EditFileArgs>(arguments, self.name())?;
         let resolved = resolve_workspace_path(&args.path, context, false)?;
         let original = read_text_file(&resolved.absolute_path, MAX_READ_MAX_BYTES, "edit")?;

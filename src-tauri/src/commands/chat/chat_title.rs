@@ -19,8 +19,15 @@ pub fn schedule_title_generation(
     request_id: String,
 ) {
     tauri::async_runtime::spawn(async move {
-        if let Err(err) =
-            generate_title_and_emit(window, app_handle, full_config, &agent_id, &conversation_id, &request_id).await
+        if let Err(err) = generate_title_and_emit(
+            window,
+            app_handle,
+            full_config,
+            &agent_id,
+            &conversation_id,
+            &request_id,
+        )
+        .await
         {
             log::warn!(
                 "Failed to generate conversation title for {}: {}",
@@ -47,8 +54,11 @@ async fn generate_title_and_emit(
     let candidate = {
         let conversation_id = conversation_id.to_string();
         let agent_id = agent_id.to_string();
-        run_blocking(move || conversation_store::load_title_generation_candidate(&agent_id, &conversation_id).map_err(|e| e.to_string()))
-            .await?
+        run_blocking(move || {
+            conversation_store::load_title_generation_candidate(&agent_id, &conversation_id)
+                .map_err(|e| e.to_string())
+        })
+        .await?
     };
 
     let Some(candidate) = candidate else {
@@ -80,8 +90,14 @@ async fn generate_title_and_emit(
         ..Default::default()
     };
 
-    let response =
-        provider_api::stream_response(&full_config.shared, &full_config.agent, &title_request, &mut title_cancel_rx, |_| Ok(())).await;
+    let response = provider_api::stream_response(
+        &full_config.shared,
+        &full_config.agent,
+        &title_request,
+        &mut title_cancel_rx,
+        |_| Ok(()),
+    )
+    .await;
 
     let cancelled = *title_cancel_rx.borrow();
     registry.finish_title_request(conversation_id, &job_id)?;
@@ -100,8 +116,11 @@ async fn generate_title_and_emit(
         let agent_id = agent_id.to_string();
         let conversation_id = conversation_id.to_string();
         let title = title.clone();
-        run_blocking(move || conversation_store::update_auto_title(&agent_id, &conversation_id, &title).map_err(|e| e.to_string()))
-            .await?
+        run_blocking(move || {
+            conversation_store::update_auto_title(&agent_id, &conversation_id, &title)
+                .map_err(|e| e.to_string())
+        })
+        .await?
     }
     .and_then(|summary| {
         let title = summary.title.trim().to_string();

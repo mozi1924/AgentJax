@@ -57,7 +57,11 @@ impl Tool for FileReaderTool {
         })
     }
 
-    async fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value> {
+    async fn execute(
+        &self,
+        arguments: &Value,
+        context: &ToolExecutionContext,
+    ) -> AgentJaxResult<Value> {
         let args = super::common::parse_tool_args::<ReadFileArgs>(arguments, self.name())?;
         let resolved = resolve_workspace_path(&args.path, context, false)?;
         if !resolved.absolute_path.exists() {

@@ -1,6 +1,6 @@
-use serde_json::{Value, json};
 use crate::agentjax_err;
 use crate::error::AgentJaxResult;
+use serde_json::{Value, json};
 
 pub(crate) const DEFAULT_PRECISION: u32 = 12;
 pub(crate) const MAX_PRECISION: u32 = 32;
@@ -26,7 +26,9 @@ impl CalculatorMode {
             "capabilities" => Ok(Self::Capabilities),
             "evaluate" => Ok(Self::Evaluate),
             other => Err(agentjax_err!(
-                format!("Unsupported calculator mode '{other}'. Try one of: auto, capabilities, evaluate."),
+                format!(
+                    "Unsupported calculator mode '{other}'. Try one of: auto, capabilities, evaluate."
+                ),
                 ToolExecution
             )),
         }

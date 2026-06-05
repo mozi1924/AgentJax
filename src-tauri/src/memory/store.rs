@@ -59,10 +59,7 @@ impl MemoryStore {
             return Ok(false);
         }
         std::fs::remove_file(&file_path).map_err(|e| {
-            AgentJaxError::memory(format!(
-                "Failed to delete memory '{}': {e}",
-                name
-            ))
+            AgentJaxError::memory(format!("Failed to delete memory '{}': {e}", name))
         })?;
         Ok(true)
     }
@@ -87,10 +84,7 @@ impl MemoryStore {
                 continue;
             }
             // Skip MEMORY.md (the index file itself).
-            if path
-                .file_stem()
-                .is_some_and(|s| s == "MEMORY")
-            {
+            if path.file_stem().is_some_and(|s| s == "MEMORY") {
                 continue;
             }
 
@@ -132,9 +126,8 @@ impl MemoryStore {
     }
 
     fn serialize_memory(&self, memory: &ParsedMemory) -> AgentJaxResult<String> {
-        let frontmatter_yaml = serde_yaml::to_string(&memory.frontmatter).map_err(|e| {
-            AgentJaxError::memory(format!("Failed to serialize frontmatter: {e}"))
-        })?;
+        let frontmatter_yaml = serde_yaml::to_string(&memory.frontmatter)
+            .map_err(|e| AgentJaxError::memory(format!("Failed to serialize frontmatter: {e}")))?;
         Ok(format!(
             "---\n{}\n---\n\n{}\n",
             frontmatter_yaml.trim(),

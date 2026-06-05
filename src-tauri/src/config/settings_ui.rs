@@ -20,8 +20,7 @@ const PROMPT_COMPOSER_SECTION_JSON: &str =
 const PROVIDERS_SECTION_JSON: &str = include_str!("settings_ui_sections/providers.json");
 const MCP_SECTION_JSON: &str = include_str!("settings_ui_sections/mcp.json");
 const TOOLS_SECTION_JSON: &str = include_str!("settings_ui_sections/tools.json");
-const PLUGIN_MANAGER_SECTION_JSON: &str =
-    include_str!("settings_ui_sections/plugin_manager.json");
+const PLUGIN_MANAGER_SECTION_JSON: &str = include_str!("settings_ui_sections/plugin_manager.json");
 const CONTEXT_MANAGEMENT_SECTION_JSON: &str =
     include_str!("settings_ui_sections/context_management.json");
 const MEMORY_SECTION_JSON: &str = include_str!("settings_ui_sections/memory.json");
@@ -35,11 +34,7 @@ pub fn build_settings_sections() -> AgentJaxResult<Vec<Value>> {
         }
     }
 
-    sections.sort_by_key(|v| {
-        v.get("order")
-            .and_then(Value::as_i64)
-            .unwrap_or(1000)
-    });
+    sections.sort_by_key(|v| v.get("order").and_then(Value::as_i64).unwrap_or(1000));
 
     validate_unique_schema_ids(&sections)?;
     Ok(sections)
@@ -59,8 +54,10 @@ fn build_builtin_settings_sections() -> AgentJaxResult<Vec<Value>> {
 
     let mut sections = Vec::with_capacity(section_sources.len());
     for source in section_sources {
-        let mut section: Value = serde_json::from_str(source)
-            .map_err(|error| AgentJaxError::config(format!("Failed to parse settings section JSON: {error}")).with_error_source(&error))?;
+        let mut section: Value = serde_json::from_str(source).map_err(|error| {
+            AgentJaxError::config(format!("Failed to parse settings section JSON: {error}"))
+                .with_error_source(&error)
+        })?;
         // Inject defaultItem from Rust struct Default impls so JSON schema
         // files don't need to duplicate default values.
         inject_default_items(&mut section);
@@ -133,26 +130,38 @@ fn walk_node_ids(node: &Value, ids: &mut std::collections::BTreeSet<String>) -> 
         .ok_or_else(|| agentjax_err!("Settings schema node is missing non-empty id", Config))?;
 
     if !ids.insert(id.to_string()) {
-        return Err(agentjax_err!(format!("Duplicate settings schema node id: {id}"), Config));
+        return Err(agentjax_err!(
+            format!("Duplicate settings schema node id: {id}"),
+            Config
+        ));
     }
 
     if let Some(children) = object.get("children") {
-        let array = children
-            .as_array()
-            .ok_or_else(|| agentjax_err!(format!("Settings schema node '{id}' children must be an array"), Config))?;
+        let array = children.as_array().ok_or_else(|| {
+            agentjax_err!(
+                format!("Settings schema node '{id}' children must be an array"),
+                Config
+            )
+        })?;
         for child in array {
             walk_node_ids(child, ids)?;
         }
     }
 
     if let Some(tabs) = object.get("tabs") {
-        let array = tabs
-            .as_array()
-            .ok_or_else(|| agentjax_err!(format!("Settings schema node '{id}' tabs must be an array"), Config))?;
+        let array = tabs.as_array().ok_or_else(|| {
+            agentjax_err!(
+                format!("Settings schema node '{id}' tabs must be an array"),
+                Config
+            )
+        })?;
         for tab in array {
             if let Some(children) = tab.get("children") {
                 let children = children.as_array().ok_or_else(|| {
-                    agentjax_err!(format!("Settings schema tab in node '{id}' children must be an array"), Config)
+                    agentjax_err!(
+                        format!("Settings schema tab in node '{id}' children must be an array"),
+                        Config
+                    )
                 })?;
                 for child in children {
                     walk_node_ids(child, ids)?;
@@ -171,8 +180,8 @@ fn walk_node_ids(node: &Value, ids: &mut std::collections::BTreeSet<String>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin_runtime::api::PLUGIN_API_VERSION;
     use crate::plugin_runtime::PluginManifest;
+    use crate::plugin_runtime::api::PLUGIN_API_VERSION;
     use std::path::PathBuf;
 
     fn package_with_settings(id: &str, sections: Vec<Value>) -> PluginPackage {

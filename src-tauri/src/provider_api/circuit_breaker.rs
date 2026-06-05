@@ -121,10 +121,7 @@ impl BreakerState {
                 if self.failure_count >= self.config.failure_threshold {
                     self.state = CircuitState::Open;
                     self.opened_at = Some(now);
-                    log::warn!(
-                        "Circuit breaker OPEN after {} failures",
-                        self.failure_count
-                    );
+                    log::warn!("Circuit breaker OPEN after {} failures", self.failure_count);
                 }
             }
             CircuitState::HalfOpen => {
@@ -146,10 +143,11 @@ impl BreakerState {
             return;
         }
         if let Some(opened_at) = self.opened_at
-            && now.duration_since(opened_at) >= self.config.cooldown_duration {
-                self.state = CircuitState::HalfOpen;
-                log::info!("Circuit breaker HALF_OPEN (cooldown elapsed)");
-            }
+            && now.duration_since(opened_at) >= self.config.cooldown_duration
+        {
+            self.state = CircuitState::HalfOpen;
+            log::info!("Circuit breaker HALF_OPEN (cooldown elapsed)");
+        }
     }
 
     /// Whether a request should be allowed through.
@@ -157,7 +155,7 @@ impl BreakerState {
         match self.state {
             CircuitState::Closed => true,
             CircuitState::HalfOpen => true, // Allow test request
-            CircuitState::Open => false,     // Reject
+            CircuitState::Open => false,    // Reject
         }
     }
 }
@@ -202,8 +200,7 @@ impl CircuitBreakerRegistry {
                     "Circuit breaker is OPEN for provider '{provider_key}'. \
                      The circuit will transition to half-open after ~{:?}. \
                      Prev failures: {}",
-                    state.config.cooldown_duration,
-                    state.failure_count,
+                    state.config.cooldown_duration, state.failure_count,
                 ),
                 retryable: true,
                 provider_key: Some(provider_key.to_string()),

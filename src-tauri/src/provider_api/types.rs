@@ -1,5 +1,5 @@
-use crate::provider_api::capabilities::ProviderCapabilities;
 use crate::message_phase::AssistantPhase;
+use crate::provider_api::capabilities::ProviderCapabilities;
 use crate::tools::ToolPresentation;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -152,7 +152,8 @@ pub struct ProviderTurnRequest {
 }
 
 pub type ResponseStreamRequest = ProviderTurnRequest;
-pub type ProviderEventSink<'a> = dyn FnMut(ProviderStreamEvent) -> crate::error::AgentJaxResult<()> + Send + 'a;
+pub type ProviderEventSink<'a> =
+    dyn FnMut(ProviderStreamEvent) -> crate::error::AgentJaxResult<()> + Send + 'a;
 
 /// Provider-reported token usage in AgentJax's canonical field names.
 ///

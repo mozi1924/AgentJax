@@ -38,12 +38,36 @@ struct KeyPattern {
 }
 
 static COLLECTION_KEY_PATTERNS: &[KeyPattern] = &[
-    KeyPattern { prefix: "providers",     pattern: r"^[A-Za-z0-9_-]+$",  label: "provider key" },
-    KeyPattern { prefix: "mcp.servers",    pattern: r"^[A-Za-z0-9_-]+$",  label: "MCP server key" },
-    KeyPattern { prefix: "tool_manager.native_tools",  pattern: r"^[A-Za-z0-9_-]+$",  label: "native tool key" },
-    KeyPattern { prefix: "tool_manager.context_tools", pattern: r"^[A-Za-z0-9_-]+$",  label: "context tool key" },
-    KeyPattern { prefix: "tool_manager.plugin_tools",  pattern: r"^[A-Za-z0-9_-]+$",  label: "plugin id" },
-    KeyPattern { prefix: "tool_manager.mcp_tools",     pattern: r"^[A-Za-z0-9_-]+$",  label: "MCP server key (tool)" },
+    KeyPattern {
+        prefix: "providers",
+        pattern: r"^[A-Za-z0-9_-]+$",
+        label: "provider key",
+    },
+    KeyPattern {
+        prefix: "mcp.servers",
+        pattern: r"^[A-Za-z0-9_-]+$",
+        label: "MCP server key",
+    },
+    KeyPattern {
+        prefix: "tool_manager.native_tools",
+        pattern: r"^[A-Za-z0-9_-]+$",
+        label: "native tool key",
+    },
+    KeyPattern {
+        prefix: "tool_manager.context_tools",
+        pattern: r"^[A-Za-z0-9_-]+$",
+        label: "context tool key",
+    },
+    KeyPattern {
+        prefix: "tool_manager.plugin_tools",
+        pattern: r"^[A-Za-z0-9_-]+$",
+        label: "plugin id",
+    },
+    KeyPattern {
+        prefix: "tool_manager.mcp_tools",
+        pattern: r"^[A-Za-z0-9_-]+$",
+        label: "MCP server key (tool)",
+    },
 ];
 
 // The key pattern for model profiles inside providers is slightly different
@@ -63,10 +87,7 @@ static MODEL_KEY_PATTERN: KeyPattern = KeyPattern {
 ///
 /// * `segments` — the parsed path segments (e.g., `["memory", "enabled"]`)
 /// * `value` — the optional value being set (for type validation)
-pub fn validate_patch_path(
-    segments: &[String],
-    value: Option<&Value>,
-) -> AgentJaxResult<()> {
+pub fn validate_patch_path(segments: &[String], value: Option<&Value>) -> AgentJaxResult<()> {
     if segments.is_empty() {
         return Err(agentjax_err!("Patch path cannot be empty", Config));
     }
@@ -101,10 +122,13 @@ pub fn validate_patch_path(
                 // Check if it matches a known key pattern.
                 validate_dynamic_key(segments, segment)?;
                 // Find the schema for the collection item type
-                current = resolve_collection_item_schema_fast(current, &schema)
-                    .ok_or_else(|| {
+                current =
+                    resolve_collection_item_schema_fast(current, &schema).ok_or_else(|| {
                         agentjax_err!(
-                            format!("Unknown config path segment '{}': not a field or collection key", segment),
+                            format!(
+                                "Unknown config path segment '{}': not a field or collection key",
+                                segment
+                            ),
                             Config
                         )
                     })?;
@@ -129,7 +153,8 @@ fn validate_value_type(schema: &Value, value: &Value) -> AgentJaxResult<()> {
         Some(Value::String(t)) => Some(t.as_str()),
         Some(Value::Array(types)) => {
             // Option<T> → pick the first non-null type
-            types.iter()
+            types
+                .iter()
                 .filter_map(|v| v.as_str())
                 .find(|t| *t != "null")
         }
@@ -166,7 +191,9 @@ fn validate_value_type(schema: &Value, value: &Value) -> AgentJaxResult<()> {
 /// Validate dynamic collection keys against known patterns.
 fn validate_dynamic_key(full_path: &[String], key: &str) -> AgentJaxResult<()> {
     // Build the path prefix (all segments up to the key)
-    let key_index = full_path.iter().position(|s| s == key)
+    let key_index = full_path
+        .iter()
+        .position(|s| s == key)
         .unwrap_or(full_path.len().saturating_sub(1));
 
     let prefix = full_path[..key_index].join(".");
@@ -208,7 +235,9 @@ fn validate_key_format(key: &str, _pattern: &str, label: &str) -> AgentJaxResult
 
     if !trimmed.chars().all(allowed) {
         return Err(agentjax_err!(
-            format!("{label} '{trimmed}' contains unsupported characters. Use letters, digits, '-', '_' or '.' only."),
+            format!(
+                "{label} '{trimmed}' contains unsupported characters. Use letters, digits, '-', '_' or '.' only."
+            ),
             Config
         ));
     }
@@ -231,7 +260,9 @@ fn is_referencing_additional_properties<'a>(
         }
     }
     // Segment wasn't in properties → it must be from additionalProperties
-    resolved.get("additionalProperties").is_some_and(|a| !matches!(a, Value::Bool(false)))
+    resolved
+        .get("additionalProperties")
+        .is_some_and(|a| !matches!(a, Value::Bool(false)))
 }
 
 /// When we encounter a dynamic key in a path, we need to find the collection
@@ -379,11 +410,7 @@ mod tests {
     #[test]
     fn collection_key_path_accepted() {
         // providers.{key}.kind — {key} is dynamic, kind is a valid field
-        let segments: Vec<String> = vec![
-            "providers".into(),
-            "my-provider".into(),
-            "kind".into(),
-        ];
+        let segments: Vec<String> = vec!["providers".into(), "my-provider".into(), "kind".into()];
         assert!(validate_patch_path(&segments, None).is_ok());
     }
 
@@ -391,7 +418,7 @@ mod tests {
     fn collection_with_invalid_key_rejected() {
         let segments: Vec<String> = vec![
             "providers".into(),
-            "".into(),  // Empty key should fail
+            "".into(), // Empty key should fail
             "kind".into(),
         ];
         assert!(validate_patch_path(&segments, None).is_err());

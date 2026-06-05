@@ -1,7 +1,5 @@
 use super::io::{atomic_write, compute_revision};
-use super::snapshot::{
-    is_agent_config_path, snapshot_from_config_with_agent,
-};
+use super::snapshot::{is_agent_config_path, snapshot_from_config_with_agent};
 use super::types::{SettingsPatch, SettingsPatchOperation, SettingsSnapshot};
 use crate::agentjax_err;
 use crate::config::agent_config::AgentConfig;
@@ -12,8 +10,13 @@ use std::fs;
 
 pub fn apply_settings_patch(patch: SettingsPatch) -> AgentJaxResult<SettingsSnapshot> {
     let config_path = config::init_config_if_missing()?;
-    let raw = fs::read_to_string(&config_path)
-        .map_err(|e| AgentJaxError::config(format!("Failed to read config file {}: {e}", config_path.display())).with_error_source(&e))?;
+    let raw = fs::read_to_string(&config_path).map_err(|e| {
+        AgentJaxError::config(format!(
+            "Failed to read config file {}: {e}",
+            config_path.display()
+        ))
+        .with_error_source(&e)
+    })?;
     let current_revision = compute_revision(&raw);
 
     if current_revision != patch.expected_revision {
@@ -48,14 +51,19 @@ fn apply_shared_patch(
     config_path: &std::path::Path,
     _raw: &str,
 ) -> AgentJaxResult<SettingsSnapshot> {
-    let mut root = serde_json::to_value(config)
-        .map_err(|e| AgentJaxError::config(format!("Failed to serialize config for patching: {e}")).with_error_source(&e))?;
+    let mut root = serde_json::to_value(config).map_err(|e| {
+        AgentJaxError::config(format!("Failed to serialize config for patching: {e}"))
+            .with_error_source(&e)
+    })?;
     let path_segments = parse_path(&patch.path)?;
 
     match patch.operation {
         SettingsPatchOperation::Set => {
             let value = patch.value.clone().ok_or_else(|| {
-                agentjax_err!(format!("Patch for '{}' requires a value", patch.path), Config)
+                agentjax_err!(
+                    format!("Patch for '{}' requires a value", patch.path),
+                    Config
+                )
             })?;
             apply_set(&mut root, &path_segments, value)?;
         }
@@ -65,8 +73,9 @@ fn apply_shared_patch(
     }
     validate_path_semantics(&path_segments, &root)?;
 
-    let patched: AppConfig = serde_json::from_value(root)
-        .map_err(|e| AgentJaxError::config(format!("Patched config is invalid: {e}")).with_error_source(&e))?;
+    let patched: AppConfig = serde_json::from_value(root).map_err(|e| {
+        AgentJaxError::config(format!("Patched config is invalid: {e}")).with_error_source(&e)
+    })?;
     let normalized = patched.normalize();
     let normalized_yaml = crate::config::serialize_config_to_yaml(&normalized)?;
     atomic_write(config_path, &normalized_yaml)?;
@@ -81,15 +90,23 @@ fn apply_agent_patch(
     agent_config: &AgentConfig,
     agent_id: &str,
 ) -> AgentJaxResult<SettingsSnapshot> {
-    let agent_path = crate::agentjax_home::agent_dir(agent_id)?.join(crate::config::constants::AGENT_CONFIG_FILE_NAME);
-    let mut root = serde_json::to_value(agent_config)
-        .map_err(|e| AgentJaxError::config(format!("Failed to serialize agent config for patching: {e}")).with_error_source(&e))?;
+    let agent_path = crate::agentjax_home::agent_dir(agent_id)?
+        .join(crate::config::constants::AGENT_CONFIG_FILE_NAME);
+    let mut root = serde_json::to_value(agent_config).map_err(|e| {
+        AgentJaxError::config(format!(
+            "Failed to serialize agent config for patching: {e}"
+        ))
+        .with_error_source(&e)
+    })?;
     let path_segments = parse_path(&patch.path)?;
 
     match patch.operation {
         SettingsPatchOperation::Set => {
             let value = patch.value.clone().ok_or_else(|| {
-                agentjax_err!(format!("Patch for '{}' requires a value", patch.path), Config)
+                agentjax_err!(
+                    format!("Patch for '{}' requires a value", patch.path),
+                    Config
+                )
             })?;
             apply_set(&mut root, &path_segments, value)?;
         }
@@ -98,18 +115,22 @@ fn apply_agent_patch(
         }
     }
 
-    let patched: AgentConfig = serde_json::from_value(root)
-        .map_err(|e| AgentJaxError::config(format!("Patched agent config is invalid: {e}")).with_error_source(&e))?;
+    let patched: AgentConfig = serde_json::from_value(root).map_err(|e| {
+        AgentJaxError::config(format!("Patched agent config is invalid: {e}")).with_error_source(&e)
+    })?;
     let normalized = patched.normalize();
-    let yaml = serde_yaml::to_string(&normalized)
-        .map_err(|e| AgentJaxError::config(format!("Failed to serialize agent config: {e}")).with_error_source(&e))?;
+    let yaml = serde_yaml::to_string(&normalized).map_err(|e| {
+        AgentJaxError::config(format!("Failed to serialize agent config: {e}"))
+            .with_error_source(&e)
+    })?;
 
     // Ensure the agent directory exists before writing.
     if let Some(parent) = agent_path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
-    std::fs::write(&agent_path, &yaml)
-        .map_err(|e| AgentJaxError::config(format!("Failed to write agent config: {e}")).with_error_source(&e))?;
+    std::fs::write(&agent_path, &yaml).map_err(|e| {
+        AgentJaxError::config(format!("Failed to write agent config: {e}")).with_error_source(&e)
+    })?;
 
     let config_path = config::init_config_if_missing()?;
     let raw = fs::read_to_string(&config_path).unwrap_or_default();
@@ -138,7 +159,10 @@ fn parse_path(path: &str) -> AgentJaxResult<Vec<String>> {
             '.' => {
                 let segment = current.trim().to_string();
                 if segment.is_empty() {
-                    return Err(agentjax_err!(format!("Patch path '{}' contains an empty segment", path), Config));
+                    return Err(agentjax_err!(
+                        format!("Patch path '{}' contains an empty segment", path),
+                        Config
+                    ));
                 }
                 segments.push(segment);
                 current.clear();
@@ -153,12 +177,18 @@ fn parse_path(path: &str) -> AgentJaxResult<Vec<String>> {
 
     let last_segment = current.trim().to_string();
     if last_segment.is_empty() {
-        return Err(agentjax_err!(format!("Patch path '{}' contains an empty segment", path), Config));
+        return Err(agentjax_err!(
+            format!("Patch path '{}' contains an empty segment", path),
+            Config
+        ));
     }
     segments.push(last_segment);
 
     if segments.iter().any(|segment| segment.is_empty()) {
-        return Err(agentjax_err!(format!("Patch path '{}' contains an empty segment", path), Config));
+        return Err(agentjax_err!(
+            format!("Patch path '{}' contains an empty segment", path),
+            Config
+        ));
     }
 
     Ok(segments)
@@ -172,9 +202,12 @@ fn apply_set(root: &mut Value, segments: &[String], value: Value) -> AgentJaxRes
 
     let mut current = root;
     for segment in &segments[..segments.len() - 1] {
-        let object = current
-            .as_object_mut()
-            .ok_or_else(|| agentjax_err!(format!("Path segment '{}' does not reference an object", segment), Config))?;
+        let object = current.as_object_mut().ok_or_else(|| {
+            agentjax_err!(
+                format!("Path segment '{}' does not reference an object", segment),
+                Config
+            )
+        })?;
         current = object
             .entry(segment.clone())
             .or_insert_with(|| Value::Object(Map::new()));
@@ -183,9 +216,12 @@ fn apply_set(root: &mut Value, segments: &[String], value: Value) -> AgentJaxRes
     let leaf = segments
         .last()
         .ok_or_else(|| agentjax_err!("Patch path missing terminal segment", Config))?;
-    let object = current
-        .as_object_mut()
-        .ok_or_else(|| agentjax_err!(format!("Path '{}' does not reference an object leaf", leaf), Config))?;
+    let object = current.as_object_mut().ok_or_else(|| {
+        agentjax_err!(
+            format!("Path '{}' does not reference an object leaf", leaf),
+            Config
+        )
+    })?;
     object.insert(leaf.clone(), value);
     Ok(())
 }
@@ -197,20 +233,26 @@ fn apply_delete(root: &mut Value, segments: &[String]) -> AgentJaxResult<()> {
 
     let mut current = root;
     for segment in &segments[..segments.len() - 1] {
-        let object = current
-            .as_object_mut()
-            .ok_or_else(|| agentjax_err!(format!("Path segment '{}' does not reference an object", segment), Config))?;
-        current = object
-            .get_mut(segment)
-            .ok_or_else(|| agentjax_err!(format!("Path segment '{}' does not exist", segment), Config))?;
+        let object = current.as_object_mut().ok_or_else(|| {
+            agentjax_err!(
+                format!("Path segment '{}' does not reference an object", segment),
+                Config
+            )
+        })?;
+        current = object.get_mut(segment).ok_or_else(|| {
+            agentjax_err!(format!("Path segment '{}' does not exist", segment), Config)
+        })?;
     }
 
     let leaf = segments
         .last()
         .ok_or_else(|| agentjax_err!("Delete path missing terminal segment", Config))?;
-    let object = current
-        .as_object_mut()
-        .ok_or_else(|| agentjax_err!(format!("Cannot delete '{}' from a non-object parent", leaf), Config))?;
+    let object = current.as_object_mut().ok_or_else(|| {
+        agentjax_err!(
+            format!("Cannot delete '{}' from a non-object parent", leaf),
+            Config
+        )
+    })?;
     object.remove(leaf);
     Ok(())
 }
@@ -233,7 +275,11 @@ fn validate_root_keys(root: &Value) -> AgentJaxResult<()> {
     if let Some(Value::Object(providers)) = root.get("providers") {
         for provider_key in providers.keys() {
             crate::config::path_registry::validate_patch_path(
-                &["providers".to_string(), provider_key.clone(), "enabled".to_string()],
+                &[
+                    "providers".to_string(),
+                    provider_key.clone(),
+                    "enabled".to_string(),
+                ],
                 None,
             )?;
         }
@@ -243,7 +289,12 @@ fn validate_root_keys(root: &Value) -> AgentJaxResult<()> {
         if let Some(servers_map) = mcp_value.get("servers").and_then(|s| s.as_object()) {
             for server_key in servers_map.keys() {
                 crate::config::path_registry::validate_patch_path(
-                    &["mcp".to_string(), "servers".to_string(), server_key.clone(), "enabled".to_string()],
+                    &[
+                        "mcp".to_string(),
+                        "servers".to_string(),
+                        server_key.clone(),
+                        "enabled".to_string(),
+                    ],
                     None,
                 )?;
             }
@@ -287,7 +338,10 @@ fn validate_tool_manager_keys(tool_manager: &Map<String, Value>) -> AgentJaxResu
                 // Tool keys use a simpler validation since they're not full paths
                 let trimmed = tool_key.trim();
                 if trimmed.is_empty() {
-                    return Err(agentjax_err!(format!("{label} tool key cannot be empty"), Config));
+                    return Err(agentjax_err!(
+                        format!("{label} tool key cannot be empty"),
+                        Config
+                    ));
                 }
             }
         }

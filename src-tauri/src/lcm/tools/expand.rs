@@ -10,9 +10,9 @@
 //! When called by a sub-agent, it recursively traverses the summary DAG
 //! to recover all original messages covered by the specified summary node.
 
+use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::lcm::store::LcmStore;
 use crate::lcm::types::LcmId;
-use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -112,7 +112,7 @@ impl Tool for LcmExpandTool {
                  - Async: spawn_sub_agent(prompt=\"Expand summary X and report findings\", \
                  subagentType=\"explore\")\n\n\
                  This restriction prevents uncontrolled context growth in \
-                 the primary conversation loop. See LCM §2.4 for details."
+                 the primary conversation loop. See LCM §2.4 for details.",
             ));
         }
 

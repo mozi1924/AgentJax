@@ -273,7 +273,10 @@ pub(crate) fn register_job_handle(job: &Arc<BackgroundToolJob>, handle: JoinHand
     *guard = Some(handle);
 }
 
-pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: crate::error::AgentJaxResult<Value>) {
+pub(crate) fn complete_job(
+    job: &Arc<BackgroundToolJob>,
+    result: crate::error::AgentJaxResult<Value>,
+) {
     let completed_at_unix_ms = now_unix_ms();
     let duration_ms = completed_at_unix_ms
         .saturating_sub(job.started_at_unix_ms)
@@ -304,7 +307,12 @@ pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: crate::error::A
         }
         state.completed_at_unix_ms = Some(completed_at_unix_ms);
         state.duration_ms = Some(duration_ms);
-        (success, state.output.clone(), state.error.clone(), job.conversation_id.clone())
+        (
+            success,
+            state.output.clone(),
+            state.error.clone(),
+            job.conversation_id.clone(),
+        )
     };
 
     job.notify.notify_waiters();
@@ -312,12 +320,24 @@ pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: crate::error::A
     // Deposit into Street for proactive context injection.
     if let Some(conv_id) = conv_id {
         let title = if is_success {
-            format!("Background job '{}' ({}) completed", job.job_id, job.tool_name)
+            format!(
+                "Background job '{}' ({}) completed",
+                job.job_id, job.tool_name
+            )
         } else {
-            let err_preview: String = error_msg.clone().unwrap_or_default().chars().take(80).collect();
-            format!("Background job '{}' ({}) failed: {}", job.job_id, job.tool_name, err_preview)
+            let err_preview: String = error_msg
+                .clone()
+                .unwrap_or_default()
+                .chars()
+                .take(80)
+                .collect();
+            format!(
+                "Background job '{}' ({}) failed: {}",
+                job.job_id, job.tool_name, err_preview
+            )
         };
-        let payload = output_val.unwrap_or_else(|| serde_json::json!({"error": error_msg.unwrap_or_default()}));
+        let payload = output_val
+            .unwrap_or_else(|| serde_json::json!({"error": error_msg.unwrap_or_default()}));
         crate::street::StreetManager::deposit(crate::street::StreetItem::new(
             &conv_id,
             crate::street::StreetSource::BackgroundJob,
@@ -328,7 +348,10 @@ pub(crate) fn complete_job(job: &Arc<BackgroundToolJob>, result: crate::error::A
     }
 }
 
-pub(crate) fn cancel_job(job_id: &str, conversation_id: Option<&str>) -> crate::error::AgentJaxResult<Value> {
+pub(crate) fn cancel_job(
+    job_id: &str,
+    conversation_id: Option<&str>,
+) -> crate::error::AgentJaxResult<Value> {
     let job = resolve_job(job_id, conversation_id)?;
     let should_abort = mark_job_cancelled(&job, "Background tool job was cancelled");
     prune_jobs();

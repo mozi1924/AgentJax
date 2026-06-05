@@ -95,9 +95,10 @@ pub(super) async fn load_conversation_prompt_token_count(
         }
     };
 
-    let recovery_note = conversation_store::build_recovery_developer_note(agent_id, conversation_id)
-        .ok()
-        .flatten();
+    let recovery_note =
+        conversation_store::build_recovery_developer_note(agent_id, conversation_id)
+            .ok()
+            .flatten();
 
     match conversation_store::load_context_for_request(agent_id, conversation_id, None) {
         Ok(context) => {

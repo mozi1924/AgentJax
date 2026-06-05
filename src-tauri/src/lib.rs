@@ -11,15 +11,15 @@ pub(crate) mod lcm;
 pub(crate) mod mcp;
 pub(crate) mod memory;
 mod message_phase;
-pub(crate) mod street;
 mod models;
-pub(crate) mod provider_api;
 pub(crate) mod plugin_runtime;
+pub(crate) mod provider_api;
+pub(crate) mod rag;
 pub(crate) mod runtime;
+pub(crate) mod street;
 pub(crate) mod sub_agents;
 mod time_context;
 pub(crate) mod tools;
-pub(crate) mod rag;
 
 use tauri::Manager;
 
@@ -96,10 +96,8 @@ pub fn run() {
                 std::env::var("RUST_LOG").unwrap_or_else(|_| "<unset>".to_string())
             );
 
-            let config_path =
-                config::init_config_if_missing().map_err(std::io::Error::other)?;
-            let upgrade_result =
-                config::upgrade_config_file().map_err(std::io::Error::other)?;
+            let config_path = config::init_config_if_missing().map_err(std::io::Error::other)?;
+            let upgrade_result = config::upgrade_config_file().map_err(std::io::Error::other)?;
             log::info!("Config file ready at {}", config_path.display());
             if upgrade_result.upgraded {
                 log::info!(

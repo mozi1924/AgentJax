@@ -7,8 +7,8 @@
 
 use std::collections::BTreeMap;
 
+use reqwest::RequestBuilder;
 use reqwest::header::{HeaderName, HeaderValue};
-use reqwest::{RequestBuilder};
 
 pub fn apply_headers_to_reqwest(
     mut builder: RequestBuilder,
@@ -47,4 +47,3 @@ pub fn split_sse_event_block(buffer: &str) -> Option<(String, String)> {
     }
     None
 }
-

@@ -95,7 +95,11 @@ pub trait Tool: Send + Sync {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn parameters_schema(&self) -> Value;
-    async fn execute(&self, arguments: &Value, context: &ToolExecutionContext) -> AgentJaxResult<Value>;
+    async fn execute(
+        &self,
+        arguments: &Value,
+        context: &ToolExecutionContext,
+    ) -> AgentJaxResult<Value>;
     fn display_name(&self) -> &'static str {
         self.name()
     }
@@ -119,7 +123,6 @@ pub trait Tool: Send + Sync {
             self.parameters_schema(),
         )
     }
-
 }
 
 #[derive(Clone, Default)]
@@ -162,7 +165,8 @@ pub struct ToolExecutionContext {
     /// Channel sender for sub-agent lifecycle events.
     /// Populated in the chat stream handler so the sub-agent runner can push
     /// progress/completion events to the frontend.
-    pub sub_agent_event_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::sub_agents::SubAgentEvent>>,
+    pub sub_agent_event_tx:
+        Option<tokio::sync::mpsc::UnboundedSender<crate::sub_agents::SubAgentEvent>>,
 }
 
 // Manual Debug impl that skips lcm_store_override (LcmStore doesn't impl Debug).
@@ -178,7 +182,13 @@ impl std::fmt::Debug for ToolExecutionContext {
             .field("sub_agent_id", &self.sub_agent_id)
             .field("sub_agent_type", &self.sub_agent_type)
             .field("is_memory_sub_agent", &self.is_memory_sub_agent)
-            .field("sub_agent_event_tx", &self.sub_agent_event_tx.as_ref().map(|_| "mpsc::UnboundedSender"))
+            .field(
+                "sub_agent_event_tx",
+                &self
+                    .sub_agent_event_tx
+                    .as_ref()
+                    .map(|_| "mpsc::UnboundedSender"),
+            )
             .finish()
     }
 }

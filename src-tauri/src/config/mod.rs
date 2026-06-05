@@ -5,15 +5,17 @@ mod default_items;
 mod dynamic_options;
 pub(crate) mod io;
 mod model_ref;
-mod prompt_composer;
-mod schema;
 mod path_registry;
 mod path_validator;
+mod prompt_composer;
+mod schema;
 mod section_generator;
 mod settings;
 mod settings_ui;
 
 pub use agent_config::{AgentConfig, AgentId, AgentRegistry, FullConfig};
+#[allow(unused_imports)]
+pub use dynamic_options::build_dynamic_options;
 pub use io::{
     ConfigInfo, ConfigUpgradeResult, config_dir_path, ensure_default_agent_profile,
     get_config_info, init_config_if_missing, load_agent_config, load_config, load_full_config,
@@ -26,10 +28,10 @@ pub use prompt_composer::{
 };
 #[allow(unused_imports)]
 pub use schema::{
-    AppConfig, ContextManagementConfig, McpConfig, McpRuntimeConfig, McpServerConfig,
-    McpStdioRuntimeConfig, McpToolSourcePolicyConfig, McpTransportKind, MemoryConfig,
-    ModelRequestConfig, PluginEntryConfig, PluginManagerConfig, PluginPermissionOverride,
-    ProviderConfig, ProviderModelConfig, RagConfig, EmbeddingProviderConfig, ResolvedModelConfig,
+    AppConfig, ContextManagementConfig, EmbeddingProviderConfig, McpConfig, McpRuntimeConfig,
+    McpServerConfig, McpStdioRuntimeConfig, McpToolSourcePolicyConfig, McpTransportKind,
+    MemoryConfig, ModelRequestConfig, PluginEntryConfig, PluginManagerConfig,
+    PluginPermissionOverride, ProviderConfig, ProviderModelConfig, RagConfig, ResolvedModelConfig,
     SubAgentConfig, ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
 };
 #[allow(unused_imports)]
@@ -37,8 +39,6 @@ pub use settings::{
     SecretStatus, SettingsOption, SettingsPatch, SettingsPatchOperation, SettingsSnapshot,
     apply_settings_patch, get_settings_snapshot, get_settings_ui_snapshot,
 };
-#[allow(unused_imports)]
-pub use dynamic_options::build_dynamic_options;
 pub use settings_ui::SettingsUiSnapshot;
 
 #[cfg(test)]
@@ -52,7 +52,7 @@ pub(crate) fn test_env_lock() -> &'static tokio::sync::Mutex<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::constants::{BUILTIN_CORE_SYSTEM_BLOCK_ID};
+    use crate::config::constants::BUILTIN_CORE_SYSTEM_BLOCK_ID;
     use std::fs;
 
     /// Helper: build a minimal AppConfig with an openai provider and two models.
@@ -61,11 +61,17 @@ mod tests {
         let mut models = std::collections::BTreeMap::new();
         models.insert(
             "gpt-5".to_string(),
-            ProviderModelConfig { enabled: true, ..Default::default() },
+            ProviderModelConfig {
+                enabled: true,
+                ..Default::default()
+            },
         );
         models.insert(
             "gpt-5-mini".to_string(),
-            ProviderModelConfig { enabled: true, ..Default::default() },
+            ProviderModelConfig {
+                enabled: true,
+                ..Default::default()
+            },
         );
         cfg.providers.insert(
             "openai".to_string(),
@@ -114,7 +120,10 @@ mod tests {
     #[test]
     fn resolve_profile_falls_back_to_first_enabled_model_when_defaults_are_unresolved() {
         let cfg = test_config_with_openai().normalize();
-        let agent = test_agent_with_model("openai/nonexistent-model-xyz", "openai/nonexistent-model-xyz");
+        let agent = test_agent_with_model(
+            "openai/nonexistent-model-xyz",
+            "openai/nonexistent-model-xyz",
+        );
 
         let resolved = cfg
             .resolve_model_profile_with_agent(Some("openai/nonexistent-model-xyz"), &agent)
@@ -131,7 +140,9 @@ mod tests {
     fn resolved_profile_uses_built_in_agent_prompt() {
         let cfg = test_config_with_openai().normalize();
         let agent = test_agent_with_model("openai/gpt-5-mini", "openai/gpt-5-mini");
-        let resolved = cfg.resolve_model_profile_with_agent(None, &agent).expect("resolve");
+        let resolved = cfg
+            .resolve_model_profile_with_agent(None, &agent)
+            .expect("resolve");
         assert!(resolved.system_prompt.contains("agentic coding assistant"));
         assert!(resolved.system_prompt.contains("Commentary protocol"));
         assert!(resolved.system_prompt.contains("Background tool protocol"));
@@ -176,8 +187,7 @@ mod tests {
 
     #[test]
     fn load_config_does_not_rewrite_file_on_startup() {
-        let _guard = test_env_lock()
-            .blocking_lock();
+        let _guard = test_env_lock().blocking_lock();
         let home =
             std::env::temp_dir().join(format!("agentjax-config-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&home).expect("create temp home");
@@ -242,17 +252,14 @@ mod tests {
         assert_eq!(provider.stream_transport, "sse");
     }
 
-
     #[test]
     fn provider_resolved_http_headers_merges_env_values() {
-        let _guard = test_env_lock()
-            .blocking_lock();
+        let _guard = test_env_lock().blocking_lock();
         let mut provider = ProviderConfig::default();
 
-        provider.http_headers.insert(
-            "X-Feature".to_string(),
-            "static".to_string(),
-        );
+        provider
+            .http_headers
+            .insert("X-Feature".to_string(), "static".to_string());
 
         provider.env_http_headers.insert(
             "Authorization".to_string(),
@@ -304,7 +311,8 @@ mod tests {
 
         let normalized = cfg.normalize();
         let server = normalized
-            .mcp.servers
+            .mcp
+            .servers
             .get("remote-demo")
             .expect("normalized mcp server exists");
 
@@ -339,7 +347,8 @@ mod tests {
 
         let normalized = cfg.normalize();
         let server = normalized
-            .mcp.servers
+            .mcp
+            .servers
             .get("local-demo")
             .expect("normalized mcp server exists");
 
@@ -450,12 +459,12 @@ mod tests {
             language: "zh-CN".to_string(),
             ..Default::default()
         };
-        
+
         let yaml = serialize_config_to_yaml(&cfg).expect("serialize config");
-        
+
         let language_idx = yaml.find("language:").expect("find language");
         let providers_idx = yaml.find("providers:").expect("find providers");
-        
+
         assert!(language_idx < providers_idx);
 
         // Agent-specific fields like prompt_composer should NOT appear in shared config.yaml

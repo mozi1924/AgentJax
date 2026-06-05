@@ -65,7 +65,9 @@ pub fn read_conversation_file(
     Ok(Some(ConversationData { meta, lines }))
 }
 
-pub fn read_conversation_meta(metadata_path: &Path) -> crate::error::AgentJaxResult<Option<ConversationMeta>> {
+pub fn read_conversation_meta(
+    metadata_path: &Path,
+) -> crate::error::AgentJaxResult<Option<ConversationMeta>> {
     if !metadata_path.exists() {
         return Ok(None);
     }
@@ -98,14 +100,15 @@ pub fn write_conversation_file(
     data: &ConversationData,
 ) -> crate::error::AgentJaxResult<()> {
     if let Some(parent) = metadata_path.parent()
-        && !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| {
-                format!(
-                    "Failed to create session directory {}: {e}",
-                    parent.display()
-                )
-            })?;
-        }
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent).map_err(|e| {
+            format!(
+                "Failed to create session directory {}: {e}",
+                parent.display()
+            )
+        })?;
+    }
 
     // metadata.json — pretty-printed
     write_conversation_metadata(metadata_path, &data.meta)?;
@@ -174,7 +177,9 @@ pub fn write_conversation_metadata(
     )
 }
 
-pub fn read_conversation_line_ids(messages_path: &Path) -> crate::error::AgentJaxResult<HashSet<String>> {
+pub fn read_conversation_line_ids(
+    messages_path: &Path,
+) -> crate::error::AgentJaxResult<HashSet<String>> {
     if !messages_path.exists() {
         return Ok(HashSet::new());
     }
@@ -309,11 +314,14 @@ pub fn apply_line_to_meta(meta: &mut ConversationMeta, line: &ConversationLine) 
 
 fn ensure_parent_dir(path: &Path, label: &str) -> crate::error::AgentJaxResult<()> {
     let Some(parent) = path.parent() else {
-        return Err(agentjax_err!(format!(
-            "Failed to resolve parent directory for {} file {}",
-            label,
-            path.display()
-        ), Internal));
+        return Err(agentjax_err!(
+            format!(
+                "Failed to resolve parent directory for {} file {}",
+                label,
+                path.display()
+            ),
+            Internal
+        ));
     };
 
     if !parent.exists() {
@@ -329,7 +337,11 @@ fn ensure_parent_dir(path: &Path, label: &str) -> crate::error::AgentJaxResult<(
     Ok(())
 }
 
-fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> crate::error::AgentJaxResult<()> {
+fn write_file_atomically(
+    path: &Path,
+    contents: &[u8],
+    label: &str,
+) -> crate::error::AgentJaxResult<()> {
     let (tmp_path, mut tmp_file) = create_temp_file(path, label)?;
     tmp_file.write_all(contents).map_err(|e| {
         format!(
@@ -350,7 +362,10 @@ fn write_file_atomically(path: &Path, contents: &[u8], label: &str) -> crate::er
     finalize_atomic_replace(&tmp_path, path, label)
 }
 
-fn create_temp_file(path: &Path, label: &str) -> crate::error::AgentJaxResult<(std::path::PathBuf, fs::File)> {
+fn create_temp_file(
+    path: &Path,
+    label: &str,
+) -> crate::error::AgentJaxResult<(std::path::PathBuf, fs::File)> {
     let parent = path.parent().ok_or_else(|| {
         format!(
             "Failed to resolve parent directory for {} file {}",
@@ -408,7 +423,11 @@ fn write_jsonl_line(
     })
 }
 
-fn finalize_atomic_replace(tmp_path: &Path, path: &Path, label: &str) -> crate::error::AgentJaxResult<()> {
+fn finalize_atomic_replace(
+    tmp_path: &Path,
+    path: &Path,
+    label: &str,
+) -> crate::error::AgentJaxResult<()> {
     if let Err(rename_err) = fs::rename(tmp_path, path) {
         #[cfg(target_os = "windows")]
         {
@@ -429,26 +448,32 @@ fn finalize_atomic_replace(tmp_path: &Path, path: &Path, label: &str) -> crate::
                     )
                 })?;
             } else {
-                return Err(agentjax_err!(format!(
-                    "Failed to atomically rename temporary {} file {} to {}: {}",
-                    label,
-                    tmp_path.display(),
-                    path.display(),
-                    rename_err
-                ), Internal));
+                return Err(agentjax_err!(
+                    format!(
+                        "Failed to atomically rename temporary {} file {} to {}: {}",
+                        label,
+                        tmp_path.display(),
+                        path.display(),
+                        rename_err
+                    ),
+                    Internal
+                ));
             }
         }
 
         #[cfg(not(target_os = "windows"))]
         {
             let _ = fs::remove_file(tmp_path);
-            return Err(agentjax_err!(format!(
-                "Failed to atomically rename temporary {} file {} to {}: {}",
-                label,
-                tmp_path.display(),
-                path.display(),
-                rename_err
-            ), Internal));
+            return Err(agentjax_err!(
+                format!(
+                    "Failed to atomically rename temporary {} file {} to {}: {}",
+                    label,
+                    tmp_path.display(),
+                    path.display(),
+                    rename_err
+                ),
+                Internal
+            ));
         }
     }
 

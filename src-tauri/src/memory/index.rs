@@ -20,7 +20,8 @@ impl MemoryIndex {
             if !entry.tags.is_empty() {
                 index.push_str(&format!(
                     "- **Tags**: {}\n",
-                    entry.tags
+                    entry
+                        .tags
                         .iter()
                         .map(|t| format!("`{t}`"))
                         .collect::<Vec<_>>()

@@ -24,7 +24,10 @@ pub async fn embed(
     model_id: &str,
     input: &EmbeddingRequest,
 ) -> AgentJaxResult<EmbeddingResponse> {
-    let base_url = provider_config.api_endpoint().trim_end_matches('/').to_string();
+    let base_url = provider_config
+        .api_endpoint()
+        .trim_end_matches('/')
+        .to_string();
     let url = format!("{}/embeddings", base_url);
 
     // Build request body
@@ -42,7 +45,9 @@ pub async fn embed(
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_seconds))
         .build()
-        .map_err(|err| AgentJaxError::network(format!("Failed to initialize HTTP client: {err}")))?;
+        .map_err(|err| {
+            AgentJaxError::network(format!("Failed to initialize HTTP client: {err}"))
+        })?;
 
     let credential = provider_config.resolved_credential();
     let mut builder = client.post(&url).json(&body);
@@ -54,16 +59,14 @@ pub async fn embed(
     let headers = provider_config.resolved_http_headers();
     builder = apply_headers_to_reqwest(builder, &headers)?;
 
-    let response = builder.send().await
-        .map_err(|err| AgentJaxError::embedding_retryable(
-            format!("Embedding request failed: {err}")
-        ))?;
+    let response = builder.send().await.map_err(|err| {
+        AgentJaxError::embedding_retryable(format!("Embedding request failed: {err}"))
+    })?;
 
     let status = response.status();
-    let response_body: Value = response.json().await
-        .map_err(|err| AgentJaxError::embedding(
-            format!("Failed to parse embedding response: {err}")
-        ))?;
+    let response_body: Value = response.json().await.map_err(|err| {
+        AgentJaxError::embedding(format!("Failed to parse embedding response: {err}"))
+    })?;
 
     if !status.is_success() {
         let error_msg = response_body["error"]["message"]
@@ -72,7 +75,9 @@ pub async fn embed(
         return Err(match status.as_u16() {
             401 | 403 => AgentJaxError::embedding(format!("Auth failed: {error_msg}")),
             429 => AgentJaxError::embedding_retryable(format!("Rate limited: {error_msg}")),
-            s if s >= 500 => AgentJaxError::embedding_retryable(format!("Server error {s}: {error_msg}")),
+            s if s >= 500 => {
+                AgentJaxError::embedding_retryable(format!("Server error {s}: {error_msg}"))
+            }
             _ => AgentJaxError::embedding(format!("Error {status}: {error_msg}")),
         });
     }
@@ -81,7 +86,10 @@ pub async fn embed(
 }
 
 #[allow(dead_code)]
-fn parse_embedding_response(response_body: &Value, default_model: &str) -> AgentJaxResult<EmbeddingResponse> {
+fn parse_embedding_response(
+    response_body: &Value,
+    default_model: &str,
+) -> AgentJaxResult<EmbeddingResponse> {
     let data = response_body["data"]
         .as_array()
         .ok_or_else(|| AgentJaxError::embedding("Response missing 'data' array"))?;
@@ -113,10 +121,19 @@ fn parse_embedding_response(response_body: &Value, default_model: &str) -> Agent
         .unwrap_or(default_model)
         .to_string();
 
-    let usage = response_body["usage"].as_object().map(|u| EmbeddingUsage {
-        prompt_tokens: u.get("prompt_tokens").and_then(Value::as_u64).map(|v| v as u32),
-        total_tokens: u.get("total_tokens").and_then(Value::as_u64).map(|v| v as u32),
-    }).unwrap_or_default();
+    let usage = response_body["usage"]
+        .as_object()
+        .map(|u| EmbeddingUsage {
+            prompt_tokens: u
+                .get("prompt_tokens")
+                .and_then(Value::as_u64)
+                .map(|v| v as u32),
+            total_tokens: u
+                .get("total_tokens")
+                .and_then(Value::as_u64)
+                .map(|v| v as u32),
+        })
+        .unwrap_or_default();
 
     Ok(EmbeddingResponse {
         embeddings,

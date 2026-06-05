@@ -17,7 +17,8 @@ pub async fn get_tool_manager_snapshot(
 ) -> Result<ToolManagerSnapshot, String> {
     let config = config::load_config()?;
     let agent_config = config::AgentConfig::default();
-    let catalog = ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config, &agent_config);
+    let catalog =
+        ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config, &agent_config);
     Ok(catalog
         .tool_manager_snapshot(request.unwrap_or_default())
         .await)
@@ -32,7 +33,10 @@ pub fn get_plugin_manager_snapshot() -> Result<PluginManagerSnapshot, String> {
         .into_iter()
         .map(|pkg| (pkg.manifest.id.clone(), pkg))
         .collect();
-    Ok(build_plugin_manager_snapshot(&package_map, &config.plugin_manager))
+    Ok(build_plugin_manager_snapshot(
+        &package_map,
+        &config.plugin_manager,
+    ))
 }
 
 /// Snapshot of plugin-owned SchemaRenderer data sources.
