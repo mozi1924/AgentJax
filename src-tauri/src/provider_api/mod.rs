@@ -105,6 +105,18 @@ where
         req.extra_body.entry(key.clone()).or_insert_with(|| value.clone());
     }
 
+    // DeepSeek requires `thinking: {"type": "enabled"}` to activate thinking
+    // mode. Without it, `reasoning_effort` alone is ignored by the API.
+    if resolved.provider.kind == "deepseek"
+        && req.reasoning_effort.as_deref().is_some_and(|e| !e.trim().is_empty())
+        && !req.extra_body.contains_key("thinking")
+    {
+        req.extra_body.insert(
+            "thinking".to_string(),
+            serde_json::json!({"type": "enabled"}),
+        );
+    }
+
     // Determine which protocol to use
     let protocol = resolve_protocol(&resolved.provider.kind, &resolved.model_id, resolved.api_protocol.as_deref());
     if let Some(ref protocol) = protocol {

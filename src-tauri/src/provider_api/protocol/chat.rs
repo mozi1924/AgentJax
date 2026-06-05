@@ -255,7 +255,12 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
                 let role = match item.get("role").and_then(Value::as_str) {
                     Some("assistant") => "assistant",
                     Some("system") => "system",
-                    Some("developer") => "developer",
+                    Some("developer") => {
+                        // 'developer' role is OpenAI Responses API-specific.
+                        // Chat Completions (e.g. DeepSeek) does not support it.
+                        // Map to 'system' for compatibility.
+                        "system"
+                    }
                     _ => "user",
                 };
                 let content_value = item.get("content").cloned().unwrap_or(Value::Null);
@@ -274,8 +279,11 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
                         // to Chat Completions equivalents.
                         let normalized: Vec<Value> = arr.iter().map(|part| {
                             let mut p = part.clone();
-                            if let Some("input_text") = p.get("type").and_then(Value::as_str) {
-                                p["type"] = json!("text");
+                            match p.get("type").and_then(Value::as_str) {
+                                Some("input_text") | Some("output_text") => {
+                                    p["type"] = json!("text");
+                                }
+                                _ => {}
                             }
                             p
                         }).collect();
@@ -432,7 +440,12 @@ fn process_chat_event(
                         output_items.push(json!({"type": "function_call", "id": item_id, "call_id": call_id, "name": name, "arguments": arguments}));
                     }
                 }
-                return Ok(matches!(finish_reason, "stop" | "length" | "content_filter"));
+                // Do NOT return true here to terminate the stream.
+                // When stream_options: {include_usage: true} is set, the API
+                // sends a separate usage chunk AFTER the finish_reason chunk
+                // but BEFORE the [DONE] marker. Terminating on finish_reason
+                // would cause the usage data to be lost.
+                // The stream is instead terminated by [DONE] or stream end.
             }
         }
     }
