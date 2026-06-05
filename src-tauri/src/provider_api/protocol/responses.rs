@@ -2,7 +2,6 @@
 
 use crate::config::{AppConfig, ProviderConfig};
 use crate::error::{AgentJaxError, AgentJaxResult};
-use crate::provider_api::capabilities::ProviderCapabilities;
 use crate::provider_api::core::ProviderIdFactory;
 use crate::provider_api::network::{apply_headers_to_reqwest, split_sse_event_block};
 use crate::provider_api::protocol::{build_client, send_and_check};
@@ -129,7 +128,7 @@ where
         provider_key: provider_key.to_string(),
         model_profile: format!("{provider_key}/{model_id}"),
         model_id: model_id.to_string(),
-        capabilities: ProviderCapabilities::openai_responses(),
+        capabilities: Default::default(),
     })
 }
 

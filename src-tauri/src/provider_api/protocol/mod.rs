@@ -43,6 +43,7 @@ static CIRCUIT_BREAKERS: std::sync::LazyLock<
 
 /// Stream a response using a native protocol implementation.
 ///
+/// Dispatches to the appropriate [`Protocol`] registered in [`builtin_protocols()`].
 /// `F` must be `Send` because the future may cross `tokio::spawn` boundaries.
 #[allow(clippy::too_many_arguments)]
 pub async fn stream_response<F>(
@@ -60,64 +61,65 @@ where
 {
     CIRCUIT_BREAKERS.check(provider_key)?;
 
-    let result = match protocol {
-        "responses" => {
-            responses::stream_response(
-                config,
-                provider_key,
-                provider_config,
-                model_id,
-                req,
-                cancel_rx,
-                on_delta,
-            )
-            .await
-        }
-        "chat_completions" => {
-            chat::stream_response(
-                config,
-                provider_key,
-                provider_config,
-                model_id,
-                req,
-                cancel_rx,
-                on_delta,
-            )
-            .await
-        }
-        other => Err(AgentJaxError::config(format!(
-            "Unsupported protocol '{other}'. Supported: responses, chat_completions, embeddings"
-        ))),
-    };
+    let proto = builtin_protocols()
+        .get(protocol)
+        .ok_or_else(|| {
+            AgentJaxError::config(format!(
+                "Unsupported protocol '{protocol}'. Supported: {}",
+                builtin_protocols()
+                    .names()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })?;
 
-    match &result {
-        Ok(_) => CIRCUIT_BREAKERS.record_success(provider_key),
+    let mut cb = on_delta;
+    let result = proto
+        .stream_response(
+            config,
+            provider_key,
+            provider_config,
+            model_id,
+            req,
+            cancel_rx,
+            &mut cb,
+        )
+        .await;
+
+    match result {
+        Ok(mut res) => {
+            // Override capabilities from the protocol trait: the individual
+            // protocol functions (chat.rs, responses.rs) may set a reasonable
+            // default, but the Protocol trait implementation is the authoritative
+            // source.
+            res.capabilities = proto.capabilities();
+            CIRCUIT_BREAKERS.record_success(provider_key);
+            Ok(res)
+        }
         Err(err) => {
             if err.kind.is_retryable() {
                 CIRCUIT_BREAKERS.record_failure(provider_key);
             }
+            Err(err)
         }
     }
-
-    result
 }
 
 // ── Embedding Dispatch ──────────────────────────────────────────────────────
 
 /// Embed text using a native protocol implementation.
-#[allow(dead_code)]
 pub async fn embed(
     protocol: &str,
     provider_config: &ProviderConfig,
     model_id: &str,
     input: &EmbeddingRequest,
 ) -> AgentJaxResult<EmbeddingResponse> {
-    match protocol {
-        "embeddings" => embeddings::embed(provider_config, model_id, input).await,
-        other => Err(AgentJaxError::config(format!(
-            "Unsupported protocol '{other}' for embedding"
-        ))),
-    }
+    let proto = builtin_protocols().get(protocol).ok_or_else(|| {
+        AgentJaxError::config(format!(
+            "Unsupported protocol '{protocol}' for embedding"
+        ))
+    })?;
+    proto.embed(provider_config, model_id, input).await
 }
 
 // ── Model Fetching ──────────────────────────────────────────────────────────
@@ -240,18 +242,10 @@ pub(crate) async fn send_and_check(
     Ok(response)
 }
 
-/// Protocol-level capabilities.
-#[allow(dead_code)]
-pub fn protocol_capabilities(protocol: &str) -> Option<ProviderCapabilities> {
-    match protocol {
-        "responses" => Some(ProviderCapabilities::openai_responses()),
-        "chat_completions" => Some(ProviderCapabilities::chat_completions()),
-        _ => None,
-    }
-}
+
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Phase 1: Protocol Trait & Registry
+// Protocol Trait & Registry
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// A stateless, reusable protocol implementation.
@@ -262,7 +256,6 @@ pub fn protocol_capabilities(protocol: &str) -> Option<ProviderCapabilities> {
 ///
 /// All methods are async so implementations can perform HTTP I/O. The trait
 /// is `Send + Sync` so protocols can be stored in a global registry.
-#[allow(dead_code)]
 #[async_trait::async_trait]
 pub trait Protocol: Send + Sync {
     /// Canonical protocol name (e.g., `"chat_completions"`, `"responses"`,
@@ -301,12 +294,10 @@ pub trait Protocol: Send + Sync {
 /// Populated at startup with built-in protocol implementations via
 /// [`builtin_protocols`]. External registrations may be added in the
 /// future for plugin-provided protocols.
-#[allow(dead_code)]
 pub struct ProtocolRegistry {
     protocols: HashMap<String, Box<dyn Protocol>>,
 }
 
-#[allow(dead_code)]
 impl ProtocolRegistry {
     /// Create an empty registry.
     pub fn new() -> Self {
@@ -332,10 +323,7 @@ impl ProtocolRegistry {
         self.protocols.keys().map(|s| s.as_str())
     }
 
-    /// Returns `true` if a protocol with the given name is registered.
-    pub fn has(&self, name: &str) -> bool {
-        self.protocols.contains_key(name)
-    }
+
 }
 
 impl Default for ProtocolRegistry {
@@ -349,7 +337,6 @@ impl Default for ProtocolRegistry {
 // Each wrapper delegates to the existing free-function implementation. This
 // keeps old dispatch paths working while establishing the new trait interface.
 
-#[allow(dead_code)]
 struct ResponsesProtocol;
 
 #[async_trait::async_trait]
@@ -397,7 +384,6 @@ impl Protocol for ResponsesProtocol {
     }
 }
 
-#[allow(dead_code)]
 struct ChatCompletionsProtocol;
 
 #[async_trait::async_trait]
@@ -445,7 +431,6 @@ impl Protocol for ChatCompletionsProtocol {
     }
 }
 
-#[allow(dead_code)]
 struct EmbeddingsProtocol;
 
 #[async_trait::async_trait]
@@ -502,7 +487,6 @@ impl Protocol for EmbeddingsProtocol {
 ///
 /// Populated once at first access with all built-in protocol implementations.
 /// This is the primary entry point for looking up protocols at runtime.
-#[allow(dead_code)]
 pub fn builtin_protocols() -> &'static ProtocolRegistry {
     static BUILTIN: OnceLock<ProtocolRegistry> = OnceLock::new();
     BUILTIN.get_or_init(|| {
