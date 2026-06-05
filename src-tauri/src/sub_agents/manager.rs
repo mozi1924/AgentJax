@@ -317,6 +317,7 @@ impl SubAgentManager {
             )
         };
         task.notify.notify_waiters();
+        crate::street::StreetManager::get_or_create_notifier(&conv_id).notify_one();
 
         // Deposit into Street for proactive context injection.
         crate::street::StreetManager::deposit(crate::street::StreetItem::new(
@@ -354,6 +355,7 @@ impl SubAgentManager {
             )
         };
         task.notify.notify_waiters();
+        crate::street::StreetManager::get_or_create_notifier(&conv_id).notify_one();
 
         // Deposit into Street for proactive context injection.
         let truncated: String = error.chars().take(200).collect();
@@ -404,6 +406,10 @@ impl SubAgentManager {
                 handle.abort();
             }
             task.notify.notify_waiters();
+            if let Ok(state) = task.state.lock() {
+                let conv_id = state.spec.parent_conversation_id.clone();
+                crate::street::StreetManager::get_or_create_notifier(&conv_id).notify_one();
+            }
         }
 
         prune_agents();
@@ -546,6 +552,10 @@ impl SubAgentManager {
                 task.notify.notify_waiters();
                 cancelled += 1;
             }
+        }
+
+        if cancelled > 0 {
+            crate::street::StreetManager::get_or_create_notifier(conversation_id).notify_one();
         }
 
         prune_agents();

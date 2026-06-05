@@ -46,6 +46,7 @@ impl AgentRuntime {
             tokio::sync::mpsc::UnboundedSender<crate::sub_agents::SubAgentEvent>,
         >,
         street_items: Vec<Value>,
+        is_auto_resume: bool,
         mut on_event: F,
     ) -> AgentJaxResult<(ResponseStreamResult, Vec<Value>)>
     where
@@ -137,7 +138,7 @@ impl AgentRuntime {
         context.rebuild(conversation_id).await.ok();
 
         // ── Persist the current user message ───────────────────────────
-        {
+        if !is_auto_resume {
             let user_text = req.input.trim();
             let request_id = req.request_id.as_deref().unwrap_or("unknown");
             let mut user_msg = crate::lcm::types::StoredMessage::new(
@@ -193,24 +194,29 @@ impl AgentRuntime {
             let input_items = if turn_idx == 1 {
                 // Hop 1: prefix + LCM history + rendered user input (with timestamp).
                 let mut items = hop_prefix.clone();
-                // LCM context includes history prior to this turn. We
-                // filter out the raw user message (already rendered below).
-                let history_items: Vec<Value> = lcm_context
-                    .into_iter()
-                    .filter(|item| {
-                        !matches!(item.get("role").and_then(|v| v.as_str()), Some("user"))
-                    })
-                    .collect();
-                items.extend(history_items);
-                items.push(crate::provider_api::build_user_input_item(
-                    provider_kind,
-                    &render_timed_message(
-                        "Current user message",
-                        user_message_ts,
-                        req.input.trim(),
-                    ),
-                )?);
-                items
+                if is_auto_resume {
+                    items.extend(lcm_context);
+                    items
+                } else {
+                    // LCM context includes history prior to this turn. We
+                    // filter out the raw user message (already rendered below).
+                    let history_items: Vec<Value> = lcm_context
+                        .into_iter()
+                        .filter(|item| {
+                            !matches!(item.get("role").and_then(|v| v.as_str()), Some("user"))
+                        })
+                        .collect();
+                    items.extend(history_items);
+                    items.push(crate::provider_api::build_user_input_item(
+                        provider_kind,
+                        &render_timed_message(
+                            "Current user message",
+                            user_message_ts,
+                            req.input.trim(),
+                        ),
+                    )?);
+                    items
+                }
             } else {
                 lcm_context
             };

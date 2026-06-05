@@ -157,6 +157,7 @@ pub async fn run_sub_agent(
         &mut merged_cancel_rx,
         Some(run_event_tx),
         Vec::new(), // street_items — sub-agents don't receive Street notifications
+        false,      // is_auto_resume
         move |event| {
             // Map provider events to sub-agent events for progress tracking.
             match &event {

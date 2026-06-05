@@ -26,12 +26,19 @@ static STREET_ITEMS: OnceLock<Mutex<StreetItemMap>> = OnceLock::new();
 static STREET_CHANNELS: OnceLock<Mutex<HashMap<String, mpsc::UnboundedSender<StreetEvent>>>> =
     OnceLock::new();
 
+/// Notifiers: conversation_id → Arc<tokio::sync::Notify>
+static STREET_NOTIFIERS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Notify>>>> = OnceLock::new();
+
 fn registry() -> &'static Mutex<HashMap<String, Vec<Arc<Mutex<StreetItem>>>>> {
     STREET_ITEMS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn channels() -> &'static Mutex<HashMap<String, mpsc::UnboundedSender<StreetEvent>>> {
     STREET_CHANNELS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn notifiers() -> &'static Mutex<HashMap<String, Arc<tokio::sync::Notify>>> {
+    STREET_NOTIFIERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 // ── StreetManager ───────────────────────────────────────────────────────────
@@ -89,6 +96,21 @@ impl StreetManager {
 
         // Send event to the conversation's channel.
         Self::send_event(&conv_id, event);
+
+        // Notify any waiters for this conversation.
+        let notifier = Self::get_or_create_notifier(&conv_id);
+        notifier.notify_one();
+    }
+
+    /// Get or create the Notify object for a conversation.
+    pub fn get_or_create_notifier(conversation_id: &str) -> Arc<tokio::sync::Notify> {
+        let mut guard = notifiers()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard
+            .entry(conversation_id.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Notify::new()))
+            .clone()
     }
 
     /// Collect all Pending items for a conversation, sorted by priority
@@ -179,7 +201,6 @@ impl StreetManager {
     }
 
     /// Get the count of Pending items for a conversation.
-    #[cfg(test)]
     pub fn get_pending_count(conversation_id: &str) -> usize {
         let guard = registry()
             .lock()
@@ -199,6 +220,25 @@ impl StreetManager {
                     .count()
             })
             .unwrap_or(0)
+    }
+
+    /// Check if the conversation should auto-resume because sub-agents are done and Street results are pending.
+    pub fn is_auto_resume(conversation_id: &str) -> bool {
+        // 1. Any active non-memory sub-agents?
+        let has_active_subagents = crate::sub_agents::manager::SubAgentManager::list(Some(conversation_id))
+            .iter()
+            .any(|s| {
+                s.subagent_type != crate::sub_agents::types::SubAgentType::Memory.as_str()
+                    && (s.status == crate::sub_agents::types::SubAgentStatus::Running.as_str()
+                        || s.status == crate::sub_agents::types::SubAgentStatus::Pending.as_str())
+            });
+
+        if has_active_subagents {
+            return false;
+        }
+
+        // 2. Are there pending street notifications?
+        Self::get_pending_count(conversation_id) > 0
     }
 
     /// Get snapshots of Pending items for a conversation (for Tauri IPC).
@@ -241,6 +281,10 @@ impl StreetManager {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let removed = guard.remove(conversation_id).map(|v| v.len()).unwrap_or(0);
         // Unregister event channel.
+        let mut n_guard = notifiers()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        n_guard.remove(conversation_id);
         removed
     }
 
@@ -440,5 +484,55 @@ mod tests {
 
         let b_pending = StreetManager::collect_pending(&cb);
         assert_eq!(b_pending[0].title, "B's item");
+    }
+
+    #[tokio::test]
+    async fn test_is_auto_resume() {
+        let conv = unique_conv();
+        
+        // Initially, no pending street items and no subagents.
+        assert!(!StreetManager::is_auto_resume(&conv));
+        
+        // Deposit a street item.
+        StreetManager::deposit(StreetItem::new(
+            &conv,
+            crate::street::types::StreetSource::SubAgent,
+            Priority::Normal,
+            "A test item",
+            json!({}),
+        ));
+        
+        // Now pending count > 0, and no sub-agents.
+        assert!(StreetManager::is_auto_resume(&conv));
+        
+        // Register a pending sub-agent.
+        let spec = crate::sub_agents::types::SubAgentSpec {
+            agent_id: format!("test-agent-{}", uuid::Uuid::new_v4().simple()),
+            parent_conversation_id: conv.clone(),
+            subagent_type: crate::sub_agents::types::SubAgentType::Explore,
+            prompt: "Test".to_string(),
+            delegated_scope: vec![],
+            kept_work: vec![],
+            max_turns: 5,
+            max_retries: 0,
+            use_worktree: false,
+            model_id: None,
+            parent_request_id: "req_test".to_string(),
+            persistent: false,
+        };
+        let task = crate::sub_agents::manager::SubAgentManager::register(spec);
+        
+        // Since there is a pending sub-agent, is_auto_resume should be false.
+        assert!(!StreetManager::is_auto_resume(&conv));
+        
+        // Mark it as running.
+        crate::sub_agents::manager::SubAgentManager::mark_running(&task, tokio::spawn(async {}));
+        assert!(!StreetManager::is_auto_resume(&conv));
+        
+        // Complete the sub-agent.
+        crate::sub_agents::manager::SubAgentManager::complete(&task, json!({}));
+        
+        // Sub-agent is now completed (terminal), and street results are pending.
+        assert!(StreetManager::is_auto_resume(&conv));
     }
 }

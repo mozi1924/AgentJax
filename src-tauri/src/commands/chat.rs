@@ -20,7 +20,7 @@ use crate::config;
 use crate::conversation_store;
 use crate::provider_api::{build_user_input_item, get_tool_schema_format};
 use crate::time_context::{build_temporal_context_system_item, render_timed_message};
-use crate::runtime::agent_context::LcmAgentContext;
+use crate::runtime::agent_context::{AgentContext, LcmAgentContext};
 use crate::tools::ToolCatalog;
 use crate::tools::ToolExecutionContext;
 use chat_client_metadata::{split_local_client_metadata, validate_conversation_dynamic_tools};
@@ -58,7 +58,7 @@ pub async fn chat_stream(
         .request_id
         .clone()
         .unwrap_or_else(|| format!("req-{}", chrono_like_now_id()));
-    let mut event_index: u64 = 0;
+    let event_index = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let (cancel_tx, mut cancel_rx) = watch::channel(false);
 
     let input_text = req.input.trim().to_string();
@@ -166,6 +166,7 @@ pub async fn chat_stream(
     )?;
     let agent_ctx = LcmAgentContext::new(lcm_engine);
     tools_catalog.set_context_tools(agent_ctx.engine().store().clone());
+    let tools_catalog = Arc::new(tools_catalog);
 
     // Ensure LCM conversation metadata exists.
     let _ = agent_ctx
@@ -306,7 +307,6 @@ pub async fn chat_stream(
 
     let closure_window = window.clone();
     let closure_request_id = request_id.clone();
-    let closure_conversation_id = conversation_id.clone();
 
     let stream_observer = ChatStreamObserver::new(
         agent_id.clone(),
@@ -316,7 +316,6 @@ pub async fn chat_stream(
         context_token_count,
         jsonl_backup_enabled,
     );
-    let stream_observer_for_callback = stream_observer.clone();
     let mut runtime_req = req.clone();
     runtime_req.client_metadata = sanitized_client_metadata;
     // Create sub-agent event channel: event_tx goes to tool execution,
@@ -434,122 +433,228 @@ pub async fn chat_stream(
         }
     }
 
-    // ── Collect Street notifications ────────────────────────────────────
-    let street_dev_items: Vec<Value> = if agent_config.context_management.street_enabled {
-        let pending = crate::street::StreetManager::collect_pending(&conversation_id);
-        if !pending.is_empty() {
-            let count = pending.len();
-            let formatted = crate::street::format_street_items(&pending);
-            crate::street::StreetManager::mark_delivered(&conversation_id);
-            vec![crate::street::build_street_context_system_item(
-                count, &formatted,
-            )]
+    let mut is_first_turn = true;
+    let mut current_input_items = context.input_items.clone();
+    let mut last_response: Option<crate::provider_api::types::ResponseStreamResult> = None;
+    let mut last_final_token_count = 0usize;
+
+    'resume_loop: loop {
+        if *cancel_rx.borrow() {
+            break 'resume_loop;
+        }
+
+        if !is_first_turn {
+            if let Err(e) = agent_ctx.rebuild(&conversation_id).await {
+                log::warn!("Failed to rebuild LCM context for auto-resume: {e}");
+            }
+            current_input_items = agent_ctx.context_items();
+        }
+
+        // ── Collect Street notifications ────────────────────────────────────
+        let street_dev_items: Vec<Value> = if agent_config.context_management.street_enabled {
+            let pending = crate::street::StreetManager::collect_pending(&conversation_id);
+            if !pending.is_empty() {
+                let count = pending.len();
+                let formatted = crate::street::format_street_items(&pending);
+                crate::street::StreetManager::mark_delivered(&conversation_id);
+                vec![crate::street::build_street_context_system_item(
+                    count, &formatted,
+                )]
+            } else {
+                Vec::new()
+            }
         } else {
             Vec::new()
-        }
-    } else {
-        Vec::new()
-    };
+        };
 
-    let result = crate::runtime::AgentRuntime::run_turn(
-        &config,
-        &agent_config,
-        &runtime_req,
-        &conversation_id,
-        user_message_ts,
-        context.input_items,
-        recovery_note,
-        &tools_catalog,
-        &agent_ctx,
-        &mut cancel_rx,
-        Some(sub_event_tx.clone()),
-        street_dev_items,
-        move |event| {
-            let event_token_count = stream_observer_for_callback.handle_provider_event(&event);
+        let loop_window = window.clone();
+        let loop_request_id = request_id.clone();
+        let loop_conversation_id = conversation_id.clone();
+        let loop_stream_observer_for_callback = stream_observer.clone();
+        let event_index_clone = Arc::clone(&event_index);
 
-            emit_mapped_stream_event(
-                &closure_window,
-                &closure_request_id,
-                &closure_conversation_id,
-                &mut event_index,
-                event,
-                event_token_count,
-            )
-            .map_err(Into::into)
-        },
-    )
-    .await;
-
-    let _ = registry.remove_chat_request(&request_id)?;
-    let (response, _timeline_events) = result?;
-
-    // ── Spawn registered sub-agents ───────────────────────────────────────
-    // Sub-agent tasks registered during tool execution are still Pending.
-    // We now spawn their runners so they execute concurrently after the
-    // main turn completes.
-    {
-        use crate::sub_agents::runner::run_sub_agent;
-        let pending =
-            crate::sub_agents::manager::SubAgentManager::collect_pending(&conversation_id);
-        if !pending.is_empty() {
-            let tools_catalog_arc = Arc::new(tools_catalog);
-            let sub_semaphore = crate::sub_agents::manager::sub_agent_semaphore();
-            for (task, spec) in pending {
-                let agent_id = spec.agent_id.clone();
-                let spawn_config = Arc::new(config.clone());
-                let spawn_agent_config = Arc::new(agent_config.clone());
-                let spawn_catalog = Arc::clone(&tools_catalog_arc);
-                let spawn_event_tx = sub_event_tx.clone();
-                let sem_perm = sub_semaphore;
-                let _handle = tokio::spawn(async move {
-                    // Acquire concurrency permit before starting execution.
-                    let _permit = sem_perm.acquire().await;
-                    run_sub_agent(
-                        task,
-                        spec,
-                        spawn_config,
-                        spawn_agent_config,
-                        spawn_catalog,
-                        spawn_event_tx,
-                    )
-                    .await;
-                });
-                log::info!(
-                    "Sub-agent {} spawned for conv={}",
-                    agent_id,
-                    conversation_id
+        let run_result = crate::runtime::AgentRuntime::run_turn(
+            &config,
+            &agent_config,
+            &runtime_req,
+            &conversation_id,
+            user_message_ts,
+            current_input_items.clone(),
+            recovery_note.clone(),
+            &tools_catalog,
+            &agent_ctx,
+            &mut cancel_rx,
+            Some(sub_event_tx.clone()),
+            street_dev_items,
+            !is_first_turn, // is_auto_resume
+            move |event| {
+                let event_token_count = loop_stream_observer_for_callback.handle_provider_event(&event);
+                let mut idx = event_index_clone.load(std::sync::atomic::Ordering::SeqCst);
+                let res = emit_mapped_stream_event(
+                    &loop_window,
+                    &loop_request_id,
+                    &loop_conversation_id,
+                    &mut idx,
+                    event,
+                    event_token_count,
                 );
+                event_index_clone.store(idx, std::sync::atomic::Ordering::SeqCst);
+                res.map_err(Into::into)
+            },
+        )
+        .await;
+
+        if *cancel_rx.borrow() {
+            break 'resume_loop;
+        }
+
+        let (response, _timeline_events) = run_result?;
+
+        // ── Spawn registered sub-agents ───────────────────────────────────────
+        // Sub-agent tasks registered during tool execution are still Pending.
+        // We now spawn their runners so they execute concurrently after the
+        // main turn completes.
+        {
+            use crate::sub_agents::runner::run_sub_agent;
+            let pending =
+                crate::sub_agents::manager::SubAgentManager::collect_pending(&conversation_id);
+            if !pending.is_empty() {
+                let tools_catalog_arc = Arc::clone(&tools_catalog);
+                let sub_semaphore = crate::sub_agents::manager::sub_agent_semaphore();
+                for (task, spec) in pending {
+                    let agent_id = spec.agent_id.clone();
+                    let spawn_config = Arc::new(config.clone());
+                    let spawn_agent_config = Arc::new(agent_config.clone());
+                    let spawn_catalog = Arc::clone(&tools_catalog_arc);
+                    let spawn_event_tx = sub_event_tx.clone();
+                    let sem_perm = sub_semaphore;
+                    let _handle = tokio::spawn(async move {
+                        // Acquire concurrency permit before starting execution.
+                        let _permit = sem_perm.acquire().await;
+                        run_sub_agent(
+                            task,
+                            spec,
+                            spawn_config,
+                            spawn_agent_config,
+                            spawn_catalog,
+                            spawn_event_tx,
+                        )
+                        .await;
+                    });
+                    log::info!(
+                        "Sub-agent {} spawned for conv={}",
+                        agent_id,
+                        conversation_id
+                    );
+                }
+            }
+        }
+
+        let final_token_count = stream_observer.persist_final_token_usage(&response);
+        last_response = Some(response.clone());
+        last_final_token_count = final_token_count;
+
+        // ── Signal the memory agent ───────────────────────────────────────────
+        // After the main turn completes, notify the memory agent so it can
+        // evaluate the conversation and write/update memories.
+        if agent_config.memory.enabled {
+            crate::sub_agents::manager::SubAgentManager::signal_memory_agent(
+                &conversation_id,
+                crate::sub_agents::types::MemoryAgentSignal::TurnCompleted,
+            );
+        }
+
+        log::info!(
+            "chat_stream turn complete: conv={} req={} text_len={} resp_id={} output_items={}",
+            conversation_id,
+            request_id,
+            response.output_text.len(),
+            response.response_id,
+            response.output_items.len(),
+        );
+
+        // ── Check Auto-Resume Status ──────────────────────────────────────────
+        let still_has_active = crate::sub_agents::manager::SubAgentManager::list(Some(&conversation_id))
+            .iter()
+            .any(|s| {
+                s.subagent_type != crate::sub_agents::types::SubAgentType::Memory.as_str()
+                    && (s.status == crate::sub_agents::types::SubAgentStatus::Running.as_str()
+                        || s.status == crate::sub_agents::types::SubAgentStatus::Pending.as_str())
+            });
+
+        if !still_has_active {
+            break 'resume_loop;
+        }
+
+        // Emit waiting_for_subagents transitional event since we have active subagents.
+        let mut idx = event_index.load(std::sync::atomic::Ordering::SeqCst);
+        window
+            .emit(
+                "chat_stream_event",
+                ChatStreamEvent {
+                    request_id: request_id.clone(),
+                    event_index: next_event_index(&mut idx),
+                    kind: "waiting_for_subagents".to_string(),
+                    delta: Some(response.output_text.clone()),
+                    response_id: Some(response.response_id.clone()),
+                    conversation_id: Some(conversation_id.clone()),
+                    conversation_title: None,
+                    context_token_count: Some(final_token_count),
+                    error: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_display_name: None,
+                    tool_description: None,
+                    tool_icon: None,
+                    tool_arguments: None,
+                    tool_output: None,
+                    tool_status: None,
+                    tool_started_ts: None,
+                    tool_completed_ts: None,
+                    tool_duration_ms: None,
+                    phase: None,
+                    agent_id: None,
+                },
+            )
+            .map_err(|e| format!("Failed to emit stream waiting event: {e}"))?;
+        event_index.store(idx, std::sync::atomic::Ordering::SeqCst);
+
+        let notifier = crate::street::StreetManager::get_or_create_notifier(&conversation_id);
+        loop {
+            if *cancel_rx.borrow() {
+                break 'resume_loop;
+            }
+
+            if crate::street::StreetManager::is_auto_resume(&conversation_id) {
+                is_first_turn = false;
+                continue 'resume_loop;
+            }
+
+            let still_active = crate::sub_agents::manager::SubAgentManager::list(Some(&conversation_id))
+                .iter()
+                .any(|s| {
+                    s.subagent_type != crate::sub_agents::types::SubAgentType::Memory.as_str()
+                        && (s.status == crate::sub_agents::types::SubAgentStatus::Running.as_str()
+                            || s.status == crate::sub_agents::types::SubAgentStatus::Pending.as_str())
+                });
+            if !still_active {
+                break 'resume_loop;
+            }
+
+            tokio::select! {
+                _ = notifier.notified() => {
+                    // Loop again to check is_auto_resume
+                }
+                _ = cancel_rx.changed() => {
+                    break 'resume_loop;
+                }
             }
         }
     }
 
-    let final_token_count = stream_observer.persist_final_token_usage(&response);
-
-    // ── Signal the memory agent ───────────────────────────────────────────
-    // After the main turn completes, notify the memory agent so it can
-    // evaluate the conversation and write/update memories.
-    if agent_config.memory.enabled {
-        crate::sub_agents::manager::SubAgentManager::signal_memory_agent(
-            &conversation_id,
-            crate::sub_agents::types::MemoryAgentSignal::TurnCompleted,
-        );
-    }
-
-    log::info!(
-        "chat_stream turn complete: conv={} req={} text_len={} resp_id={} output_items={}",
-        conversation_id,
-        request_id,
-        response.output_text.len(),
-        response.response_id,
-        response.output_items.len(),
-    );
-
+    // ── Generate conversation title if needed ────────────────────────────
     let conversation_title: Option<String> = None;
     if !registry.is_conversation_deleted(&conversation_id)? {
-        // Per-hop assistant lines were already persisted during streaming via
-        // phase-aware HopAssistantText events.
-        // No separate final persist needed.
-
         schedule_title_generation(
             window.clone(),
             window.app_handle().clone(),
@@ -560,18 +665,22 @@ pub async fn chat_stream(
         );
     }
 
+    // ── Emit final done event ────────────────────────────────────────────
+    let final_response = last_response.ok_or_else(|| "No turns completed".to_string())?;
+
+    let mut idx = event_index.load(std::sync::atomic::Ordering::SeqCst);
     window
         .emit(
             "chat_stream_event",
             ChatStreamEvent {
                 request_id: request_id.clone(),
-                event_index: next_event_index(&mut event_index),
+                event_index: next_event_index(&mut idx),
                 kind: "done".to_string(),
-                delta: Some(response.output_text.clone()),
-                response_id: Some(response.response_id.clone()),
+                delta: Some(final_response.output_text.clone()),
+                response_id: Some(final_response.response_id.clone()),
                 conversation_id: Some(conversation_id.clone()),
-                conversation_title: conversation_title.clone(),
-                context_token_count: Some(final_token_count),
+                conversation_title,
+                context_token_count: Some(last_final_token_count),
                 error: None,
                 tool_call_id: None,
                 tool_name: None,
@@ -588,14 +697,17 @@ pub async fn chat_stream(
                 agent_id: None,
             },
         )
-        .map_err(|e| format!("Failed to emit stream done event: {e}"))?;
+        .map_err(|e| format!("Failed to emit final stream done event: {e}"))?;
+    event_index.store(idx, std::sync::atomic::Ordering::SeqCst);
+
+    let _ = registry.remove_chat_request(&request_id)?;
 
     Ok(ChatResponse {
-        response_id: response.response_id,
-        output_text: response.output_text,
+        response_id: final_response.response_id,
+        output_text: final_response.output_text,
         conversation_id,
-        conversation_title,
-        context_token_count: final_token_count,
+        conversation_title: None,
+        context_token_count: last_final_token_count,
     })
 }
 

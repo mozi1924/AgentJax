@@ -127,6 +127,7 @@ async fn run_real_gateway_turn_with_config(
             &mut cancel_rx,
             None,       // sub_agent_event_tx
             Vec::new(), // street_items
+            false,      // is_auto_resume
             move |event| {
                 stream_events_for_closure
                     .lock()
@@ -546,6 +547,7 @@ async fn run_real_gateway_turn_with_full_catalog(
             &mut cancel_rx,
             None,       // sub_agent_event_tx
             Vec::new(), // street_items
+            false,      // is_auto_resume
             move |event| {
                 stream_events_for_closure
                     .lock()
