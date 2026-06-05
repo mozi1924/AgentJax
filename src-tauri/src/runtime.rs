@@ -1,3 +1,4 @@
+pub(crate) mod agent_context;
 mod engine;
 mod stream_collection;
 pub(crate) mod tool_archiving;

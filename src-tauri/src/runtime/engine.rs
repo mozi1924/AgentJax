@@ -4,6 +4,7 @@ mod request;
 mod tool_state;
 mod turn;
 
+use super::agent_context::AgentContext;
 use super::AgentRuntime;
 use super::stream_collection::collect_provider_turn;
 use super::tool_archiving::archive_unavailable_historical_tool_calls;
@@ -39,7 +40,7 @@ impl AgentRuntime {
         context_items: Vec<Value>,
         recovery_note: Option<Value>,
         tools_catalog: &ToolCatalog,
-        lcm_engine: &std::sync::Arc<crate::lcm::LcmEngine>,
+        context: &dyn AgentContext,
         cancel_rx: &mut watch::Receiver<bool>,
         sub_agent_event_tx: Option<
             tokio::sync::mpsc::UnboundedSender<crate::sub_agents::SubAgentEvent>,
@@ -132,10 +133,10 @@ impl AgentRuntime {
         let mut turn_idx = 0usize;
         let max_turns = 10usize;
 
-        // ── Seed LCM active context with existing conversation history ──
-        lcm_engine.rebuild_active_context(conversation_id).ok();
+        // ── Seed active context with existing conversation history ──
+        context.rebuild(conversation_id).await.ok();
 
-        // ── Persist the current user message to LCM ─────────────────────
+        // ── Persist the current user message ───────────────────────────
         {
             let user_text = req.input.trim();
             let request_id = req.request_id.as_deref().unwrap_or("unknown");
@@ -151,8 +152,8 @@ impl AgentRuntime {
                 "request_id".to_string(),
                 serde_json::Value::String(request_id.to_string()),
             );
-            if let Err(e) = lcm_engine.process_message(&user_msg).await {
-                log::warn!("LCM: failed to persist user message for turn: {e}");
+            if let Err(e) = context.persist_message(&user_msg).await {
+                log::warn!("Failed to persist user message for turn: {e}");
             }
         }
 
@@ -179,14 +180,15 @@ impl AgentRuntime {
             turn_idx += 1;
 
             // ── Determine input for this hop ──────────────────────────────
-            // All hops use the LCM active context as the single source of truth
+            // All hops use the active context as the single source of truth
             // for conversation history. Hop 1 additionally includes the prefix
             // (system items + recovery note) and a formatted user message.
-            let lcm_context = lcm_engine
-                .active_context_snapshot()
-                .ok()
-                .map(|entries| lcm_engine.context_to_provider_items(&entries))
-                .unwrap_or_else(|| accumulated_context.clone());
+            let active_context = context.context_items();
+            let lcm_context = if active_context.is_empty() {
+                accumulated_context.clone()
+            } else {
+                active_context
+            };
 
             let input_items = if turn_idx == 1 {
                 // Hop 1: prefix + LCM history + rendered user input (with timestamp).
@@ -320,11 +322,11 @@ impl AgentRuntime {
                 }
             }
 
-            // ── LCM: Persist this hop's messages BEFORE the is_final_hop break ──
+            // ── Persist this hop's messages BEFORE the is_final_hop break ──
             // Must run for EVERY hop — including the final hop without tool calls.
-            // Otherwise the final answer is never stored in the immutable store.
+            // Otherwise the final answer is never stored.
             {
-                let engine = lcm_engine;
+                let engine = context;
                 let now_ms = crate::conversation_store_utils::now_unix_ms();
                 let lcm_conv_id = conversation_id.to_string();
                 let request_id = req.request_id.as_deref().unwrap_or("unknown");
@@ -444,10 +446,10 @@ impl AgentRuntime {
                 }
 
                 if !batch_messages.is_empty()
-                    && let Err(e) = engine.process_messages_batch(&batch_messages).await
+                    && let Err(e) = engine.persist_messages(&batch_messages).await
                 {
                     log::warn!(
-                        "LCM: failed to persist {} messages: {}",
+                        "Failed to persist {} messages: {}",
                         batch_messages.len(),
                         e
                     );
@@ -479,9 +481,9 @@ impl AgentRuntime {
                 )
                 .await?;
 
-            // ── LCM: Persist tool-call hop messages ───────────────────────
+            // ── Persist tool-call hop messages ───────────────────────────
             {
-                let engine = lcm_engine;
+                let engine = context;
                 let now_ms = crate::conversation_store_utils::now_unix_ms();
                 let lcm_conv_id = conversation_id.to_string();
                 let tool_request_id = req.request_id.as_deref().unwrap_or("unknown");
@@ -590,10 +592,10 @@ impl AgentRuntime {
                 }
 
                 if !batch_messages.is_empty()
-                    && let Err(e) = engine.process_messages_batch(&batch_messages).await
+                    && let Err(e) = engine.persist_messages(&batch_messages).await
                 {
                     log::warn!(
-                        "LCM: failed to persist tool batch of {} messages: {}",
+                        "Failed to persist tool batch of {} messages: {}",
                         batch_messages.len(),
                         e
                     );

@@ -1,0 +1,214 @@
+//! Agent context abstraction — pluggable context management for the agent loop.
+//!
+//! The `AgentContext` trait decouples the agent's tool-calling loop from the
+//! specific context storage strategy. This allows different agent types to
+//! use different backends:
+//!
+//! - **`LcmAgentContext`** — Full LCM engine (file-backed SQLite + compaction)
+//!   for the main conversation agent.
+//! - **`InMemoryContext`** — Simple in-memory message buffer for ephemeral
+//!   sub-agents. No disk I/O, no compaction, auto-cleaned on drop.
+
+use crate::error::AgentJaxResult;
+use crate::lcm::types::{MessageRole, StoredMessage};
+use serde_json::Value;
+use std::sync::Arc;
+
+// ── AgentContext trait ────────────────────────────────────────────────────────
+
+/// Pluggable context management for the agent tool-calling loop.
+///
+/// Implementations control how messages are persisted and how the active
+/// context (the window sent to the LLM) is assembled.
+#[async_trait::async_trait]
+pub trait AgentContext: Send + Sync {
+    /// Rebuild the active context from the underlying store.
+    ///
+    /// Called once at the start of a turn. For persistent stores (LCM),
+    /// this restores the conversation history. For in-memory stores,
+    /// this is a no-op.
+    async fn rebuild(&self, conversation_id: &str) -> AgentJaxResult<()>;
+
+    /// Return the active context as provider-ready API items.
+    ///
+    /// These items are sent as the conversation history to the LLM provider.
+    fn context_items(&self) -> Vec<Value>;
+
+    /// Persist a single message.
+    async fn persist_message(&self, msg: &StoredMessage) -> AgentJaxResult<()>;
+
+    /// Persist a batch of messages atomically.
+    async fn persist_messages(&self, msgs: &[StoredMessage]) -> AgentJaxResult<()>;
+}
+
+// ── LcmAgentContext ───────────────────────────────────────────────────────────
+
+/// Agent context backed by the full LCM engine (SQLite + compaction).
+///
+/// Used by the main conversation agent. Provides lossless context
+/// management with summary DAG and FTS5 search.
+pub struct LcmAgentContext {
+    engine: Arc<crate::lcm::LcmEngine>,
+}
+
+impl LcmAgentContext {
+    pub fn new(engine: Arc<crate::lcm::LcmEngine>) -> Self {
+        Self { engine }
+    }
+
+    pub fn engine(&self) -> &Arc<crate::lcm::LcmEngine> {
+        &self.engine
+    }
+}
+
+#[async_trait::async_trait]
+impl AgentContext for LcmAgentContext {
+    async fn rebuild(&self, conversation_id: &str) -> AgentJaxResult<()> {
+        self.engine
+            .rebuild_active_context(conversation_id)?;
+        Ok(())
+    }
+
+    fn context_items(&self) -> Vec<Value> {
+        self.engine
+            .active_context_snapshot()
+            .ok()
+            .map(|entries| self.engine.context_to_provider_items(&entries))
+            .unwrap_or_default()
+    }
+
+    async fn persist_message(&self, msg: &StoredMessage) -> AgentJaxResult<()> {
+        self.engine.process_message(msg).await?;
+        Ok(())
+    }
+
+    async fn persist_messages(&self, msgs: &[StoredMessage]) -> AgentJaxResult<()> {
+        self.engine.process_messages_batch(msgs).await?;
+        Ok(())
+    }
+}
+
+// ── InMemoryContext ───────────────────────────────────────────────────────────
+
+/// Agent context backed by an in-memory message buffer.
+///
+/// Used by ephemeral sub-agents. Messages are stored in a `Vec` and
+/// never persisted to disk. The context is rebuilt from scratch each
+/// turn and discarded when the agent finishes.
+pub struct InMemoryContext {
+    messages: tokio::sync::Mutex<Vec<StoredMessage>>,
+}
+
+impl InMemoryContext {
+    pub fn new() -> Self {
+        Self {
+            messages: tokio::sync::Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl Default for InMemoryContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait::async_trait]
+impl AgentContext for InMemoryContext {
+    async fn rebuild(&self, _conversation_id: &str) -> AgentJaxResult<()> {
+        // In-memory context starts fresh each time — no-op.
+        Ok(())
+    }
+
+    fn context_items(&self) -> Vec<Value> {
+        // Cannot access async Mutex from sync context. Use a best-effort
+        // try_lock — if the lock is contended we return empty (rare in practice
+        // since context_items is called from the single-threaded agent loop).
+        let messages = match self.messages.try_lock() {
+            Ok(guard) => guard.clone(),
+            Err(_) => return Vec::new(),
+        };
+
+        let mut items = Vec::with_capacity(messages.len());
+        for msg in &messages {
+            match msg.role {
+                MessageRole::User => {
+                    items.push(serde_json::json!({
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": &msg.content}]
+                    }));
+                }
+                MessageRole::Assistant => {
+                    // Inject thinking content if present.
+                    if let Some(ref t) = msg.thinking {
+                        let trimmed = t.trim();
+                        if !trimmed.is_empty() {
+                            items.push(serde_json::json!({
+                                "type": "reasoning",
+                                "text": trimmed,
+                            }));
+                        }
+                    }
+                    items.push(serde_json::json!({
+                        "role": "assistant",
+                        "content": [{"type": "input_text", "text": &msg.content}]
+                    }));
+                }
+                MessageRole::Tool => {
+                    // Structured tool messages via metadata.
+                    if let Some(msg_type) = msg.metadata.get("message_type").and_then(|v| v.as_str()) {
+                        match msg_type {
+                            "function_call" => {
+                                let call_id = msg.metadata.get("call_id")
+                                    .and_then(|v| v.as_str()).unwrap_or("");
+                                let name = msg.metadata.get("tool_name")
+                                    .and_then(|v| v.as_str()).unwrap_or("");
+                                let arguments = msg.metadata.get("arguments")
+                                    .and_then(|v| v.as_str()).unwrap_or("{}");
+                                items.push(serde_json::json!({
+                                    "type": "function_call",
+                                    "call_id": call_id,
+                                    "name": name,
+                                    "arguments": arguments,
+                                }));
+                            }
+                            "function_call_output" => {
+                                let call_id = msg.metadata.get("call_id")
+                                    .and_then(|v| v.as_str()).unwrap_or("");
+                                items.push(serde_json::json!({
+                                    "type": "function_call_output",
+                                    "call_id": call_id,
+                                    "output": &msg.content,
+                                }));
+                            }
+                            _ => {
+                                items.push(serde_json::json!({
+                                    "role": "user",
+                                    "content": [{"type": "input_text", "text": &msg.content}]
+                                }));
+                            }
+                        }
+                    } else {
+                        items.push(serde_json::json!({
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": &msg.content}]
+                        }));
+                    }
+                }
+            }
+        }
+        items
+    }
+
+    async fn persist_message(&self, msg: &StoredMessage) -> AgentJaxResult<()> {
+        let mut guard = self.messages.lock().await;
+        guard.push(msg.clone());
+        Ok(())
+    }
+
+    async fn persist_messages(&self, msgs: &[StoredMessage]) -> AgentJaxResult<()> {
+        let mut guard = self.messages.lock().await;
+        guard.extend_from_slice(msgs);
+        Ok(())
+    }
+}

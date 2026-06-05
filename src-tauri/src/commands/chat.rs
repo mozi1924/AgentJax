@@ -20,6 +20,7 @@ use crate::config;
 use crate::conversation_store;
 use crate::provider_api::{build_user_input_item, get_tool_schema_format};
 use crate::time_context::{build_temporal_context_system_item, render_timed_message};
+use crate::runtime::agent_context::LcmAgentContext;
 use crate::tools::ToolCatalog;
 use crate::tools::ToolExecutionContext;
 use chat_client_metadata::{split_local_client_metadata, validate_conversation_dynamic_tools};
@@ -457,7 +458,7 @@ pub async fn chat_stream(
         context.input_items,
         recovery_note,
         &tools_catalog,
-        &lcm_engine,
+        &LcmAgentContext::new(lcm_engine.clone()),
         &mut cancel_rx,
         Some(sub_event_tx.clone()),
         street_dev_items,

@@ -1,5 +1,6 @@
 use super::{
-    AgentRuntime, tool_archiving::archive_unavailable_historical_tool_calls,
+    agent_context::LcmAgentContext, AgentRuntime,
+    tool_archiving::archive_unavailable_historical_tool_calls,
     tool_parsing::extract_active_tool_names,
 };
 use crate::commands::chat::ChatRequest;
@@ -122,7 +123,7 @@ async fn run_real_gateway_turn_with_config(
             Vec::new(),
             None,
             &tools_catalog,
-            &lcm_engine_for_test(&conversation_id),
+            &LcmAgentContext::new(lcm_engine_for_test(&conversation_id)),
             &mut cancel_rx,
             None,       // sub_agent_event_tx
             Vec::new(), // street_items
@@ -541,7 +542,7 @@ async fn run_real_gateway_turn_with_full_catalog(
             Vec::new(),
             None,
             &tools_catalog,
-            &lcm_engine,
+            &LcmAgentContext::new(lcm_engine.clone()),
             &mut cancel_rx,
             None,       // sub_agent_event_tx
             Vec::new(), // street_items

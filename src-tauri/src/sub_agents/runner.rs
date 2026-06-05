@@ -9,6 +9,7 @@
 
 use crate::commands::chat::ChatRequest;
 use crate::config::{AgentConfig, AppConfig};
+use crate::runtime::agent_context::LcmAgentContext;
 use crate::provider_api::types::ProviderStreamEvent;
 use crate::sub_agents::events::SubAgentEvent;
 use crate::sub_agents::lcm_context::SubAgentLcmContext;
@@ -153,6 +154,7 @@ pub async fn run_sub_agent(
     let closure_event_tx = event_tx.clone();
     let closure_agent_id = agent_id.clone();
     let run_event_tx = event_tx.clone(); // For the tool execution context
+    let agent_ctx = LcmAgentContext::new(sub_lcm.engine.clone());
     let result = crate::runtime::AgentRuntime::run_turn(
         &app_config,
         &agent_config,
@@ -162,7 +164,7 @@ pub async fn run_sub_agent(
         Vec::new(), // No prior context for sub-agents
         None,       // No recovery note
         &tools_catalog,
-        &sub_lcm.engine,
+        &agent_ctx,
         &mut merged_cancel_rx,
         Some(run_event_tx),
         Vec::new(), // street_items — sub-agents don't receive Street notifications
