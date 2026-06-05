@@ -20,7 +20,7 @@ use std::collections::BTreeSet;
 use crate::agentjax_err;
 use crate::error::AgentJaxResult;
 
-use super::path_validator::{build_app_config_schema, follow_ref, resolve_schema_property};
+use super::path_validator::{build_merged_schema, follow_ref, resolve_schema_property};
 
 // ── Collection key patterns ────────────────────────────────────────────────
 //
@@ -81,8 +81,8 @@ pub fn validate_patch_path(
         }
     }
 
-    // 1. Validate path against AppConfig JSON Schema
-    let schema = build_app_config_schema();
+    // 1. Validate path against merged AppConfig + AgentConfig JSON Schema
+    let schema = crate::config::path_validator::build_merged_schema();
     let mut current = &schema;
 
     for segment in segments {
@@ -122,7 +122,7 @@ pub fn validate_patch_path(
 
 /// Validate that a value matches the expected type from the schema.
 fn validate_value_type(schema: &Value, value: &Value) -> AgentJaxResult<()> {
-    let root_schema = build_app_config_schema();
+    let root_schema = build_merged_schema();
     let resolved = follow_ref(schema, &root_schema);
 
     let expected_type = match resolved.get("type") {
@@ -256,17 +256,55 @@ fn resolve_collection_item_schema_fast<'a>(
 
 // ── Known-path helpers (for TypeScript codegen) ────────────────────────────
 
-/// All known top-level config paths (non-collection) for the shared config.yaml.
-/// Agent-specific paths are in AgentConfig and routed separately.
+/// All known top-level config paths (non-collection).
+/// Includes both shared config.yaml fields (AppConfig) and per-agent
+/// config fields (AgentConfig), since the settings UI surfaces both.
 #[allow(dead_code)]
 pub fn known_top_level_paths() -> BTreeSet<&'static str> {
     let mut paths = BTreeSet::new();
+    // ── Shared (AppConfig) ────────────────────────────────────────────────
     paths.insert("language");
     paths.insert("active_agent_id");
     paths.insert("mcp.stdio.inherit_parent_env");
     paths.insert("mcp.stdio.env");
     paths.insert("mcp.startup_timeout_ms");
     paths.insert("mcp.tool_timeout_ms");
+    // ── Per-agent (AgentConfig) ────────────────────────────────────────────
+    paths.insert("active_provider");
+    paths.insert("default_model");
+    paths.insert("utility_small_model");
+    paths.insert("request_timeout_seconds");
+    paths.insert("show_advanced_request_options");
+    paths.insert("enable_developer_tools");
+    paths.insert("prompt_composer");
+    paths.insert("memory.enabled");
+    paths.insert("memory.auto_inject");
+    paths.insert("memory.max_index_tokens");
+    paths.insert("memory.storage_dir");
+    paths.insert("context_management.dynamic_thresholds");
+    paths.insert("context_management.soft_token_threshold");
+    paths.insert("context_management.hard_token_threshold");
+    paths.insert("context_management.large_file_token_threshold");
+    paths.insert("context_management.compaction_timeout_secs");
+    paths.insert("context_management.max_compact_block_size");
+    paths.insert("context_management.max_summary_depth");
+    paths.insert("context_management.summarization_model");
+    paths.insert("context_management.tokenizer_model_id");
+    paths.insert("context_management.grep_page_size");
+    paths.insert("context_management.street_enabled");
+    paths.insert("context_management.street_auto_trigger_priority");
+    paths.insert("context_management.street_max_items_per_conversation");
+    paths.insert("context_management.jsonl_backup_enabled");
+    paths.insert("sub_agent.max_concurrent");
+    paths.insert("sub_agent.default_max_turns");
+    paths.insert("sub_agent.hard_max_turns");
+    paths.insert("sub_agent.timeout_secs");
+    paths.insert("sub_agent.worktree_enabled");
+    paths.insert("rag.enabled");
+    paths.insert("rag.storage_path");
+    paths.insert("rag.chunk_size");
+    paths.insert("rag.chunk_overlap");
+    paths.insert("rag.top_k");
     paths
 }
 
