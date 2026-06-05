@@ -172,7 +172,7 @@ pub async fn embed_text(
     let provider = config.resolved_provider(provider_key)?;
     let protocol = resolve_protocol(&provider.kind, model_id, None);
     match protocol.as_deref() {
-        Some("embeddings") => protocol::embed("embeddings", &provider, model_id, input).await, /* protocol already known to be "embeddings" */,
+        Some("embeddings") => protocol::embed("embeddings", &provider, model_id, input).await, /* protocol already known to be "embeddings" */
         Some(other) => Err(AgentJaxError::config(format!(
             "Provider '{}' uses protocol '{other}' which does not support embedding",
             provider_key

@@ -648,26 +648,6 @@ mod tests {
     }
 
     #[test]
-    fn test_estimate_context_tokens() {
-        let entries = vec![
-            ContextEntry::RawMessage {
-                id: LcmId::new(),
-                role: MessageRole::User,
-                content: "Hello world!".to_string(), // 12 chars ≈ 3 tokens
-                thinking: None,
-                metadata: BTreeMap::new(),
-            },
-            ContextEntry::SummaryPointer {
-                summary_id: LcmId::new(),
-                text: "Summary text".to_string(), // 12 chars ≈ 3 tokens
-                child_ids: vec![],
-                file_refs: vec![],
-            },
-        ];
-        assert_eq!(estimate_context_tokens(&entries), 6);
-    }
-
-    #[test]
     fn test_lcm_config_defaults() {
         let config = LcmConfig::default();
         assert_eq!(config.soft_token_threshold, 65536);

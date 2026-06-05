@@ -1254,4 +1254,164 @@ mod tests {
         let items = engine.context_to_provider_items(&entries);
         assert_eq!(items.len(), 3);
     }
+
+    // ── Thinking / Reasoning Tests ────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_process_messages_batch_with_thinking() {
+        let engine = make_engine();
+
+        // Create assistant messages with thinking content.
+        let mut msg1 = make_msg("asst-1", "The answer is 42.", MessageRole::Assistant);
+        msg1.thinking = Some("Let me calculate this step by step...".to_string());
+        msg1.token_count = estimate_tokens(&msg1.content);
+
+        let msg2 = make_msg("asst-2", "I agree.", MessageRole::Assistant);
+
+        engine
+            .process_messages_batch(&[msg1, msg2])
+            .await
+            .unwrap();
+
+        // Verify thinking is persisted in the store.
+        let loaded = engine
+            .store
+            .get_conversation_messages("test-conv")
+            .unwrap();
+        assert_eq!(loaded.len(), 2);
+
+        let with_thinking = loaded
+            .iter()
+            .find(|m| m.id.to_string() == "asst-1")
+            .expect("asst-1 should exist");
+        assert_eq!(
+            with_thinking.thinking.as_deref(),
+            Some("Let me calculate this step by step...")
+        );
+
+        let without_thinking = loaded
+            .iter()
+            .find(|m| m.id.to_string() == "asst-2")
+            .expect("asst-2 should exist");
+        assert!(without_thinking.thinking.is_none());
+
+        // Verify thinking is in active context entries.
+        let snapshot = engine.active_context_snapshot().unwrap();
+        assert_eq!(snapshot.len(), 2);
+        for entry in &snapshot {
+            if let ContextEntry::RawMessage {
+                id, content, thinking, ..
+            } = entry
+            {
+                if id.to_string() == "asst-1" {
+                    assert_eq!(content, "The answer is 42.");
+                    assert_eq!(
+                        thinking.as_deref(),
+                        Some("Let me calculate this step by step...")
+                    );
+                }
+            } else {
+                panic!("Expected RawMessage");
+            }
+        }
+    }
+
+    #[test]
+    fn test_context_to_provider_items_with_thinking() {
+        let engine = make_engine();
+
+        // Assistant message with thinking — should produce a reasoning item.
+        let entries = vec![ContextEntry::RawMessage {
+            id: MessageId::from("asst-think"),
+            role: MessageRole::Assistant,
+            content: "So the total is 84.".to_string(),
+            thinking: Some("Let me compute 12*(3+4) = 12*7 = 84".to_string()),
+            metadata: BTreeMap::new(),
+        }];
+
+        let items = engine.context_to_provider_items(&entries);
+        assert_eq!(items.len(), 2, "thinking + text should produce 2 items");
+        assert_eq!(
+            items[0]["type"].as_str(),
+            Some("reasoning"),
+            "first item should be reasoning type"
+        );
+        assert!(items[0]["text"].as_str().unwrap().contains("12*(3+4)"));
+        assert_eq!(items[1]["role"].as_str(), Some("assistant"));
+        assert_eq!(
+            items[1]["content"][0]["text"].as_str(),
+            Some("So the total is 84.")
+        );
+
+        // User message with thinking — should NOT emit reasoning items.
+        let user_entries = vec![ContextEntry::RawMessage {
+            id: MessageId::from("user-1"),
+            role: MessageRole::User,
+            content: "Hello".to_string(),
+            thinking: Some("user thinking".to_string()),
+            metadata: BTreeMap::new(),
+        }];
+        let user_items = engine.context_to_provider_items(&user_entries);
+        assert_eq!(user_items.len(), 1);
+        assert_eq!(user_items[0]["role"].as_str(), Some("user"));
+
+        // Assistant message without thinking — just text.
+        let no_think_entries = vec![ContextEntry::RawMessage {
+            id: MessageId::from("asst-plain"),
+            role: MessageRole::Assistant,
+            content: "Plain answer.".to_string(),
+            thinking: None,
+            metadata: BTreeMap::new(),
+        }];
+        let no_think_items = engine.context_to_provider_items(&no_think_entries);
+        assert_eq!(no_think_items.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_rebuild_active_context_with_thinking() {
+        let engine = make_engine();
+
+        // Persist messages directly to store (simulate previous session).
+        let mut msg1 = make_msg("asst-a", "First response", MessageRole::Assistant);
+        msg1.thinking = Some("Thinking step 1...".to_string());
+        msg1.token_count = estimate_tokens(&msg1.content);
+        let msg2 = make_msg("asst-b", "Final answer", MessageRole::Assistant);
+
+        engine.store.persist_message(&msg1).unwrap();
+        engine.store.persist_message(&msg2).unwrap();
+
+        // Rebuild — simulates app restart.
+        let entries = engine.rebuild_active_context("test-conv").unwrap();
+        assert_eq!(entries.len(), 2);
+
+        let thinking_entry = entries
+            .iter()
+            .find(|e| {
+                if let ContextEntry::RawMessage { id, .. } = e {
+                    id.to_string() == "asst-a"
+                } else {
+                    false
+                }
+            })
+            .expect("asst-a should be in rebuilt context");
+
+        if let ContextEntry::RawMessage { thinking, .. } = thinking_entry {
+            assert_eq!(
+                thinking.as_deref(),
+                Some("Thinking step 1..."),
+                "thinking should survive rebuild"
+            );
+        } else {
+            panic!("Expected RawMessage");
+        }
+
+        // Convert to provider items — should include reasoning.
+        let items = engine.context_to_provider_items(&entries);
+        let reasoning_count = items
+            .iter()
+            .filter(|item| item.get("type").and_then(|v| v.as_str()) == Some("reasoning"))
+            .count();
+        assert_eq!(reasoning_count, 1);
+    }
+
 }
