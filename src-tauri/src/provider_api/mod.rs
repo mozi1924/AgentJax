@@ -350,8 +350,9 @@ pub fn get_model_metadata(
 /// Map a provider kind and optional model ID to a known protocol.
 ///
 /// Resolution order:
-/// 1. `api_protocol` override (per-model config)
-/// 2. Legacy `supports_protocols` heuristic
+/// 1. `api_protocol` override (per-model config) — highest precedence
+/// 2. `model_routing` rules from plugin.json (declarative glob-based routing)
+/// 3. Legacy `supports_protocols` + hardcoded model prefix heuristic (fallback)
 fn resolve_protocol(
     provider_kind: &str,
     model_id: &str,
@@ -365,7 +366,29 @@ fn resolve_protocol(
         }
     }
 
-    // Fall back to supports_protocols heuristic (legacy providers)
+    let normalized_id = model_id.trim().to_lowercase();
+
+    // 2. Try model_routing rules (declarative glob-based, from plugin.json).
+    //    Rules are evaluated in declaration order; the first match wins.
+    let routing = crate::provider_api::registry::provider_model_routing(provider_kind);
+    if !routing.is_empty() {
+        // If the model_id is empty (e.g. catalog sync), use the catch-all "*"
+        // rule instead of trying to match, so we return a sensible default.
+        if !normalized_id.is_empty() {
+            for rule in &routing {
+                if glob_match(&rule.pattern, &normalized_id) {
+                    return Some(rule.protocol.clone());
+                }
+            }
+        }
+        // No match — use the catch-all "*" rule if present, otherwise first rule.
+        let catch_all = routing.iter().find(|r| r.pattern == "*");
+        return catch_all
+            .or_else(|| routing.first())
+            .map(|r| r.protocol.clone());
+    }
+
+    // 3. Fall back to supports_protocols + model ID heuristics (legacy).
     let protocols = crate::provider_api::registry::provider_supports_protocols(provider_kind);
     if protocols.is_empty() {
         return None;
@@ -375,8 +398,7 @@ fn resolve_protocol(
     }
 
     // Multiple protocols — use model ID heuristics.
-    let normalized = model_id.trim().to_lowercase();
-    if normalized.contains("embedding") || normalized.starts_with("text-embedding-") {
+    if normalized_id.contains("embedding") || normalized_id.starts_with("text-embedding-") {
         return protocols
             .iter()
             .find(|p| *p == "embeddings")
@@ -386,16 +408,91 @@ fn resolve_protocol(
 
     let has_responses = protocols.iter().any(|p| p == "responses");
     let has_chat = protocols.iter().any(|p| p == "chat_completions");
-    if has_responses && has_chat && !normalized.is_empty() {
+    if has_responses && has_chat && !normalized_id.is_empty() {
+        // Hardcoded OpenAI model prefixes — only used when provider has no
+        // model_routing rules. New providers should use modelRouting instead.
         let is_openai_native = [
             "gpt-5", "gpt-4", "gpt-3.5", "o1-", "o1 ", "o3-", "o3 ", "o4-", "o4 ",
         ]
         .iter()
-        .any(|prefix| normalized.starts_with(prefix));
+        .any(|prefix| normalized_id.starts_with(prefix));
         if !is_openai_native {
             return Some("chat_completions".to_string());
         }
     }
 
     protocols.first().cloned()
+}
+
+/// Simple glob pattern matching supporting `*` wildcard.
+///
+/// - `*` matches any sequence of characters (including empty).
+/// - All other characters match literally (case-sensitive).
+/// - No support for `?`, `[...]`, or other glob features — only `*`.
+fn glob_match(pattern: &str, text: &str) -> bool {
+    let pattern_bytes = pattern.as_bytes();
+    let text_bytes = text.as_bytes();
+    let mut pi = 0; // pattern index
+    let mut ti = 0; // text index
+    let mut star_pi: Option<usize> = None; // position of last '*' in pattern
+    let mut star_ti: usize = 0; // position in text matched by last '*'
+
+    while ti < text_bytes.len() {
+        if pi < pattern_bytes.len()
+            && (pattern_bytes[pi] == b'*')
+        {
+            star_pi = Some(pi);
+            star_ti = ti;
+            pi += 1;
+        } else if pi < pattern_bytes.len()
+            && (pattern_bytes[pi] == b'?' || pattern_bytes[pi] == text_bytes[ti])
+        {
+            pi += 1;
+            ti += 1;
+        } else if let Some(sp) = star_pi {
+            pi = sp + 1;
+            star_ti += 1;
+            ti = star_ti;
+        } else {
+            return false;
+        }
+    }
+
+    // Skip remaining '*' in pattern
+    while pi < pattern_bytes.len() && pattern_bytes[pi] == b'*' {
+        pi += 1;
+    }
+
+    pi == pattern_bytes.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::glob_match;
+
+    #[test]
+    fn glob_match_exact() {
+        assert!(glob_match("hello", "hello"));
+    }
+
+    #[test]
+    fn glob_match_wildcard_prefix() {
+        assert!(glob_match("gpt-5*", "gpt-5-mini"));
+        assert!(glob_match("gpt-5*", "gpt-5"));
+    }
+
+    #[test]
+    fn glob_match_wildcard_suffix() {
+        assert!(glob_match("*embedding*", "text-embedding-3-small"));
+    }
+
+    #[test]
+    fn glob_match_catch_all() {
+        assert!(glob_match("*", "anything-really"));
+    }
+
+    #[test]
+    fn glob_match_no_match() {
+        assert!(!glob_match("gpt-5*", "claude-3"));
+    }
 }

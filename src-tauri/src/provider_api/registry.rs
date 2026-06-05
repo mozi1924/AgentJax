@@ -1,8 +1,8 @@
 use crate::agentjax_err;
 use crate::config::{ModelRequestConfig, ProviderConfig, ProviderModelConfig};
 use crate::plugin_runtime::{
-    BuiltinModelDescriptor, PluginPackage, PluginProviderDefinition, ReasoningSchema,
-    builtin_plugin_packages, provider_definitions_for_package,
+    BuiltinModelDescriptor, ModelRoutingRule, PluginPackage, PluginProviderDefinition,
+    ReasoningSchema, builtin_plugin_packages, provider_definitions_for_package,
 };
 use crate::tools::ToolSchemaFormat;
 use serde_json::Value;
@@ -33,6 +33,10 @@ pub struct DynamicProviderDefinition {
     /// Declarative reasoning schema from plugin.json.
     /// Describes what extra_body fields to inject when reasoning is enabled.
     pub reasoning_schema: Option<ReasoningSchema>,
+    /// Ordered glob-based model routing rules from plugin.json.
+    /// When non-empty, used by `resolve_protocol` instead of the old
+    /// `supports_protocols` heuristic with hardcoded model prefixes.
+    pub model_routing: Vec<ModelRoutingRule>,
 }
 
 pub fn builtin_provider_definitions() -> Vec<DynamicProviderDefinition> {
@@ -149,6 +153,12 @@ pub fn provider_supports_protocols(provider_kind: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+pub fn provider_model_routing(provider_kind: &str) -> Vec<ModelRoutingRule> {
+    provider_definition(provider_kind)
+        .map(|def| def.model_routing)
+        .unwrap_or_default()
+}
+
 fn dynamic_provider_definition_from_plugin(
     plugin_provider: PluginProviderDefinition,
     package: Option<PluginPackage>,
@@ -208,6 +218,7 @@ fn dynamic_provider_definition_from_plugin(
         supports_protocols,
         builtin_models: plugin_provider.builtin_models,
         reasoning_schema: plugin_provider.reasoning_schema,
+        model_routing: plugin_provider.model_routing,
     })
 }
 
