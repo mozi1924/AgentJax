@@ -198,13 +198,26 @@ impl AgentRuntime {
                     items.extend(lcm_context);
                     items
                 } else {
-                    // LCM context includes history prior to this turn. We
-                    // filter out the raw user message (already rendered below).
+                    // Keep all historical user messages — the model needs to
+                    // see what the user previously asked. Only the very last
+                    // user item is skipped because it will be re-rendered
+                    // below with a "Current user message" label.
+                    let mut seen_current_user = false;
                     let history_items: Vec<Value> = lcm_context
                         .into_iter()
+                        .rev()
                         .filter(|item| {
-                            !matches!(item.get("role").and_then(|v| v.as_str()), Some("user"))
+                            if matches!(item.get("role").and_then(|v| v.as_str()), Some("user")) {
+                                if !seen_current_user {
+                                    seen_current_user = true;
+                                    return false; // skip the most recent user message
+                                }
+                            }
+                            true
                         })
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
                         .collect();
                     items.extend(history_items);
                     items.push(crate::provider_api::build_user_input_item(

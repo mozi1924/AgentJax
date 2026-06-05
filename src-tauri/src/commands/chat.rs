@@ -135,16 +135,39 @@ pub async fn chat_stream(
                     &model.provider.kind,
                     &model.model_id,
                 );
+                // Estimate system prompt overhead so LCM thresholds reserve
+                // room for fixed system items (prompt blocks, temporal context,
+                // memory context) that are outside LCM's control.
+                let system_overhead = {
+                    let mut overhead: u32 = 0;
+                    // system_prompt (instructions_override) — ~4 chars per token
+                    overhead += crate::lcm::types::estimate_tokens(&model.system_prompt);
+                    // system_items from prompt composer + temporal context
+                    for item in &model.prompt_assembly.system_items {
+                        if let Some(content) = item.pointer("/content/0/text")
+                            .and_then(|v| v.as_str())
+                        {
+                            overhead += crate::lcm::types::estimate_tokens(content);
+                        }
+                    }
+                    // Estimate temporal context item (~200 chars → ~50 tokens)
+                    overhead += 50;
+                    // Estimate recovery note if present (~300 chars → ~75 tokens)
+                    overhead += 75;
+                    overhead
+                };
+                let config = base.with_dynamic_thresholds(budget.context_window);
+                let config = config.with_system_overhead(system_overhead);
                 log::info!(
-                    "LCM dynamic thresholds: model={} provider={} context_window={} (soft={}, hard={}, large_file={})",
+                    "LCM dynamic thresholds: model={} provider={} context_window={} system_overhead={} (soft={}, hard={})",
                     model.model_id,
                     model.provider.kind,
                     budget.context_window,
-                    budget.context_window / 2,
-                    (budget.context_window as f64 * 0.85) as u32,
-                    ((budget.context_window / 10) as u32).min(100_000),
+                    system_overhead,
+                    config.soft_token_threshold,
+                    config.hard_token_threshold,
                 );
-                base.with_dynamic_thresholds(budget.context_window)
+                config
             } else {
                 log::warn!(
                     "LCM dynamic thresholds enabled but model resolution failed; falling back to manual thresholds"

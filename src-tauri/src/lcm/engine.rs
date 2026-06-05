@@ -86,6 +86,36 @@ impl ActiveContextState {
     }
 }
 
+/// Drop guard that ensures `compaction_running` is reset even if
+/// `compact_oldest_block()` panics or errors out unexpectedly.
+struct CompactionRunGuard<'a> {
+    active_context: &'a Mutex<ActiveContextState>,
+    cleared: bool,
+}
+
+impl<'a> CompactionRunGuard<'a> {
+    fn new(active_context: &'a Mutex<ActiveContextState>) -> Self {
+        Self {
+            active_context,
+            cleared: false,
+        }
+    }
+
+    fn disarm(mut self) {
+        self.cleared = true;
+    }
+}
+
+impl<'a> Drop for CompactionRunGuard<'a> {
+    fn drop(&mut self) {
+        if !self.cleared {
+            if let Ok(mut ctx) = self.active_context.lock() {
+                ctx.compaction_running = false;
+            }
+        }
+    }
+}
+
 impl LcmEngine {
     // ── Construction ──────────────────────────────────────────────────
 
@@ -183,24 +213,36 @@ impl LcmEngine {
                         )
                         .await;
 
+                        // Drop guard ensures compaction_running is reset even
+                        // if compact_oldest_block() panics. It is disarmed on
+                        // the success path (replace_in_active_context already
+                        // manages the flag internally).
+                        let _guard = CompactionRunGuard::new(&engine.active_context);
+
+                        let result = tokio::time::timeout(
+                            std::time::Duration::from_secs(timeout_secs as u64),
+                            engine.compact_oldest_block(),
+                        )
+                        .await;
+
                         match result {
                             Ok(Ok(_)) => {
                                 log::debug!("LCM async compaction: completed successfully");
+                                // compact_oldest_block already reset the flag
+                                // via replace_in_active_context.
+                                _guard.disarm();
                             }
                             Ok(Err(e)) => {
                                 log::warn!("LCM async compaction failed: {e}");
+                                // Guard will reset compaction_running on drop.
                             }
                             Err(_elapsed) => {
                                 log::warn!(
                                     "LCM async compaction timed out after {}s",
                                     timeout_secs
                                 );
+                                // Guard will reset compaction_running on drop.
                             }
-                        }
-
-                        // Clear the running flag so next trigger can fire.
-                        if let Ok(mut ctx) = engine.active_context.lock() {
-                            ctx.compaction_running = false;
                         }
                     }
                     None => {
@@ -489,10 +531,18 @@ impl LcmEngine {
             })?;
 
             let block_size = self.config.max_compact_block_size;
+            let is_structured_tool_msg = |e: &ContextEntry| -> bool {
+                matches!(e, ContextEntry::RawMessage { metadata, .. } if
+                    matches!(metadata.get("message_type").and_then(|v| v.as_str()),
+                        Some("function_call") | Some("function_call_output")
+                    ))
+            };
             let oldest_messages: Vec<ContextEntry> = ctx
                 .entries
                 .iter()
-                .filter(|e| matches!(e, ContextEntry::RawMessage { .. }))
+                .filter(|e| {
+                    matches!(e, ContextEntry::RawMessage { .. }) && !is_structured_tool_msg(e)
+                })
                 .take(block_size)
                 .cloned()
                 .collect();

@@ -196,11 +196,64 @@ impl CompactionEngine {
         text
     }
 
-    /// Level 3: Deterministic truncation.
+    /// Role markers that delimit messages in concatenated text.
+    const ROLE_MARKERS: &[&str] = &["\n[User]:", "\n[Assistant]:", "\n[Tool]:", "\n[Thinking]:"];
+
+    /// Find the last `\n` before `cut_pos` that starts a role marker line.
+    /// Returns the byte offset of the `\n` (or the cut_pos if none found).
+    fn align_to_message_boundary(text: &str, cut_pos: usize) -> usize {
+        // Search for role markers in the 200-chars window before cut_pos.
+        let search_start = cut_pos.saturating_sub(200);
+        let window = &text[search_start..cut_pos];
+
+        let mut best = None;
+        for marker in Self::ROLE_MARKERS {
+            if let Some(pos) = window.rfind(marker) {
+                let abs_pos = search_start + pos;
+                if abs_pos > best.unwrap_or(0) {
+                    best = Some(abs_pos);
+                }
+            }
+        }
+
+        // Only adjust if we found a boundary that saves at least 20 chars
+        // from the original cut — avoids pathological tiny adjustments.
+        match best {
+            Some(pos) if cut_pos.saturating_sub(pos) > 20 => pos,
+            _ => cut_pos,
+        }
+    }
+
+    /// Find the first `\n` after `cut_pos` that starts a role marker line.
+    /// Returns the byte offset of the `\n` (or the cut_pos if none found).
+    fn align_tail_to_message_boundary(text: &str, cut_pos: usize) -> usize {
+        let search_end = (cut_pos + 200).min(text.len());
+        let window = &text[cut_pos..search_end];
+
+        let mut best = None;
+        for marker in Self::ROLE_MARKERS {
+            if let Some(pos) = window.find(marker) {
+                let abs_pos = cut_pos + pos;
+                if best.map_or(true, |best| abs_pos < best) {
+                    best = Some(abs_pos);
+                }
+            }
+        }
+
+        match best {
+            Some(pos) if pos.saturating_sub(cut_pos) <= 200 => pos,
+            _ => cut_pos,
+        }
+    }
+
+    /// Level 3: Deterministic truncation with message-boundary alignment.
     ///
     /// Takes the first ~67% and last ~33% of tokens, converted from
     /// `max_tokens` to characters via the 4:1 heuristic. This preserves
     /// context from both the beginning and end of the conversation.
+    /// Unlike a purely character-based cut, this adjusts split points to
+    /// land on `[User]:` / `[Assistant]:` / `[Tool]:` / `[Thinking]:` boundaries
+    /// so partial messages are not produced.
     ///
     /// No LLM is involved — this is a pure string operation that
     /// **always converges**.
@@ -215,24 +268,44 @@ impl CompactionEngine {
         let head_chars = (max_chars * 2) / 3; // ~67% from start
         let tail_chars = max_chars / 3; // ~33% from end
 
-        let head: String = text.chars().take(head_chars).collect();
-        let tail: String = text
-            .chars()
-            .rev()
-            .take(tail_chars)
-            .collect::<String>()
-            .chars()
-            .rev()
-            .collect();
+        // Head: first ~67% aligned to message boundary.
+        let raw_head_end = text
+            .char_indices()
+            .nth(head_chars)
+            .map(|(i, _)| i)
+            .unwrap_or(text.len());
+        let head_end = Self::align_to_message_boundary(text, raw_head_end);
+        let head = &text[..head_end];
 
-        format!(
-            "{head}\n\n[... {omitted} chars truncated by LCM Level 3 compaction ...]\n\n{tail}",
-            omitted = {
-                let total = text.chars().count();
-                let kept = head_chars + tail_chars;
-                total.saturating_sub(kept)
-            }
-        )
+        // Tail: last ~33% aligned to message boundary.
+        let remaining = text.len().saturating_sub(head_end);
+        let tail_from = text
+            .char_indices()
+            .rev()
+            .nth(tail_chars)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        // Align forward to the next message boundary
+        let tail_from = Self::align_tail_to_message_boundary(text, tail_from);
+
+        let tail = if tail_from > head_end {
+            &text[tail_from..]
+        } else {
+            // Tail overlaps with head — just use head.
+            ""
+        };
+
+        let omitted = text.len().saturating_sub(head.len() + tail.len());
+
+        if tail.is_empty() {
+            format!(
+                "{head}\n\n[... {omitted} bytes truncated by LCM Level 3 compaction ...]"
+            )
+        } else {
+            format!(
+                "{head}\n\n[... {omitted} bytes truncated by LCM Level 3 compaction ...]\n\n{tail}"
+            )
+        }
     }
 
     /// Create a new SummaryNode with propagated file references.

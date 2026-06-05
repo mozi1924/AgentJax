@@ -566,6 +566,36 @@ impl LcmConfig {
             ..self
         }
     }
+
+    /// Adjust LCM thresholds to reserve space for fixed system prompt overhead.
+    ///
+    /// System items (prompt composer blocks, temporal context, memory context)
+    /// are outside LCM's control but consume the model's context window. This
+    /// method subtracts the overhead from the effective window before applying
+    /// threshold percentages, ensuring compaction triggers early enough that
+    /// the total input (system + LCM context + user) fits the model's limit.
+    ///
+    /// Example: if the model window is 128K and system overhead is 20K, the
+    /// effective window for LCM is 108K, so soft threshold = 108K/2 = 54K
+    /// instead of 128K/2 = 64K.
+    pub fn with_system_overhead(mut self, system_overhead_tokens: u32) -> Self {
+        if !self.dynamic_thresholds {
+            return self;
+        }
+        // Derive the original context window from the existing thresholds.
+        let implied_cw = (self.hard_token_threshold as f64 / 0.85) as u32;
+        let effective_cw = implied_cw.saturating_sub(system_overhead_tokens);
+
+        // Only clamp if the overhead is meaningful (>1K tokens) and the
+        // effective window is still large enough for useful LCM context.
+        if system_overhead_tokens > 1024 && effective_cw > 8192 {
+            self.soft_token_threshold = effective_cw / 2;
+            self.hard_token_threshold = (effective_cw as f64 * 0.85) as u32;
+            self.large_file_token_threshold = (effective_cw / 10).min(100_000);
+        }
+        // For small overheads (<1K), the existing thresholds are fine.
+        self
+    }
 }
 
 // ── Error Type ───────────────────────────────────────────────────────────────
