@@ -15,10 +15,18 @@ use serde_json::{Value, json};
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Get the memory store instance, creating the directory if needed.
-fn open_memory_store() -> AgentJaxResult<MemoryStore> {
+///
+/// When running within an agent context, uses the configured `storage_dir`
+/// from `AgentConfig.memory`. Falls back to `"memory"` when no config is
+/// available (e.g., tests).
+fn open_memory_store(agent_config: Option<&crate::config::AgentConfig>) -> AgentJaxResult<MemoryStore> {
     let base_dir = agentjax_home::agentjax_home_dir()
         .map_err(|e| AgentJaxError::memory(format!("Failed to get agentjax home: {e}")))?
-        .join("memory");
+        .join(
+            agent_config
+                .map(|c| c.memory.storage_dir.as_str())
+                .unwrap_or("memory"),
+        );
     MemoryStore::open(base_dir)
 }
 
@@ -99,12 +107,12 @@ impl Tool for MemoryWriteTool {
     async fn execute(
         &self,
         arguments: &Value,
-        _context: &ToolExecutionContext,
+        context: &ToolExecutionContext,
     ) -> AgentJaxResult<Value> {
         let args: MemoryWriteArgs = serde_json::from_value(arguments.clone())
             .map_err(|e| AgentJaxError::memory(format!("Invalid arguments: {e}")))?;
 
-        let store = open_memory_store()?;
+        let store = open_memory_store(context.agent_config.as_deref())?;
 
         let memory_type = MemoryType::from_str(&args.memory_type).unwrap_or(MemoryType::Project);
 
@@ -190,12 +198,12 @@ impl Tool for MemorySearchTool {
     async fn execute(
         &self,
         arguments: &Value,
-        _context: &ToolExecutionContext,
+        context: &ToolExecutionContext,
     ) -> AgentJaxResult<Value> {
         let args: MemorySearchArgs = serde_json::from_value(arguments.clone())
             .map_err(|e| AgentJaxError::memory(format!("Invalid arguments: {e}")))?;
 
-        let store = open_memory_store()?;
+        let store = open_memory_store(context.agent_config.as_deref())?;
         let results = search_memories(&store, &args.query, args.max_results)?;
 
         Ok(json!({
@@ -253,12 +261,12 @@ impl Tool for MemoryRecallTool {
     async fn execute(
         &self,
         arguments: &Value,
-        _context: &ToolExecutionContext,
+        context: &ToolExecutionContext,
     ) -> AgentJaxResult<Value> {
         let args: MemoryRecallArgs = serde_json::from_value(arguments.clone())
             .map_err(|e| AgentJaxError::memory(format!("Invalid arguments: {e}")))?;
 
-        let store = open_memory_store()?;
+        let store = open_memory_store(context.agent_config.as_deref())?;
         let memory = store.read_memory(&args.name)?;
 
         Ok(json!({
