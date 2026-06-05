@@ -221,7 +221,7 @@ impl DynamicOptionsProvider for ReasoningEffortProvider {
             let levels = reasoning_options_with_default(&entry.supported_reasoning_levels);
 
             options.insert(
-                scoped_option_source("reasoning_effort", &context_path),
+                scoped_option_source("reasoning.effort", &context_path),
                 levels.clone(),
             );
 
@@ -244,7 +244,7 @@ impl DynamicOptionsProvider for ReasoningEffortProvider {
             value: "".to_string(),
         }];
         global_options.extend(global_reasoning_levels);
-        options.insert("reasoning_effort".to_string(), global_options);
+        options.insert("reasoning.effort".to_string(), global_options);
 
         Ok(())
     }

@@ -415,17 +415,17 @@ fn build_model_catalog_entries(
 
             let configured_reasoning_effort = model_cfg
                 .request
-                .reasoning_effort
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
+                .reasoning
+                .as_ref()
+                .filter(|r| r.enabled)
+                .and_then(|r| r.effort)
+                .map(|e| e.as_str().to_string())
                 .filter(|value| {
                     reasoning
                         .supported_reasoning_levels
                         .iter()
                         .any(|level| level == value)
-                })
-                .map(ToOwned::to_owned);
+                });
 
             entries.push(ModelCatalogEntry {
                 profile_key: format!("{provider_key}/{model_key}"),

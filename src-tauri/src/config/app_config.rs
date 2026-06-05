@@ -241,14 +241,9 @@ impl ProviderConfig {
 
 impl ModelRequestConfig {
     pub fn normalize(&mut self) {
-        if let Some(value) = self.reasoning_effort.as_deref() {
-            let trimmed = value.trim().to_lowercase();
-            self.reasoning_effort = if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            };
-        }
+        // Reasoning is now a structured ReasoningConfig with a ReasoningEffort
+        // enum — no string normalization needed. The unused reasoning_effort
+        // string field has been replaced.
     }
 }
 

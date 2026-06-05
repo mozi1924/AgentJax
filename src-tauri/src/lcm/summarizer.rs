@@ -123,7 +123,7 @@ impl Summarizer for ProviderSummarizer {
                 }]
             })],
             model: Some(self.model_ref.clone()),
-            reasoning_effort: None,
+            reasoning: None,
             instructions_override: Some(SUMMARIZE_SYSTEM_PROMPT.to_string()),
             text: None,
             include: None,

@@ -77,7 +77,7 @@ async fn generate_title_and_emit(
             }]
         })],
         model: Some(full_config.utility_small_model().to_string()),
-        reasoning_effort: None,
+        reasoning: None,
         instructions_override: Some(TITLE_GENERATION_INSTRUCTIONS.to_string()),
         text: None,
         include: None,

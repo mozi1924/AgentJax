@@ -349,11 +349,24 @@ fn resolve_collection_item_schema(
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 pub(crate) fn follow_ref<'a>(schema: &'a Value, root_schema: &'a Value) -> &'a Value {
+    // Direct $ref: resolve to the definition.
     if let Some(ref_str) = schema.get("$ref").and_then(Value::as_str) {
         if let Some(def_path) = ref_str.strip_prefix("#/$defs/") {
             if let Some(defs) = root_schema.get("$defs").and_then(|d| d.as_object()) {
                 if let Some(def_schema) = defs.get(def_path) {
                     return follow_ref(def_schema, root_schema);
+                }
+            }
+        }
+    }
+    // anyOf with a single $ref branch (e.g. nullable Option<T> schemas):
+    // {"anyOf": [{"$ref": "#/$defs/T"}, {"type": "null"}]}
+    if let Some(any_of) = schema.get("anyOf").and_then(|a| a.as_array()) {
+        for variant in any_of {
+            if variant.get("$ref").is_some() {
+                let result = follow_ref(variant, root_schema);
+                if !result.get("$ref").is_some() {
+                    return result;
                 }
             }
         }
@@ -368,13 +381,20 @@ pub(crate) fn resolve_schema_property<'a>(
 ) -> Result<&'a Value, String> {
     let resolved = follow_ref(schema, root_schema);
 
-    if let Some(properties) = resolved.get("properties").and_then(|p| p.as_object()) {
+    // Also unwrap anyOf to find properties inside nullable $ref branches.
+    let effective = if resolved.get("anyOf").is_some() {
+        follow_ref(resolved, root_schema)
+    } else {
+        resolved
+    };
+
+    if let Some(properties) = effective.get("properties").and_then(|p| p.as_object()) {
         if let Some(prop_schema) = properties.get(segment) {
             return Ok(prop_schema);
         }
     }
 
-    if let Some(additional) = resolved.get("additionalProperties") {
+    if let Some(additional) = effective.get("additionalProperties") {
         if !matches!(additional, Value::Bool(false)) {
             return Ok(additional);
         }
@@ -494,7 +514,7 @@ mod tests {
             "request.max_output_tokens",
             "request.frequency_penalty",
             "request.presence_penalty",
-            "request.reasoning_effort",
+            "request.reasoning",
             "request.extra_body",
         ] {
             assert!(

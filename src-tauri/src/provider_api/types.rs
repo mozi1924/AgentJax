@@ -1,6 +1,7 @@
 use crate::message_phase::AssistantPhase;
 use crate::provider_api::capabilities::ProviderCapabilities;
 use crate::tools::ToolPresentation;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -28,6 +29,66 @@ pub struct ProviderModelMetadata {
 pub struct ModelReasoningCapability {
     pub supports_reasoning: bool,
     pub supported_reasoning_levels: Vec<String>,
+}
+
+// ── Unified Reasoning / Thinking Config ─────────────────────────────────────
+
+/// Normalized reasoning effort level. Protocol adapters translate this to
+/// each provider's own vocabulary (e.g. OpenAI "reasoning_effort",
+/// Anthropic "thinking.budget_tokens", DeepSeek "thinking.type").
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningEffort {
+    Low,
+    Medium,
+    High,
+}
+
+impl ReasoningEffort {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
+/// Unified reasoning / thinking configuration used throughout the framework.
+///
+/// Replace scattered `reasoning_effort: Option<String>` and provider-specific
+/// `extra_body` thinking hacks with a single normalized type. Protocol
+/// adapters (`chat.rs`, `responses.rs`) translate this into provider wire
+/// format; plugins declare their supported levels via `supported_reasoning_levels`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReasoningConfig {
+    /// Whether reasoning/thinking mode is active.
+    pub enabled: bool,
+    /// Reasoning effort level (low / medium / high).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<ReasoningEffort>,
+    /// Maximum tokens allocated for reasoning/thinking (provider-specific).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_tokens: Option<u32>,
+}
+
+impl ReasoningConfig {
+    /// Create a disabled config (no reasoning).
+    pub fn disabled() -> Self {
+        Self { enabled: false, effort: None, budget_tokens: None }
+    }
+
+    /// Create an enabled config with the given effort level.
+    pub fn enabled_with_effort(effort: ReasoningEffort) -> Self {
+        Self { enabled: true, effort: Some(effort), budget_tokens: None }
+    }
+}
+
+impl Default for ReasoningConfig {
+    fn default() -> Self {
+        Self::disabled()
+    }
 }
 
 /// Internal normalized stream events consumed by the runtime and UI.
@@ -112,12 +173,15 @@ pub enum ProviderStreamEvent {
     ResponseCompleted,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderTurnRequest {
     pub input_items: Vec<Value>,
     pub model: Option<String>,
-    pub reasoning_effort: Option<String>,
+    /// Unified reasoning/thinking configuration. Protocol adapters translate
+    /// this to provider-specific wire format. When `None`, no reasoning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ReasoningConfig>,
     pub instructions_override: Option<String>,
     pub text: Option<Value>,
     pub include: Option<Vec<String>>,
@@ -141,21 +205,43 @@ pub struct ProviderTurnRequest {
     pub max_tokens: Option<u32>,
     #[serde(default, alias = "max_completion_tokens")]
     pub max_completion_tokens: Option<u32>,
-    #[serde(default)]
-    pub reasoning_budget_tokens: Option<u32>,
 
     /// Provider-specific extra body fields to pass through in the request.
     /// These are merged into the request body after standard parameters.
-    /// Useful for provider-specific features like DeepSeek's `thinking` field.
+    /// Useful for provider-specific features that have no first-class field.
     #[serde(default)]
     pub extra_body: BTreeMap<String, Value>,
 
     /// When true, skip merging extra_body from the resolved model profile.
-    /// Set this for utility calls (title generation, LCM summarization)
-    /// where provider-specific features like thinking mode should not be
-    /// inherited from the user's model configuration.
     #[serde(default)]
     pub skip_model_extra_body: bool,
+}
+
+impl Default for ProviderTurnRequest {
+    fn default() -> Self {
+        Self {
+            input_items: Vec::new(),
+            model: None,
+            reasoning: None,
+            instructions_override: None,
+            text: None,
+            include: None,
+            service_tier: None,
+            prompt_cache_key: None,
+            client_metadata: None,
+            generate: None,
+            tools: None,
+            tool_choice: None,
+            temperature: None,
+            top_p: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            max_tokens: None,
+            max_completion_tokens: None,
+            extra_body: BTreeMap::new(),
+            skip_model_extra_body: false,
+        }
+    }
 }
 
 pub type ResponseStreamRequest = ProviderTurnRequest;

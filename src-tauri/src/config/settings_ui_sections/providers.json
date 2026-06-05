@@ -190,10 +190,10 @@
                   "id": "profile-reasoning-effort",
                   "title": "settings.model_profiles.reasoning_effort.title",
                   "description": "settings.model_profiles.reasoning_effort.description",
-                  "path": "request.reasoning_effort",
+                  "path": "request.reasoning.effort",
                   "valueType": "enum",
                   "control": "select",
-                  "optionSourceKey": "reasoning_effort"
+                  "optionSourceKey": "reasoning.effort"
                 },
                 {
                   "kind": "field",

@@ -90,7 +90,7 @@ async fn run_real_gateway_turn_with_config(
         input: input.to_string(),
         conversation_id: Some(conversation_id.clone()),
         model: Some(agent.default_model.clone()),
-        reasoning_effort: None,
+        reasoning: None,
         text: None,
         include: None,
         service_tier: None,
@@ -105,7 +105,6 @@ async fn run_real_gateway_turn_with_config(
         frequency_penalty: None,
         max_tokens: None,
         max_completion_tokens: None,
-        reasoning_budget_tokens: None,
     };
 
     let (_cancel_tx, mut cancel_rx) = watch::channel(false);
@@ -510,7 +509,7 @@ async fn run_real_gateway_turn_with_full_catalog(
         input: input.to_string(),
         conversation_id: Some(conversation_id.clone()),
         model: Some(agent.default_model.clone()),
-        reasoning_effort: None,
+        reasoning: None,
         text: None,
         include: None,
         service_tier: None,
@@ -525,7 +524,6 @@ async fn run_real_gateway_turn_with_full_catalog(
         frequency_penalty: None,
         max_tokens: None,
         max_completion_tokens: None,
-        reasoning_budget_tokens: None,
     };
 
     let (_cancel_tx, mut cancel_rx) = watch::channel(false);

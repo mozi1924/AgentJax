@@ -362,7 +362,7 @@ pub fn known_collection_paths() -> BTreeSet<&'static str> {
     paths.insert("providers.models.request.max_output_tokens");
     paths.insert("providers.models.request.frequency_penalty");
     paths.insert("providers.models.request.presence_penalty");
-    paths.insert("providers.models.request.reasoning_effort");
+    paths.insert("providers.models.request.reasoning");
     paths.insert("providers.models.request.extra_body");
     // MCP server fields
     paths.insert("mcp.servers.enabled");

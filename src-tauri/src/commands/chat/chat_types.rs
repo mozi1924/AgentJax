@@ -7,7 +7,11 @@ pub struct ChatRequest {
     pub input: String,
     pub conversation_id: Option<String>,
     pub model: Option<String>,
-    pub reasoning_effort: Option<String>,
+    /// Reasoning configuration. The frontend sends this as `reasoning`
+    /// (an object with `enabled`, `effort`, `budgetTokens`).
+    /// Replaces the old `reasoningEffort` string field.
+    #[serde(default)]
+    pub reasoning: Option<crate::provider_api::types::ReasoningConfig>,
     pub text: Option<Value>,
     pub include: Option<Vec<String>>,
     pub service_tier: Option<String>,
@@ -33,8 +37,6 @@ pub struct ChatRequest {
     pub max_tokens: Option<u32>,
     #[serde(default, alias = "max_completion_tokens")]
     pub max_completion_tokens: Option<u32>,
-    #[serde(default)]
-    pub reasoning_budget_tokens: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]

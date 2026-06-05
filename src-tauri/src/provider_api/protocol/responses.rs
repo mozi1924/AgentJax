@@ -151,10 +151,11 @@ fn build_response_payload(model_id: &str, req: &ResponseStreamRequest) -> Value 
     if let Some(ref instructions) = instructions {
         payload["instructions"] = json!(instructions);
     }
-    if let Some(ref effort) = req.reasoning_effort {
-        let trimmed = effort.trim().to_lowercase();
-        if !trimmed.is_empty() {
-            payload["reasoning"] = json!({ "effort": trimmed });
+    if let Some(ref config) = req.reasoning {
+        if config.enabled {
+            if let Some(ref effort) = config.effort {
+                payload["reasoning"] = json!({ "effort": effort.as_str() });
+            }
         }
     }
     if let Some(ref tools) = req.tools

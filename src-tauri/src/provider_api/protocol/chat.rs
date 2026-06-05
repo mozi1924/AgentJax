@@ -164,10 +164,11 @@ fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
         "model": model_id, "messages": messages, "stream": true,
         "stream_options": {"include_usage": true},
     });
-    if let Some(ref effort) = req.reasoning_effort {
-        let trimmed = effort.trim().to_lowercase();
-        if !trimmed.is_empty() {
-            payload["reasoning_effort"] = json!(trimmed);
+    if let Some(ref config) = req.reasoning {
+        if config.enabled {
+            if let Some(ref effort) = config.effort {
+                payload["reasoning_effort"] = json!(effort.as_str());
+            }
         }
     }
     if let Some(ref tools) = req.tools
@@ -229,11 +230,12 @@ fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
     if let Some(max_completion_tokens) = req.max_completion_tokens {
         payload["max_completion_tokens"] = json!(max_completion_tokens);
     }
-    if let Some(reasoning_budget) = req.reasoning_budget_tokens {
-        // Chat Completions may not have a standard field for reasoning budget tokens.
-        // Some providers (e.g. OpenAI o-series) accept it via reasoning_effort only.
-        // We set it as a top-level field; gateways/vLLM may forward it.
-        payload["reasoning_budget_tokens"] = json!(reasoning_budget);
+    if let Some(ref config) = req.reasoning {
+        if config.enabled {
+            if let Some(budget) = config.budget_tokens {
+                payload["reasoning_budget_tokens"] = json!(budget);
+            }
+        }
     }
 
     // ── Extra body fields (provider-specific passthrough) ──

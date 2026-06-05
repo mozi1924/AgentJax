@@ -34,7 +34,7 @@ fn write_test_config(home: &Path) -> std::path::PathBuf {
         "      gpt-5-mini:",
         "        enabled: true",
         "        request:",
-        "          reasoning_effort: null",
+        "          reasoning:",
         "          extra_body: {}",
         "mcp:",
         "  stdio:",

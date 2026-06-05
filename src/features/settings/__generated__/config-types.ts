@@ -103,11 +103,38 @@ export interface ModelRequestConfig {
 
   presence_penalty?: number | null;
 
-  reasoning_effort?: string | null;
+  reasoning?: unknown;
 
   extra_body?: Record<string, unknown>;
 
 }
+
+  /** Unified reasoning / thinking configuration used throughout the framework. */
+  /**  */
+  /** Replace scattered `reasoning_effort: Option<String>` and provider-specific */
+  /** `extra_body` thinking hacks with a single normalized type. Protocol */
+  /** adapters (`chat.rs`, `responses.rs`) translate this into provider wire */
+  /** format; plugins declare their supported levels via `supported_reasoning_levels`. */
+export interface ReasoningConfig {
+  /** Whether reasoning/thinking mode is active. */
+  enabled: boolean;
+
+  /** Reasoning effort level (low / medium / high). */
+  effort?: unknown;
+
+  /** Maximum tokens allocated for reasoning/thinking (provider-specific). */
+  budgetTokens?: number | null;
+
+}
+
+  /** Normalized reasoning effort level. Protocol adapters translate this to */
+  /** each provider's own vocabulary (e.g. OpenAI "reasoning_effort", */
+  /** Anthropic "thinking.budget_tokens", DeepSeek "thinking.type"). */
+export type ReasoningEffort =
+  | 'low'
+  | 'medium'
+  | 'high'
+;
 
   /** Unified MCP configuration merging runtime settings and server definitions. */
   /** The outer (non-list) fields are the shared MCP runtime config; the */
@@ -390,9 +417,7 @@ export interface MemoryConfig {
 
 }
 
-export type PromptBlockRole =
-  | 'system'
-;
+export type PromptBlockRole = 'system';
 
 export type PromptBlockSource =
   | 'user'

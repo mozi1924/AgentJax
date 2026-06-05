@@ -653,8 +653,8 @@ pub struct ModelRequestConfig {
     pub frequency_penalty: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presence_penalty: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<crate::provider_api::types::ReasoningConfig>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub extra_body: BTreeMap<String, Value>,
 }
@@ -668,7 +668,7 @@ impl ModelRequestConfig {
             && self.max_output_tokens.is_none()
             && self.frequency_penalty.is_none()
             && self.presence_penalty.is_none()
-            && self.reasoning_effort.is_none()
+            && self.reasoning.is_none()
             && self.extra_body.is_empty()
     }
 }

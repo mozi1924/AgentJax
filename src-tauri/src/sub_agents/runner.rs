@@ -106,7 +106,7 @@ pub async fn run_sub_agent(
                 Some(agent_config.utility_small_model.clone())
             }
         }),
-        reasoning_effort: None,
+        reasoning: None,
         text: None,
         include: None,
         service_tier: None,
@@ -121,7 +121,7 @@ pub async fn run_sub_agent(
         frequency_penalty: None,
         max_tokens: None,
         max_completion_tokens: None,
-        reasoning_budget_tokens: None,
+
     };
 
     // ── Run the agent loop ────────────────────────────────────────────────
@@ -336,7 +336,7 @@ pub async fn run_memory_agent(
                         "content": [{"type": "input_text", "text": prompt}]
                     })],
                     model: Some(model_id),
-                    reasoning_effort: None,
+                    reasoning: None,
                     instructions_override: None,
                     text: None,
                     include: None,

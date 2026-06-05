@@ -28,7 +28,7 @@ pub(super) fn build_request(
     ResponseStreamRequest {
         input_items,
         model: req.model.clone(),
-        reasoning_effort: req.reasoning_effort.clone(),
+        reasoning: req.reasoning.clone(),
         instructions_override: None,
         text: req.text.clone(),
         include: req.include.clone(),
@@ -44,7 +44,7 @@ pub(super) fn build_request(
         frequency_penalty: req.frequency_penalty,
         max_tokens: req.max_tokens,
         max_completion_tokens: req.max_completion_tokens,
-        reasoning_budget_tokens: req.reasoning_budget_tokens,
+
 
         // Extra body is merged later from ResolvedModelConfig.request.extra_body
         // in provider_api::stream_response(). The ChatRequest does not carry it.

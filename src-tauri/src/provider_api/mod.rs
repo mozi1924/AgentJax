@@ -120,15 +120,12 @@ where
         }
     }
 
-    // DeepSeek requires `thinking: {"type": "enabled"}` to activate thinking
-    // mode. Without it, `reasoning_effort` alone is ignored by the API.
-    // Skip this when the caller has suppressed model extra_body merging.
+    // DeepSeek requires `thinking: {"type": "enabled"}` for reasoning mode.
+    // Inject it when reasoning is enabled and the caller hasn't suppressed
+    // model extra_body merging.
     if !req.skip_model_extra_body
         && resolved.provider.kind == "deepseek"
-        && req
-            .reasoning_effort
-            .as_deref()
-            .is_some_and(|e| !e.trim().is_empty())
+        && req.reasoning.as_ref().is_some_and(|r| r.enabled)
         && !req.extra_body.contains_key("thinking")
     {
         req.extra_body.insert(

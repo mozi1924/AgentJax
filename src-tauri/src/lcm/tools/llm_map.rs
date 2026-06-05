@@ -341,7 +341,7 @@ async fn call_llm_for_item(prompt: &str, model_ref: &str) -> AgentJaxResult<Valu
             "content": [{"type": "input_text", "text": prompt}]
         })],
         model: Some(model_ref.to_string()),
-        reasoning_effort: None,
+        reasoning: None,
         instructions_override: None,
         text: None,
         include: None,

@@ -178,7 +178,7 @@ mod tests {
         let request = ResponseStreamRequest {
             input_items: vec![user_item],
             model: Some(model_ref.clone()),
-            reasoning_effort: None,
+            reasoning: None,
             instructions_override: None,
             text: None,
             include: None,
@@ -265,7 +265,7 @@ mod tests {
         let request = ResponseStreamRequest {
             input_items: vec![user_item],
             model: Some(model_ref.clone()),
-            reasoning_effort: None,
+            reasoning: None,
             instructions_override: None,
             text: None,
             include: None,
