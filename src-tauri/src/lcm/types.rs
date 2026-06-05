@@ -160,30 +160,6 @@ impl StoredMessage {
     }
 }
 
-// ── Reasoning Chains ─────────────────────────────────────────────────────────
-
-/// A complete reasoning / thinking chain for a single provider response.
-///
-/// Reasoning is stored in a **separate table** (`reasoning_chains`) so large
-/// thinking blocks do not bloat the `messages` table. Assistant `StoredMessage`s
-/// reference their reasoning via `metadata["reasoning_id"]`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReasoningChain {
-    /// Unique identifier (UUID v4).
-    pub id: String,
-    /// The conversation this reasoning belongs to.
-    pub conversation_id: String,
-    /// The provider response ID this reasoning is associated with.
-    pub response_id: String,
-    /// The full reasoning text — may be thousands of tokens.
-    pub text: String,
-    /// Estimated token count of the reasoning text.
-    pub token_count: u32,
-    /// Unix timestamp in milliseconds.
-    pub timestamp_unix_ms: i64,
-}
-
 // ── Summary DAG ─────────────────────────────────────────────────────────────
 
 /// The kind of a summary node.
@@ -634,22 +610,6 @@ pub enum LcmError {
 pub fn estimate_tokens(text: &str) -> u32 {
     // ~4 characters per token for English text
     (text.chars().count() as u32).div_ceil(4)
-}
-
-/// Estimate tokens for a collection of context entries.
-/// Currently only used in tests.
-#[allow(dead_code)]
-pub fn estimate_context_tokens(entries: &[ContextEntry]) -> u32 {
-    entries
-        .iter()
-        .map(|entry| match entry {
-            ContextEntry::RawMessage { content, .. } => estimate_tokens(content),
-            ContextEntry::SummaryPointer { text, .. } => estimate_tokens(text),
-            ContextEntry::FilePointer {
-                exploration_summary, ..
-            } => estimate_tokens(exploration_summary),
-        })
-        .sum()
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────

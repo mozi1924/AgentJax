@@ -18,7 +18,7 @@ mod tests;
 use super::file_io::read_conversation_file;
 use super::locks::with_conversation_lock;
 use super::paths::{conversation_messages_path, conversation_metadata_path};
-use super::types::{AssistantLine, ConversationLine};
+
 use builders::build_context_items;
 use policy::MAX_CONTEXT_ITEMS_PER_REQUEST;
 use sanitizer::sanitize_tool_call_pairs;
@@ -114,53 +114,11 @@ fn load_context_from_lcm(
         return Ok(None);
     }
 
-    // ── Enrich assistant lines with reasoning content ────────────────
-    // stored_messages_to_conversation_lines sets thinking=None; we must
-    // hydrate it from reasoning_chains so that build_context_items can
-    // emit reasoning items for thinking models (DeepSeek R1, etc.).
-    let reasoning_ids: Vec<String> = messages
-        .iter()
-        .filter_map(|msg| {
-            msg.metadata
-                .get("reasoning_id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        })
-        .collect();
-
-    let reasoning_map = if !reasoning_ids.is_empty() {
-        store
-            .get_reasoning_batch(&reasoning_ids)
-            .unwrap_or_else(|e| {
-                log::warn!("Failed to load reasoning chains for context: {e}");
-                std::collections::HashMap::new()
-            })
-    } else {
-        std::collections::HashMap::new()
-    };
-
-    // Convert StoredMessages to ConversationLines, then to input items.
+    // Convert StoredMessages to ConversationLines.
+    // Thinking content is read directly from StoredMessage.thinking by
+    // stored_messages_to_conversation_lines (no separate reasoning_chains
+    // enrichment needed).
     let lines = crate::lcm::stored_messages_to_conversation_lines(&messages);
-    let lines: Vec<ConversationLine> = lines
-        .into_iter()
-        .map(|line| {
-            if let ConversationLine::Assistant(ref a) = line
-                && let Some(msg) = messages.iter().find(|m| m.id.as_str() == a.id)
-                && let Some(rid) = msg
-                    .metadata
-                    .get("reasoning_id")
-                    .and_then(|v| v.as_str())
-                && let Some(chain) = reasoning_map.get(rid)
-            {
-                return ConversationLine::Assistant(AssistantLine {
-                    thinking: Some(chain.text.clone()),
-                    thinking_token_count: Some(chain.token_count),
-                    ..a.clone()
-                });
-            }
-            line
-        })
-        .collect();
     let mut input_items = build_context_items(&lines);
     input_items = sanitize_tool_call_pairs(input_items);
     input_items = truncate_context_items_preserving_tool_pairs(

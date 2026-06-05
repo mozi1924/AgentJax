@@ -24,7 +24,8 @@ use crate::lcm::types::{
 };
 #[cfg(test)]
 use crate::lcm::types::StoredMessage;
-use std::collections::{HashSet, VecDeque};
+#[cfg(test)]
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Manages the summary DAG.
@@ -115,86 +116,80 @@ impl SummaryDag {
 
     // ── Traversal ─────────────────────────────────────────────────────
 
-    /// Get all descendant message IDs for a summary node.
-    ///
-    /// Performs a BFS/DFS through the DAG to collect all leaf messages.
-    /// Currently only used in tests.
-    #[allow(dead_code)]
-    pub fn get_descendant_messages(
-        &self,
-        summary_id: &SummaryId,
-    ) -> Result<Vec<MessageId>, LcmError> {
-        let mut messages = Vec::new();
-        let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
+}
 
-        queue.push_back(summary_id.clone());
+// ── Test-only helpers ─────────────────────────────────────────────────────────
 
-        while let Some(current_id) = queue.pop_front() {
-            if !visited.insert(current_id.to_string()) {
-                continue;
-            }
+/// Get all descendant message IDs for a summary node via BFS.
+/// Only available in test builds.
+#[cfg(test)]
+pub fn get_descendant_messages(dag: &SummaryDag, summary_id: &SummaryId) -> Result<Vec<MessageId>, LcmError> {
+    use std::collections::VecDeque;
+    let mut messages = Vec::new();
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
 
-            let children = self.store.get_summary_children(&current_id)?;
+    queue.push_back(summary_id.clone());
 
-            for child in children {
-                match child {
-                    SummaryChild::Messages { ids } => {
-                        messages.extend(ids);
-                    }
-                    SummaryChild::Summaries { ids } => {
-                        for id in ids {
-                            queue.push_back(id);
-                        }
-                    }
-                }
-            }
+    while let Some(current_id) = queue.pop_front() {
+        if !visited.insert(current_id.to_string()) {
+            continue;
         }
 
-        // Deduplicate while preserving order.
-        let mut seen = HashSet::new();
-        messages.retain(|id| seen.insert(id.to_string()));
-
-        Ok(messages)
-    }
-
-    /// Detect cycles in the DAG starting from this summary node.
-    /// Currently only used in tests.
-    #[allow(dead_code)]
-    fn detect_cycle(
-        &self,
-        summary_id: &SummaryId,
-        visited: &mut HashSet<String>,
-        in_stack: &mut HashSet<String>,
-    ) -> Result<bool, LcmError> {
-        let sid_str = summary_id.to_string();
-
-        if in_stack.contains(&sid_str) {
-            return Ok(true); // Cycle detected.
-        }
-
-        if visited.contains(&sid_str) {
-            return Ok(false); // Already processed.
-        }
-
-        visited.insert(sid_str.clone());
-        in_stack.insert(sid_str.clone());
-
-        let children = self.store.get_summary_children(summary_id)?;
+        let children = dag.store.get_summary_children(&current_id)?;
 
         for child in children {
-            if let SummaryChild::Summaries { ids } = child {
-                for id in ids {
-                    if self.detect_cycle(&id, visited, in_stack)? {
-                        return Ok(true);
+            match child {
+                SummaryChild::Messages { ids } => {
+                    messages.extend(ids);
+                }
+                SummaryChild::Summaries { ids } => {
+                    for id in ids {
+                        queue.push_back(id);
                     }
                 }
             }
         }
-
-        in_stack.remove(&sid_str);
-        Ok(false)
     }
+
+    let mut seen = HashSet::new();
+    messages.retain(|id| seen.insert(id.to_string()));
+    Ok(messages)
+}
+
+/// Detect cycles in the DAG via DFS. Only available in test builds.
+#[cfg(test)]
+fn detect_cycle(
+    dag: &SummaryDag,
+    summary_id: &SummaryId,
+    visited: &mut HashSet<String>,
+    in_stack: &mut HashSet<String>,
+) -> Result<bool, LcmError> {
+    let sid_str = summary_id.to_string();
+
+    if in_stack.contains(&sid_str) {
+        return Ok(true);
+    }
+    if visited.contains(&sid_str) {
+        return Ok(false);
+    }
+
+    visited.insert(sid_str.clone());
+    in_stack.insert(sid_str.clone());
+
+    let children = dag.store.get_summary_children(summary_id)?;
+    for child in children {
+        if let SummaryChild::Summaries { ids } = child {
+            for id in ids {
+                if detect_cycle(dag, &id, visited, in_stack)? {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+
+    in_stack.remove(&sid_str);
+    Ok(false)
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -321,7 +316,7 @@ mod tests {
             .unwrap();
 
         // Should get both messages from leaf.
-        let descendants = dag.get_descendant_messages(&leaf.id).unwrap();
+        let descendants = get_descendant_messages(&dag, &leaf.id).unwrap();
         assert_eq!(descendants.len(), 2);
     }
 
@@ -336,7 +331,7 @@ mod tests {
         let mut visited = HashSet::new();
         let mut in_stack = HashSet::new();
 
-        let has_cycle = dag.detect_cycle(&leaf.id, &mut visited, &mut in_stack).unwrap();
+        let has_cycle = detect_cycle(&dag, &leaf.id, &mut visited, &mut in_stack).unwrap();
         assert!(!has_cycle);
     }
 }
