@@ -1,3 +1,4 @@
+use super::names::escape_policy_path_segment;
 use crate::config::{PluginEntryConfig, PluginManagerConfig};
 use crate::plugin_runtime::PluginPackage;
 use serde::Serialize;
@@ -138,7 +139,7 @@ fn build_plugin_entry(
     };
 
     let key = &manifest.id.to_ascii_lowercase();
-    let escaped_key = escape_policy_segment(key);
+    let escaped_key = escape_policy_path_segment(key);
 
     PluginEntrySnapshot {
         id: manifest.id.clone(),
@@ -171,6 +172,4 @@ fn build_plugin_entry(
     }
 }
 
-fn escape_policy_segment(segment: &str) -> String {
-    segment.replace('\\', "\\\\").replace('.', "\\.")
-}
+

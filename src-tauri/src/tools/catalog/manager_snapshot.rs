@@ -1,5 +1,5 @@
 use super::ToolCatalog;
-use super::names::{mount_tool_name_for_server, prefixed_mcp_tool_name};
+use super::names::{escape_policy_path_segment, mount_tool_name_for_server, prefixed_mcp_tool_name};
 use super::schemas::{
     BACKGROUND_TASK_NAME, build_background_task_schema, build_manage_mcp_server_tool_schema,
     normalize_mcp_tool_definitions,
@@ -611,10 +611,6 @@ fn schema_summary(schema: &Value) -> ToolSchemaSummary {
         required,
         properties,
     }
-}
-
-fn escape_policy_path_segment(segment: &str) -> String {
-    segment.replace('\\', "\\\\").replace('.', "\\.")
 }
 
 fn native_tool_enabled_path(tool_id: &str) -> String {

@@ -39,3 +39,11 @@ pub(super) fn fallback_icon_for_dynamic_binding(
         }
     }
 }
+
+/// Escape a policy path segment so dots and backslashes are treated literally.
+///
+/// Used by both `manager_snapshot` and `plugin_manager_snapshot` to construct
+/// settings UI policy paths without ambiguity.
+pub(super) fn escape_policy_path_segment(segment: &str) -> String {
+    segment.replace('\\', "\\\\").replace('.', "\\.")
+}
