@@ -24,10 +24,10 @@
 //! ```
 
 use crate::conversation_store::conversation_dir_path;
-use crate::error::{AgentJaxError, AgentJaxResult};
+use crate::error::AgentJaxResult;
+use crate::jsonl_store;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fs;
 use std::path::PathBuf;
 
 const TASKS_FILE_NAME: &str = "tasks.jsonl";
@@ -118,23 +118,6 @@ pub fn task_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
     Ok(dir.join(TASKS_FILE_NAME))
 }
 
-// ── Ensure directory ────────────────────────────────────────────────────────
-
-fn ensure_conversation_dir(conversation_id: &str) -> AgentJaxResult<()> {
-    let path = task_path(conversation_id)?;
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| {
-                AgentJaxError::internal(format!(
-                    "Failed to create conversation directory {}: {e}",
-                    parent.display()
-                ))
-            })?;
-        }
-    }
-    Ok(())
-}
-
 // ── Write ───────────────────────────────────────────────────────────────────
 
 /// Append a task record to the conversation's `tasks.jsonl`.
@@ -143,32 +126,8 @@ fn ensure_conversation_dir(conversation_id: &str) -> AgentJaxResult<()> {
 /// state (completed, failed, cancelled). The file is append-only so the
 /// full execution history is preserved.
 pub fn append_task(record: &TaskRecord) -> AgentJaxResult<()> {
-    ensure_conversation_dir(&record.conversation_id)?;
     let path = task_path(&record.conversation_id)?;
-
-    let line = serde_json::to_string(record).map_err(|e| {
-        AgentJaxError::internal(format!("Failed to serialize TaskRecord: {e}"))
-    })?;
-
-    use std::io::Write;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| {
-            AgentJaxError::internal(format!(
-                "Failed to open tasks file {}: {e}",
-                path.display()
-            ))
-        })?;
-
-    writeln!(file, "{line}").map_err(|e| {
-        AgentJaxError::internal(format!(
-            "Failed to write to tasks file {}: {e}",
-            path.display()
-        ))
-    })?;
-
+    jsonl_store::append_line(&path, record, "task")?;
     Ok(())
 }
 
@@ -180,32 +139,7 @@ pub fn append_task(record: &TaskRecord) -> AgentJaxResult<()> {
 /// skipped with a warning.
 pub fn load_tasks(conversation_id: &str) -> AgentJaxResult<Vec<TaskRecord>> {
     let path = task_path(conversation_id)?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-
-    let content = fs::read_to_string(&path).map_err(|e| {
-        AgentJaxError::internal(format!(
-            "Failed to read tasks file {}: {e}",
-            path.display()
-        ))
-    })?;
-
-    let mut records = Vec::new();
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        match serde_json::from_str::<TaskRecord>(line) {
-            Ok(record) => records.push(record),
-            Err(e) => {
-                log::warn!("Failed to parse task record: {e}");
-            }
-        }
-    }
-
-    Ok(records)
+    jsonl_store::read_jsonl(&path, "task")
 }
 
 // ── Builder helpers ─────────────────────────────────────────────────────────

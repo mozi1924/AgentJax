@@ -2,11 +2,11 @@ use super::types::{
     ConversationData, ConversationLine, ConversationMeta, ConversationSummary,
     DEFAULT_CONVERSATION_TITLE, LOG_VERSION,
 };
-use crate::agentjax_err;
 use crate::conversation_store_utils::{
     compact_preview, normalize_title_source, sanitize_conversation_id,
 };
 use crate::error::AgentJaxError;
+use crate::jsonl_store;
 use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -128,39 +128,8 @@ pub fn append_conversation_line(
     messages_path: &Path,
     line: &ConversationLine,
 ) -> crate::error::AgentJaxResult<()> {
-    ensure_parent_dir(messages_path, "messages")?;
-
-    let json = serde_json::to_string(line)
-        .map_err(|e| format!("Failed to serialize conversation line: {e}"))?;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(messages_path)
-        .map_err(|e| {
-            format!(
-                "Failed to open messages file {} for append: {e}",
-                messages_path.display()
-            )
-        })?;
-    file.write_all(json.as_bytes()).map_err(|e| {
-        format!(
-            "Failed to append conversation line to {}: {e}",
-            messages_path.display()
-        )
-    })?;
-    file.write_all(b"\n").map_err(|e| {
-        format!(
-            "Failed to append newline to messages file {}: {e}",
-            messages_path.display()
-        )
-    })?;
-    file.sync_data().map_err(|e| {
-        AgentJaxError::internal(format!(
-            "Failed to sync appended messages file {}: {e}",
-            messages_path.display()
-        ))
-        .with_error_source(&e)
-    })
+    jsonl_store::append_line(messages_path, line, "messages")?;
+    Ok(())
 }
 
 pub fn write_conversation_metadata(
@@ -313,28 +282,7 @@ pub fn apply_line_to_meta(meta: &mut ConversationMeta, line: &ConversationLine) 
 }
 
 fn ensure_parent_dir(path: &Path, label: &str) -> crate::error::AgentJaxResult<()> {
-    let Some(parent) = path.parent() else {
-        return Err(agentjax_err!(
-            format!(
-                "Failed to resolve parent directory for {} file {}",
-                label,
-                path.display()
-            ),
-            Internal
-        ));
-    };
-
-    if !parent.exists() {
-        fs::create_dir_all(parent).map_err(|e| {
-            format!(
-                "Failed to create parent directory {} for {} file: {e}",
-                parent.display(),
-                label
-            )
-        })?;
-    }
-
-    Ok(())
+    jsonl_store::ensure_parent_dir(path, label)
 }
 
 fn write_jsonl_line(

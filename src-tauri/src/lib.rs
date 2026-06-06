@@ -8,6 +8,7 @@ mod conversation_store;
 mod conversation_store_utils;
 pub(crate) mod error;
 mod error_classifier;
+pub(crate) mod jsonl_store;
 pub(crate) mod lcm;
 pub(crate) mod mcp;
 pub(crate) mod memory;

@@ -22,9 +22,9 @@
 //! for deposits; status changes rewrite the full current state.
 
 use crate::conversation_store::conversation_dir_path;
-use crate::error::{AgentJaxError, AgentJaxResult};
+use crate::error::AgentJaxResult;
+use crate::jsonl_store;
 use crate::street::types::StreetItem;
-use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -47,22 +47,6 @@ pub fn notification_path(conversation_id: &str) -> AgentJaxResult<PathBuf> {
     Ok(dir.join(NOTIFICATIONS_FILE_NAME))
 }
 
-/// Ensure the conversation directory (parent of the notification file) exists.
-fn ensure_conversation_dir(conversation_id: &str) -> AgentJaxResult<()> {
-    let path = notification_path(conversation_id)?;
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| {
-                AgentJaxError::internal(format!(
-                    "Failed to create conversation directory {}: {e}",
-                    parent.display()
-                ))
-            })?;
-        }
-    }
-    Ok(())
-}
-
 /// Load all persisted StreetItems for a conversation from disk.
 ///
 /// Returns an empty vec if the file doesn't exist or is empty.
@@ -71,60 +55,22 @@ fn ensure_conversation_dir(conversation_id: &str) -> AgentJaxResult<()> {
 /// effect correctly.
 pub fn load_items(conversation_id: &str) -> AgentJaxResult<Vec<Arc<Mutex<StreetItem>>>> {
     let path = notification_path(conversation_id)?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
+    let items: Vec<StreetItem> = jsonl_store::read_jsonl(&path, "notification")?;
 
-    let content = fs::read_to_string(&path).map_err(|e| {
-        AgentJaxError::internal(format!(
-            "Failed to read notifications file {}: {e}",
-            path.display()
-        ))
-    })?;
+    // Deduplicate by id (last occurrence wins, insertion order preserved).
+    let deduped = jsonl_store::dedup_vec(items, |item| item.id.clone());
 
-    let mut seen: std::collections::HashMap<String, Arc<Mutex<StreetItem>>> =
-        std::collections::HashMap::new();
-    // Track insertion order so we can preserve it.
-    let mut order: Vec<String> = Vec::new();
-
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        match serde_json::from_str::<StreetItem>(line) {
-            Ok(item) => {
-                let id = item.id.clone();
-                if !seen.contains_key(&id) {
-                    order.push(id.clone());
-                }
-                seen.insert(id, Arc::new(Mutex::new(item)));
-            }
-            Err(e) => {
-                log::warn!(
-                    "Failed to parse notification line in {}: {e}",
-                    path.display()
-                );
-            }
-        }
-    }
-
-    // Preserve insertion order.
-    let mut items: Vec<Arc<Mutex<StreetItem>>> = Vec::with_capacity(order.len());
-    for id in &order {
-        if let Some(item) = seen.remove(id) {
-            items.push(item);
-        }
-    }
-
-    Ok(items)
+    Ok(deduped
+        .into_iter()
+        .map(|item| Arc::new(Mutex::new(item)))
+        .collect())
 }
 
 /// Check whether a persisted notification file exists for a conversation.
 pub fn has_persisted_items(conversation_id: &str) -> bool {
     notification_path(conversation_id)
         .ok()
-        .map(|p| p.exists())
+        .map(|p| jsonl_store::file_exists(&p))
         .unwrap_or(false)
 }
 
@@ -133,34 +79,8 @@ pub fn has_persisted_items(conversation_id: &str) -> bool {
 /// This is called on every `deposit()`. The file is opened in append mode
 /// and a single JSON line is written.
 pub fn append_item(item: &StreetItem) -> AgentJaxResult<()> {
-    let conv_id = &item.conversation_id;
-    ensure_conversation_dir(conv_id)?;
-    let path = notification_path(conv_id)?;
-
-    let line = serde_json::to_string(item).map_err(|e| {
-        AgentJaxError::internal(format!("Failed to serialize StreetItem: {e}"))
-    })?;
-
-    // Use std::fs::OpenOptions with append, create if not exists.
-    use std::io::Write;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| {
-            AgentJaxError::internal(format!(
-                "Failed to open notifications file {} for append: {e}",
-                path.display()
-            ))
-        })?;
-
-    writeln!(file, "{line}").map_err(|e| {
-        AgentJaxError::internal(format!(
-            "Failed to write to notifications file {}: {e}",
-            path.display()
-        ))
-    })?;
-
+    let path = notification_path(&item.conversation_id)?;
+    jsonl_store::append_line(&path, item, "notification")?;
     Ok(())
 }
 
@@ -169,47 +89,20 @@ pub fn append_item(item: &StreetItem) -> AgentJaxResult<()> {
 /// Called when items are delivered, dismissed, or pruned — any operation
 /// that changes status or removes items. The full vec is serialized as
 /// JSONL (one line per item), replacing the file entirely.
-///
-/// Pass `None` for `items` to clear the file (e.g., when all items for a
-/// conversation have been pruned).
 pub fn save_items(conversation_id: &str, items: &[Arc<Mutex<StreetItem>>]) -> AgentJaxResult<()> {
-    if items.is_empty() {
-        // Remove the file if it exists — no items to persist.
-        let path = notification_path(conversation_id)?;
-        if path.exists() {
-            fs::remove_file(&path).map_err(|e| {
-                AgentJaxError::internal(format!(
-                    "Failed to remove notifications file {}: {e}",
-                    path.display()
-                ))
-            })?;
-        }
-        return Ok(());
-    }
-
-    ensure_conversation_dir(conversation_id)?;
     let path = notification_path(conversation_id)?;
 
-    let mut lines: Vec<String> = Vec::with_capacity(items.len());
-    for item_arc in items {
-        if let Ok(item) = item_arc.lock() {
-            match serde_json::to_string(&*item) {
-                Ok(line) => lines.push(line),
-                Err(e) => {
-                    log::warn!("Failed to serialize StreetItem for save: {e}");
-                }
-            }
-        }
+    if items.is_empty() {
+        return jsonl_store::remove_file(&path, "notification");
     }
 
-    fs::write(&path, lines.join("\n")).map_err(|e| {
-        AgentJaxError::internal(format!(
-            "Failed to write notifications file {}: {e}",
-            path.display()
-        ))
-    })?;
+    let owned: Vec<StreetItem> = items
+        .iter()
+        .filter_map(|arc| arc.lock().ok())
+        .map(|guard| guard.clone())
+        .collect();
 
-    Ok(())
+    jsonl_store::write_lines(&path, &owned, "notification")
 }
 
 #[cfg(test)]
