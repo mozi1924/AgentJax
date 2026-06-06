@@ -42,15 +42,6 @@ pub enum TaskKind {
     BackgroundJob,
 }
 
-impl TaskKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            TaskKind::SubAgent => "subAgent",
-            TaskKind::BackgroundJob => "backgroundJob",
-        }
-    }
-}
-
 // ── TaskRecord ──────────────────────────────────────────────────────────────
 
 /// A single task execution record, persisted to `tasks.jsonl`.
@@ -133,15 +124,6 @@ pub fn append_task(record: &TaskRecord) -> AgentJaxResult<()> {
 
 // ── Read ────────────────────────────────────────────────────────────────────
 
-/// Load all task records for a conversation, in chronological order.
-///
-/// Returns an empty vec if the file doesn't exist. Malformed lines are
-/// skipped with a warning.
-pub fn load_tasks(conversation_id: &str) -> AgentJaxResult<Vec<TaskRecord>> {
-    let path = task_path(conversation_id)?;
-    jsonl_store::read_jsonl(&path, "task")
-}
-
 // ── Builder helpers ─────────────────────────────────────────────────────────
 
 /// Build a summary string from a sub-agent's spec and result.
@@ -206,120 +188,6 @@ mod tests {
 
     fn unique_conv() -> String {
         format!("tasks-test-{}", uuid::Uuid::new_v4().simple())
-    }
-
-    #[test]
-    fn test_append_and_load_sub_agent() {
-        let conv = unique_conv();
-        let record = TaskRecord {
-            id: "agent_test_001".to_string(),
-            kind: TaskKind::SubAgent,
-            conversation_id: conv.clone(),
-            status: "completed".to_string(),
-            summary: "[explore] Find all TODO comments… → found 5 files".to_string(),
-            subagent_type: Some("explore".to_string()),
-            prompt: Some("Find all TODO comments in the codebase".to_string()),
-            tool_name: None,
-            started_at_unix_ms: 1000,
-            completed_at_unix_ms: 2500,
-            duration_ms: 1500,
-            turns_completed: 3,
-            result: Some(json!({"files": ["src/main.rs", "src/lib.rs"], "count": 5})),
-            error: None,
-        };
-
-        append_task(&record).unwrap();
-
-        let loaded = load_tasks(&conv).unwrap();
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].id, "agent_test_001");
-        assert_eq!(loaded[0].kind, TaskKind::SubAgent);
-        assert_eq!(loaded[0].status, "completed");
-        assert_eq!(loaded[0].turns_completed, 3);
-        assert!(loaded[0].result.is_some());
-    }
-
-    #[test]
-    fn test_append_and_load_background_job() {
-        let conv = unique_conv();
-        let record = TaskRecord {
-            id: "job_llm_map_001".to_string(),
-            kind: TaskKind::BackgroundJob,
-            conversation_id: conv.clone(),
-            status: "completed".to_string(),
-            summary: "[llm_map] completed: processed 10 items".to_string(),
-            subagent_type: None,
-            prompt: None,
-            tool_name: Some("llm_map".to_string()),
-            started_at_unix_ms: 1000,
-            completed_at_unix_ms: 5000,
-            duration_ms: 4000,
-            turns_completed: 0,
-            result: Some(json!({"totalItems": 10, "status": "success"})),
-            error: None,
-        };
-
-        append_task(&record).unwrap();
-
-        let loaded = load_tasks(&conv).unwrap();
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].id, "job_llm_map_001");
-        assert_eq!(loaded[0].kind, TaskKind::BackgroundJob);
-        assert_eq!(loaded[0].tool_name.as_deref(), Some("llm_map"));
-    }
-
-    #[test]
-    fn test_append_multiple_preserves_order() {
-        let conv = unique_conv();
-
-        let r1 = TaskRecord {
-            id: "task_1".to_string(),
-            kind: TaskKind::SubAgent,
-            conversation_id: conv.clone(),
-            status: "completed".to_string(),
-            summary: "First".to_string(),
-            subagent_type: None,
-            prompt: None,
-            tool_name: None,
-            started_at_unix_ms: 1000,
-            completed_at_unix_ms: 2000,
-            duration_ms: 1000,
-            turns_completed: 0,
-            result: None,
-            error: None,
-        };
-        let r2 = TaskRecord {
-            id: "task_2".to_string(),
-            kind: TaskKind::BackgroundJob,
-            conversation_id: conv.clone(),
-            status: "failed".to_string(),
-            summary: "Second".to_string(),
-            subagent_type: None,
-            prompt: None,
-            tool_name: Some("calculator".to_string()),
-            started_at_unix_ms: 2000,
-            completed_at_unix_ms: 3000,
-            duration_ms: 1000,
-            turns_completed: 0,
-            result: None,
-            error: Some("Division by zero".to_string()),
-        };
-
-        append_task(&r1).unwrap();
-        append_task(&r2).unwrap();
-
-        let loaded = load_tasks(&conv).unwrap();
-        assert_eq!(loaded.len(), 2);
-        assert_eq!(loaded[0].id, "task_1");
-        assert_eq!(loaded[1].id, "task_2");
-        assert_eq!(loaded[1].error.as_deref(), Some("Division by zero"));
-    }
-
-    #[test]
-    fn test_load_empty_file_returns_empty() {
-        let conv = unique_conv();
-        let loaded = load_tasks(&conv).unwrap();
-        assert!(loaded.is_empty());
     }
 
     #[test]

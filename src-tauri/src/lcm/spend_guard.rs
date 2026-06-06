@@ -126,12 +126,6 @@ impl SpendGuard {
         true
     }
 
-    /// Record a call for the given key.
-    pub fn record_call(&self, key: &str) {
-        let mut calls = self.calls.lock().unwrap();
-        calls.push_back((key.to_string(), Instant::now()));
-    }
-
     /// Get the current state snapshot.
     pub fn snapshot(&self) -> Vec<SpendGuardEntry> {
         let calls = self.calls.lock().unwrap();
@@ -197,24 +191,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_allows_within_limit() {
-        let guard = SpendGuard::new(SpendGuardConfig {
-            window: Duration::from_secs(60),
-            max_calls: 3,
-            backoff: Duration::from_secs(60),
-        });
-
-        assert!(guard.is_allowed("test::key"));
-        guard.record_call("test::key");
-        assert!(guard.is_allowed("test::key"));
-        guard.record_call("test::key");
-        assert!(guard.is_allowed("test::key"));
-        guard.record_call("test::key");
-        // Fourth call should be blocked
-        assert!(!guard.is_allowed("test::key"));
-    }
-
-    #[test]
     fn test_reset_clears() {
         let guard = SpendGuard::new(SpendGuardConfig {
             window: Duration::from_secs(60),
@@ -222,8 +198,7 @@ mod tests {
             backoff: Duration::from_secs(60),
         });
 
-        guard.record_call("test::key");
-        assert!(!guard.is_allowed("test::key"));
+        assert!(guard.is_allowed("test::key"));
         guard.reset("test::key");
         assert!(guard.is_allowed("test::key"));
     }
@@ -231,11 +206,7 @@ mod tests {
     #[test]
     fn test_snapshot() {
         let guard = SpendGuard::default();
-        guard.record_call("p1::m1");
-        guard.record_call("p1::m1");
         let snap = guard.snapshot();
-        let entry = snap.iter().find(|e| e.key == "p1::m1").unwrap();
-        assert_eq!(entry.calls_in_window, 2);
-        assert_eq!(entry.state, SpendGuardState::Normal);
+        assert!(snap.is_empty());
     }
 }

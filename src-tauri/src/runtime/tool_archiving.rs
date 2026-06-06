@@ -31,7 +31,7 @@ fn to_compact_json(value: &Value, max_chars: usize) -> String {
 }
 
 fn build_archived_tool_note(
-    call_id: &str,
+    _call_id: &str,
     tool_name: &str,
     arguments: &Value,
     outputs: &[Value],

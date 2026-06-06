@@ -48,8 +48,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use compaction::{NoopSummarizer, Summarizer};
-pub use engine::{BootstrapResult, LcmEngine};
-pub use repair::{RepairReport, sanitize_tool_use_result_pairing};
+pub use engine::LcmEngine;
 pub use store::LcmStore;
 pub use summarizer::ProviderSummarizer;
 pub use tools::{LcmDescribeTool, LcmExpandTool, LcmGrepTool, LlmMapTool};

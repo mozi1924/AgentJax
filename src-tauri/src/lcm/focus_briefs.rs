@@ -1,4 +1,5 @@
 //! Focus Briefs — summary-driven context briefs for long sessions.
+#![allow(dead_code)]
 //!
 //! A focus brief is a concise summary of the current conversation state,
 //! generated from the summary DAG. It helps the model maintain awareness

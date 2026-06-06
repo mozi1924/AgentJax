@@ -192,7 +192,4 @@ pub fn remove_file(path: &Path, label: &str) -> AgentJaxResult<()> {
     Ok(())
 }
 
-/// Check whether a JSONL file exists.
-pub fn file_exists(path: &Path) -> bool {
-    path.exists()
-}
+

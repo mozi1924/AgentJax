@@ -66,14 +66,6 @@ pub fn load_items(conversation_id: &str) -> AgentJaxResult<Vec<Arc<Mutex<StreetI
         .collect())
 }
 
-/// Check whether a persisted notification file exists for a conversation.
-pub fn has_persisted_items(conversation_id: &str) -> bool {
-    notification_path(conversation_id)
-        .ok()
-        .map(|p| jsonl_store::file_exists(&p))
-        .unwrap_or(false)
-}
-
 /// Persist a single item by appending to the conversation's JSONL file.
 ///
 /// This is called on every `deposit()`. The file is opened in append mode
@@ -170,23 +162,6 @@ mod tests {
         let loaded = load_items(&conv).unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].lock().unwrap().title, "First");
-    }
-
-    #[test]
-    fn test_save_empty_removes_file() {
-        let conv = unique_conv();
-        let item = Arc::new(Mutex::new(StreetItem::new(
-            &conv,
-            StreetSource::SubAgent,
-            Priority::Normal,
-            "Temp",
-            json!({}),
-        )));
-        save_items(&conv, &[item]).unwrap();
-        assert!(has_persisted_items(&conv));
-
-        save_items(&conv, &[]).unwrap();
-        assert!(!has_persisted_items(&conv));
     }
 
     #[test]

@@ -367,30 +367,6 @@ impl StreetManager {
             .unwrap_or_default()
     }
 
-    /// Remove all items for a conversation (called on conversation delete).
-    /// Also removes the persisted notification file.
-    pub fn cleanup_conversation(conversation_id: &str) -> usize {
-        let mut guard = registry()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let removed = guard.remove(conversation_id).map(|v| v.len()).unwrap_or(0);
-        // Unregister event channel.
-        let mut n_guard = notifiers().lock().unwrap_or_else(|p| p.into_inner());
-        n_guard.remove(conversation_id);
-        // Remove persisted file.
-        if let Err(e) = crate::street::persist::save_items(conversation_id, &[]) {
-            log::warn!(
-                "Failed to remove persisted Street items for conv={}: {e}",
-                conversation_id
-            );
-        }
-        // Reset loaded flag so next access re-reads from disk if needed.
-        if let Ok(mut loaded) = loaded_set().lock() {
-            loaded.remove(conversation_id);
-        }
-        removed
-    }
-
     // ── Event channel management ─────────────────────────────────────────
 
     /// Register or replace the event channel sender for a conversation.
@@ -543,21 +519,6 @@ mod tests {
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].source, "subAgent");
         assert_eq!(snapshots[0].title, "Snapshot test");
-    }
-
-    #[test]
-    fn test_cleanup_conversation() {
-        let conv = unique_conv();
-        StreetManager::deposit(StreetItem::new(
-            &conv,
-            crate::street::types::StreetSource::SubAgent,
-            Priority::Normal,
-            "Test",
-            json!({}),
-        ));
-        let removed = StreetManager::cleanup_conversation(&conv);
-        assert_eq!(removed, 1);
-        assert_eq!(StreetManager::get_pending_count(&conv), 0);
     }
 
     #[test]

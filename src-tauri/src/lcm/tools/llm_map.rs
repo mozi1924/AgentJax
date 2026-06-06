@@ -167,7 +167,7 @@ impl Tool for LlmMapTool {
             .model_id
             .clone()
             .unwrap_or_else(|| "default".to_string());
-        let conversation_id = context.conversation_id.clone();
+        let _conversation_id = context.conversation_id.clone();
 
         // ── Run all items in parallel (synchronous operator) ──────────
         // Unlike background_jobs-based async tools, llm_map is an operator

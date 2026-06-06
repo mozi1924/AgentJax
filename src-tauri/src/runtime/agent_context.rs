@@ -177,11 +177,6 @@ impl MemoryAgentContext {
         }
     }
 
-    /// Set the maximum number of recent messages to load.
-    pub fn with_max_messages(mut self, n: usize) -> Self {
-        self.max_messages = n;
-        self
-    }
 }
 
 #[async_trait::async_trait]
