@@ -1,4 +1,15 @@
-//! Street context injection — formats Street notifications as system messages.
+//! Street context injection — formats Street notifications as user-role items.
+//!
+//! # Why user role instead of system role?
+//!
+//! Street notifications contain dynamic content from async work (sub-agent results,
+//! background job outputs). Using `system` role would give this dynamic content
+//! elevated authority in the model's instruction hierarchy, creating a prompt
+//! injection surface. By using `user` role with clear semantic markers, the model
+//! treats the notifications as data/observations rather than authoritative instructions.
+//!
+//! The `[Async Task Results]` / `[/Async Task Results]` delimiters help the model
+//! distinguish these system-generated notifications from actual user messages.
 
 use serde_json::{Value, json};
 
@@ -12,7 +23,7 @@ pub fn format_street_items(items: &[crate::street::types::StreetItem]) -> String
             let truncated: String = payload_str.chars().take(200).collect();
             let suffix = if payload_str.len() > 200 { "..." } else { "" };
             format!(
-                "({}) [{}] [{}] {}: {}{}",
+                "  ({}) [{}] [{}] {}: {}{}",
                 i + 1,
                 item.priority.as_str(),
                 item.source.as_str(),
@@ -25,21 +36,29 @@ pub fn format_street_items(items: &[crate::street::types::StreetItem]) -> String
         .join("\n")
 }
 
-/// Build a system message containing Street notifications.
+/// Build a user-role item containing Street notifications.
+///
+/// Uses `user` role (not `system`) to avoid prompt injection risks from dynamic
+/// async result content. The `[Async Task Results]` wrapper clearly distinguishes
+/// these from actual user messages.
 ///
 /// This is injected into the hop prefix at the start of each turn,
 /// so the model sees pending async results without needing to poll.
-pub fn build_street_context_system_item(count: usize, formatted: &str) -> Value {
+pub fn build_street_context_item(count: usize, formatted: &str) -> Value {
     json!({
-        "role": "system",
+        "role": "user",
         "content": [{
             "type": "input_text",
             "text": format!(
-                "[Street] {} pending notification(s) since your last turn:\n\n{}\n\n\
+                "[Async Task Results]\n\
+                 {} notification(s) since your last turn:\n\n\
+                 {}\n\
+                 \n\
                  These are results from async work (sub-agents, background tools) \
                  that you previously started. Review them and take action if needed. \
                  You do NOT need to poll for status — results are automatically \
-                 delivered here when work completes.",
+                 delivered here when work completes.\n\
+                 [/Async Task Results]",
                 count, formatted
             ),
         }]
@@ -79,10 +98,13 @@ mod tests {
 
     #[test]
     fn test_build_context_item() {
-        let item = build_street_context_system_item(3, "(1) test\n(2) test2\n(3) test3");
+        let item = build_street_context_item(2, "  (1) [normal] [subAgent] Sub-agent completed");
+        assert_eq!(item["role"].as_str().unwrap(), "user");
         let text = item["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("[Street]"));
-        assert!(text.contains("3 pending notification"));
-        assert!(text.contains("(1) test"));
+        assert!(text.contains("[Async Task Results]"));
+        assert!(text.contains("[/Async Task Results]"));
+        assert!(text.contains("2 notification(s)"));
+        assert!(text.contains("Sub-agent completed"));
+        assert!(!text.contains("[Street]")); // old marker should be gone
     }
 }

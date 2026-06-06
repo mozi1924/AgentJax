@@ -480,7 +480,7 @@ pub async fn chat_stream(
                 let count = pending.len();
                 let formatted = crate::street::format_street_items(&pending);
                 crate::street::StreetManager::mark_delivered(&conversation_id);
-                vec![crate::street::build_street_context_system_item(
+                vec![crate::street::build_street_context_item(
                     count, &formatted,
                 )]
             } else {

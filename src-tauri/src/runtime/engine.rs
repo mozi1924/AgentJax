@@ -167,7 +167,10 @@ impl AgentRuntime {
             if let Some(note) = recovery_note {
                 prefix.push(note);
             }
-            // Inject Street notifications as system items.
+            // Inject Street notifications as user-role items.
+            // We use user role (not system) to avoid prompt injection risks
+            // from dynamic async result content — the model treats these as
+            // data/observations rather than authoritative instructions.
             prefix.extend(street_items);
             prefix
         };
