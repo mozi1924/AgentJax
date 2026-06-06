@@ -73,29 +73,46 @@ pub fn get_lcm_health(agent_id: String, conversation_id: String) -> Result<LcmHe
     let lcm_config_types = agent_config
         .context_management
         .to_lcm_config()
-        .with_dynamic_thresholds(128_000); // Use 128K default window
+        .with_dynamic_thresholds(128_000);
 
-    // Open LCM store for the conversation.
-    let db_path = crate::lcm::lcm_store_path(&agent_id, &conversation_id)
-        .map_err(|e| format!("Failed to get LCM store path: {e}"))?;
-
-    let (integrity_report, metrics, repair_suggestions) = match crate::lcm::store::LcmStore::open(&db_path, lcm_config_types.clone()) {
-        Ok(store) => {
-            let store = Arc::new(store);
-            let checker = IntegrityChecker::new(store.clone());
-
-            let report = checker.scan(&conversation_id).ok();
-            let met = checker.collect_metrics(&conversation_id).ok();
-            let suggestions = report.as_ref()
-                .map(|r| crate::lcm::integrity::repair_plan(r))
-                .unwrap_or_default();
-
-            (report, met, suggestions)
-        }
+    // IMPORTANT: Only open LCM store if it already exists.
+    // LcmStore::open() creates the DB and directory if missing, which would
+    // leave empty files for conversations that only exist as frontend UUIDs.
+    let db_path = match crate::lcm::lcm_store_path(&agent_id, &conversation_id) {
+        Ok(p) => p,
         Err(e) => {
-            (None, None, vec![format!("Failed to open LCM store: {e}")])
+            return Ok(LcmHealthResponse {
+                integrity: None, metrics: None,
+                circuit_breaker: global_circuit_breaker().snapshot(),
+                spend_guard: global_spend_guard().snapshot(),
+                config: LcmHealthConfig::from(&lcm_config_types),
+                repair_suggestions: vec![format!("Cannot resolve LCM path: {e}")],
+            });
         }
     };
+
+    let (integrity_report, metrics, repair_suggestions) =
+        if db_path.exists() {
+            match crate::lcm::store::LcmStore::open(&db_path, lcm_config_types.clone()) {
+                Ok(store) => {
+                    let store = Arc::new(store);
+                    let checker = IntegrityChecker::new(store.clone());
+
+                    let report = checker.scan(&conversation_id).ok();
+                    let met = checker.collect_metrics(&conversation_id).ok();
+                    let suggestions = report.as_ref()
+                        .map(|r| crate::lcm::integrity::repair_plan(r))
+                        .unwrap_or_default();
+
+                    (report, met, suggestions)
+                }
+                Err(e) => {
+                    (None, None, vec![format!("Failed to open LCM store: {e}")])
+                }
+            }
+        } else {
+            (None, None, Vec::new())
+        };
 
     Ok(LcmHealthResponse {
         integrity: integrity_report,

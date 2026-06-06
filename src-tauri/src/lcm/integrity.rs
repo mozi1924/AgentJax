@@ -139,15 +139,47 @@ impl IntegrityChecker {
             Ok(Some(_)) => Ok(IntegrityCheck {
                 name: "conversation_exists".to_string(),
                 status: IntegrityStatus::Pass,
-                message: "Conversation metadata found".to_string(),
+                message: "Conversation metadata found in LCM store".to_string(),
                 details: None,
             }),
-            Ok(None) => Ok(IntegrityCheck {
-                name: "conversation_exists".to_string(),
-                status: IntegrityStatus::Fail,
-                message: format!("Conversation '{conversation_id}' not found in LCM store"),
-                details: None,
-            }),
+            Ok(None) => {
+                // Not in LCM — check if the conversation exists in legacy metadata.json.
+                // New conversations or pre-LCM conversations will not have LCM metadata
+                // yet; they get populated on first load via backfill_lcm_from_jsonl.
+                let has_legacy_meta = self.store.db_path()
+                    .parent()
+                    .map(|dir| dir.join("metadata.json"))
+                    .filter(|p| p.exists())
+                    .is_some();
+
+                if has_legacy_meta {
+                    Ok(IntegrityCheck {
+                        name: "conversation_exists".to_string(),
+                        status: IntegrityStatus::Warn,
+                        message: format!(
+                            "Conversation '{}' has legacy metadata but not yet in LCM store. \
+                             Will be populated on next load via JSONL backfill.",
+                            conversation_id
+                        ),
+                        details: None,
+                    })
+                } else {
+                    // No storage files at all — conversation either doesn't exist or
+                    // is a new/pre-populated conversation that hasn't been persisted yet.
+                    // This is NOT an integrity failure; it's a normal state for new chats.
+                    Ok(IntegrityCheck {
+                        name: "conversation_exists".to_string(),
+                        status: IntegrityStatus::Warn,
+                        message: format!(
+                            "Conversation '{}' has no persistent storage yet \
+                             (new or pre-populated conversation pending first save). \
+                             Storage will be created on first message.",
+                            conversation_id
+                        ),
+                        details: None,
+                    })
+                }
+            }
             Err(e) => Ok(IntegrityCheck {
                 name: "conversation_exists".to_string(),
                 status: IntegrityStatus::Fail,

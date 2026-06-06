@@ -104,7 +104,10 @@ export default function LcmHealthModal({ isOpen, onClose, conversationId }: LcmH
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'integrity' | 'metrics' | 'breaker' | 'spend' | 'config'>('integrity');
 
-  const { activeAgentId } = { activeAgentId: conversationId ? 'agent' : 'default' };
+  // Get the actual active agent ID from the framework's agent system.
+  // The framework's default agent ID is "main" (defined in config/constants.rs),
+  // NOT "default". Never hardcode agent IDs.
+  const { activeAgentId } = useActiveAgent();
 
   const fetchData = useCallback(async () => {
     if (!conversationId) return;
@@ -112,7 +115,7 @@ export default function LcmHealthModal({ isOpen, onClose, conversationId }: LcmH
     setError(null);
     try {
       const result = await invoke<LcmHealthResponse>('get_lcm_health', {
-        agentId: 'default',
+        agentId: activeAgentId,
         conversationId,
       });
       setData(result);
