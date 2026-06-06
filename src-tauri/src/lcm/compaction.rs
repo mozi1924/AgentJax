@@ -128,52 +128,53 @@ impl CompactionEngine {
         let input_text = Self::concat_messages(messages);
 
         // ── Level 1: Normal — preserve details ──
-        match self
-            .summarizer
-            .summarize(&input_text, "preserve_details", target_tokens)
-            .await
+        if let Some(summary) = self
+            .try_summarize_level(&input_text, input_tokens, "preserve_details", target_tokens, 1)
+            .await?
         {
-            Ok(summary) => {
-                let summary_tokens = (self.count_tokens)(&summary);
-                if summary_tokens < input_tokens {
-                    return Ok((summary, 1));
-                }
-                log::warn!(
-                    "LCM Level 1 summary did not converge ({} -> {} tokens), escalating",
-                    input_tokens,
-                    summary_tokens
-                );
-            }
-            Err(e) => {
-                log::warn!("LCM Level 1 summarization failed: {e}, escalating");
-            }
+            return Ok((summary, 1));
         }
 
         // ── Level 2: Aggressive — bullet points, half target ──
-        match self
-            .summarizer
-            .summarize(&input_text, "bullet_points", target_tokens / 2)
-            .await
+        if let Some(summary) = self
+            .try_summarize_level(&input_text, input_tokens, "bullet_points", target_tokens / 2, 2)
+            .await?
         {
-            Ok(summary) => {
-                let summary_tokens = (self.count_tokens)(&summary);
-                if summary_tokens < input_tokens {
-                    return Ok((summary, 2));
-                }
-                log::warn!(
-                    "LCM Level 2 summary did not converge ({} -> {} tokens), escalating to truncation",
-                    input_tokens,
-                    summary_tokens
-                );
-            }
-            Err(e) => {
-                log::warn!("LCM Level 2 summarization failed: {e}, escalating to truncation");
-            }
+            return Ok((summary, 2));
         }
 
         // ── Level 3: Deterministic Truncation — guaranteed convergence ──
         let truncated = Self::deterministic_truncate(&input_text, self.truncation_max_tokens);
         Ok((truncated, 3))
+    }
+
+    /// Attempt a single summarisation level and return the summary if it
+    /// converged (strictly shorter than input).  Returns `None` (after
+    /// logging a warning) when the summariser fails or does not converge.
+    async fn try_summarize_level(
+        &self,
+        input_text: &str,
+        input_tokens: u32,
+        mode: &str,
+        target_tokens: u32,
+        level: u8,
+    ) -> Result<Option<String>, LcmError> {
+        match self.summarizer.summarize(input_text, mode, target_tokens).await {
+            Ok(summary) => {
+                let summary_tokens = (self.count_tokens)(&summary);
+                if summary_tokens < input_tokens {
+                    return Ok(Some(summary));
+                }
+                log::warn!(
+                    "LCM Level {level} summary did not converge \
+                     ({input_tokens} -> {summary_tokens} tokens), escalating",
+                );
+            }
+            Err(e) => {
+                log::warn!("LCM Level {level} summarization failed: {e}, escalating");
+            }
+        }
+        Ok(None)
     }
 
     /// Concatenate messages (including thinking content) into a single text
