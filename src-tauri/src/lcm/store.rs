@@ -110,10 +110,7 @@ impl LcmStore {
 
     /// Initialize the database schema, creating tables if they don't exist.
     fn initialize_schema(&self) -> Result<(), LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         conn.execute_batch(CREATE_SCHEMA_SQL)
             .map_err(|e| LcmError::Store(format!("Failed to initialize LCM schema: {e}")))?;
@@ -144,24 +141,29 @@ impl LcmStore {
         self.grep_page_size
     }
 
-    // ── Message Persistence ────────────────────────────────────────────
+    // ── Internal Helpers ───────────────────────────────────────────────
+
+    /// Acquire the SQLite mutex lock with a consistent error message.
+    fn lock_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>, LcmError> {
+        self.conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))
+    }
+
+// ── Message Persistence ────────────────────────────────────────────
 
     /// Persist a new message into the immutable store.
     ///
     /// This is the primary write path. Messages are **never modified**
     /// after insertion — only `covered_by` may be updated during compaction.
     pub fn persist_message(&self, msg: &StoredMessage) -> Result<(), LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         let metadata_json = serde_json::to_string(&msg.metadata).unwrap_or_default();
         let file_refs_json = serde_json::to_string(&msg.file_refs).unwrap_or_default();
 
         conn.execute(
-            "INSERT OR IGNORE INTO messages (id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, thinking, search_text, metadata_json, file_refs_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            MESSAGE_INSERT_SQL,
             params![
                 msg.id.as_str(),
                 msg.conversation_id,
@@ -183,10 +185,7 @@ impl LcmStore {
 
     /// Persist multiple messages in a single transaction.
     pub fn persist_messages(&self, messages: &[StoredMessage]) -> Result<(), LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         let tx = conn
             .unchecked_transaction()
@@ -194,10 +193,7 @@ impl LcmStore {
 
         {
             let mut stmt = tx
-                .prepare(
-                    "INSERT OR IGNORE INTO messages (id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, thinking, search_text, metadata_json, file_refs_json)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                )
+                .prepare(MESSAGE_INSERT_SQL)
                 .map_err(|e| LcmError::Store(format!("Failed to prepare insert: {e}")))?;
 
             for msg in messages {
@@ -232,40 +228,15 @@ impl LcmStore {
 
     /// Retrieve a message by its ID.
     pub fn get_message(&self, id: &MessageId) -> Result<Option<StoredMessage>, LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         let mut stmt = conn
-            .prepare(
-                "SELECT id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, thinking, metadata_json, file_refs_json
-                 FROM messages WHERE id = ?1",
-            )
+            .prepare(&format!("{} WHERE id = ?1", MESSAGE_SELECT_SQL))
             .map_err(|e| LcmError::Store(format!("Failed to prepare query: {e}")))?;
 
         let result = stmt
             .query_row(params![id.as_str()], |row| {
-                let covered_by: Option<String> = row.get(6)?;
-                let thinking: Option<String> = row.get(7)?;
-                let metadata_json: String = row.get::<_, String>(8).unwrap_or_default();
-                let file_refs_json: String = row.get::<_, String>(9).unwrap_or_default();
-                let metadata: BTreeMap<String, Value> =
-                    serde_json::from_str(&metadata_json).unwrap_or_default();
-                let file_refs: Vec<FileRefId> =
-                    serde_json::from_str(&file_refs_json).unwrap_or_default();
-                Ok(StoredMessage {
-                    id: MessageId::from(row.get::<_, String>(0)?),
-                    conversation_id: row.get(1)?,
-                    role: parse_role(row.get::<_, String>(2)?.as_str())?,
-                    content: row.get(3)?,
-                    token_count: row.get(4)?,
-                    timestamp_unix_ms: row.get(5)?,
-                    covered_by: covered_by.map(SummaryId::from),
-                    thinking,
-                    metadata,
-                    file_refs,
-                })
+                row_to_stored_message(row, Some(7), 8, 9)
             })
             .optional()
             .map_err(|e| LcmError::Store(format!("Failed to query message {id}: {e}")))?;
@@ -278,42 +249,18 @@ impl LcmStore {
         &self,
         conversation_id: &str,
     ) -> Result<Vec<StoredMessage>, LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         let mut stmt = conn
-            .prepare(
-                "SELECT id, conversation_id, role, content, token_count, timestamp_unix_ms, covered_by, thinking, metadata_json, file_refs_json
-                 FROM messages
-                 WHERE conversation_id = ?1
-                 ORDER BY timestamp_unix_ms ASC",
-            )
+            .prepare(&format!(
+                "{} WHERE conversation_id = ?1 ORDER BY timestamp_unix_ms ASC",
+                MESSAGE_SELECT_SQL,
+            ))
             .map_err(|e| LcmError::Store(format!("Failed to prepare query: {e}")))?;
 
         let rows = stmt
             .query_map(params![conversation_id], |row| {
-                let covered_by: Option<String> = row.get(6)?;
-                let thinking: Option<String> = row.get(7)?;
-                let metadata_json: String = row.get::<_, String>(8).unwrap_or_default();
-                let file_refs_json: String = row.get::<_, String>(9).unwrap_or_default();
-                let metadata: BTreeMap<String, Value> =
-                    serde_json::from_str(&metadata_json).unwrap_or_default();
-                let file_refs: Vec<FileRefId> =
-                    serde_json::from_str(&file_refs_json).unwrap_or_default();
-                Ok(StoredMessage {
-                    id: MessageId::from(row.get::<_, String>(0)?),
-                    conversation_id: row.get(1)?,
-                    role: parse_role(row.get::<_, String>(2)?.as_str())?,
-                    content: row.get(3)?,
-                    token_count: row.get(4)?,
-                    timestamp_unix_ms: row.get(5)?,
-                    covered_by: covered_by.map(SummaryId::from),
-                    thinking,
-                    metadata,
-                    file_refs,
-                })
+                row_to_stored_message(row, Some(7), 8, 9)
             })
             .map_err(|e| LcmError::Store(format!("Failed to query messages: {e}")))?;
 
@@ -338,16 +285,15 @@ impl LcmStore {
         cursor: Option<&str>,
         page_size: usize,
     ) -> Result<PaginatedGrepResults, LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         // Build the base query. We search the messages_fts table and join
         // back to messages for full data.
-        let mut sql = String::from(
+        let mut sql = format!(
             "SELECT m.id, m.conversation_id, m.role, m.content, m.token_count,
-                    m.timestamp_unix_ms, m.covered_by, m.metadata_json, m.file_refs_json,
+                    m.timestamp_unix_ms, m.covered_by,
+                    -- Note: column order differs from MESSAGE_SELECT_SQL (no thinking)
+                    m.metadata_json, m.file_refs_json,
                     snippet(messages_fts, 2, '<mark>', '</mark>', '...', 40) as snippet
              FROM messages_fts
              JOIN messages m ON messages_fts.rowid = m.rowid
@@ -394,29 +340,9 @@ impl LcmStore {
 
         let rows = stmt
             .query_map(params_ref.as_slice(), |row| {
-                let covered_by: Option<String> = row.get(6)?;
-                let metadata_json: String = row.get::<_, String>(7).unwrap_or_default();
-                let file_refs_json: String = row.get::<_, String>(8).unwrap_or_default();
                 let snippet: String = row.get(9)?;
-                let metadata: BTreeMap<String, Value> =
-                    serde_json::from_str(&metadata_json).unwrap_or_default();
-                let file_refs: Vec<FileRefId> =
-                    serde_json::from_str(&file_refs_json).unwrap_or_default();
-                Ok((
-                    StoredMessage {
-                        id: MessageId::from(row.get::<_, String>(0)?),
-                        conversation_id: row.get(1)?,
-                        role: parse_role(row.get::<_, String>(2)?.as_str())?,
-                        content: row.get(3)?,
-                        token_count: row.get(4)?,
-                        timestamp_unix_ms: row.get(5)?,
-                        covered_by: covered_by.map(SummaryId::from),
-                        thinking: None,
-                        metadata,
-                        file_refs,
-                    },
-                    snippet,
-                ))
+                let msg = row_to_stored_message(row, None, 7, 8)?;
+                Ok((msg, snippet))
             })
             .map_err(|e| LcmError::Store(format!("Failed to execute FTS query: {e}")))?;
 
@@ -455,10 +381,7 @@ impl LcmStore {
 
     /// Insert a new summary node into the DAG.
     pub fn insert_summary(&self, summary: &SummaryNode) -> Result<(), LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         conn.execute(
             "INSERT OR IGNORE INTO summaries (id, conversation_id, kind, text, token_count, created_at_unix_ms, compaction_level)
@@ -484,10 +407,7 @@ impl LcmStore {
         summary_id: &SummaryId,
         child: &SummaryChild,
     ) -> Result<(), LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         match child {
             SummaryChild::Messages { ids } => {
@@ -536,10 +456,7 @@ impl LcmStore {
         summary_id: &SummaryId,
         parent_id: &SummaryId,
     ) -> Result<(), LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         conn.execute(
             "INSERT OR IGNORE INTO summary_parents (summary_id, parent_id) VALUES (?1, ?2)",
@@ -584,10 +501,7 @@ impl LcmStore {
         message_ids: &[MessageId],
         summary_id: &SummaryId,
     ) -> Result<(), LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         let tx = conn
             .unchecked_transaction()
@@ -614,10 +528,7 @@ impl LcmStore {
 
     /// Get a summary node by ID.
     pub fn get_summary(&self, id: &SummaryId) -> Result<Option<SummaryNode>, LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         let mut stmt = conn
             .prepare(
@@ -658,10 +569,7 @@ impl LcmStore {
         &self,
         summary_id: &SummaryId,
     ) -> Result<Vec<SummaryChild>, LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         let mut stmt = conn
             .prepare(
@@ -712,10 +620,7 @@ impl LcmStore {
         &self,
         conversation_id: &str,
     ) -> Result<Vec<SummaryNode>, LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         let mut stmt = conn
             .prepare(
@@ -775,10 +680,7 @@ impl LcmStore {
 
     /// Get a file reference by ID.
     pub fn get_file_ref(&self, id: &FileRefId) -> Result<Option<FileReference>, LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         let mut stmt = conn
             .prepare(
@@ -912,32 +814,13 @@ impl LcmStore {
         &self,
         conversation_id: &str,
     ) -> Result<ConversationMeta, LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         let existing = conn
             .query_row(
-                "SELECT conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json, version, last_message_preview
-                 FROM conversation_meta WHERE conversation_id = ?1",
+                &format!("{} WHERE conversation_id = ?1", CONV_META_SELECT_SQL),
                 params![conversation_id],
-                |row| {
-                    let metadata_json: String = row.get::<_, String>(7).unwrap_or_default();
-                    let ts: String = row.get::<_, String>(2).unwrap_or_default();
-                    Ok(ConversationMeta {
-                        conversation_id: row.get(0)?,
-                        title: row.get(1)?,
-                        title_source: normalize_title_source(&ts),
-                        created_at_unix_ms: row.get(3)?,
-                        updated_at_unix_ms: row.get(4)?,
-                        message_count: row.get(5)?,
-                        conversation_type: row.get(6)?,
-                        metadata: serde_json::from_str(&metadata_json).unwrap_or_default(),
-                        version: row.get::<_, i32>(8).unwrap_or(0) as u32,
-                        last_message_preview: row.get::<_, String>(9).unwrap_or_default(),
-                    })
-                },
+                row_to_conversation_meta,
             )
             .optional()
             .map_err(|e| LcmError::Store(format!("Failed to query conversation meta: {e}")))?;
@@ -954,8 +837,7 @@ impl LcmStore {
         let meta = ConversationMeta::new(conversation_id, now_ms);
         let metadata_json = serde_json::to_string(&meta.metadata).unwrap_or_default();
         conn.execute(
-            "INSERT OR IGNORE INTO conversation_meta (conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json, version, last_message_preview)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            CONV_META_INSERT_SQL,
             params![
                 meta.conversation_id,
                 meta.title,
@@ -979,31 +861,12 @@ impl LcmStore {
         &self,
         conversation_id: &str,
     ) -> Result<Option<ConversationMeta>, LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         conn.query_row(
-            "SELECT conversation_id, title, title_source, created_at_unix_ms, updated_at_unix_ms, message_count, conversation_type, metadata_json, version, last_message_preview
-             FROM conversation_meta WHERE conversation_id = ?1",
+            &format!("{} WHERE conversation_id = ?1", CONV_META_SELECT_SQL),
             params![conversation_id],
-            |row| {
-                let metadata_json: String = row.get::<_, String>(7).unwrap_or_default();
-                let ts: String = row.get::<_, String>(2).unwrap_or_default();
-                Ok(ConversationMeta {
-                    conversation_id: row.get(0)?,
-                    title: row.get(1)?,
-                    title_source: normalize_title_source(&ts),
-                    created_at_unix_ms: row.get(3)?,
-                    updated_at_unix_ms: row.get(4)?,
-                    message_count: row.get(5)?,
-                    conversation_type: row.get(6)?,
-                    metadata: serde_json::from_str(&metadata_json).unwrap_or_default(),
-                    version: row.get::<_, i32>(8).unwrap_or(0) as u32,
-                    last_message_preview: row.get::<_, String>(9).unwrap_or_default(),
-                })
-            },
+            row_to_conversation_meta,
         )
         .optional()
         .map_err(|e| LcmError::Store(format!("Failed to query conversation meta: {e}")))
@@ -1020,10 +883,7 @@ impl LcmStore {
         message_count_delta: Option<i32>,
         metadata: Option<&BTreeMap<String, Value>>,
     ) -> Result<(), LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1072,10 +932,7 @@ impl LcmStore {
     /// Remove all data for a conversation from the LCM store.
     #[allow(dead_code)]
     pub fn delete_conversation(&self, conversation_id: &str) -> Result<(), LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         let tx = conn
             .unchecked_transaction()
@@ -1134,10 +991,7 @@ impl LcmStore {
     /// Run VACUUM to reclaim disk space and optimize the database.
     #[allow(dead_code)]
     pub fn vacuum(&self) -> Result<(), LcmError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+        let conn = self.lock_conn()?;
 
         conn.execute_batch(
             "INSERT INTO messages_fts(messages_fts) VALUES('rebuild');
@@ -1332,6 +1186,95 @@ fn build_fts_query(pattern: &str) -> String {
         cleaned
     }
 }
+
+// ── Row Deserialization Helpers ─────────────────────────────────────────
+
+/// Convert a SQLite row to a `StoredMessage`.
+///
+/// Expects columns in `MESSAGE_SELECT_SQL` order (indices 0-9).
+/// The `thinking_idx` parameter specifies the column index for thinking
+/// content (Some(7) for standard SELECT, None when thinking is absent
+/// in FTS queries), while `meta_idx` and `refs_idx` control where
+/// metadata_json and file_refs_json reside.
+fn row_to_stored_message(
+    row: &rusqlite::Row,
+    thinking_idx: Option<usize>,
+    meta_idx: usize,
+    refs_idx: usize,
+) -> Result<StoredMessage, rusqlite::Error> {
+    let covered_by: Option<String> = row.get(6)?;
+    let thinking: Option<String> = match thinking_idx {
+        Some(idx) => row.get(idx)?,
+        None => None,
+    };
+    let metadata_json: String = row.get::<_, String>(meta_idx).unwrap_or_default();
+    let file_refs_json: String = row.get::<_, String>(refs_idx).unwrap_or_default();
+    let metadata: BTreeMap<String, Value> =
+        serde_json::from_str(&metadata_json).unwrap_or_default();
+    let file_refs: Vec<FileRefId> = serde_json::from_str(&file_refs_json).unwrap_or_default();
+    Ok(StoredMessage {
+        id: MessageId::from(row.get::<_, String>(0)?),
+        conversation_id: row.get(1)?,
+        role: parse_role(row.get::<_, String>(2)?.as_str())?,
+        content: row.get(3)?,
+        token_count: row.get(4)?,
+        timestamp_unix_ms: row.get(5)?,
+        covered_by: covered_by.map(SummaryId::from),
+        thinking,
+        metadata,
+        file_refs,
+    })
+}
+
+/// Convert a SQLite row to a `ConversationMeta`.
+///
+/// Expects columns in `CONV_META_SELECT_SQL` order (indices 0-9).
+fn row_to_conversation_meta(row: &rusqlite::Row) -> Result<ConversationMeta, rusqlite::Error> {
+    let metadata_json: String = row.get::<_, String>(7).unwrap_or_default();
+    let title_source: String = row.get::<_, String>(2).unwrap_or_default();
+    Ok(ConversationMeta {
+        conversation_id: row.get(0)?,
+        title: row.get(1)?,
+        title_source: normalize_title_source(&title_source),
+        created_at_unix_ms: row.get(3)?,
+        updated_at_unix_ms: row.get(4)?,
+        message_count: row.get(5)?,
+        conversation_type: row.get(6)?,
+        metadata: serde_json::from_str(&metadata_json).unwrap_or_default(),
+        version: row.get::<_, i32>(8).unwrap_or(0) as u32,
+        last_message_preview: row.get::<_, String>(9).unwrap_or_default(),
+    })
+}
+
+// ── SQL Column Constants ───────────────────────────────────────────
+
+/// INSERT into messages with all 11 columns.
+const MESSAGE_INSERT_SQL: &str =
+    "INSERT OR IGNORE INTO messages \
+     (id, conversation_id, role, content, token_count, timestamp_unix_ms, \
+      covered_by, thinking, search_text, metadata_json, file_refs_json) \
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
+
+/// SELECT columns (0-9) from messages — caller must append WHERE clause.
+const MESSAGE_SELECT_SQL: &str =
+    "SELECT id, conversation_id, role, content, token_count, timestamp_unix_ms, \
+            covered_by, thinking, metadata_json, file_refs_json \
+     FROM messages";
+
+/// SELECT all columns from conversation_meta — caller must append WHERE clause.
+const CONV_META_SELECT_SQL: &str =
+    "SELECT conversation_id, title, title_source, created_at_unix_ms, \
+            updated_at_unix_ms, message_count, conversation_type, \
+            metadata_json, version, last_message_preview \
+     FROM conversation_meta";
+
+/// INSERT into conversation_meta with all 10 columns.
+const CONV_META_INSERT_SQL: &str =
+    "INSERT OR IGNORE INTO conversation_meta \
+     (conversation_id, title, title_source, created_at_unix_ms, \
+      updated_at_unix_ms, message_count, conversation_type, \
+      metadata_json, version, last_message_preview) \
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
 
 // ── Trait for optional usage ────────────────────────────────────────────────
 
