@@ -86,7 +86,7 @@ async fn run_real_gateway_turn_with_config(
     )
     .expect("ensure conversation workspace");
 
-    let tools_catalog = ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &agent);
+    let tools_catalog = Arc::new(ToolCatalog::new(Arc::new(crate::mcp::McpManager::new()), &config, &agent));
     let req = ChatRequest {
         input: input.to_string(),
         conversation_id: Some(conversation_id.clone()),
@@ -554,11 +554,11 @@ async fn run_real_gateway_turn_with_full_catalog(
     )
     .expect("ensure conversation workspace");
 
-    let tools_catalog = ToolCatalog::new_with_home_plugins(
+    let tools_catalog = Arc::new(ToolCatalog::new_with_home_plugins(
         Arc::new(crate::mcp::McpManager::new()),
         &config,
         &agent,
-    );
+    ));
     let lcm_engine = lcm_engine_for_test(&conversation_id);
     // Register context tools with the LCM store.
     // Note: set_context_tools is not available on an Arc, but the catalog

@@ -39,7 +39,7 @@ impl AgentRuntime {
         user_message_ts: i64,
         context_items: Vec<Value>,
         recovery_note: Option<Value>,
-        tools_catalog: &ToolCatalog,
+        tools_catalog: &Arc<ToolCatalog>,
         context: &dyn AgentContext,
         cancel_rx: &mut watch::Receiver<bool>,
         sub_agent_event_tx: Option<
@@ -99,6 +99,8 @@ impl AgentRuntime {
             conversation_id: Some(conversation_id.to_string()),
             model_id: Some(resolved_model.model_id.clone()),
             app_config: Some(Arc::new(config.clone())),
+            agent_config: Some(Arc::new(agent.clone())),
+            tool_catalog: Some(Arc::clone(tools_catalog)),
             sub_agent_id: if is_sub_agent {
                 // Extract agent_id (last segment) from the conversation_id path.
                 conversation_id.rsplit('/').next().map(|s| s.to_string())

@@ -167,6 +167,12 @@ pub struct ToolExecutionContext {
     /// progress/completion events to the frontend.
     pub sub_agent_event_tx:
         Option<tokio::sync::mpsc::UnboundedSender<crate::sub_agents::SubAgentEvent>>,
+
+    /// Shared reference to the tool catalog.
+    /// Populated from the main agent's `Arc<ToolCatalog>` so sub-agent tools
+    /// can spawn sub-agent runners inline during tool execution rather than
+    /// deferring to the post-turn spawn phase in `chat.rs`.
+    pub tool_catalog: Option<Arc<ToolCatalog>>,
 }
 
 impl std::fmt::Debug for ToolExecutionContext {
@@ -188,6 +194,7 @@ impl std::fmt::Debug for ToolExecutionContext {
                     .as_ref()
                     .map(|_| "mpsc::UnboundedSender"),
             )
+            .field("tool_catalog", &self.tool_catalog.as_ref().map(|_| "Arc<ToolCatalog>"))
             .finish()
     }
 }
@@ -207,6 +214,7 @@ impl ToolExecutionContext {
             sub_agent_type: None,
             is_memory_sub_agent: false,
             sub_agent_event_tx: None,
+            tool_catalog: None,
         }
     }
 }

@@ -365,20 +365,68 @@ async fn execute_spawn(
         persistent: is_persistent,
     };
 
-    // Register the task in the process-wide registry.
-    let _task = SubAgentManager::register(spec);
+    // ── Inline spawn when context has all required resources ────────────
+    // Previously the spawn was deferred to chat.rs after run_turn completed
+    // (the old "Phase 5" comment). Now we spawn immediately during tool
+    // execution so the sub-agent can start running concurrently while the
+    // main turn continues its remaining hops. The chat.rs post-turn spawn
+    // phase still catches edge cases lacking resources (e.g., test envs
+    // without a sub_agent_event_tx channel).
+    //
+    // Memory agents are excluded — they use the event-driven run_memory_agent
+    // with a different lifecycle managed entirely in chat.rs.
+    let spawned_inline = if is_persistent {
+        false
+    } else if let (Some(app_config), Some(agent_config), Some(tool_catalog), Some(event_tx)) =
+        (context.app_config.clone(), context.agent_config.clone(), context.tool_catalog.clone(), context.sub_agent_event_tx.clone())
+    {
+        // Clone spec before registering — register() consumes the spec.
+        let spec_for_spawn = spec.clone();
+        let task = SubAgentManager::register(spec_for_spawn);
 
-    // Note: The actual tokio::spawn of the runner is wired in Phase 5
-    // (chat stream handler), where AppConfig, ToolCatalog, and the Tauri
-    // window for event forwarding are available.
+        // Atomically transition to Running so that chat.rs's post-turn
+        // collect_pending() skips this task — it's already being spawned.
+        if let Ok(mut task_state) = task.state.lock() {
+            task_state.status = crate::sub_agents::types::SubAgentStatus::Running;
+        }
 
-    Ok(json!({
-        "ok": true,
-        "agentId": agent_id,
-        "status": "pending",
-        "subagentType": subagent_type.as_str(),
-        "hint": "Ephemeral sub-agent registered. It will execute and self-dispose. Use sub_agent(action='status', agentId=...) to check progress, or action='status' with wait=true to block until completion."
-    }))
+        let sem_perm = crate::sub_agents::manager::sub_agent_semaphore();
+        let _handle = tokio::spawn(async move {
+            let _permit = sem_perm.acquire().await;
+            crate::sub_agents::runner::run_sub_agent(
+                task,
+                spec,
+                app_config,
+                agent_config,
+                tool_catalog,
+                event_tx,
+            )
+            .await;
+        });
+        true
+    } else {
+        // Fallback: register only, spawn deferred to chat.rs post-turn phase.
+        let _task = SubAgentManager::register(spec);
+        false
+    };
+
+    if spawned_inline {
+        Ok(json!({
+            "ok": true,
+            "agentId": agent_id,
+            "status": "running",
+            "subagentType": subagent_type.as_str(),
+            "hint": "Sub-agent spawned and running in background. Use sub_agent(action='status', agentId=...) to check progress, or action='status' with wait=true to block."
+        }))
+    } else {
+        Ok(json!({
+            "ok": true,
+            "agentId": agent_id,
+            "status": "pending",
+            "subagentType": subagent_type.as_str(),
+            "hint": "Sub-agent registered (will spawn after current turn completes). Use sub_agent(action='status', agentId=...) to check progress, or action='status' with wait=true to block."
+        }))
+    }
 }
 
 async fn execute_status(

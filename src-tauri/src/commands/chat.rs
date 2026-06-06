@@ -534,10 +534,14 @@ pub async fn chat_stream(
 
         let (response, _timeline_events) = run_result?;
 
-        // ── Spawn registered sub-agents ───────────────────────────────────────
-        // Sub-agent tasks registered during tool execution are still Pending.
-        // We now spawn their runners so they execute concurrently after the
-        // main turn completes.
+        // ── Spawn remaining pending sub-agents ───────────────────────────────
+        // Most sub-agents are now spawned inline during tool execution (when
+        // ToolExecutionContext has app_config/agent_config/tool_catalog/event_tx).
+        // This post-turn path catches edge cases where those resources weren't
+        // available (e.g., test environments, sub-agents spawned by other
+        // sub-agents that lack a Tauri event channel).
+        // collect_pending() atomically transitions Pending → Running so there
+        // is no double-spawn race with the inline path.
         {
             use crate::sub_agents::runner::run_sub_agent;
             let pending =
@@ -646,6 +650,10 @@ pub async fn chat_stream(
         event_index.store(idx, std::sync::atomic::Ordering::SeqCst);
 
         let notifier = crate::street::StreetManager::get_or_create_notifier(&conversation_id);
+        let resume_timeout = std::time::Duration::from_secs(
+            agent_config.context_management.street_resume_timeout_secs.max(30),
+        );
+        let resume_deadline = tokio::time::Instant::now() + resume_timeout;
         loop {
             if *cancel_rx.borrow() {
                 break 'resume_loop;
@@ -670,12 +678,65 @@ pub async fn chat_stream(
                 break 'resume_loop;
             }
 
+            // Compute remaining timeout — the deadline moves forward after
+            // each auto-resume skip so that repeated short-lived sub-agents
+            // don't reset the clock indefinitely.
+            let remaining = resume_deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                log::warn!(
+                    "resume_loop timeout reached ({}s) for conv={} — sub-agents did not complete",
+                    agent_config.context_management.street_resume_timeout_secs,
+                    conversation_id,
+                );
+                let mut idx = event_index.load(std::sync::atomic::Ordering::SeqCst);
+                window
+                    .emit(
+                        "chat_stream_event",
+                        ChatStreamEvent {
+                            request_id: request_id.clone(),
+                            event_index: next_event_index(&mut idx),
+                            kind: "sub_agent_timeout".to_string(),
+                            delta: None,
+                            response_id: None,
+                            conversation_id: Some(conversation_id.clone()),
+                            conversation_title: None,
+                            context_token_count: None,
+                            error: Some(format!(
+                                "Sub-agents did not complete within {}s. \
+                                 You can check their status manually via /sub_agent \
+                                 or increase the timeout in settings.",
+                                agent_config.context_management.street_resume_timeout_secs,
+                            )),
+                            tool_call_id: None,
+                            tool_name: None,
+                            tool_display_name: None,
+                            tool_description: None,
+                            tool_icon: None,
+                            tool_arguments: None,
+                            tool_output: None,
+                            tool_status: None,
+                            tool_started_ts: None,
+                            tool_completed_ts: None,
+                            tool_duration_ms: None,
+                            phase: None,
+                            agent_id: None,
+                        },
+                    )
+                    .map_err(|e| format!("Failed to emit sub_agent_timeout event: {e}"))?;
+                event_index.store(idx, std::sync::atomic::Ordering::SeqCst);
+                break 'resume_loop;
+            }
+
             tokio::select! {
                 _ = notifier.notified() => {
                     // Loop again to check is_auto_resume
                 }
                 _ = cancel_rx.changed() => {
                     break 'resume_loop;
+                }
+                _ = tokio::time::sleep(remaining) => {
+                    // Loop to the top of the inner loop to hit the
+                    // remaining.is_zero() guard and emit the timeout event.
                 }
             }
         }

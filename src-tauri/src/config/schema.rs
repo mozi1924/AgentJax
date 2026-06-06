@@ -113,6 +113,10 @@ pub struct ContextManagementConfig {
     pub street_auto_trigger_priority: String,
     /// Maximum Street items retained per conversation.
     pub street_max_items_per_conversation: usize,
+    /// Maximum time (seconds) to wait for sub-agents / background jobs
+    /// before giving up and ending the turn. Prevents the conversation from
+    /// hanging indefinitely when a sub-agent silently fails. Default: 300 (5 min).
+    pub street_resume_timeout_secs: u64,
 
     // ── JSONL backup ────────────────────────────────────────────────────
     /// Whether to write a JSONL backup alongside the context store.
@@ -136,6 +140,7 @@ impl Default for ContextManagementConfig {
             street_enabled: true,
             street_auto_trigger_priority: "urgent".to_string(),
             street_max_items_per_conversation: 100,
+            street_resume_timeout_secs: 300,
             jsonl_backup_enabled: true,
         }
     }
