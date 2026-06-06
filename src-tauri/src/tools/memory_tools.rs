@@ -19,7 +19,9 @@ use serde_json::{Value, json};
 /// When running within an agent context, uses the configured `storage_dir`
 /// from `AgentConfig.memory`. Falls back to `"memory"` when no config is
 /// available (e.g., tests).
-fn open_memory_store(agent_config: Option<&crate::config::AgentConfig>) -> AgentJaxResult<MemoryStore> {
+fn open_memory_store(
+    agent_config: Option<&crate::config::AgentConfig>,
+) -> AgentJaxResult<MemoryStore> {
     let base_dir = agentjax_home::agentjax_home_dir()
         .map_err(|e| AgentJaxError::memory(format!("Failed to get agentjax home: {e}")))?
         .join(

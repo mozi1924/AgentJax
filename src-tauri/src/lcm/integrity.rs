@@ -85,9 +85,18 @@ impl IntegrityChecker {
         checks.push(self.check_message_seq_contiguous(conversation_id)?);
         checks.push(self.check_context_token_count(conversation_id)?);
 
-        let pass_count = checks.iter().filter(|c| c.status == IntegrityStatus::Pass).count();
-        let fail_count = checks.iter().filter(|c| c.status == IntegrityStatus::Fail).count();
-        let warn_count = checks.iter().filter(|c| c.status == IntegrityStatus::Warn).count();
+        let pass_count = checks
+            .iter()
+            .filter(|c| c.status == IntegrityStatus::Pass)
+            .count();
+        let fail_count = checks
+            .iter()
+            .filter(|c| c.status == IntegrityStatus::Fail)
+            .count();
+        let warn_count = checks
+            .iter()
+            .filter(|c| c.status == IntegrityStatus::Warn)
+            .count();
 
         Ok(IntegrityReport {
             conversation_id: conversation_id.to_string(),
@@ -107,7 +116,10 @@ impl IntegrityChecker {
         let message_count = msgs.len();
         let total_message_tokens: u32 = msgs.iter().map(|m| m.token_count).sum();
         let summary_count = summaries.len();
-        let leaf_summary_count = summaries.iter().filter(|s| s.kind == crate::lcm::types::SummaryKind::Leaf).count();
+        let leaf_summary_count = summaries
+            .iter()
+            .filter(|s| s.kind == crate::lcm::types::SummaryKind::Leaf)
+            .count();
         let condensed_summary_count = summary_count.saturating_sub(leaf_summary_count);
         let total_summary_tokens: u32 = summaries.iter().map(|s| s.token_count).sum();
 
@@ -146,7 +158,9 @@ impl IntegrityChecker {
                 // Not in LCM — check if the conversation exists in legacy metadata.json.
                 // New conversations or pre-LCM conversations will not have LCM metadata
                 // yet; they get populated on first load via backfill_lcm_from_jsonl.
-                let has_legacy_meta = self.store.db_path()
+                let has_legacy_meta = self
+                    .store
+                    .db_path()
                     .parent()
                     .map(|dir| dir.join("metadata.json"))
                     .filter(|p| p.exists())
@@ -189,7 +203,10 @@ impl IntegrityChecker {
         }
     }
 
-    fn check_summaries_have_lineage(&self, conversation_id: &str) -> Result<IntegrityCheck, LcmError> {
+    fn check_summaries_have_lineage(
+        &self,
+        conversation_id: &str,
+    ) -> Result<IntegrityCheck, LcmError> {
         let summaries = self.store.get_conversation_summaries(conversation_id)?;
         let mut issues = Vec::new();
 
@@ -197,16 +214,23 @@ impl IntegrityChecker {
             match s.kind {
                 crate::lcm::types::SummaryKind::Leaf => {
                     let children = self.store.get_summary_children(&s.id)?;
-                    let has_msg_children = children.iter().any(|c| matches!(c, crate::lcm::types::SummaryChild::Messages { .. }));
+                    let has_msg_children = children
+                        .iter()
+                        .any(|c| matches!(c, crate::lcm::types::SummaryChild::Messages { .. }));
                     if !has_msg_children {
                         issues.push(format!("leaf summary {} has no message children", s.id));
                     }
                 }
                 crate::lcm::types::SummaryKind::Condensed => {
                     let children = self.store.get_summary_children(&s.id)?;
-                    let has_summary_children = children.iter().any(|c| matches!(c, crate::lcm::types::SummaryChild::Summaries { .. }));
+                    let has_summary_children = children
+                        .iter()
+                        .any(|c| matches!(c, crate::lcm::types::SummaryChild::Summaries { .. }));
                     if !has_summary_children {
-                        issues.push(format!("condensed summary {} has no summary children", s.id));
+                        issues.push(format!(
+                            "condensed summary {} has no summary children",
+                            s.id
+                        ));
                     }
                 }
             }
@@ -263,9 +287,7 @@ impl IntegrityChecker {
             .iter()
             .filter(|s| {
                 let id_str = s.id.to_string();
-                !parent_ids.contains(&id_str)
-                    && !child_ids.contains(&id_str)
-                    && summaries.len() > 1 // ignore single-summary case
+                !parent_ids.contains(&id_str) && !child_ids.contains(&id_str) && summaries.len() > 1 // ignore single-summary case
             })
             .map(|s| {
                 if s.parents.is_empty() {
@@ -294,7 +316,10 @@ impl IntegrityChecker {
         }
     }
 
-    fn check_message_seq_contiguous(&self, conversation_id: &str) -> Result<IntegrityCheck, LcmError> {
+    fn check_message_seq_contiguous(
+        &self,
+        conversation_id: &str,
+    ) -> Result<IntegrityCheck, LcmError> {
         let messages = self.store.get_conversation_messages(conversation_id)?;
         if messages.len() <= 1 {
             return Ok(IntegrityCheck {
@@ -343,7 +368,9 @@ impl IntegrityChecker {
         Ok(IntegrityCheck {
             name: "context_token_count".to_string(),
             status: IntegrityStatus::Pass,
-            message: format!("{total} tokens total ({msg_tokens} messages + {summary_tokens} summaries)"),
+            message: format!(
+                "{total} tokens total ({msg_tokens} messages + {summary_tokens} summaries)"
+            ),
             details: Some(serde_json::json!({
                 "messageTokens": msg_tokens,
                 "summaryTokens": summary_tokens,
@@ -365,16 +392,28 @@ pub fn repair_plan(report: &IntegrityReport) -> Vec<String> {
 
         let suggestion = match check.name.as_str() {
             "conversation_exists" => {
-                format!("Create or restore conversation metadata for '{}'", report.conversation_id)
+                format!(
+                    "Create or restore conversation metadata for '{}'",
+                    report.conversation_id
+                )
             }
             "summaries_have_lineage" => {
-                format!("Add missing summary_message or summary_parent links for '{}'", report.conversation_id)
+                format!(
+                    "Add missing summary_message or summary_parent links for '{}'",
+                    report.conversation_id
+                )
             }
             "no_orphan_summaries" => {
-                format!("Remove orphan summary records for '{}'", report.conversation_id)
+                format!(
+                    "Remove orphan summary records for '{}'",
+                    report.conversation_id
+                )
             }
             "message_seq_contiguous" => {
-                format!("Re-index message sequence values for '{}'", report.conversation_id)
+                format!(
+                    "Re-index message sequence values for '{}'",
+                    report.conversation_id
+                )
             }
             "context_token_count" => {
                 format!("Token count is consistent (information only)")

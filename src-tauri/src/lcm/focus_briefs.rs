@@ -225,7 +225,11 @@ impl FocusBriefGenerator {
         if !file_refs_set.is_empty() {
             sections.push(format!(
                 "## Files Referenced\n\n- {}\n",
-                file_refs_set.iter().cloned().collect::<Vec<_>>().join("\n- ")
+                file_refs_set
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("\n- ")
             ));
         }
 
@@ -356,8 +360,18 @@ mod tests {
     #[test]
     fn test_generate_brief_with_summaries() {
         let (store, conv_id) = create_test_store();
-        add_leaf_summary(&store, &conv_id, "User asked about Rust generics. Assistant explained trait bounds.", 1);
-        add_leaf_summary(&store, &conv_id, "Discussed error handling with Result and Option types.", 1);
+        add_leaf_summary(
+            &store,
+            &conv_id,
+            "User asked about Rust generics. Assistant explained trait bounds.",
+            1,
+        );
+        add_leaf_summary(
+            &store,
+            &conv_id,
+            "Discussed error handling with Result and Option types.",
+            1,
+        );
         let generator = FocusBriefGenerator::new(store, FocusBriefConfig::default());
         let brief = generator.generate_brief(&conv_id).unwrap();
         assert!(brief.markdown.contains("Rust generics"));

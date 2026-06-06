@@ -541,9 +541,9 @@ impl LcmEngine {
             let block_size = self.config.max_compact_block_size;
             let is_structured_tool_msg = |e: &ContextEntry| -> bool {
                 matches!(e, ContextEntry::RawMessage { metadata, .. } if
-                    matches!(metadata.get("message_type").and_then(|v| v.as_str()),
-                        Some("function_call") | Some("function_call_output")
-                    ))
+                matches!(metadata.get("message_type").and_then(|v| v.as_str()),
+                    Some("function_call") | Some("function_call_output")
+                ))
             };
             let oldest_messages: Vec<ContextEntry> = ctx
                 .entries
@@ -1319,7 +1319,13 @@ impl LcmEngine {
         // ── Step 1: Locate the JSONL session file ──
         // Construct the messages.jsonl path relative to the agent's session directory.
         let base_dir = dirs::data_dir()
-            .map(|d| d.join("agentjax").join("agents").join(agent_id).join("sessions").join(conversation_id))
+            .map(|d| {
+                d.join("agentjax")
+                    .join("agents")
+                    .join(agent_id)
+                    .join("sessions")
+                    .join(conversation_id)
+            })
             .unwrap_or_else(|| PathBuf::from("."));
         let messages_path = base_dir.join("messages.jsonl");
 
@@ -1358,10 +1364,8 @@ impl LcmEngine {
 
         // ── Step 3: Get existing LCM messages ──
         let existing_msgs = self.store.get_conversation_messages(conversation_id)?;
-        let existing_ids: std::collections::HashSet<String> = existing_msgs
-            .iter()
-            .map(|m| m.id.to_string())
-            .collect();
+        let existing_ids: std::collections::HashSet<String> =
+            existing_msgs.iter().map(|m| m.id.to_string()).collect();
 
         // ── Step 4: Parse JSONL lines into StoredMessages ──
         // We use the conversation_store::read_conversation_file approach:
@@ -1381,22 +1385,34 @@ impl LcmEngine {
                     use crate::lcm::types::MessageRole;
                     use std::collections::BTreeMap;
 
-                    let (role, content, ts, mut metadata_map): (MessageRole, String, i64, BTreeMap<String, serde_json::Value>) = match &cl {
+                    let (role, content, ts, mut metadata_map): (
+                        MessageRole,
+                        String,
+                        i64,
+                        BTreeMap<String, serde_json::Value>,
+                    ) = match &cl {
                         ConversationLine::User(u) => (
                             MessageRole::User,
                             u.text.clone(),
                             u.ts,
-                            BTreeMap::from([
-                                ("request_id".to_string(), serde_json::Value::String(u.request_id.clone())),
-                            ]),
+                            BTreeMap::from([(
+                                "request_id".to_string(),
+                                serde_json::Value::String(u.request_id.clone()),
+                            )]),
                         ),
                         ConversationLine::Assistant(a) => (
                             MessageRole::Assistant,
                             a.text.clone(),
                             a.ts,
                             BTreeMap::from([
-                                ("request_id".to_string(), serde_json::Value::String(a.request_id.clone())),
-                                ("response_id".to_string(), serde_json::Value::String(a.response_id.clone())),
+                                (
+                                    "request_id".to_string(),
+                                    serde_json::Value::String(a.request_id.clone()),
+                                ),
+                                (
+                                    "response_id".to_string(),
+                                    serde_json::Value::String(a.response_id.clone()),
+                                ),
                             ]),
                         ),
                         ConversationLine::Tool(t) => (
@@ -1404,15 +1420,25 @@ impl LcmEngine {
                             t.output.as_ref().map(|o| o.to_string()).unwrap_or_default(),
                             t.ts,
                             BTreeMap::from([
-                                ("request_id".to_string(), serde_json::Value::String(t.request_id.clone())),
-                                ("call_id".to_string(), serde_json::Value::String(t.call_id.clone())),
-                                ("tool_name".to_string(), serde_json::Value::String(t.name.clone())),
-                                ("message_type".to_string(), serde_json::Value::String(
-                                    match t.status {
+                                (
+                                    "request_id".to_string(),
+                                    serde_json::Value::String(t.request_id.clone()),
+                                ),
+                                (
+                                    "call_id".to_string(),
+                                    serde_json::Value::String(t.call_id.clone()),
+                                ),
+                                (
+                                    "tool_name".to_string(),
+                                    serde_json::Value::String(t.name.clone()),
+                                ),
+                                (
+                                    "message_type".to_string(),
+                                    serde_json::Value::String(match t.status {
                                         ToolStatus::Pending => "function_call".to_string(),
                                         _ => "function_call_output".to_string(),
-                                    }
-                                )),
+                                    }),
+                                ),
                             ]),
                         ),
                     };
@@ -1420,21 +1446,25 @@ impl LcmEngine {
                     // Extract thinking content for assistant messages.
                     if let ConversationLine::Assistant(a) = &cl {
                         if let Some(ref thinking) = a.thinking {
-                            metadata_map.insert("thinking".to_string(), serde_json::Value::String(thinking.clone()));
+                            metadata_map.insert(
+                                "thinking".to_string(),
+                                serde_json::Value::String(thinking.clone()),
+                            );
                         }
                         if let Some(ref phase) = a.phase {
-                            metadata_map.insert("phase".to_string(), serde_json::Value::String(format!("{:?}", phase).to_lowercase()));
+                            metadata_map.insert(
+                                "phase".to_string(),
+                                serde_json::Value::String(format!("{:?}", phase).to_lowercase()),
+                            );
                         }
                     }
 
                     // Derive a stable ID from the conversation line's own ID.
-                    let msg_id = crate::lcm::types::MessageId::from(
-                        match &cl {
-                            ConversationLine::User(u) => u.id.clone(),
-                            ConversationLine::Assistant(a) => a.id.clone(),
-                            ConversationLine::Tool(t) => t.id.clone(),
-                        }
-                    );
+                    let msg_id = crate::lcm::types::MessageId::from(match &cl {
+                        ConversationLine::User(u) => u.id.clone(),
+                        ConversationLine::Assistant(a) => a.id.clone(),
+                        ConversationLine::Tool(t) => t.id.clone(),
+                    });
 
                     // Skip if already exists in LCM.
                     if existing_ids.contains(msg_id.as_str()) {
@@ -1698,16 +1728,10 @@ mod tests {
 
         let msg2 = make_msg("asst-2", "I agree.", MessageRole::Assistant);
 
-        engine
-            .process_messages_batch(&[msg1, msg2])
-            .await
-            .unwrap();
+        engine.process_messages_batch(&[msg1, msg2]).await.unwrap();
 
         // Verify thinking is persisted in the store.
-        let loaded = engine
-            .store
-            .get_conversation_messages("test-conv")
-            .unwrap();
+        let loaded = engine.store.get_conversation_messages("test-conv").unwrap();
         assert_eq!(loaded.len(), 2);
 
         let with_thinking = loaded
@@ -1730,7 +1754,10 @@ mod tests {
         assert_eq!(snapshot.len(), 2);
         for entry in &snapshot {
             if let ContextEntry::RawMessage {
-                id, content, thinking, ..
+                id,
+                content,
+                thinking,
+                ..
             } = entry
             {
                 if id.to_string() == "asst-1" {
@@ -1843,5 +1870,4 @@ mod tests {
             .count();
         assert_eq!(reasoning_count, 1);
     }
-
 }

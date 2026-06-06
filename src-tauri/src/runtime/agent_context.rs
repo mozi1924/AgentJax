@@ -66,8 +66,7 @@ impl LcmAgentContext {
 #[async_trait::async_trait]
 impl AgentContext for LcmAgentContext {
     async fn rebuild(&self, conversation_id: &str) -> AgentJaxResult<()> {
-        self.engine
-            .rebuild_active_context(conversation_id)?;
+        self.engine.rebuild_active_context(conversation_id)?;
         Ok(())
     }
 
@@ -158,15 +157,26 @@ impl AgentContext for InMemoryContext {
                 }
                 MessageRole::Tool => {
                     // Structured tool messages via metadata.
-                    if let Some(msg_type) = msg.metadata.get("message_type").and_then(|v| v.as_str()) {
+                    if let Some(msg_type) =
+                        msg.metadata.get("message_type").and_then(|v| v.as_str())
+                    {
                         match msg_type {
                             "function_call" => {
-                                let call_id = msg.metadata.get("call_id")
-                                    .and_then(|v| v.as_str()).unwrap_or("");
-                                let name = msg.metadata.get("tool_name")
-                                    .and_then(|v| v.as_str()).unwrap_or("");
-                                let arguments = msg.metadata.get("arguments")
-                                    .and_then(|v| v.as_str()).unwrap_or("{}");
+                                let call_id = msg
+                                    .metadata
+                                    .get("call_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let name = msg
+                                    .metadata
+                                    .get("tool_name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let arguments = msg
+                                    .metadata
+                                    .get("arguments")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("{}");
                                 items.push(serde_json::json!({
                                     "type": "function_call",
                                     "call_id": call_id,
@@ -175,8 +185,11 @@ impl AgentContext for InMemoryContext {
                                 }));
                             }
                             "function_call_output" => {
-                                let call_id = msg.metadata.get("call_id")
-                                    .and_then(|v| v.as_str()).unwrap_or("");
+                                let call_id = msg
+                                    .metadata
+                                    .get("call_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
                                 items.push(serde_json::json!({
                                     "type": "function_call_output",
                                     "call_id": call_id,
@@ -312,15 +325,26 @@ impl AgentContext for MemoryAgentContext {
                     }));
                 }
                 MessageRole::Tool => {
-                    if let Some(msg_type) = msg.metadata.get("message_type").and_then(|v| v.as_str()) {
+                    if let Some(msg_type) =
+                        msg.metadata.get("message_type").and_then(|v| v.as_str())
+                    {
                         match msg_type {
                             "function_call" => {
-                                let call_id = msg.metadata.get("call_id")
-                                    .and_then(|v| v.as_str()).unwrap_or("");
-                                let name = msg.metadata.get("tool_name")
-                                    .and_then(|v| v.as_str()).unwrap_or("");
-                                let arguments = msg.metadata.get("arguments")
-                                    .and_then(|v| v.as_str()).unwrap_or("{}");
+                                let call_id = msg
+                                    .metadata
+                                    .get("call_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let name = msg
+                                    .metadata
+                                    .get("tool_name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let arguments = msg
+                                    .metadata
+                                    .get("arguments")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("{}");
                                 items.push(serde_json::json!({
                                     "type": "function_call",
                                     "call_id": call_id,
@@ -329,8 +353,11 @@ impl AgentContext for MemoryAgentContext {
                                 }));
                             }
                             "function_call_output" => {
-                                let call_id = msg.metadata.get("call_id")
-                                    .and_then(|v| v.as_str()).unwrap_or("");
+                                let call_id = msg
+                                    .metadata
+                                    .get("call_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
                                 items.push(serde_json::json!({
                                     "type": "function_call_output",
                                     "call_id": call_id,
@@ -360,7 +387,8 @@ impl AgentContext for MemoryAgentContext {
     }
 
     fn context_items(&self) -> Vec<Value> {
-        self.items.try_lock()
+        self.items
+            .try_lock()
             .map(|guard| guard.clone())
             .unwrap_or_default()
     }

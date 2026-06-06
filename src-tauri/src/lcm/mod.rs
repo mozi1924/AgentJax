@@ -354,7 +354,13 @@ pub fn backfill_lcm_from_jsonl(
         .unwrap_or_else(|| {
             // Fallback: use the standard path.
             let dir = dirs::data_dir()
-                .map(|d| d.join("agentjax").join("agents").join(agent_id).join("sessions").join(conversation_id))
+                .map(|d| {
+                    d.join("agentjax")
+                        .join("agents")
+                        .join(agent_id)
+                        .join("sessions")
+                        .join(conversation_id)
+                })
                 .unwrap_or_else(|| std::path::PathBuf::from("."));
             dir.join("messages.jsonl")
         });
@@ -378,12 +384,14 @@ pub fn backfill_lcm_from_jsonl(
     }
 
     // ── Step 3: Open or create LCM store ──
-    let store = crate::lcm::LcmStore::open(&db_path, crate::lcm::LcmConfig::default())
-        .map_err(|e| crate::error::AgentJaxError::internal(format!("Cannot open LCM store: {e}")))?;
+    let store =
+        crate::lcm::LcmStore::open(&db_path, crate::lcm::LcmConfig::default()).map_err(|e| {
+            crate::error::AgentJaxError::internal(format!("Cannot open LCM store: {e}"))
+        })?;
 
     // ── Step 4: Parse JSONL and convert to StoredMessages ──
-    use crate::lcm::types::{LcmId, MessageRole, StoredMessage};
     use crate::conversation_store::{ConversationLine, ToolStatus};
+    use crate::lcm::types::{LcmId, MessageRole, StoredMessage};
     use std::collections::BTreeMap;
 
     let mut stored_messages: Vec<StoredMessage> = Vec::new();
@@ -394,25 +402,43 @@ pub fn backfill_lcm_from_jsonl(
             continue;
         };
 
-        let (role, content, ts, metadata_map): (MessageRole, String, i64, BTreeMap<String, serde_json::Value>) = match &cl {
+        let (role, content, ts, metadata_map): (
+            MessageRole,
+            String,
+            i64,
+            BTreeMap<String, serde_json::Value>,
+        ) = match &cl {
             ConversationLine::User(u) => (
                 MessageRole::User,
                 u.text.clone(),
                 u.ts,
-                BTreeMap::from([
-                    ("request_id".to_string(), serde_json::Value::String(u.request_id.clone())),
-                ]),
+                BTreeMap::from([(
+                    "request_id".to_string(),
+                    serde_json::Value::String(u.request_id.clone()),
+                )]),
             ),
             ConversationLine::Assistant(a) => {
                 let mut meta = BTreeMap::from([
-                    ("request_id".to_string(), serde_json::Value::String(a.request_id.clone())),
-                    ("response_id".to_string(), serde_json::Value::String(a.response_id.clone())),
+                    (
+                        "request_id".to_string(),
+                        serde_json::Value::String(a.request_id.clone()),
+                    ),
+                    (
+                        "response_id".to_string(),
+                        serde_json::Value::String(a.response_id.clone()),
+                    ),
                 ]);
                 if let Some(ref phase) = a.phase {
-                    meta.insert("phase".to_string(), serde_json::Value::String(format!("{:?}", phase).to_lowercase()));
+                    meta.insert(
+                        "phase".to_string(),
+                        serde_json::Value::String(format!("{:?}", phase).to_lowercase()),
+                    );
                 }
                 if let Some(ref thinking) = a.thinking {
-                    meta.insert("thinking".to_string(), serde_json::Value::String(thinking.clone()));
+                    meta.insert(
+                        "thinking".to_string(),
+                        serde_json::Value::String(thinking.clone()),
+                    );
                 }
                 (MessageRole::Assistant, a.text.clone(), a.ts, meta)
             }
@@ -421,15 +447,25 @@ pub fn backfill_lcm_from_jsonl(
                 t.output.as_ref().map(|o| o.to_string()).unwrap_or_default(),
                 t.ts,
                 BTreeMap::from([
-                    ("request_id".to_string(), serde_json::Value::String(t.request_id.clone())),
-                    ("call_id".to_string(), serde_json::Value::String(t.call_id.clone())),
-                    ("tool_name".to_string(), serde_json::Value::String(t.name.clone())),
-                    ("message_type".to_string(), serde_json::Value::String(
-                        match t.status {
+                    (
+                        "request_id".to_string(),
+                        serde_json::Value::String(t.request_id.clone()),
+                    ),
+                    (
+                        "call_id".to_string(),
+                        serde_json::Value::String(t.call_id.clone()),
+                    ),
+                    (
+                        "tool_name".to_string(),
+                        serde_json::Value::String(t.name.clone()),
+                    ),
+                    (
+                        "message_type".to_string(),
+                        serde_json::Value::String(match t.status {
                             ToolStatus::Pending => "function_call".to_string(),
                             _ => "function_call_output".to_string(),
-                        }
-                    )),
+                        }),
+                    ),
                 ]),
             ),
         };
@@ -441,7 +477,9 @@ pub fn backfill_lcm_from_jsonl(
         if total_tokens + token_count > BACKFILL_MAX_TOKENS {
             log::warn!(
                 "LCM backfill: reached token budget ({}/{}) after {} messages",
-                total_tokens, BACKFILL_MAX_TOKENS, stored_messages.len()
+                total_tokens,
+                BACKFILL_MAX_TOKENS,
+                stored_messages.len()
             );
             break;
         }
@@ -466,8 +504,9 @@ pub fn backfill_lcm_from_jsonl(
     }
 
     // ── Step 5: Persist to LCM store ──
-    store.persist_messages(&stored_messages)
-        .map_err(|e| crate::error::AgentJaxError::internal(format!("Failed to persist backfill: {e}")))?;
+    store.persist_messages(&stored_messages).map_err(|e| {
+        crate::error::AgentJaxError::internal(format!("Failed to persist backfill: {e}"))
+    })?;
 
     log::info!(
         "LCM backfill: imported {} messages ({} tokens) for '{}' from JSONL",

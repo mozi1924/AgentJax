@@ -48,9 +48,9 @@ pub struct SpendGuardConfig {
 impl Default for SpendGuardConfig {
     fn default() -> Self {
         Self {
-            window: Duration::from_secs(600),   // 10 minutes
+            window: Duration::from_secs(600), // 10 minutes
             max_calls: 24,
-            backoff: Duration::from_secs(1800),  // 30 minutes
+            backoff: Duration::from_secs(1800), // 30 minutes
         }
     }
 }
@@ -88,7 +88,9 @@ impl SpendGuard {
 
         // Check backoff.
         backoffs.retain(|(k, until)| {
-            if k != key { return true; }
+            if k != key {
+                return true;
+            }
             now < *until
         });
 
@@ -102,7 +104,11 @@ impl SpendGuard {
         let window_start = now - self.config.window;
 
         // Remove old entries.
-        while calls.front().map(|(_, t)| *t < window_start).unwrap_or(false) {
+        while calls
+            .front()
+            .map(|(_, t)| *t < window_start)
+            .unwrap_or(false)
+        {
             calls.pop_front();
         }
 
@@ -141,7 +147,10 @@ impl SpendGuard {
 
         keys.into_iter()
             .map(|key| {
-                let key_calls = calls.iter().filter(|(k, t)| k == &key && *t >= window_start).count();
+                let key_calls = calls
+                    .iter()
+                    .filter(|(k, t)| k == &key && *t >= window_start)
+                    .count();
                 let in_backoff = backoffs.iter().any(|(k, until)| k == &key && now < *until);
                 let backoff_remaining = backoffs
                     .iter()
@@ -150,7 +159,11 @@ impl SpendGuard {
 
                 SpendGuardEntry {
                     key,
-                    state: if in_backoff { SpendGuardState::BackingOff } else { SpendGuardState::Normal },
+                    state: if in_backoff {
+                        SpendGuardState::BackingOff
+                    } else {
+                        SpendGuardState::Normal
+                    },
                     calls_in_window: key_calls,
                     max_calls: self.config.max_calls,
                     window_duration_secs: self.config.window.as_secs(),

@@ -150,9 +150,21 @@ fn extract_tool_calls(output_items: &[Value]) -> Vec<ToolCallInfo> {
         .iter()
         .filter(|item| item.get("type").and_then(|v| v.as_str()) == Some("function_call"))
         .map(|item| ToolCallInfo {
-            call_id: item.get("call_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            name: item.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            arguments: item.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}").to_string(),
+            call_id: item
+                .get("call_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            name: item
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            arguments: item
+                .get("arguments")
+                .and_then(|v| v.as_str())
+                .unwrap_or("{}")
+                .to_string(),
         })
         .collect()
 }

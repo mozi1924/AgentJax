@@ -76,12 +76,20 @@ pub struct ReasoningConfig {
 impl ReasoningConfig {
     /// Create a disabled config (no reasoning).
     pub fn disabled() -> Self {
-        Self { enabled: false, effort: None, budget_tokens: None }
+        Self {
+            enabled: false,
+            effort: None,
+            budget_tokens: None,
+        }
     }
 
     /// Create an enabled config with the given effort level.
     pub fn enabled_with_effort(effort: ReasoningEffort) -> Self {
-        Self { enabled: true, effort: Some(effort), budget_tokens: None }
+        Self {
+            enabled: true,
+            effort: Some(effort),
+            budget_tokens: None,
+        }
     }
 }
 

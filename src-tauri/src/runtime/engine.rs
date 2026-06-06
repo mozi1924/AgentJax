@@ -4,8 +4,8 @@ mod request;
 mod tool_state;
 mod turn;
 
-use super::agent_context::AgentContext;
 use super::AgentRuntime;
+use super::agent_context::AgentContext;
 use super::stream_collection::collect_provider_turn;
 use super::tool_archiving::archive_unavailable_historical_tool_calls;
 use super::tool_execution::ToolExecutionScheduler;
@@ -467,11 +467,7 @@ impl AgentRuntime {
                 if !batch_messages.is_empty()
                     && let Err(e) = engine.persist_messages(&batch_messages).await
                 {
-                    log::warn!(
-                        "Failed to persist {} messages: {}",
-                        batch_messages.len(),
-                        e
-                    );
+                    log::warn!("Failed to persist {} messages: {}", batch_messages.len(), e);
                 }
             }
 

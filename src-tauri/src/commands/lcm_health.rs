@@ -3,10 +3,10 @@
 //! Exposes integrity checks, circuit breaker state, spend guard state,
 //! and session metrics to the frontend UI.
 
+use crate::lcm::LcmConfig;
 use crate::lcm::circuit_breaker::CircuitBreaker;
 use crate::lcm::integrity::{IntegrityChecker, IntegrityReport, LcmMetrics};
 use crate::lcm::spend_guard::SpendGuard;
-use crate::lcm::LcmConfig;
 use serde::Serialize;
 use std::sync::{Arc, OnceLock};
 
@@ -65,7 +65,10 @@ impl From<&LcmConfig> for LcmHealthConfig {
 
 /// Get the full LCM health dashboard data.
 #[tauri::command]
-pub fn get_lcm_health(agent_id: String, conversation_id: String) -> Result<LcmHealthResponse, String> {
+pub fn get_lcm_health(
+    agent_id: String,
+    conversation_id: String,
+) -> Result<LcmHealthResponse, String> {
     let agent_config = crate::config::load_agent_config(&agent_id)
         .unwrap_or_default()
         .normalize();
@@ -82,7 +85,8 @@ pub fn get_lcm_health(agent_id: String, conversation_id: String) -> Result<LcmHe
         Ok(p) => p,
         Err(e) => {
             return Ok(LcmHealthResponse {
-                integrity: None, metrics: None,
+                integrity: None,
+                metrics: None,
                 circuit_breaker: global_circuit_breaker().snapshot(),
                 spend_guard: global_spend_guard().snapshot(),
                 config: LcmHealthConfig::from(&lcm_config_types),
@@ -91,28 +95,26 @@ pub fn get_lcm_health(agent_id: String, conversation_id: String) -> Result<LcmHe
         }
     };
 
-    let (integrity_report, metrics, repair_suggestions) =
-        if db_path.exists() {
-            match crate::lcm::store::LcmStore::open(&db_path, lcm_config_types.clone()) {
-                Ok(store) => {
-                    let store = Arc::new(store);
-                    let checker = IntegrityChecker::new(store.clone());
+    let (integrity_report, metrics, repair_suggestions) = if db_path.exists() {
+        match crate::lcm::store::LcmStore::open(&db_path, lcm_config_types.clone()) {
+            Ok(store) => {
+                let store = Arc::new(store);
+                let checker = IntegrityChecker::new(store.clone());
 
-                    let report = checker.scan(&conversation_id).ok();
-                    let met = checker.collect_metrics(&conversation_id).ok();
-                    let suggestions = report.as_ref()
-                        .map(|r| crate::lcm::integrity::repair_plan(r))
-                        .unwrap_or_default();
+                let report = checker.scan(&conversation_id).ok();
+                let met = checker.collect_metrics(&conversation_id).ok();
+                let suggestions = report
+                    .as_ref()
+                    .map(|r| crate::lcm::integrity::repair_plan(r))
+                    .unwrap_or_default();
 
-                    (report, met, suggestions)
-                }
-                Err(e) => {
-                    (None, None, vec![format!("Failed to open LCM store: {e}")])
-                }
+                (report, met, suggestions)
             }
-        } else {
-            (None, None, Vec::new())
-        };
+            Err(e) => (None, None, vec![format!("Failed to open LCM store: {e}")]),
+        }
+    } else {
+        (None, None, Vec::new())
+    };
 
     Ok(LcmHealthResponse {
         integrity: integrity_report,
@@ -156,7 +158,11 @@ pub fn reset_spend_guard(key: Option<String>) -> Result<(), String> {
 ///
 /// This is called by the summarizer when a provider returns an auth error.
 #[tauri::command]
-pub fn record_summarization_failure(provider: String, model: String, reason: String) -> Result<(), String> {
+pub fn record_summarization_failure(
+    provider: String,
+    model: String,
+    reason: String,
+) -> Result<(), String> {
     let key = CircuitBreaker::build_key(&provider, &model);
     global_circuit_breaker().record_failure(&key, &reason);
     Ok(())

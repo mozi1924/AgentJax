@@ -61,17 +61,12 @@ where
 {
     CIRCUIT_BREAKERS.check(provider_key)?;
 
-    let proto = builtin_protocols()
-        .get(protocol)
-        .ok_or_else(|| {
-            AgentJaxError::config(format!(
-                "Unsupported protocol '{protocol}'. Supported: {}",
-                builtin_protocols()
-                    .names()
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ))
-        })?;
+    let proto = builtin_protocols().get(protocol).ok_or_else(|| {
+        AgentJaxError::config(format!(
+            "Unsupported protocol '{protocol}'. Supported: {}",
+            builtin_protocols().names().collect::<Vec<_>>().join(", ")
+        ))
+    })?;
 
     let mut cb = on_delta;
     let result = proto
@@ -115,9 +110,7 @@ pub async fn embed(
     input: &EmbeddingRequest,
 ) -> AgentJaxResult<EmbeddingResponse> {
     let proto = builtin_protocols().get(protocol).ok_or_else(|| {
-        AgentJaxError::config(format!(
-            "Unsupported protocol '{protocol}' for embedding"
-        ))
+        AgentJaxError::config(format!("Unsupported protocol '{protocol}' for embedding"))
     })?;
     proto.embed(provider_config, model_id, input).await
 }
@@ -242,8 +235,6 @@ pub(crate) async fn send_and_check(
     Ok(response)
 }
 
-
-
 // ═════════════════════════════════════════════════════════════════════════════
 // Protocol Trait & Registry
 // ═════════════════════════════════════════════════════════════════════════════
@@ -322,8 +313,6 @@ impl ProtocolRegistry {
     pub fn names(&self) -> impl Iterator<Item = &str> + '_ {
         self.protocols.keys().map(|s| s.as_str())
     }
-
-
 }
 
 impl Default for ProtocolRegistry {

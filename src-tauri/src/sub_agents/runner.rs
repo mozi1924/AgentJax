@@ -9,8 +9,8 @@
 
 use crate::commands::chat::ChatRequest;
 use crate::config::{AgentConfig, AppConfig};
-use crate::runtime::agent_context::{AgentContext, InMemoryContext};
 use crate::provider_api::types::ProviderStreamEvent;
+use crate::runtime::agent_context::{AgentContext, InMemoryContext};
 use crate::sub_agents::events::SubAgentEvent;
 use crate::sub_agents::manager::{HARD_MAX_TURNS, SubAgentManager, SubAgentTask};
 use crate::sub_agents::types::SubAgentSpec;
@@ -112,7 +112,6 @@ pub async fn run_sub_agent(
         frequency_penalty: None,
         max_tokens: None,
         max_completion_tokens: None,
-
     };
 
     // ── Run the agent loop ────────────────────────────────────────────────
@@ -261,20 +260,21 @@ pub async fn run_memory_agent(
     log::info!("Memory agent {}: started", agent_id);
 
     // Open memory store.
-    let memory_store: std::sync::Arc<crate::memory::store::MemoryStore> = match crate::memory::store::MemoryStore::open(
-        crate::agentjax_home::agentjax_home_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join("memory"),
-    ) {
-        Ok(store) => std::sync::Arc::new(store),
-        Err(e) => {
-            log::error!(
-                "Memory agent {}: failed to open memory store: {e}",
-                agent_id
-            );
-            return;
-        }
-    };
+    let memory_store: std::sync::Arc<crate::memory::store::MemoryStore> =
+        match crate::memory::store::MemoryStore::open(
+            crate::agentjax_home::agentjax_home_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join("memory"),
+        ) {
+            Ok(store) => std::sync::Arc::new(store),
+            Err(e) => {
+                log::error!(
+                    "Memory agent {}: failed to open memory store: {e}",
+                    agent_id
+                );
+                return;
+            }
+        };
 
     loop {
         // Wait for a signal.
@@ -363,7 +363,12 @@ pub async fn run_memory_agent(
                             log::info!("Memory agent {}: IGNORE — no memories written", agent_id);
                             continue;
                         }
-                        execute_memory_operations(&memory_store, &text, agent_id, &spec.parent_conversation_id);
+                        execute_memory_operations(
+                            &memory_store,
+                            &text,
+                            agent_id,
+                            &spec.parent_conversation_id,
+                        );
                     }
                     Err(e) => {
                         log::warn!("Memory agent {}: tool loop failed: {e}", agent_id);
@@ -518,7 +523,10 @@ impl ToolHandler for MemorySearchHandler {
             Err(e) => return format!("{{\"error\": \"Invalid arguments: {e}\"}}"),
         };
         let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
-        let max_results = args.get("maxResults").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+        let max_results = args
+            .get("maxResults")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(10) as usize;
 
         match crate::memory::search::search_memories(&self.store, query, max_results) {
             Ok(results) => serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string()),
@@ -552,7 +560,8 @@ impl ToolHandler for MemoryRecallHandler {
                 "tags": memory.frontmatter.tags,
                 "links": memory.frontmatter.links,
                 "body": memory.body,
-            }).to_string(),
+            })
+            .to_string(),
             Err(e) => format!("{{\"error\": \"Memory '{name}' not found: {e}\"}}"),
         }
     }
@@ -576,12 +585,23 @@ impl ToolHandler for MemoryWriteHandler {
         };
 
         let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        let description = args.get("description").and_then(|v| v.as_str()).unwrap_or("");
+        let description = args
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let body = args.get("body").and_then(|v| v.as_str()).unwrap_or("");
-        let memory_type_str = args.get("memoryType").and_then(|v| v.as_str()).unwrap_or("project");
-        let tags: Vec<String> = args.get("tags")
+        let memory_type_str = args
+            .get("memoryType")
+            .and_then(|v| v.as_str())
+            .unwrap_or("project");
+        let tags: Vec<String> = args
+            .get("tags")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|t| t.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
         let memory_type = crate::memory::types::MemoryType::from_str(memory_type_str)
             .unwrap_or(crate::memory::types::MemoryType::Project);

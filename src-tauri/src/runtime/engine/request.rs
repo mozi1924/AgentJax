@@ -45,7 +45,6 @@ pub(super) fn build_request(
         max_tokens: req.max_tokens,
         max_completion_tokens: req.max_completion_tokens,
 
-
         // Extra body is merged later from ResolvedModelConfig.request.extra_body
         // in provider_api::stream_response(). The ChatRequest does not carry it.
         extra_body: BTreeMap::new(),

@@ -748,26 +748,22 @@ impl LcmStore {
             })
             .map_err(|e| LcmError::Store(format!("Failed to query summaries: {e}")))?;
 
-        let mut summaries: Vec<SummaryNode> = rows
-            .filter_map(|r| r.ok())
-            .collect();
+        let mut summaries: Vec<SummaryNode> = rows.filter_map(|r| r.ok()).collect();
 
         // Load parent references for each summary.
         for summary in &mut summaries {
             let mut parent_stmt = conn
-                .prepare(
-                    "SELECT parent_id FROM summary_parents WHERE summary_id = ?1",
-                )
+                .prepare("SELECT parent_id FROM summary_parents WHERE summary_id = ?1")
                 .map_err(|e| LcmError::Store(format!("Failed to prepare parent query: {e}")))?;
 
-                let parent_ids: Vec<SummaryId> = parent_stmt
-                    .query_map(params![summary.id.as_str()], |row| {
-                        let id_str: String = row.get(0)?;
-                        Ok(SummaryId::from(id_str))
-                    })
-                    .map_err(|e| LcmError::Store(format!("Failed to query parents: {e}")))?
-                    .filter_map(|r| r.ok())
-                    .collect();
+            let parent_ids: Vec<SummaryId> = parent_stmt
+                .query_map(params![summary.id.as_str()], |row| {
+                    let id_str: String = row.get(0)?;
+                    Ok(SummaryId::from(id_str))
+                })
+                .map_err(|e| LcmError::Store(format!("Failed to query parents: {e}")))?
+                .filter_map(|r| r.ok())
+                .collect();
 
             summary.parents = parent_ids;
         }

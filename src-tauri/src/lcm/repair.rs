@@ -114,14 +114,7 @@ pub fn sanitize_tool_use_result_pairing(
                     // Try to find tool_call_id in content.
                     let tool_call_id = extract_tool_call_id_from_content(&msg.content);
                     if let Some(id) = tool_call_id {
-                        tool_results.push((
-                            i,
-                            msg,
-                            ToolResultInfo {
-                                id,
-                                index: i,
-                            },
-                        ));
+                        tool_results.push((i, msg, ToolResultInfo { id, index: i }));
                     } else {
                         // No tool_call_id — treat as orphan.
                         report.orphaned_results += 1;
@@ -273,10 +266,12 @@ pub fn sanitize_tool_use_result_pairing(
                 // Orphaned tool result — check if it was already matched.
                 let tool_call_id = extract_tool_call_id(msg);
                 let is_orphan = match &tool_call_id {
-                    Some(_id) => {
-                        !tool_result_indices_used
-                            .contains(&all_messages.iter().position(|(idx, _)| *idx == i).unwrap_or(usize::MAX))
-                    }
+                    Some(_id) => !tool_result_indices_used.contains(
+                        &all_messages
+                            .iter()
+                            .position(|(idx, _)| *idx == i)
+                            .unwrap_or(usize::MAX),
+                    ),
                     None => true,
                 };
 
@@ -313,14 +308,8 @@ pub fn sanitize_tool_use_result_pairing(
                     Value::String(tool_call_id.clone()),
                 );
                 metadata.insert("tool_name".to_string(), Value::String(tool_name.clone()));
-                metadata.insert(
-                    "is_error".to_string(),
-                    Value::Bool(true),
-                );
-                metadata.insert(
-                    "synthetic".to_string(),
-                    Value::Bool(true),
-                );
+                metadata.insert("is_error".to_string(), Value::Bool(true));
+                metadata.insert("synthetic".to_string(), Value::Bool(true));
 
                 let synthetic = StoredMessage {
                     id: crate::lcm::types::LcmId::new(),
@@ -371,19 +360,34 @@ impl std::fmt::Display for RepairReport {
         }
         let mut parts = Vec::new();
         if self.duplicate_tool_uses > 0 {
-            parts.push(format!("{} duplicate tool_uses removed", self.duplicate_tool_uses));
+            parts.push(format!(
+                "{} duplicate tool_uses removed",
+                self.duplicate_tool_uses
+            ));
         }
         if self.duplicate_results > 0 {
-            parts.push(format!("{} duplicate results removed", self.duplicate_results));
+            parts.push(format!(
+                "{} duplicate results removed",
+                self.duplicate_results
+            ));
         }
         if self.synthesized_results > 0 {
-            parts.push(format!("{} synthetic results injected", self.synthesized_results));
+            parts.push(format!(
+                "{} synthetic results injected",
+                self.synthesized_results
+            ));
         }
         if self.orphaned_results > 0 {
-            parts.push(format!("{} orphaned results removed", self.orphaned_results));
+            parts.push(format!(
+                "{} orphaned results removed",
+                self.orphaned_results
+            ));
         }
         if self.terminal_tool_uses > 0 {
-            parts.push(format!("{} terminal tool_uses stripped", self.terminal_tool_uses));
+            parts.push(format!(
+                "{} terminal tool_uses stripped",
+                self.terminal_tool_uses
+            ));
         }
         write!(f, "{}", parts.join("; "))
     }
@@ -413,10 +417,7 @@ fn extract_tool_calls(msg: &StoredMessage) -> Vec<ToolCallInfo> {
     if let Some(tool_calls) = msg.metadata.get("tool_calls").and_then(|v| v.as_array()) {
         for tc in tool_calls {
             if let Some(id) = tc.get("id").and_then(|v| v.as_str()) {
-                let name = tc
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
+                let name = tc.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
                 calls.push(ToolCallInfo {
                     id: id.to_string(),
                     name: name.to_string(),
@@ -470,11 +471,7 @@ fn remove_tool_calls_from_message(
     mut msg: StoredMessage,
     ids_to_remove: &[String],
 ) -> StoredMessage {
-    if let Some(tool_calls) = msg
-        .metadata
-        .get("tool_calls")
-        .and_then(|v| v.as_array())
-    {
+    if let Some(tool_calls) = msg.metadata.get("tool_calls").and_then(|v| v.as_array()) {
         let filtered: Vec<Value> = tool_calls
             .iter()
             .filter(|tc| {
@@ -538,10 +535,7 @@ mod tests {
             Value::String(tool_name.to_string()),
         );
         if let Some(reason) = stop_reason {
-            metadata.insert(
-                "stop_reason".to_string(),
-                Value::String(reason.to_string()),
-            );
+            metadata.insert("stop_reason".to_string(), Value::String(reason.to_string()));
         }
         StoredMessage {
             id: LcmId::from(id),
@@ -594,7 +588,13 @@ mod tests {
 
     #[test]
     fn test_synthesizes_missing_result() {
-        let msgs = vec![make_assistant_msg("a1", "call_1", "tool_a", "thinking...", None)];
+        let msgs = vec![make_assistant_msg(
+            "a1",
+            "call_1",
+            "tool_a",
+            "thinking...",
+            None,
+        )];
         let (output, report) = sanitize_tool_use_result_pairing(msgs);
         assert!(report.changed);
         assert_eq!(report.synthesized_results, 1);

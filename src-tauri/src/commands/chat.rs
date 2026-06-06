@@ -19,8 +19,8 @@ pub use chat_types::{
 use crate::config;
 use crate::conversation_store;
 use crate::provider_api::{build_user_input_item, get_tool_schema_format};
-use crate::time_context::{build_temporal_context_system_item, render_timed_message};
 use crate::runtime::agent_context::{AgentContext, LcmAgentContext};
+use crate::time_context::{build_temporal_context_system_item, render_timed_message};
 use crate::tools::ToolCatalog;
 use crate::tools::ToolExecutionContext;
 use chat_client_metadata::{split_local_client_metadata, validate_conversation_dynamic_tools};
@@ -144,8 +144,8 @@ pub async fn chat_stream(
                     overhead += crate::lcm::types::estimate_tokens(&model.system_prompt);
                     // system_items from prompt composer + temporal context
                     for item in &model.prompt_assembly.system_items {
-                        if let Some(content) = item.pointer("/content/0/text")
-                            .and_then(|v| v.as_str())
+                        if let Some(content) =
+                            item.pointer("/content/0/text").and_then(|v| v.as_str())
                         {
                             overhead += crate::lcm::types::estimate_tokens(content);
                         }
@@ -511,7 +511,8 @@ pub async fn chat_stream(
             street_dev_items,
             !is_first_turn, // is_auto_resume
             move |event| {
-                let event_token_count = loop_stream_observer_for_callback.handle_provider_event(&event);
+                let event_token_count =
+                    loop_stream_observer_for_callback.handle_provider_event(&event);
                 let mut idx = event_index_clone.load(std::sync::atomic::Ordering::SeqCst);
                 let res = emit_mapped_stream_event(
                     &loop_window,
@@ -597,13 +598,15 @@ pub async fn chat_stream(
         );
 
         // ── Check Auto-Resume Status ──────────────────────────────────────────
-        let still_has_active = crate::sub_agents::manager::SubAgentManager::list(Some(&conversation_id))
-            .iter()
-            .any(|s| {
-                s.subagent_type != crate::sub_agents::types::SubAgentType::Memory.as_str()
-                    && (s.status == crate::sub_agents::types::SubAgentStatus::Running.as_str()
-                        || s.status == crate::sub_agents::types::SubAgentStatus::Pending.as_str())
-            });
+        let still_has_active =
+            crate::sub_agents::manager::SubAgentManager::list(Some(&conversation_id))
+                .iter()
+                .any(|s| {
+                    s.subagent_type != crate::sub_agents::types::SubAgentType::Memory.as_str()
+                        && (s.status == crate::sub_agents::types::SubAgentStatus::Running.as_str()
+                            || s.status
+                                == crate::sub_agents::types::SubAgentStatus::Pending.as_str())
+                });
 
         if !still_has_active {
             break 'resume_loop;
@@ -653,13 +656,16 @@ pub async fn chat_stream(
                 continue 'resume_loop;
             }
 
-            let still_active = crate::sub_agents::manager::SubAgentManager::list(Some(&conversation_id))
-                .iter()
-                .any(|s| {
-                    s.subagent_type != crate::sub_agents::types::SubAgentType::Memory.as_str()
-                        && (s.status == crate::sub_agents::types::SubAgentStatus::Running.as_str()
-                            || s.status == crate::sub_agents::types::SubAgentStatus::Pending.as_str())
-                });
+            let still_active =
+                crate::sub_agents::manager::SubAgentManager::list(Some(&conversation_id))
+                    .iter()
+                    .any(|s| {
+                        s.subagent_type != crate::sub_agents::types::SubAgentType::Memory.as_str()
+                            && (s.status
+                                == crate::sub_agents::types::SubAgentStatus::Running.as_str()
+                                || s.status
+                                    == crate::sub_agents::types::SubAgentStatus::Pending.as_str())
+                    });
             if !still_active {
                 break 'resume_loop;
             }

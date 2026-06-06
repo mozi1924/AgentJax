@@ -299,9 +299,7 @@ impl CompactionEngine {
         let omitted = text.len().saturating_sub(head.len() + tail.len());
 
         if tail.is_empty() {
-            format!(
-                "{head}\n\n[... {omitted} bytes truncated by LCM Level 3 compaction ...]"
-            )
+            format!("{head}\n\n[... {omitted} bytes truncated by LCM Level 3 compaction ...]")
         } else {
             format!(
                 "{head}\n\n[... {omitted} bytes truncated by LCM Level 3 compaction ...]\n\n{tail}"
@@ -380,9 +378,7 @@ impl CompactionEngine {
 
             let is_directive = Self::DIRECTIVE_SUBSTRINGS
                 .iter()
-                .any(|pat| {
-                    trimmed.to_lowercase().contains(&pat.to_lowercase())
-                });
+                .any(|pat| trimmed.to_lowercase().contains(&pat.to_lowercase()));
 
             if is_directive {
                 omitted = true;

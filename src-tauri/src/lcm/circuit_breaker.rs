@@ -104,17 +104,16 @@ impl CircuitBreaker {
     /// Record a failure — may open the breaker.
     pub fn record_failure(&self, key: &str, _reason: &str) {
         let mut failures = self.failures.lock().unwrap();
-        let entry = failures.entry(key.to_string()).or_insert((0, Instant::now()));
+        let entry = failures
+            .entry(key.to_string())
+            .or_insert((0, Instant::now()));
         entry.0 += 1;
         entry.1 = Instant::now();
 
         if entry.0 >= self.config.threshold {
             // Open the breaker.
             let mut blocked = self.blocked.lock().unwrap();
-            blocked.insert(
-                key.to_string(),
-                Instant::now() + self.config.cooldown,
-            );
+            blocked.insert(key.to_string(), Instant::now() + self.config.cooldown);
         }
     }
 

@@ -125,12 +125,9 @@ where
     // when reasoning mode is enabled. This replaces the old hardcoded DeepSeek
     // check with a fully declarative approach — any provider can declare what
     // extra fields are needed for reasoning mode.
-    if !req.skip_model_extra_body
-        && req.reasoning.as_ref().is_some_and(|r| r.enabled)
-    {
-        if let Some(reasoning_schema) =
-            registry::provider_definition(&resolved.provider.kind)
-                .and_then(|def| def.reasoning_schema)
+    if !req.skip_model_extra_body && req.reasoning.as_ref().is_some_and(|r| r.enabled) {
+        if let Some(reasoning_schema) = registry::provider_definition(&resolved.provider.kind)
+            .and_then(|def| def.reasoning_schema)
         {
             for (key, value) in &reasoning_schema.enabled_extra_body {
                 req.extra_body
@@ -438,9 +435,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     let mut star_ti: usize = 0; // position in text matched by last '*'
 
     while ti < text_bytes.len() {
-        if pi < pattern_bytes.len()
-            && (pattern_bytes[pi] == b'*')
-        {
+        if pi < pattern_bytes.len() && (pattern_bytes[pi] == b'*') {
             star_pi = Some(pi);
             star_ti = ti;
             pi += 1;
