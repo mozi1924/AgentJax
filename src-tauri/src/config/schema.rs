@@ -212,6 +212,9 @@ pub struct RagConfig {
     pub chunk_size: usize,
     /// Chunk overlap in characters.
     pub chunk_overlap: usize,
+    /// Search window for markdown-aware break-point detection.
+    /// If unset, defaults to 800 chars (~200 tokens).
+    pub chunk_window: Option<usize>,
     /// Default top-K results for searches.
     pub top_k: usize,
     /// Embedding provider configuration.
@@ -224,8 +227,9 @@ impl Default for RagConfig {
         Self {
             enabled: true,
             storage_path: "rag".to_string(),
-            chunk_size: 512,
-            chunk_overlap: 64,
+            chunk_size: 3600,
+            chunk_overlap: 540,
+            chunk_window: None,
             top_k: 5,
             embedding: EmbeddingProviderConfig::default(),
         }

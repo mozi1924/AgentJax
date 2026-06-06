@@ -2,6 +2,7 @@ pub(crate) mod background_jobs;
 mod calculator;
 pub(crate) mod catalog;
 mod files;
+pub(crate) mod knowledge_base_tools;
 pub(crate) mod memory_tools;
 mod native;
 pub(crate) mod sub_agent_tools;

@@ -42,7 +42,11 @@ impl RagIndex {
         let home = agentjax_home::agentjax_home_dir()?;
         let store_path = home.join(&config.storage_path);
         let store = VectorStore::open(&store_path).await?;
-        let chunker = Chunker::new(config.chunk_size, config.chunk_overlap)?;
+        let chunker = Chunker::new(
+            config.chunk_size,
+            config.chunk_overlap,
+            config.chunk_window.unwrap_or(super::chunking::DEFAULT_WINDOW_CHARS),
+        )?;
 
         // Resolve the provider key and model for embedding from the config.
         // If `embedding.provider_key` is set, use it; otherwise default to
@@ -193,7 +197,7 @@ mod tests {
             .await
             .expect("open store");
 
-        let chunker = Chunker::new(100, 10).unwrap();
+        let chunker = Chunker::new(100, 10, 50).unwrap();
         let index = RagIndex::new(
             store,
             chunker,

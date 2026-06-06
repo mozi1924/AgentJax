@@ -16,6 +16,9 @@ use crate::plugin_runtime::{
     PluginManifest, PluginPackage, discover_all_plugin_packages, prefixed_plugin_tool_name,
     registered_tools_for_manifest,
 };
+use crate::tools::knowledge_base_tools::{
+    KbGetTool, KbIndexTool, KbListTool, KbSearchTool,
+};
 use crate::tools::memory_tools::{MemoryRecallTool, MemorySearchTool, MemoryWriteTool};
 use crate::tools::sub_agent_tools::SubAgentTool;
 use crate::tools::{
@@ -77,6 +80,11 @@ impl ToolCatalog {
             Arc::new(MemoryWriteTool),
             Arc::new(MemorySearchTool),
             Arc::new(MemoryRecallTool),
+            // Knowledge base tools
+            Arc::new(KbListTool),
+            Arc::new(KbSearchTool),
+            Arc::new(KbGetTool),
+            Arc::new(KbIndexTool),
             // LCM store-backed tools — registered without a store so they
             // appear in tool lists / snapshots from the start.  When a real
             // LcmEngine is available, set_context_tools() wires in the real
@@ -535,6 +543,12 @@ impl ToolCatalog {
             Arc::new(MemoryWriteTool),
             Arc::new(MemorySearchTool),
             Arc::new(MemoryRecallTool),
+            // Knowledge base tools
+            Arc::new(KbListTool),
+            Arc::new(KbSearchTool),
+            Arc::new(KbGetTool),
+            Arc::new(KbIndexTool),
+            // LCM store-backed tools
             Arc::new(LcmGrepTool::new(lcm_store.clone())),
             Arc::new(LcmDescribeTool::new(lcm_store.clone())),
             Arc::new(LcmExpandTool::new(lcm_store)),
