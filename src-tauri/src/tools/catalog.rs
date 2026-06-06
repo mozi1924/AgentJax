@@ -1,5 +1,6 @@
 mod background;
 mod dynamic;
+mod entry;
 mod manager_snapshot;
 mod mounted;
 mod names;
@@ -26,6 +27,7 @@ use crate::tools::{
     SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation, ToolSchemaFormat,
     format_tool_schema, humanize_tool_name,
 };
+pub(crate) use entry::{ContextGating, ToolCategory, ToolEntry};
 #[allow(unused_imports)]
 pub use manager_snapshot::{
     ToolManagerSchemaFormat, ToolManagerSnapshot, ToolManagerSnapshotRequest,
@@ -56,8 +58,11 @@ pub use types::{
 };
 
 pub struct ToolCatalog {
-    native_tools: Vec<Arc<dyn Tool>>,
-    context_tools: Vec<Arc<dyn Tool>>,
+    /// Unified tool registry — replaces the old split between `native_tools`
+    /// and `context_tools`.  Each entry carries category and gating metadata
+    /// so both model snapshots and tool manager snapshots iterate the same
+    /// source of truth.
+    tools: Vec<ToolEntry>,
     mcp_manager: Arc<crate::mcp::McpManager>,
     mcp_runtime: crate::config::McpRuntimeConfig,
     mcp_config: BTreeMap<String, crate::config::McpServerConfig>,
@@ -74,38 +79,46 @@ impl ToolCatalog {
         agent_config: &crate::config::AgentConfig,
     ) -> Self {
         use crate::lcm::{LcmDescribeTool, LcmExpandTool, LcmGrepTool, LlmMapTool};
-        let context_tools: Vec<Arc<dyn Tool>> = vec![
-            Arc::new(LlmMapTool),
-            // Memory tools
-            Arc::new(MemoryWriteTool),
-            Arc::new(MemorySearchTool),
-            Arc::new(MemoryRecallTool),
-            // Knowledge base tools
-            Arc::new(KbListTool),
-            Arc::new(KbSearchTool),
-            Arc::new(KbGetTool),
-            Arc::new(KbIndexTool),
-            // LCM store-backed tools — registered without a store so they
-            // appear in tool lists / snapshots from the start.  When a real
-            // LcmEngine is available, set_context_tools() wires in the real
-            // store-backed instances so execute() can operate.
-            Arc::new(LcmGrepTool::without_store()),
-            Arc::new(LcmDescribeTool::without_store()),
-            Arc::new(LcmExpandTool::without_store()),
-        ];
 
         Self {
-            native_tools: vec![
-                Arc::new(CalculatorTool),
-                Arc::new(SystemTimeTool),
-                Arc::new(FileReaderTool),
-                Arc::new(FileWriterTool),
-                Arc::new(ListFilesTool),
-                Arc::new(MkdirTool),
-                Arc::new(EditFileTool),
-                Arc::new(SubAgentTool),
+            tools: vec![
+                // ── Native tools ────────────────────────────────────────
+                ToolEntry::native(Arc::new(CalculatorTool)),
+                ToolEntry::native(Arc::new(SystemTimeTool)),
+                ToolEntry::native(Arc::new(FileReaderTool)),
+                ToolEntry::native(Arc::new(FileWriterTool)),
+                ToolEntry::native(Arc::new(ListFilesTool)),
+                ToolEntry::native(Arc::new(MkdirTool)),
+                ToolEntry::native(Arc::new(EditFileTool)),
+                ToolEntry::native(Arc::new(SubAgentTool)),
+                // ── Context tools: LCM ──────────────────────────────────
+                // Registered without a store so they appear in tool lists
+                // from the start.  When a real LcmEngine is available,
+                // update_lcm_context_tools() wires in the real store-backed
+                // instances so execute() can operate.
+                ToolEntry::context_always(Arc::new(LlmMapTool)),
+                ToolEntry::context_always(Arc::new(LcmGrepTool::without_store())),
+                ToolEntry::context_always(Arc::new(LcmDescribeTool::without_store())),
+                ToolEntry::context_always(Arc::new(LcmExpandTool::without_store())),
+                // ── Context tools: Memory (gated) ───────────────────────
+                ToolEntry::context(
+                    Arc::new(MemoryWriteTool),
+                    ContextGating::MemorySubAgentOnly,
+                ),
+                ToolEntry::context(
+                    Arc::new(MemorySearchTool),
+                    ContextGating::MemoryEnabled,
+                ),
+                ToolEntry::context(
+                    Arc::new(MemoryRecallTool),
+                    ContextGating::MemoryEnabled,
+                ),
+                // ── Context tools: Knowledge base ───────────────────────
+                ToolEntry::context_always(Arc::new(KbListTool)),
+                ToolEntry::context_always(Arc::new(KbSearchTool)),
+                ToolEntry::context_always(Arc::new(KbGetTool)),
+                ToolEntry::context_always(Arc::new(KbIndexTool)),
             ],
-            context_tools,
             mcp_manager,
             mcp_runtime: config.mcp.runtime(),
             mcp_config: config.mcp.servers.clone(),
@@ -228,25 +241,7 @@ impl ToolCatalog {
         let mut entries = HashMap::new();
         let mut presentations = HashMap::new();
 
-        for tool in &self.native_tools {
-            if !self.native_tool_enabled(tool.name()) {
-                continue;
-            }
-            let schema = tool.to_schema_with_format(format);
-            let tool_name = tool.name().to_string();
-            presentations.insert(tool_name.clone(), tool.presentation());
-            insert_snapshot_tool(
-                &mut schemas,
-                schema,
-                &mut active_tool_names,
-                &mut entries,
-                tool_name,
-                ToolSnapshotEntry::Native(tool.clone()),
-            );
-        }
-
-        // ── LCM Context Tools ─────────────────────────────────────────
-        // Memory enablement is now per-agent; fall back to the default agent
+        // Memory enablement is per-agent; fall back to the default agent
         // config when no context is available.
         let memory_enabled = context
             .agent_config
@@ -259,30 +254,26 @@ impl ToolCatalog {
             })
             .unwrap_or(false);
 
-        for tool in &self.context_tools {
-            if !self.context_tool_enabled(tool.name()) {
+        // ── Unified tool enumeration ────────────────────────────────────
+        // Both native and context tools live in the single `tools` vec.
+        // Enablement policy and context gating are checked per-entry.
+        for entry in &self.tools {
+            if !self.entry_enabled(entry) {
                 continue;
             }
-            let tool_name = tool.name().to_string();
-
-            // Gate memory_write: only available to the Memory sub-agent.
-            if tool_name == "memory_write" && !context.is_memory_sub_agent {
+            if !self.entry_available_in_context(entry, memory_enabled, context) {
                 continue;
             }
-            // Gate all memory tools: hidden when memory system is disabled.
-            if tool_name.starts_with("memory_") && !memory_enabled {
-                continue;
-            }
-
-            let schema = tool.to_schema_with_format(format);
-            presentations.insert(tool_name.clone(), tool.presentation());
+            let schema = entry.tool.to_schema_with_format(format);
+            let tool_name = entry.tool.name().to_string();
+            presentations.insert(tool_name.clone(), entry.tool.presentation());
             insert_snapshot_tool(
                 &mut schemas,
                 schema,
                 &mut active_tool_names,
                 &mut entries,
                 tool_name,
-                ToolSnapshotEntry::Native(tool.clone()),
+                ToolSnapshotEntry::Native(entry.tool.clone()),
             );
         }
 
@@ -523,6 +514,44 @@ impl ToolCatalog {
             .await
     }
 
+    // ── Unified enablement & gating ──────────────────────────────────────
+    //
+    // These replace the old split between native_tool_enabled() and
+    // context_tool_enabled().  Category-specific logic is now driven by
+    // the ToolEntry metadata rather than separate Vecs.
+
+    /// Check whether a tool entry's base enablement policy allows it.
+    ///
+    /// Native tools are gated by `tool_manager.native_tools.*.enabled`.
+    /// Context tools are forced enabled (the agent depends on them).
+    pub(crate) fn entry_enabled(&self, entry: &ToolEntry) -> bool {
+        match entry.category {
+            ToolCategory::Native => self.native_tool_enabled(entry.name()),
+            ToolCategory::Context => true,
+        }
+    }
+
+    /// Check whether a context tool is gatable by the current runtime state.
+    ///
+    /// Native tools always pass. Context tools may be hidden when the memory
+    /// system is disabled or when running outside the Memory sub-agent.
+    pub(crate) fn entry_available_in_context(
+        &self,
+        entry: &ToolEntry,
+        memory_enabled: bool,
+        context: &ToolExecutionContext,
+    ) -> bool {
+        match entry.context_gating {
+            ContextGating::None => true,
+            ContextGating::MemoryEnabled => memory_enabled,
+            ContextGating::MemorySubAgentOnly => context.is_memory_sub_agent,
+        }
+    }
+
+    /// Whether a native tool is enabled in the tool manager policy.
+    ///
+    /// Kept as a convenience for the tool manager snapshot and background
+    /// task checks; prefer `entry_enabled()` for unified dispatch.
     pub(crate) fn native_tool_enabled(&self, tool_name: &str) -> bool {
         self.tool_manager
             .native_tools
@@ -531,35 +560,24 @@ impl ToolCatalog {
             .unwrap_or(true)
     }
 
-    /// Register LCM context tools from the given store.
+    /// Wire LCM store-backed tools into the unified registry.
     ///
-    /// Call this after construction to wire the LCM store into the catalog.
-    /// Context tools provide the model with access to the immutable
-    /// conversation history (lcm_grep, lcm_describe, lcm_expand).
-    pub fn set_context_tools(&mut self, lcm_store: Arc<crate::lcm::LcmStore>) {
-        use crate::lcm::{LcmDescribeTool, LcmExpandTool, LcmGrepTool, LlmMapTool};
-        self.context_tools = vec![
-            Arc::new(LlmMapTool),
-            Arc::new(MemoryWriteTool),
-            Arc::new(MemorySearchTool),
-            Arc::new(MemoryRecallTool),
-            // Knowledge base tools
-            Arc::new(KbListTool),
-            Arc::new(KbSearchTool),
-            Arc::new(KbGetTool),
-            Arc::new(KbIndexTool),
-            // LCM store-backed tools
-            Arc::new(LcmGrepTool::new(lcm_store.clone())),
-            Arc::new(LcmDescribeTool::new(lcm_store.clone())),
-            Arc::new(LcmExpandTool::new(lcm_store)),
-        ];
-    }
+    /// Call this after construction (once an `LcmEngine` is available) to
+    /// replace the placeholder `without_store()` instances with real
+    /// store-backed ones so `execute()` can operate.
+    pub fn update_lcm_context_tools(&mut self, lcm_store: Arc<crate::lcm::LcmStore>) {
+        use crate::lcm::{LcmDescribeTool, LcmExpandTool, LcmGrepTool};
 
-    pub(crate) fn context_tool_enabled(&self, _tool_name: &str) -> bool {
-        // Context tools are forced enabled — the agent depends on them to
-        // read conversation history. Even if the user config file contains
-        // a disable entry, it is ignored.
-        true
+        let replacements: [(&str, Arc<dyn Tool>); 3] = [
+            ("lcm_grep", Arc::new(LcmGrepTool::new(lcm_store.clone()))),
+            ("lcm_describe", Arc::new(LcmDescribeTool::new(lcm_store.clone()))),
+            ("lcm_expand", Arc::new(LcmExpandTool::new(lcm_store))),
+        ];
+        for (name, new_tool) in &replacements {
+            if let Some(entry) = self.tools.iter_mut().find(|e| e.tool.name() == *name) {
+                entry.tool = new_tool.clone();
+            }
+        }
     }
 
     /// Check if the plugin is enabled at the plugin-manager level.

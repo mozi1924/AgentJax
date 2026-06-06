@@ -1,5 +1,4 @@
-use crate::tools::{Tool, ToolPresentation, humanize_tool_name};
-use std::sync::Arc;
+use crate::tools::{ToolPresentation, humanize_tool_name};
 
 /// Build the stable control-tool name for an MCP server.
 pub(super) fn mount_tool_name_for_server(server_id: &str) -> String {
@@ -27,13 +26,13 @@ pub(super) fn presentation_for_manage_mcp_server(server_id: &str) -> ToolPresent
 /// Infer a UI icon for a conversation-defined alias from the bound tool type.
 pub(super) fn fallback_icon_for_dynamic_binding(
     binding: &crate::conversation_store::ConversationDynamicToolBinding,
-    native_tools: &[Arc<dyn Tool>],
+    entry_tools: &[crate::tools::catalog::ToolEntry],
 ) -> Option<String> {
     match binding {
-        crate::conversation_store::ConversationDynamicToolBinding::Native { tool } => native_tools
+        crate::conversation_store::ConversationDynamicToolBinding::Native { tool } => entry_tools
             .iter()
             .find(|candidate| candidate.name() == tool)
-            .and_then(|candidate| candidate.icon().map(str::to_string)),
+            .and_then(|candidate| candidate.tool.icon().map(str::to_string)),
         crate::conversation_store::ConversationDynamicToolBinding::Mcp { .. } => {
             Some("LayoutGrid".to_string())
         }

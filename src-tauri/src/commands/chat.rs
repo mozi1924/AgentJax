@@ -187,7 +187,7 @@ pub async fn chat_stream(
         &agent_config,
     )?;
     let agent_ctx = LcmAgentContext::new(lcm_engine);
-    tools_catalog.set_context_tools(agent_ctx.engine().store().clone());
+    tools_catalog.update_lcm_context_tools(agent_ctx.engine().store().clone());
     let tools_catalog = Arc::new(tools_catalog);
 
     // Ensure LCM conversation metadata exists.

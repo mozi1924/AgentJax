@@ -1,4 +1,5 @@
 use super::ToolCatalog;
+use super::entry::ToolCategory;
 use super::names::{escape_policy_path_segment, mount_tool_name_for_server, prefixed_mcp_tool_name};
 use super::schemas::{
     BACKGROUND_TASK_NAME, build_background_task_schema, build_manage_mcp_server_tool_schema,
@@ -232,24 +233,25 @@ impl ToolCatalog {
 
     fn native_tools_snapshot(&self) -> ToolManagerSourceSnapshot {
         let mut tools: Vec<ToolManagerToolSnapshot> = self
-            .native_tools
+            .tools
             .iter()
-            .map(|tool| {
-                let enabled = self.native_tool_enabled(tool.name());
-                let input_schema = tool.parameters_schema();
+            .filter(|entry| entry.category == ToolCategory::Native)
+            .map(|entry| {
+                let enabled = self.native_tool_enabled(entry.name());
+                let input_schema = entry.tool.parameters_schema();
                 ToolManagerToolSnapshot::new(
-                    tool.name().to_string(),
-                    tool.display_name().to_string(),
-                    tool.name().to_string(),
-                    tool.description().to_string(),
-                    tool.icon().map(ToOwned::to_owned),
+                    entry.name().to_string(),
+                    entry.display_name().to_string(),
+                    entry.name().to_string(),
+                    entry.description().to_string(),
+                    entry.icon().map(ToOwned::to_owned),
                     enabled,
                     if enabled { "available" } else { "disabled" }.to_string(),
                     input_schema,
                     ToolManagerSchemaFormat::JsonSchema,
                     vec!["policy:tool_enabled".to_string()],
                     ToolManagerToolPolicyPaths {
-                        tool_enabled_path: Some(native_tool_enabled_path(tool.name())),
+                        tool_enabled_path: Some(native_tool_enabled_path(entry.name())),
                     },
                 )
             })
@@ -288,18 +290,19 @@ impl ToolCatalog {
 
     fn context_tools_snapshot(&self) -> ToolManagerSourceSnapshot {
         let tools = self
-            .context_tools
+            .tools
             .iter()
-            .map(|tool| {
+            .filter(|entry| entry.category == ToolCategory::Context)
+            .map(|entry| {
                 // Context tools are always enabled — the agent depends on them
                 // to read conversation history. User configuration is ignored.
-                let input_schema = tool.parameters_schema();
+                let input_schema = entry.tool.parameters_schema();
                 ToolManagerToolSnapshot::new(
-                    tool.name().to_string(),
-                    tool.display_name().to_string(),
-                    tool.name().to_string(),
-                    tool.description().to_string(),
-                    tool.icon().map(ToOwned::to_owned),
+                    entry.name().to_string(),
+                    entry.display_name().to_string(),
+                    entry.name().to_string(),
+                    entry.description().to_string(),
+                    entry.icon().map(ToOwned::to_owned),
                     true,
                     "available".to_string(),
                     input_schema,

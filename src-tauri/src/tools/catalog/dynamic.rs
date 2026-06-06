@@ -43,7 +43,7 @@ impl ToolCatalog {
                 parameters,
                 binding,
             } = dynamic_tool;
-            let fallback_icon = fallback_icon_for_dynamic_binding(&binding, &self.native_tools);
+            let fallback_icon = fallback_icon_for_dynamic_binding(&binding, &self.tools);
             let entry = match binding {
                 crate::conversation_store::ConversationDynamicToolBinding::Native { tool } => {
                     if !self.native_tool_enabled(&tool) {
@@ -55,9 +55,10 @@ impl ToolCatalog {
                         continue;
                     }
                     let Some(native_tool) = self
-                        .native_tools
+                        .tools
                         .iter()
                         .find(|candidate| candidate.name() == tool)
+                        .map(|entry| entry.tool.clone())
                     else {
                         log::warn!(
                             "Skipping conversation dynamic tool '{}' because native target '{}' was not found",
@@ -66,7 +67,7 @@ impl ToolCatalog {
                         );
                         continue;
                     };
-                    ToolSnapshotEntry::Native(native_tool.clone())
+                    ToolSnapshotEntry::Native(native_tool)
                 }
                 crate::conversation_store::ConversationDynamicToolBinding::Mcp {
                     server_id,
