@@ -901,15 +901,19 @@ mod tests {
         let snapshot = catalog.snapshot(&ctx).await;
 
         // Native: 7 default + SubAgentTool + background_task = 9
-        // Context: 1 LCM operator (llm_map) + 2 memory (search, recall; write gated) = 3
-        // (task/agentic_map removed in favor of sub_agent tool; LCM history tools — grep, describe, expand — are wired later via set_context_tools)
-        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT + 4);
+        // Context: llm_map + 3 memory (search, recall; write gated) + 3 LCM history tools = 6
+        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT + 7);
         // Verify sub_agent is a native tool (not context).
         assert!(snapshot.active_tool_names().contains("sub_agent"));
         // Verify memory tools: search and recall are available, write is gated.
         assert!(snapshot.active_tool_names().contains("memory_search"));
         assert!(snapshot.active_tool_names().contains("memory_recall"));
         assert!(!snapshot.active_tool_names().contains("memory_write"));
+        // Verify LCM context tools are available (formerly wired only via set_context_tools).
+        assert!(snapshot.active_tool_names().contains("lcm_grep"));
+        assert!(snapshot.active_tool_names().contains("lcm_describe"));
+        assert!(snapshot.active_tool_names().contains("lcm_expand"));
+        assert!(snapshot.active_tool_names().contains("llm_map"));
         assert!(snapshot.active_tool_names().contains("calculator"));
         assert!(snapshot.active_tool_names().contains("get_system_time"));
         assert!(snapshot.active_tool_names().contains("list_files"));

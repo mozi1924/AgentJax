@@ -15,13 +15,27 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+
+
 pub struct LcmDescribeTool {
-    store: Arc<LcmStore>,
+    store: Option<Arc<LcmStore>>,
 }
 
 impl LcmDescribeTool {
     pub fn new(store: Arc<LcmStore>) -> Self {
-        Self { store }
+        Self { store: Some(store) }
+    }
+
+    /// Create a tool without a backing store (for registration / snapshot only).
+    /// The tool will fail at execution time if no store is wired in later.
+    pub fn without_store() -> Self {
+        Self { store: None }
+    }
+
+    fn store(&self) -> AgentJaxResult<&LcmStore> {
+        self.store
+            .as_deref()
+            .ok_or_else(|| AgentJaxError::tool("lcm_describe requires an active conversation (no LCM store available)"))
     }
 }
 
@@ -77,7 +91,7 @@ impl Tool for LcmDescribeTool {
 
         let id = LcmId::from(args.id);
 
-        let store = &self.store; // LCM tools always operate on the parent conversation's store
+        let store = self.store()?;
         let result = store
             .describe(&id)
             .map_err(|e| AgentJaxError::internal(format!("lcm_describe failed: {e}")))?;

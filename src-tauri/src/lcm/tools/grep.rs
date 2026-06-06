@@ -15,12 +15,24 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 pub struct LcmGrepTool {
-    store: Arc<LcmStore>,
+    store: Option<Arc<LcmStore>>,
 }
 
 impl LcmGrepTool {
     pub fn new(store: Arc<LcmStore>) -> Self {
-        Self { store }
+        Self { store: Some(store) }
+    }
+
+    /// Create a tool without a backing store (for registration / snapshot only).
+    /// The tool will fail at execution time if no store is wired in later.
+    pub fn without_store() -> Self {
+        Self { store: None }
+    }
+
+    fn store(&self) -> AgentJaxResult<&LcmStore> {
+        self.store
+            .as_deref()
+            .ok_or_else(|| AgentJaxError::tool("lcm_grep requires an active conversation (no LCM store available)"))
     }
 }
 
@@ -93,9 +105,9 @@ impl Tool for LcmGrepTool {
 
         let summary_id = args.summary_id.map(LcmId::from);
 
-        let page_size = self.store.grep_page_size();
+        let store = self.store()?;
+        let page_size = store.grep_page_size();
 
-        let store = &self.store; // LCM tools always operate on the parent conversation's store
         let results = store
             .search_messages(
                 conversation_id,

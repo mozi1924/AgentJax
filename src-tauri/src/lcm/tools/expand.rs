@@ -18,13 +18,27 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+
+
 pub struct LcmExpandTool {
-    store: Arc<LcmStore>,
+    store: Option<Arc<LcmStore>>,
 }
 
 impl LcmExpandTool {
     pub fn new(store: Arc<LcmStore>) -> Self {
-        Self { store }
+        Self { store: Some(store) }
+    }
+
+    /// Create a tool without a backing store (for registration / snapshot only).
+    /// The tool will fail at execution time if no store is wired in later.
+    pub fn without_store() -> Self {
+        Self { store: None }
+    }
+
+    fn store(&self) -> AgentJaxResult<&LcmStore> {
+        self.store
+            .as_deref()
+            .ok_or_else(|| AgentJaxError::tool("lcm_expand requires an active conversation (no LCM store available)"))
     }
 }
 
@@ -117,7 +131,7 @@ impl Tool for LcmExpandTool {
 
         let summary_id = LcmId::from(args.summary_id);
 
-        let store = &self.store;
+        let store = self.store()?;
         let messages = store
             .expand_summary(&summary_id)
             .map_err(|e| format!("lcm_expand failed: {e}"))?;

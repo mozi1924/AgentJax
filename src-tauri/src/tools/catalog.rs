@@ -68,16 +68,21 @@ impl ToolCatalog {
         config: &crate::config::AppConfig,
         agent_config: &crate::config::AgentConfig,
     ) -> Self {
-        use crate::lcm::LlmMapTool;
+        use crate::lcm::{LcmDescribeTool, LcmExpandTool, LcmGrepTool, LlmMapTool};
         let context_tools: Vec<Arc<dyn Tool>> = vec![
             Arc::new(LlmMapTool),
             // Memory tools
             Arc::new(MemoryWriteTool),
             Arc::new(MemorySearchTool),
             Arc::new(MemoryRecallTool),
+            // LCM store-backed tools — registered without a store so they
+            // appear in tool lists / snapshots from the start.  When a real
+            // LcmEngine is available, set_context_tools() wires in the real
+            // store-backed instances so execute() can operate.
+            Arc::new(LcmGrepTool::without_store()),
+            Arc::new(LcmDescribeTool::without_store()),
+            Arc::new(LcmExpandTool::without_store()),
         ];
-        // LCM store-backed tools (grep, describe, expand) are wired later
-        // via set_context_tools() when the real LcmEngine is available.
 
         Self {
             native_tools: vec![
