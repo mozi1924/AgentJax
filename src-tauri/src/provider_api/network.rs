@@ -1,33 +1,25 @@
 //! Basic host networking primitives for provider plugins.
 //!
 //! Provider plugins own endpoint selection, headers, payload shape, and stream
-//! parsing. This module intentionally stays protocol-generic: it applies HTTP
-//! headers and query parameters and splits Server-Sent Events frames without
-//! knowing which model vendor produced them.
+//! parsing. This module intentionally stays protocol-generic: it splits
+//! Server-Sent Events frames without knowing which model vendor produced them.
 
 use std::collections::BTreeMap;
 
 use reqwest::RequestBuilder;
-use reqwest::header::{HeaderName, HeaderValue};
 
+/// Apply a validated header map to a `reqwest` request builder.
+///
+/// Header parsing is delegated to the shared [`crate::http_util::parse_headers_map`]
+/// so that MCP transport and provider API calls share the same validation logic.
 pub fn apply_headers_to_reqwest(
     mut builder: RequestBuilder,
     headers: &BTreeMap<String, String>,
 ) -> crate::error::AgentJaxResult<RequestBuilder> {
-    for (key, value) in headers {
-        let key = key.trim();
-        let value = value.trim();
-        if key.is_empty() || value.is_empty() {
-            continue;
-        }
-
-        let header_name = HeaderName::from_bytes(key.as_bytes())
-            .map_err(|err| format!("Invalid HTTP header name '{key}': {err}"))?;
-        let header_value = HeaderValue::from_str(value)
-            .map_err(|err| format!("Invalid HTTP header value for '{key}': {err}"))?;
-        builder = builder.header(header_name, header_value);
+    let parsed = crate::http_util::parse_headers_map(headers)?;
+    for (name, value) in parsed {
+        builder = builder.header(name, value);
     }
-
     Ok(builder)
 }
 

@@ -133,21 +133,7 @@ fn strip_bearer_prefix(token: &str) -> String {
 fn parse_headers(
     headers: &std::collections::BTreeMap<String, String>,
 ) -> AgentJaxResult<HashMap<reqwest::header::HeaderName, reqwest::header::HeaderValue>> {
-    let mut parsed = HashMap::new();
-    for (name, value) in headers {
-        let header_name =
-            reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|e| {
-                AgentJaxError::config(format!("Invalid HTTP header name '{name}': {e}"))
-                    .with_error_source(&e)
-            })?;
-        let header_value = reqwest::header::HeaderValue::from_str(value).map_err(|e| {
-            AgentJaxError::config(format!("Invalid HTTP header value for '{name}': {e}"))
-                .with_error_source(&e)
-        })?;
-        parsed.insert(header_name, header_value);
-    }
-
-    Ok(parsed)
+    crate::http_util::parse_headers_map(headers)
 }
 
 #[cfg(test)]

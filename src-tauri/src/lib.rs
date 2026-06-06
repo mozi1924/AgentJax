@@ -3,6 +3,7 @@
 mod agentjax_home;
 pub(crate) mod atomic_io;
 mod commands;
+pub(crate) mod http_util;
 pub mod config;
 mod conversation_store;
 mod conversation_store_utils;
