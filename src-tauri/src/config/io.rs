@@ -107,6 +107,17 @@ pub fn load_full_config(agent_id: &str) -> AgentJaxResult<FullConfig> {
     Ok(FullConfig::new(shared, agent, agent_id.to_string()))
 }
 
+/// Load config for the active agent (uses `active_agent_id` from shared config).
+///
+/// Equivalent to calling `load_full_config` with the shared config's
+/// `active_agent_id`, but avoids loading the shared config twice.
+pub fn load_active_config() -> AgentJaxResult<FullConfig> {
+    let shared = load_config()?;
+    let agent_id = shared.active_agent_id.clone();
+    let agent = load_agent_config(&agent_id)?;
+    Ok(FullConfig::new(shared, agent, agent_id))
+}
+
 /// Ensure the default agent profile exists on disk.
 /// Writes a default `agent.yaml` from the existing `AppConfig` fields for migration.
 pub fn ensure_default_agent_profile() -> AgentJaxResult<()> {

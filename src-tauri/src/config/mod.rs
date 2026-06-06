@@ -18,8 +18,8 @@ pub use agent_config::{AgentConfig, AgentId, AgentRegistry, FullConfig};
 pub use dynamic_options::build_dynamic_options;
 pub use io::{
     ConfigInfo, ConfigUpgradeResult, config_dir_path, ensure_default_agent_profile,
-    get_config_info, init_config_if_missing, load_agent_config, load_config, load_full_config,
-    serialize_config_to_yaml, upgrade_config_file,
+    get_config_info, init_config_if_missing, load_active_config, load_agent_config, load_config,
+    load_full_config, serialize_config_to_yaml, upgrade_config_file,
 };
 #[allow(unused_imports)]
 pub use prompt_composer::{

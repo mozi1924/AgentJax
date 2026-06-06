@@ -52,10 +52,9 @@ pub fn get_settings_snapshot(agent_id: Option<&str>) -> AgentJaxResult<SettingsS
         ))
         .with_error_source(&e)
     })?;
-    let config = config::load_config()?;
-    let agent_config = config::load_agent_config(&agent_id)?;
+    let full = config::load_full_config(&agent_id)?;
 
-    snapshot_from_config_with_agent(&config, &agent_config, &config_path, &raw)
+    snapshot_from_config_with_agent(&full.shared, &full.agent, &config_path, &raw)
 }
 
 pub fn get_settings_ui_snapshot(

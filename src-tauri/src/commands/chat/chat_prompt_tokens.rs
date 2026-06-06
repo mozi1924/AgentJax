@@ -56,26 +56,19 @@ pub(super) async fn load_conversation_prompt_token_count(
     model: Option<&str>,
     mcp_manager: std::sync::Arc<crate::mcp::McpManager>,
 ) -> usize {
-    let cfg = match config::load_config() {
-        Ok(cfg) => cfg,
+    let full = match config::load_full_config(agent_id) {
+        Ok(full) => full,
         Err(err) => {
             log::warn!("Failed to load config for token counting: {}", err);
             return 0;
         }
     };
-    let agent_cfg = match config::load_agent_config(agent_id) {
-        Ok(cfg) => cfg,
-        Err(err) => {
-            log::warn!("Failed to load agent config for token counting: {}", err);
-            return 0;
-        }
-    };
 
-    let Some(resolved_model) = resolve_prompt_counting_model(&cfg, &agent_cfg, model) else {
+    let Some(resolved_model) = resolve_prompt_counting_model(&full.shared, &full.agent, model) else {
         return 0;
     };
 
-    let tools_catalog = ToolCatalog::new_with_home_plugins(mcp_manager, &cfg, &agent_cfg);
+    let tools_catalog = ToolCatalog::new_with_home_plugins(mcp_manager, &full.shared, &full.agent);
     let tool_snapshot = match tool_snapshot_for_conversation(
         &tools_catalog,
         agent_id,

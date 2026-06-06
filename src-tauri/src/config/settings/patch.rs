@@ -30,16 +30,15 @@ pub fn apply_settings_patch(patch: SettingsPatch) -> AgentJaxResult<SettingsSnap
         .agent_id
         .as_deref()
         .unwrap_or(crate::config::constants::DEFAULT_AGENT_ID);
-    let config = config::load_config()?;
-    let agent_config = config::load_agent_config(agent_id)?;
+    let full = config::load_full_config(agent_id)?;
 
     // Determine if this patch targets agent-specific or shared config.
     let is_agent_path = is_agent_config_path(&patch.path);
 
     if is_agent_path {
-        apply_agent_patch(&patch, &config, &agent_config, agent_id)
+        apply_agent_patch(&patch, &full.shared, &full.agent, agent_id)
     } else {
-        apply_shared_patch(&patch, &config, &agent_config, &config_path, &raw)
+        apply_shared_patch(&patch, &full.shared, &full.agent, &config_path, &raw)
     }
 }
 
