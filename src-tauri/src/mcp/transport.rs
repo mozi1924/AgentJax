@@ -9,6 +9,22 @@ use std::collections::HashMap;
 use std::path::Path;
 use tokio::process::Command;
 
+/// Common `().serve(transport)` with a consistent error wrapper.
+///
+/// Both Stdio and Streamable HTTP transports go through the same rmcp
+/// service initialisation path — only the error label differs.
+macro_rules! serve_transport {
+    ($transport:expr, $label:expr) => {
+        ().serve($transport).await.map_err(|e| {
+            AgentJaxError::internal(format!(
+                "Failed to initialize MCP {} connection: {}",
+                $label, e
+            ))
+            .with_error_source(&e)
+        })
+    };
+}
+
 pub async fn start_transport(
     spec: &McpConnectionSpec,
 ) -> AgentJaxResult<rmcp::service::RunningService<RoleClient, ()>> {
@@ -42,10 +58,7 @@ pub async fn start_transport(
                 .with_error_source(&e)
             })?;
 
-            ().serve(transport).await.map_err(|e| {
-                AgentJaxError::internal(format!("Failed to initialize MCP stdio connection: {e}"))
-                    .with_error_source(&e)
-            })
+            serve_transport!(transport, "stdio")
         }
         McpConnectionSpec::StreamableHttp {
             uri,
@@ -69,12 +82,7 @@ pub async fn start_transport(
             }
 
             let transport = StreamableHttpClientTransport::from_config(config);
-            ().serve(transport).await.map_err(|e| {
-                AgentJaxError::internal(format!(
-                    "Failed to initialize MCP streamable_http connection: {e}"
-                ))
-                .with_error_source(&e)
-            })
+            serve_transport!(transport, "streamable_http")
         }
     }
 }
