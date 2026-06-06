@@ -113,6 +113,67 @@ pub struct ToolSchemaSummary {
     pub properties: Vec<String>,
 }
 
+impl ToolManagerToolSnapshot {
+    /// Construct a tool snapshot entry with automatic `schema_summary` computation.
+    fn new(
+        id: String,
+        friendly_name: String,
+        model_name: String,
+        description: String,
+        icon: Option<String>,
+        enabled: bool,
+        availability: String,
+        input_schema: Value,
+        schema_format: ToolManagerSchemaFormat,
+        source_capabilities: Vec<String>,
+        policy_paths: ToolManagerToolPolicyPaths,
+    ) -> Self {
+        let schema_summary = schema_summary(&input_schema);
+        Self {
+            id,
+            friendly_name,
+            model_name,
+            description,
+            icon,
+            enabled,
+            availability,
+            schema_summary,
+            input_schema: Some(input_schema),
+            schema_format,
+            source_capabilities,
+            policy_paths,
+        }
+    }
+}
+
+impl ToolManagerSourceSnapshot {
+    /// Construct a source snapshot entry with `error: None`.
+    fn new(
+        source_type: ToolManagerSourceType,
+        source_id: String,
+        source_name: String,
+        enabled: bool,
+        status: String,
+        exposure_mode: String,
+        source_capabilities: Vec<String>,
+        policy_paths: ToolManagerSourcePolicyPaths,
+        tools: Vec<ToolManagerToolSnapshot>,
+    ) -> Self {
+        Self {
+            source_type,
+            source_id,
+            source_name,
+            enabled,
+            status,
+            exposure_mode,
+            source_capabilities,
+            policy_paths,
+            tools,
+            error: None,
+        }
+    }
+}
+
 impl ToolCatalog {
     pub async fn tool_manager_snapshot(
         &self,
@@ -176,56 +237,53 @@ impl ToolCatalog {
             .map(|tool| {
                 let enabled = self.native_tool_enabled(tool.name());
                 let input_schema = tool.parameters_schema();
-                ToolManagerToolSnapshot {
-                    id: tool.name().to_string(),
-                    friendly_name: tool.display_name().to_string(),
-                    model_name: tool.name().to_string(),
-                    description: tool.description().to_string(),
-                    icon: tool.icon().map(ToOwned::to_owned),
+                ToolManagerToolSnapshot::new(
+                    tool.name().to_string(),
+                    tool.display_name().to_string(),
+                    tool.name().to_string(),
+                    tool.description().to_string(),
+                    tool.icon().map(ToOwned::to_owned),
                     enabled,
-                    availability: if enabled { "available" } else { "disabled" }.to_string(),
-                    schema_summary: schema_summary(&input_schema),
-                    input_schema: Some(input_schema),
-                    schema_format: ToolManagerSchemaFormat::JsonSchema,
-                    source_capabilities: vec!["policy:tool_enabled".to_string()],
-                    policy_paths: ToolManagerToolPolicyPaths {
+                    if enabled { "available" } else { "disabled" }.to_string(),
+                    input_schema,
+                    ToolManagerSchemaFormat::JsonSchema,
+                    vec!["policy:tool_enabled".to_string()],
+                    ToolManagerToolPolicyPaths {
                         tool_enabled_path: Some(native_tool_enabled_path(tool.name())),
                     },
-                }
+                )
             })
             .collect();
 
         let bg_schema = build_background_task_schema(ToolSchemaFormat::Responses);
         let bg_input_schema = schema_parameters(&bg_schema).clone();
-        tools.push(ToolManagerToolSnapshot {
-            id: BACKGROUND_TASK_NAME.to_string(),
-            friendly_name: "Background Task".to_string(),
-            model_name: BACKGROUND_TASK_NAME.to_string(),
-            description: "Manages background tool jobs — start, wait, cancel, or list.".to_string(),
-            icon: Some("Rocket".to_string()),
-            enabled: true,
-            availability: "available".to_string(),
-            schema_summary: schema_summary(&bg_input_schema),
-            input_schema: Some(bg_input_schema),
-            schema_format: ToolManagerSchemaFormat::JsonSchema,
-            source_capabilities: vec!["policy:tool_enabled".to_string()],
-            policy_paths: ToolManagerToolPolicyPaths {
+        tools.push(ToolManagerToolSnapshot::new(
+            BACKGROUND_TASK_NAME.to_string(),
+            "Background Task".to_string(),
+            BACKGROUND_TASK_NAME.to_string(),
+            "Manages background tool jobs — start, wait, cancel, or list.".to_string(),
+            Some("Rocket".to_string()),
+            true,
+            "available".to_string(),
+            bg_input_schema,
+            ToolManagerSchemaFormat::JsonSchema,
+            vec!["policy:tool_enabled".to_string()],
+            ToolManagerToolPolicyPaths {
                 tool_enabled_path: Some(native_tool_enabled_path(BACKGROUND_TASK_NAME)),
             },
-        });
+        ));
 
-        ToolManagerSourceSnapshot {
-            source_type: ToolManagerSourceType::Native,
-            source_id: "native".to_string(),
-            source_name: "Native Tools".to_string(),
-            enabled: true,
-            status: "ready".to_string(),
-            exposure_mode: "always".to_string(),
-            source_capabilities: vec!["policy:tool_enabled".to_string()],
-            policy_paths: ToolManagerSourcePolicyPaths::default(),
+        ToolManagerSourceSnapshot::new(
+            ToolManagerSourceType::Native,
+            "native".to_string(),
+            "Native Tools".to_string(),
+            true,
+            "ready".to_string(),
+            "always".to_string(),
+            vec!["policy:tool_enabled".to_string()],
+            ToolManagerSourcePolicyPaths::default(),
             tools,
-            error: None,
-        }
+        )
     }
 
     fn context_tools_snapshot(&self) -> ToolManagerSourceSnapshot {
@@ -236,35 +294,33 @@ impl ToolCatalog {
                 // Context tools are always enabled — the agent depends on them
                 // to read conversation history. User configuration is ignored.
                 let input_schema = tool.parameters_schema();
-                ToolManagerToolSnapshot {
-                    id: tool.name().to_string(),
-                    friendly_name: tool.display_name().to_string(),
-                    model_name: tool.name().to_string(),
-                    description: tool.description().to_string(),
-                    icon: tool.icon().map(ToOwned::to_owned),
-                    enabled: true,
-                    availability: "available".to_string(),
-                    schema_summary: schema_summary(&input_schema),
-                    input_schema: Some(input_schema),
-                    schema_format: ToolManagerSchemaFormat::JsonSchema,
-                    source_capabilities: vec![],
-                    policy_paths: ToolManagerToolPolicyPaths::default(),
-                }
+                ToolManagerToolSnapshot::new(
+                    tool.name().to_string(),
+                    tool.display_name().to_string(),
+                    tool.name().to_string(),
+                    tool.description().to_string(),
+                    tool.icon().map(ToOwned::to_owned),
+                    true,
+                    "available".to_string(),
+                    input_schema,
+                    ToolManagerSchemaFormat::JsonSchema,
+                    vec![],
+                    ToolManagerToolPolicyPaths::default(),
+                )
             })
             .collect();
 
-        ToolManagerSourceSnapshot {
-            source_type: ToolManagerSourceType::Context,
-            source_id: "context".to_string(),
-            source_name: "Context Tools".to_string(),
-            enabled: true,
-            status: "ready".to_string(),
-            exposure_mode: "always".to_string(),
-            source_capabilities: vec![],
-            policy_paths: ToolManagerSourcePolicyPaths::default(),
+        ToolManagerSourceSnapshot::new(
+            ToolManagerSourceType::Context,
+            "context".to_string(),
+            "Context Tools".to_string(),
+            true,
+            "ready".to_string(),
+            "always".to_string(),
+            vec![],
+            ToolManagerSourcePolicyPaths::default(),
             tools,
-            error: None,
-        }
+        )
     }
 
     async fn mcp_sources_snapshot(
@@ -291,26 +347,24 @@ impl ToolCatalog {
                         .iter()
                         .map(|tool| {
                             let enabled = self.mcp_tool_enabled(server_id, &tool.tool_name);
-                            ToolManagerToolSnapshot {
-                                id: tool.tool_name.clone(),
-                                friendly_name: tool.display_name.clone(),
-                                model_name: prefixed_mcp_tool_name(server_id, &tool.tool_name),
-                                description: tool.description.clone(),
-                                icon: tool.icon.clone(),
+                            ToolManagerToolSnapshot::new(
+                                tool.tool_name.clone(),
+                                tool.display_name.clone(),
+                                prefixed_mcp_tool_name(server_id, &tool.tool_name),
+                                tool.description.clone(),
+                                tool.icon.clone(),
                                 enabled,
-                                availability: if enabled { "mounted" } else { "disabled" }
-                                    .to_string(),
-                                schema_summary: schema_summary(&tool.input_schema),
-                                input_schema: Some(tool.input_schema.clone()),
-                                schema_format: ToolManagerSchemaFormat::Mcp,
-                                source_capabilities: mcp_source_capabilities(),
-                                policy_paths: ToolManagerToolPolicyPaths {
+                                if enabled { "mounted" } else { "disabled" }.to_string(),
+                                tool.input_schema.clone(),
+                                ToolManagerSchemaFormat::Mcp,
+                                mcp_source_capabilities(),
+                                ToolManagerToolPolicyPaths {
                                     tool_enabled_path: Some(mcp_tool_enabled_path(
                                         server_id,
                                         &tool.tool_name,
                                     )),
                                 },
-                            }
+                            )
                         })
                         .collect::<Vec<_>>()
                 })
@@ -341,26 +395,24 @@ impl ToolCatalog {
                             .into_iter()
                             .map(|tool| {
                                 let enabled = self.mcp_tool_enabled(server_id, &tool.tool_name);
-                                ToolManagerToolSnapshot {
-                                    id: tool.tool_name.clone(),
-                                    friendly_name: tool.display_name,
-                                    model_name: prefixed_mcp_tool_name(server_id, &tool.tool_name),
-                                    description: tool.description,
-                                    icon: tool.icon,
+                                ToolManagerToolSnapshot::new(
+                                    tool.tool_name.clone(),
+                                    tool.display_name,
+                                    prefixed_mcp_tool_name(server_id, &tool.tool_name),
+                                    tool.description,
+                                    tool.icon,
                                     enabled,
-                                    availability: if enabled { "available" } else { "disabled" }
-                                        .to_string(),
-                                    schema_summary: schema_summary(&tool.input_schema),
-                                    input_schema: Some(tool.input_schema),
-                                    schema_format: ToolManagerSchemaFormat::Mcp,
-                                    source_capabilities: mcp_source_capabilities(),
-                                    policy_paths: ToolManagerToolPolicyPaths {
+                                    if enabled { "available" } else { "disabled" }.to_string(),
+                                    tool.input_schema,
+                                    ToolManagerSchemaFormat::Mcp,
+                                    mcp_source_capabilities(),
+                                    ToolManagerToolPolicyPaths {
                                         tool_enabled_path: Some(mcp_tool_enabled_path(
                                             server_id,
                                             &tool.tool_name,
                                         )),
                                     },
-                                }
+                                )
                             })
                             .collect();
                     }
@@ -408,33 +460,32 @@ impl ToolCatalog {
                         } else {
                             registered.tool.display_name.clone()
                         };
-                        ToolManagerToolSnapshot {
-                            id: registered.tool.name.clone(),
+                        ToolManagerToolSnapshot::new(
+                            registered.tool.name.clone(),
                             friendly_name,
-                            model_name: prefixed_plugin_tool_name(
+                            prefixed_plugin_tool_name(
                                 &registered.plugin_id,
                                 &registered.tool.name,
                             ),
-                            description: registered.tool.description.clone(),
-                            icon: registered.tool.icon.clone(),
+                            registered.tool.description.clone(),
+                            registered.tool.icon.clone(),
                             enabled,
-                            availability: if source_enabled && enabled {
+                            if source_enabled && enabled {
                                 "available"
                             } else {
                                 "disabled"
                             }
                             .to_string(),
-                            schema_summary: schema_summary(&registered.tool.input_schema),
-                            input_schema: Some(registered.tool.input_schema.clone()),
-                            schema_format: ToolManagerSchemaFormat::JsonSchema,
-                            source_capabilities: plugin_source_capabilities(),
-                            policy_paths: ToolManagerToolPolicyPaths {
+                            registered.tool.input_schema.clone(),
+                            ToolManagerSchemaFormat::JsonSchema,
+                            plugin_source_capabilities(),
+                            ToolManagerToolPolicyPaths {
                                 tool_enabled_path: Some(plugin_tool_enabled_path(
                                     &registered.plugin_id,
                                     &registered.tool.name,
                                 )),
                             },
-                        }
+                        )
                     })
                     .collect();
 
@@ -479,45 +530,39 @@ impl ToolCatalog {
             .into_iter()
             .map(|tool| {
                 let model_name = tool.name.clone();
-                ToolManagerToolSnapshot {
-                    id: tool.name,
-                    friendly_name: tool
-                        .display_name
+                ToolManagerToolSnapshot::new(
+                    tool.name,
+                    tool.display_name
                         .unwrap_or_else(|| humanize_tool_name(&model_name)),
                     model_name,
-                    description: tool.description,
-                    icon: tool.icon,
-                    enabled: true,
-                    availability: "session".to_string(),
-                    schema_summary: schema_summary(&tool.parameters),
-                    input_schema: Some(tool.parameters),
-                    schema_format: ToolManagerSchemaFormat::JsonSchema,
-                    source_capabilities: vec!["session".to_string()],
-                    policy_paths: ToolManagerToolPolicyPaths::default(),
-                }
+                    tool.description,
+                    tool.icon,
+                    true,
+                    "session".to_string(),
+                    tool.parameters,
+                    ToolManagerSchemaFormat::JsonSchema,
+                    vec!["session".to_string()],
+                    ToolManagerToolPolicyPaths::default(),
+                )
             })
             .collect();
 
-        ToolManagerSourceSnapshot {
-            source_type: ToolManagerSourceType::Dynamic,
-            source_id: context
-                .conversation_id
-                .clone()
-                .unwrap_or_else(|| "current_session".to_string()),
-            source_name: "Session Tools".to_string(),
-            enabled: context.conversation_id.is_some(),
-            status: if context.conversation_id.is_some() {
-                "ready"
-            } else {
-                "no_session"
-            }
-            .to_string(),
-            exposure_mode: "session".to_string(),
-            source_capabilities: vec!["session".to_string()],
-            policy_paths: ToolManagerSourcePolicyPaths::default(),
+        let conv_id = context
+            .conversation_id
+            .clone()
+            .unwrap_or_else(|| "current_session".to_string());
+        let has_session = context.conversation_id.is_some();
+        ToolManagerSourceSnapshot::new(
+            ToolManagerSourceType::Dynamic,
+            conv_id,
+            "Session Tools".to_string(),
+            has_session,
+            if has_session { "ready" } else { "no_session" }.to_string(),
+            "session".to_string(),
+            vec!["session".to_string()],
+            ToolManagerSourcePolicyPaths::default(),
             tools,
-            error: None,
-        }
+        )
     }
 
     fn control_tools_snapshot(
@@ -540,35 +585,33 @@ impl ToolCatalog {
                     mounted_servers.contains_key(server_id),
                 );
                 let input_schema = schema_parameters(&schema).clone();
-                ToolManagerToolSnapshot {
-                    id: server_id.clone(),
-                    friendly_name: format!("Manage {server_id}"),
+                ToolManagerToolSnapshot::new(
+                    server_id.clone(),
+                    format!("Manage {server_id}"),
                     model_name,
-                    description: format!("Controls the MCP server '{server_id}'."),
-                    icon: Some("Plug".to_string()),
-                    enabled: true,
-                    availability: "available".to_string(),
-                    schema_summary: schema_summary(&input_schema),
-                    input_schema: Some(input_schema),
-                    schema_format: ToolManagerSchemaFormat::OpenaiFunction,
-                    source_capabilities: vec!["mcp:control".to_string()],
-                    policy_paths: ToolManagerToolPolicyPaths::default(),
-                }
+                    format!("Controls the MCP server '{server_id}'."),
+                    Some("Plug".to_string()),
+                    true,
+                    "available".to_string(),
+                    input_schema,
+                    ToolManagerSchemaFormat::OpenaiFunction,
+                    vec!["mcp:control".to_string()],
+                    ToolManagerToolPolicyPaths::default(),
+                )
             })
             .collect();
 
-        ToolManagerSourceSnapshot {
-            source_type: ToolManagerSourceType::Control,
-            source_id: "mcp_controls".to_string(),
-            source_name: "MCP Controls".to_string(),
-            enabled: true,
-            status: "ready".to_string(),
-            exposure_mode: "control".to_string(),
-            source_capabilities: vec!["mcp:control".to_string()],
-            policy_paths: ToolManagerSourcePolicyPaths::default(),
+        ToolManagerSourceSnapshot::new(
+            ToolManagerSourceType::Control,
+            "mcp_controls".to_string(),
+            "MCP Controls".to_string(),
+            true,
+            "ready".to_string(),
+            "control".to_string(),
+            vec!["mcp:control".to_string()],
+            ToolManagerSourcePolicyPaths::default(),
             tools,
-            error: None,
-        }
+        )
     }
 }
 

@@ -63,6 +63,46 @@ pub(super) fn insert_snapshot_tool(
     }
 }
 
+/// Execute a Native or MCP tool entry and return the raw output value.
+///
+/// Shared by `ToolCatalogSnapshot::execute_with_effects` and the
+/// background-job runner so the dispatch logic lives in one place.
+pub(super) async fn execute_entry_output(
+    entry: &ToolSnapshotEntry,
+    arguments: &Value,
+    context: &ToolExecutionContext,
+    mcp_manager: &crate::mcp::McpManager,
+    mcp_runtime: &crate::config::McpRuntimeConfig,
+) -> crate::error::AgentJaxResult<Value> {
+    match entry {
+        ToolSnapshotEntry::Native(tool) => tool.execute(arguments, context).await,
+        ToolSnapshotEntry::Mcp {
+            server_id,
+            tool_name,
+            server_config,
+        } => {
+            mcp_manager
+                .call_tool(
+                    server_id,
+                    server_config,
+                    mcp_runtime,
+                    tool_name,
+                    arguments.clone(),
+                )
+                .await
+        }
+        ToolSnapshotEntry::Plugin { .. } => Err(crate::error::AgentJaxError::tool(
+            "Plugin tools must be executed through the plugin execution path",
+        )),
+        ToolSnapshotEntry::BackgroundTask { .. } => Err(crate::error::AgentJaxError::tool(
+            "Background task control tools cannot be executed as regular tools",
+        )),
+        ToolSnapshotEntry::ManageMcpServer { .. } => Err(crate::error::AgentJaxError::tool(
+            "MCP server management tools cannot be executed as regular tools",
+        )),
+    }
+}
+
 /// Turn-scoped tool snapshot.
 ///
 /// The model-visible tool list and local execution dispatch both read from the
@@ -116,27 +156,20 @@ impl ToolCatalogSnapshot {
             .ok_or_else(|| format!("Tool '{}' not found in turn snapshot", tool_name))?;
 
         match entry {
-            ToolSnapshotEntry::Native(tool) => Ok(ToolCatalogExecution {
-                output: tool.execute(arguments, context).await?,
-                state_changes: Vec::new(),
-            }),
-            ToolSnapshotEntry::Mcp {
-                server_id,
-                tool_name,
-                server_config,
-            } => Ok(ToolCatalogExecution {
-                output: self
-                    .mcp_manager
-                    .call_tool(
-                        server_id,
-                        server_config,
-                        &self.mcp_runtime,
-                        tool_name,
-                        arguments.clone(),
-                    )
-                    .await?,
-                state_changes: Vec::new(),
-            }),
+            ToolSnapshotEntry::Native(_) | ToolSnapshotEntry::Mcp { .. } => {
+                let output = execute_entry_output(
+                    entry,
+                    arguments,
+                    context,
+                    &self.mcp_manager,
+                    &self.mcp_runtime,
+                )
+                .await?;
+                Ok(ToolCatalogExecution {
+                    output,
+                    state_changes: Vec::new(),
+                })
+            }
             ToolSnapshotEntry::Plugin {
                 plugin_id,
                 tool_name,

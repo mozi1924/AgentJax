@@ -61,6 +61,9 @@ pub(super) fn is_backgroundable_entry(entry: &ToolSnapshotEntry) -> bool {
 }
 
 /// Execute one snapshot entry inside a background job worker.
+///
+/// Delegates to the shared `execute_entry_output` in the parent snapshot
+/// module, which keeps the Native/MCP dispatch logic in one place.
 pub(super) async fn execute_backgroundable_entry(
     entry: ToolSnapshotEntry,
     arguments: Value,
@@ -68,28 +71,8 @@ pub(super) async fn execute_backgroundable_entry(
     mcp_manager: Arc<crate::mcp::McpManager>,
     mcp_runtime: crate::config::McpRuntimeConfig,
 ) -> crate::error::AgentJaxResult<Value> {
-    match entry {
-        ToolSnapshotEntry::Native(tool) => tool.execute(&arguments, &context).await,
-        ToolSnapshotEntry::Mcp {
-            server_id,
-            tool_name,
-            server_config,
-        } => {
-            mcp_manager
-                .call_tool(
-                    &server_id,
-                    &server_config,
-                    &mcp_runtime,
-                    &tool_name,
-                    arguments,
-                )
-                .await
-        }
-        ToolSnapshotEntry::Plugin { .. } => Err(crate::error::AgentJaxError::tool(
-            "Plugin tools are not supported as background jobs yet",
-        )),
-        _ => Err(crate::error::AgentJaxError::tool(
-            "Only native and MCP tools can run as background jobs",
-        )),
-    }
+    // The entry was already validated as backgroundable by `is_backgroundable_entry`.
+    // Both Native and Mcp variants are handled by the shared dispatch.
+    super::snapshot::execute_entry_output(&entry, &arguments, &context, &mcp_manager, &mcp_runtime)
+        .await
 }
