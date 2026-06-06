@@ -150,6 +150,10 @@ pub fn load_conversation(
 }
 
 /// Try to load conversation detail from the LCM immutable store.
+///
+/// If the LCM store exists but is empty, attempts to backfill from JSONL
+/// (legacy conversations that predate LCM). If backfill succeeds, reads
+/// from the newly populated store.
 fn try_load_from_lcm(
     agent_id: &str,
     conversation_id: &str,
@@ -158,21 +162,55 @@ fn try_load_from_lcm(
     let db_path =
         crate::conversation_store::paths::conversation_lcm_db_path(agent_id, conversation_id)?;
 
-    if !db_path.exists() {
-        return Ok(None);
+    let store = if db_path.exists() {
+        let lcm_config = crate::lcm::LcmConfig::default();
+        let store = crate::lcm::LcmStore::open(&db_path, lcm_config)
+            .map_err(|e| format!("Failed to open LCM store: {e}"))?;
+        let messages_empty = store
+            .get_conversation_messages(conversation_id)
+            .map(|m| m.is_empty())
+            .unwrap_or(true);
+
+        if !messages_empty {
+            // LCM already has data — use it directly.
+            return load_from_lcm_store(store, conversation_id, metadata_path);
+        }
+        // LCM empty — try backfill from JSONL below.
+        store
+    } else {
+        // No LCM DB yet — create it and try backfill.
+        let lcm_config = crate::lcm::LcmConfig::default();
+        let store = crate::lcm::LcmStore::open(&db_path, lcm_config)
+            .map_err(|e| format!("Failed to create LCM store: {e}"))?;
+        store
+    };
+
+    // Attempt one-time backfill from JSONL session file.
+    match crate::lcm::backfill_lcm_from_jsonl(agent_id, conversation_id) {
+        Ok(true) => {
+            // Backfill succeeded — reload from LCM.
+            return load_from_lcm_store(store, conversation_id, metadata_path);
+        }
+        Ok(false) => {
+            // No JSONL data to backfill — fall through to JSONL fallback.
+        }
+        Err(e) => {
+            log::warn!("LCM backfill failed for '{conversation_id}': {e}");
+        }
     }
 
-    let lcm_config = crate::lcm::LcmConfig::default();
-    let store = crate::lcm::LcmStore::open(&db_path, lcm_config)
-        .map_err(|e| format!("Failed to open LCM store: {e}"))?;
+    Ok(None) // Trigger JSONL fallback.
+}
 
+/// Inner helper: load from an already-populated LCM store.
+fn load_from_lcm_store(
+    store: crate::lcm::LcmStore,
+    conversation_id: &str,
+    metadata_path: &std::path::Path,
+) -> crate::error::AgentJaxResult<Option<ConversationDetail>> {
     let messages = store
         .get_conversation_messages(conversation_id)
         .map_err(|e| format!("Failed to read LCM messages: {e}"))?;
-
-    if messages.is_empty() {
-        return Ok(None);
-    }
 
     // Convert LCM StoredMessages to ConversationLines.
     // Thinking content is read directly from the StoredMessage.thinking field

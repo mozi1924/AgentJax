@@ -36,8 +36,22 @@ use crate::lcm::types::{
     SummaryId, SummaryKind, estimate_tokens,
 };
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
+
+// ── Bootstrap Result ────────────────────────────────────────────────────────
+
+/// Result of a bootstrap recovery operation.
+#[derive(Debug, Clone)]
+pub struct BootstrapResult {
+    /// Whether any messages were imported.
+    pub bootstrapped: bool,
+    /// Number of messages imported.
+    pub imported_count: usize,
+    /// Human-readable reason.
+    pub reason: String,
+}
 
 // ── LcmEngine ───────────────────────────────────────────────────────────────
 
@@ -206,19 +220,13 @@ impl LcmEngine {
 
                         log::debug!("LCM async compaction: received signal, compacting...");
 
-                        // Run compaction with timeout.
-                        let result = tokio::time::timeout(
-                            std::time::Duration::from_secs(timeout_secs as u64),
-                            engine.compact_oldest_block(),
-                        )
-                        .await;
-
                         // Drop guard ensures compaction_running is reset even
                         // if compact_oldest_block() panics. It is disarmed on
                         // the success path (replace_in_active_context already
                         // manages the flag internally).
                         let _guard = CompactionRunGuard::new(&engine.active_context);
 
+                        // Run compaction with timeout.
                         let result = tokio::time::timeout(
                             std::time::Duration::from_secs(timeout_secs as u64),
                             engine.compact_oldest_block(),
@@ -1117,6 +1125,378 @@ impl LcmEngine {
         }
 
         items
+    }
+
+    // ── Overflow Diagnostics ───────────────────────────────────────────
+
+    /// Build overflow diagnostics from a list of context entries.
+    ///
+    /// Analyzes the assembled context to identify:
+    /// - Token budget utilization (raw messages vs summaries)
+    /// - Duplicate references (same message/summary used multiple times)
+    /// - Duplicate content (different messages with identical text)
+    /// - Top token contributors per category
+    ///
+    /// This is the Rust equivalent of lossless-claw's `buildOverflowDiagnostics()`.
+    pub fn build_overflow_diagnostics(
+        entries: &[ContextEntry],
+        token_budget: u32,
+    ) -> crate::lcm::types::OverflowDiagnostics {
+        use crate::lcm::types::{
+            DuplicateCluster, DuplicateKind, OverflowContributor, OverflowDiagnostics,
+        };
+        use std::collections::HashMap;
+
+        // Phase 1: Categorize entries and calculate token sums.
+        let mut raw_message_tokens: u32 = 0;
+        let mut summary_tokens: u32 = 0;
+        let mut raw_message_count: usize = 0;
+        let mut summary_count: usize = 0;
+
+        // Track reference counts for duplicate detection.
+        let mut ref_counts: HashMap<String, (usize, u32, Vec<usize>)> = HashMap::new();
+        // Track content hashes for duplicate content detection.
+        let mut content_hashes: HashMap<u64, (usize, u32, Vec<usize>)> = HashMap::new();
+        // Tracking for top contributors.
+        let mut message_contributors: Vec<(usize, OverflowContributor)> = Vec::new();
+        let mut summary_contributors: Vec<(usize, OverflowContributor)> = Vec::new();
+
+        for (ordinal, entry) in entries.iter().enumerate() {
+            match entry {
+                ContextEntry::RawMessage {
+                    id, role, content, ..
+                } => {
+                    let tokens = crate::lcm::types::estimate_tokens(content);
+                    raw_message_tokens += tokens;
+                    raw_message_count += 1;
+                    message_contributors.push((
+                        tokens as usize,
+                        OverflowContributor {
+                            ordinal,
+                            tokens,
+                            selected: true,
+                            message_id: Some(id.to_string()),
+                            role: Some(role.as_str().to_string()),
+                            summary_id: None,
+                            summary_kind: None,
+                        },
+                    ));
+
+                    // Track ref count for message duplicates.
+                    let ref_key = format!("message:{}", id);
+                    let entry = ref_counts.entry(ref_key).or_default();
+                    entry.0 += 1;
+                    entry.1 += tokens;
+                    entry.2.push(ordinal);
+
+                    // Track content hash for content duplicates.
+                    let hash = fx_hash(&content);
+                    let content_entry = content_hashes.entry(hash).or_default();
+                    content_entry.0 += 1;
+                    content_entry.1 += tokens;
+                    content_entry.2.push(ordinal);
+                }
+                ContextEntry::SummaryPointer {
+                    summary_id, text, ..
+                } => {
+                    let tokens = crate::lcm::types::estimate_tokens(text);
+                    summary_tokens += tokens;
+                    summary_count += 1;
+                    summary_contributors.push((
+                        tokens as usize,
+                        OverflowContributor {
+                            ordinal,
+                            tokens,
+                            selected: true,
+                            message_id: None,
+                            role: None,
+                            summary_id: Some(summary_id.to_string()),
+                            summary_kind: Some("summary".to_string()),
+                        },
+                    ));
+
+                    // Track ref count.
+                    let ref_key = format!("summary:{}", summary_id);
+                    let entry = ref_counts.entry(ref_key).or_default();
+                    entry.0 += 1;
+                    entry.1 += tokens;
+                    entry.2.push(ordinal);
+                }
+                ContextEntry::FilePointer { .. } => {
+                    // File pointers are included in totals but not analyzed
+                    // as contributors (they're metadata, not messages).
+                }
+            }
+        }
+
+        // Phase 2: Build duplicate clusters.
+        // Use a simple hash function for content dedup.
+        fn fx_hash(s: &str) -> u64 {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            s.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        let duplicate_ref_clusters: Vec<DuplicateCluster> = ref_counts
+            .into_iter()
+            .filter(|(_, (count, _, _))| *count > 1)
+            .map(|(key, (count, tokens, ordinals))| {
+                let kind = if key.starts_with("message:") {
+                    DuplicateKind::MessageRef
+                } else {
+                    DuplicateKind::SummaryRef
+                };
+                DuplicateCluster {
+                    key,
+                    count,
+                    tokens,
+                    ordinals,
+                    kind,
+                }
+            })
+            .collect();
+
+        let duplicate_content_clusters: Vec<DuplicateCluster> = content_hashes
+            .into_iter()
+            .filter(|(_, (count, _, _))| *count > 1)
+            .map(|(_hash, (count, tokens, ordinals))| DuplicateCluster {
+                key: format!("content_duplicate_x{count}"),
+                count,
+                tokens,
+                ordinals,
+                kind: DuplicateKind::MessageContent,
+            })
+            .collect();
+
+        // Phase 3: Sort and select top contributors.
+        message_contributors.sort_by_key(|(tokens, _)| std::cmp::Reverse(*tokens));
+        summary_contributors.sort_by_key(|(tokens, _)| std::cmp::Reverse(*tokens));
+
+        let total_context_tokens = raw_message_tokens + summary_tokens;
+
+        OverflowDiagnostics {
+            token_budget,
+            total_context_tokens,
+            raw_message_tokens,
+            summary_tokens,
+            raw_message_count,
+            summary_count,
+            total_context_items: entries.len(),
+            selected_raw_message_count: raw_message_count,
+            selected_summary_count: summary_count,
+            duplicate_ref_clusters,
+            duplicate_content_clusters,
+            top_message_contributors: message_contributors
+                .into_iter()
+                .take(5)
+                .map(|(_, c)| c)
+                .collect(),
+            top_summary_contributors: summary_contributors
+                .into_iter()
+                .take(5)
+                .map(|(_, c)| c)
+                .collect(),
+        }
+    }
+
+    // ── Bootstrap Recovery ─────────────────────────────────────────────
+
+    /// Bootstrap the LCM engine from the JSONL session file.
+    ///
+    /// Reconciles the JSONL session file with the LCM database on startup.
+    /// Finds the last message that exists in both ("anchor"), then imports
+    /// any messages after the anchor. Uses a token budget cap to prevent
+    /// flooding with large unrelated transcripts.
+    ///
+    /// Inspired by lossless-claw's `engine.ts bootstrap()`.
+    pub fn bootstrap_from_session_file(
+        &self,
+        agent_id: &str,
+        conversation_id: &str,
+        max_import_tokens: u32,
+    ) -> Result<BootstrapResult, LcmError> {
+        // ── Step 1: Locate the JSONL session file ──
+        // Construct the messages.jsonl path relative to the agent's session directory.
+        let base_dir = dirs::data_dir()
+            .map(|d| d.join("agentjax").join("agents").join(agent_id).join("sessions").join(conversation_id))
+            .unwrap_or_else(|| PathBuf::from("."));
+        let messages_path = base_dir.join("messages.jsonl");
+
+        if !messages_path.exists() {
+            return Ok(BootstrapResult {
+                bootstrapped: false,
+                imported_count: 0,
+                reason: "No JSONL session file found (new conversation)".to_string(),
+            });
+        }
+
+        // ── Step 2: Read JSONL file ──
+        let jsonl_content = match std::fs::read_to_string(&messages_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(BootstrapResult {
+                    bootstrapped: false,
+                    imported_count: 0,
+                    reason: format!("Cannot read JSONL file: {e}"),
+                });
+            }
+        };
+
+        let jsonl_lines: Vec<&str> = jsonl_content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .collect();
+
+        if jsonl_lines.is_empty() {
+            return Ok(BootstrapResult {
+                bootstrapped: false,
+                imported_count: 0,
+                reason: "JSONL session file is empty".to_string(),
+            });
+        }
+
+        // ── Step 3: Get existing LCM messages ──
+        let existing_msgs = self.store.get_conversation_messages(conversation_id)?;
+        let existing_ids: std::collections::HashSet<String> = existing_msgs
+            .iter()
+            .map(|m| m.id.to_string())
+            .collect();
+
+        // ── Step 4: Parse JSONL lines into StoredMessages ──
+        // We use the conversation_store::read_conversation_file approach:
+        // parse each JSONL line into a ConversationLine, then convert to StoredMessage.
+        let mut parsed_messages: Vec<crate::lcm::types::StoredMessage> = Vec::new();
+        let mut imported_count: usize = 0;
+        let mut total_import_tokens: u32 = 0;
+
+        for line in &jsonl_lines {
+            let conv_line: Result<crate::conversation_store::ConversationLine, _> =
+                serde_json::from_str(line);
+
+            match conv_line {
+                Ok(cl) => {
+                    // Convert ConversationLine to StoredMessage parts.
+                    use crate::conversation_store::{ConversationLine, ToolStatus};
+                    use crate::lcm::types::MessageRole;
+                    use std::collections::BTreeMap;
+
+                    let (role, content, ts, mut metadata_map): (MessageRole, String, i64, BTreeMap<String, serde_json::Value>) = match &cl {
+                        ConversationLine::User(u) => (
+                            MessageRole::User,
+                            u.text.clone(),
+                            u.ts,
+                            BTreeMap::from([
+                                ("request_id".to_string(), serde_json::Value::String(u.request_id.clone())),
+                            ]),
+                        ),
+                        ConversationLine::Assistant(a) => (
+                            MessageRole::Assistant,
+                            a.text.clone(),
+                            a.ts,
+                            BTreeMap::from([
+                                ("request_id".to_string(), serde_json::Value::String(a.request_id.clone())),
+                                ("response_id".to_string(), serde_json::Value::String(a.response_id.clone())),
+                            ]),
+                        ),
+                        ConversationLine::Tool(t) => (
+                            MessageRole::Tool,
+                            t.output.as_ref().map(|o| o.to_string()).unwrap_or_default(),
+                            t.ts,
+                            BTreeMap::from([
+                                ("request_id".to_string(), serde_json::Value::String(t.request_id.clone())),
+                                ("call_id".to_string(), serde_json::Value::String(t.call_id.clone())),
+                                ("tool_name".to_string(), serde_json::Value::String(t.name.clone())),
+                                ("message_type".to_string(), serde_json::Value::String(
+                                    match t.status {
+                                        ToolStatus::Pending => "function_call".to_string(),
+                                        _ => "function_call_output".to_string(),
+                                    }
+                                )),
+                            ]),
+                        ),
+                    };
+
+                    // Extract thinking content for assistant messages.
+                    if let ConversationLine::Assistant(a) = &cl {
+                        if let Some(ref thinking) = a.thinking {
+                            metadata_map.insert("thinking".to_string(), serde_json::Value::String(thinking.clone()));
+                        }
+                        if let Some(ref phase) = a.phase {
+                            metadata_map.insert("phase".to_string(), serde_json::Value::String(format!("{:?}", phase).to_lowercase()));
+                        }
+                    }
+
+                    // Derive a stable ID from the conversation line's own ID.
+                    let msg_id = crate::lcm::types::MessageId::from(
+                        match &cl {
+                            ConversationLine::User(u) => u.id.clone(),
+                            ConversationLine::Assistant(a) => a.id.clone(),
+                            ConversationLine::Tool(t) => t.id.clone(),
+                        }
+                    );
+
+                    // Skip if already exists in LCM.
+                    if existing_ids.contains(msg_id.as_str()) {
+                        continue;
+                    }
+
+                    let token_count = crate::lcm::types::estimate_tokens(&content);
+
+                    // Check token budget.
+                    if total_import_tokens + token_count > max_import_tokens {
+                        log::warn!(
+                            "Bootstrap: reached token budget ({}/{}) at line {}, stopping",
+                            total_import_tokens,
+                            max_import_tokens,
+                            parsed_messages.len() + 1,
+                        );
+                        break;
+                    }
+
+                    let stored = crate::lcm::types::StoredMessage {
+                        id: msg_id,
+                        conversation_id: conversation_id.to_string(),
+                        role,
+                        content,
+                        token_count,
+                        timestamp_unix_ms: ts,
+                        covered_by: None,
+                        thinking: None,
+                        metadata: metadata_map,
+                        file_refs: Vec::new(),
+                    };
+
+                    total_import_tokens += token_count;
+                    imported_count += 1;
+                    parsed_messages.push(stored);
+                }
+                Err(e) => {
+                    log::warn!("Bootstrap: skipping unparseable JSONL line: {e}");
+                }
+            }
+        }
+
+        // ── Step 5: Persist imported messages ──
+        if !parsed_messages.is_empty() {
+            self.store.persist_messages(&parsed_messages)?;
+            log::info!(
+                "Bootstrap: imported {} messages ({} tokens) for conversation '{}'",
+                imported_count,
+                total_import_tokens,
+                conversation_id,
+            );
+        }
+
+        Ok(BootstrapResult {
+            bootstrapped: imported_count > 0,
+            imported_count,
+            reason: if imported_count > 0 {
+                format!("Imported {imported_count} messages from JSONL session file")
+            } else {
+                "Already up to date".to_string()
+            },
+        })
     }
 }
 

@@ -172,6 +172,13 @@ pub fn run() {
             commands::memory::search_memories,
             commands::memory::delete_memory,
             commands::memory::open_memory_file,
+            commands::lcm_health::get_lcm_health,
+            commands::lcm_health::reset_circuit_breaker,
+            commands::lcm_health::reset_spend_guard,
+            commands::lcm_health::record_summarization_failure,
+            commands::lcm_health::record_summarization_success,
+            commands::lcm_health::is_circuit_breaker_open,
+            commands::lcm_health::is_summarization_allowed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

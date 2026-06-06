@@ -142,7 +142,14 @@ impl Tool for LlmMapTool {
             )));
         }
 
-        // Read input items.
+        // Ensure output directory exists.
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                AgentJaxError::internal(format!("Failed to create output directory: {e}"))
+            })?;
+        }
+
+        // Read input items (quick validation).
         let input_content = std::fs::read_to_string(&input_path)
             .map_err(|e| AgentJaxError::internal(format!("Failed to read input file: {e}")))?;
 
@@ -160,40 +167,40 @@ impl Tool for LlmMapTool {
             .model_id
             .clone()
             .unwrap_or_else(|| "default".to_string());
+        let conversation_id = context.conversation_id.clone();
+
+        // ── Start background job ───────────────────────────────────────
+        // Instead of blocking the tool execution thread, we launch a
+        // background job that processes items in parallel. The model
+        // receives a job ID and can check status via background job tools
+        // or wait for completion.
+        let job = crate::tools::background_jobs::start_job_for_conversation(
+            "llm_map",
+            conversation_id.clone(),
+        );
+        let job_id = crate::tools::background_jobs::job_id(&job);
+
+        // Clone everything needed for the background task.
+        let input_lines_clone = input_lines.clone();
         let prompt_template = args.prompt;
         let output_schema = args.output_schema;
+        let output_path_clone = output_path.clone();
         let concurrency = args.concurrency.max(1);
         let max_retries = args.max_retries;
 
-        // Status tracking.
-        let completed = Arc::new(AtomicUsize::new(0));
-        let failed = Arc::new(AtomicUsize::new(0));
-        let semaphore = Arc::new(Semaphore::new(concurrency));
-        let results: Arc<std::sync::Mutex<Vec<(usize, Result<Value, String>)>>> =
-            Arc::new(std::sync::Mutex::new(Vec::with_capacity(total)));
+        let handle = tokio::spawn({
+            // Clone the Arc for the async block (the original stays for handle registration).
+            let job = job.clone();
+            async move {
+                let completed = Arc::new(AtomicUsize::new(0));
+                let failed = Arc::new(AtomicUsize::new(0));
+                let semaphore = Arc::new(Semaphore::new(concurrency));
+                let results: Arc<std::sync::Mutex<Vec<(usize, Result<Value, String>)>>> =
+                    Arc::new(std::sync::Mutex::new(Vec::with_capacity(total)));
 
-        let rt = tokio::runtime::Handle::current();
-
-        // Process items in parallel using a synchronous approach since
-        // Tool::execute is synchronous. We spawn a tokio task to do the
-        // async work and block on it.
-        //
-        // For a production version, this should be implemented as a
-        // background job tool (like BackgroundTask) rather than blocking
-        // the tool execution thread.
-        let task = {
-            let completed = completed.clone();
-            let failed = failed.clone();
-            let semaphore = semaphore.clone();
-            let results = results.clone();
-            let prompt_template = prompt_template.clone();
-            let output_schema = output_schema.clone();
-            let model_ref = model_ref.clone();
-
-            rt.spawn(async move {
                 let mut handles = Vec::with_capacity(total);
 
-                for (i, line) in input_lines.iter().enumerate() {
+                for (i, line) in input_lines_clone.iter().enumerate() {
                     let permit = semaphore.clone().acquire_owned();
                     let line = line.clone();
                     let prompt = prompt_template.replace("{input}", &line);
@@ -252,60 +259,71 @@ impl Tool for LlmMapTool {
                 for handle in handles {
                     let _ = handle.await;
                 }
-            })
-        };
 
-        // Await the task directly (execute is now async).
-        task.await
-            .map_err(|e| AgentJaxError::internal(format!("llm_map task failed: {e}")))?;
+                // Sort results by index and write output.
+                let final_results = {
+                    let mut lock = results.lock().unwrap();
+                    lock.sort_by_key(|(i, _)| *i);
+                    lock.clone()
+                };
 
-        // Sort results by index and write output.
-        let final_results = {
-            let mut lock = results.lock().unwrap();
-            lock.sort_by_key(|(i, _)| *i);
-            lock.clone()
-        };
-
-        let mut output_lines = Vec::new();
-        let mut output_items = Vec::new();
-        for (_i, result) in &final_results {
-            match result {
-                Ok(val) => {
-                    output_lines.push(serde_json::to_string(val).unwrap_or_default());
-                    output_items.push(val.clone());
+                let mut output_lines = Vec::new();
+                for (_i, result) in &final_results {
+                    match result {
+                        Ok(val) => {
+                            output_lines.push(serde_json::to_string(val).unwrap_or_default());
+                        }
+                        Err(e) => {
+                            output_lines.push(
+                                serde_json::to_string(&json!({ "error": e })).unwrap_or_default(),
+                            );
+                        }
+                    }
                 }
-                Err(e) => {
-                    output_lines.push(
-                        serde_json::to_string(&json!({
-                            "error": e
-                        }))
-                        .unwrap_or_default(),
-                    );
+
+                // Write output file.
+                match std::fs::write(&output_path_clone, output_lines.join("\n")) {
+                    Ok(()) => {
+                        let completed_count = completed.load(Ordering::SeqCst);
+                        let failed_count = failed.load(Ordering::SeqCst);
+
+                        crate::tools::background_jobs::complete_job(
+                            &job,
+                            Ok(json!({
+                                "status": if failed_count == 0 { "success" } else { "partial" },
+                                "totalItems": total,
+                                "completedItems": completed_count,
+                                "failedItems": failed_count,
+                                "outputPath": output_path_clone.to_string_lossy(),
+                            })),
+                        );
+                    }
+                    Err(e) => {
+                        crate::tools::background_jobs::complete_job(
+                            &job,
+                            Err(AgentJaxError::internal(format!(
+                                "Failed to write llm_map output: {e}"
+                            ))),
+                        );
+                    }
                 }
             }
-        }
+        });
 
-        // Write output file.
-        if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                AgentJaxError::internal(format!("Failed to create output directory: {e}"))
-            })?;
-        }
-        std::fs::write(&output_path, output_lines.join("\n"))
-            .map_err(|e| AgentJaxError::internal(format!("Failed to write output file: {e}")))?;
+        crate::tools::background_jobs::register_job_handle(&job, handle);
 
-        let completed_count = completed.load(Ordering::SeqCst);
-        let failed_count = failed.load(Ordering::SeqCst);
-
+        // Return immediately with job ID so the model can check progress
+        // via background_job_status or wait_for_background_job.
         Ok(json!({
-            "status": if failed_count == 0 { "success" } else { "partial" },
+            "jobId": job_id,
+            "status": "started",
             "totalItems": total,
-            "completedItems": completed_count,
-            "failedItems": failed_count,
+            "inputPath": args.input_path,
             "outputPath": args.output_path,
-            "summary": format!(
-                "Processed {total} items: {completed_count} succeeded, {failed_count} failed. Output written to {}",
-                args.output_path
+            "message": format!(
+                "llm_map job started: processing {total} items in background. \
+                 Use background_job_status(jobId=\"{job_id}\") to check progress, \
+                 or wait_for_background_job(jobId=\"{job_id}\") to wait for completion."
             ),
         }))
     }

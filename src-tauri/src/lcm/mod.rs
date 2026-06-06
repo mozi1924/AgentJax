@@ -31,9 +31,14 @@
 //! 4. **DAG-structured summaries**: Summary nodes form a directed acyclic
 //!    graph, allowing multi-resolution traversal of conversation history.
 
+pub mod circuit_breaker;
 pub mod compaction;
 pub mod dag;
 pub mod engine;
+pub mod focus_briefs;
+pub mod integrity;
+pub mod repair;
+pub mod spend_guard;
 pub mod store;
 pub mod summarizer;
 pub mod tools;
@@ -43,7 +48,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use compaction::{NoopSummarizer, Summarizer};
-pub use engine::LcmEngine;
+pub use engine::{BootstrapResult, LcmEngine};
+pub use repair::{RepairReport, sanitize_tool_use_result_pairing};
 pub use store::LcmStore;
 pub use summarizer::ProviderSummarizer;
 pub use tools::{LcmDescribeTool, LcmExpandTool, LcmGrepTool, LlmMapTool};
@@ -303,6 +309,174 @@ pub fn stored_messages_to_conversation_lines(
             }
         })
         .collect()
+}
+
+// ── JSONL → LCM Backfill ────────────────────────────────────────────────
+
+/// Maximum tokens to import from JSONL during backfill.
+/// This prevents flooding the LCM store with huge pre-LCM conversations.
+pub const BACKFILL_MAX_TOKENS: u32 = 200_000;
+
+/// Backfill the LCM store from the JSONL session file.
+///
+/// Called when a conversation exists (has metadata.json / messages.jsonl)
+/// but the LCM database is empty or unpopulated. Reads messages from JSONL
+/// and imports them into the LCM SQLite store so subsequent loads use LCM.
+///
+/// This is a one-time migration: after backfill, the LCM store becomes the
+/// single source of truth. JSONL remains as a backup.
+///
+/// Returns `true` if LCM was populated, `false` if no JSONL data was found
+/// or if LCM already had data.
+pub fn backfill_lcm_from_jsonl(
+    agent_id: &str,
+    conversation_id: &str,
+) -> Result<bool, crate::error::AgentJaxError> {
+    // ── Step 1: Check LCM DB — skip if already populated ──
+    let db_path = lcm_store_path(agent_id, conversation_id)
+        .map_err(|e| crate::error::AgentJaxError::internal(format!("Bad store path: {e}")))?;
+
+    if db_path.exists() {
+        // DB exists — check if it has messages.
+        if let Ok(store) = crate::lcm::LcmStore::open(&db_path, crate::lcm::LcmConfig::default()) {
+            if let Ok(messages) = store.get_conversation_messages(conversation_id) {
+                if !messages.is_empty() {
+                    return Ok(false); // Already populated.
+                }
+            }
+        }
+    }
+
+    // ── Step 2: Read JSONL session file ──
+    let messages_path = db_path
+        .parent()
+        .map(|p| p.join("messages.jsonl"))
+        .unwrap_or_else(|| {
+            // Fallback: use the standard path.
+            let dir = dirs::data_dir()
+                .map(|d| d.join("agentjax").join("agents").join(agent_id).join("sessions").join(conversation_id))
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            dir.join("messages.jsonl")
+        });
+
+    if !messages_path.exists() {
+        return Ok(false); // No JSONL file to import from.
+    }
+
+    let jsonl_content = match std::fs::read_to_string(&messages_path) {
+        Ok(c) => c,
+        Err(_) => return Ok(false),
+    };
+
+    let jsonl_lines: Vec<&str> = jsonl_content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .collect();
+
+    if jsonl_lines.is_empty() {
+        return Ok(false);
+    }
+
+    // ── Step 3: Open or create LCM store ──
+    let store = crate::lcm::LcmStore::open(&db_path, crate::lcm::LcmConfig::default())
+        .map_err(|e| crate::error::AgentJaxError::internal(format!("Cannot open LCM store: {e}")))?;
+
+    // ── Step 4: Parse JSONL and convert to StoredMessages ──
+    use crate::lcm::types::{LcmId, MessageRole, StoredMessage};
+    use crate::conversation_store::{ConversationLine, ToolStatus};
+    use std::collections::BTreeMap;
+
+    let mut stored_messages: Vec<StoredMessage> = Vec::new();
+    let mut total_tokens: u32 = 0;
+
+    for line in &jsonl_lines {
+        let Ok(cl) = serde_json::from_str::<ConversationLine>(line) else {
+            continue;
+        };
+
+        let (role, content, ts, metadata_map): (MessageRole, String, i64, BTreeMap<String, serde_json::Value>) = match &cl {
+            ConversationLine::User(u) => (
+                MessageRole::User,
+                u.text.clone(),
+                u.ts,
+                BTreeMap::from([
+                    ("request_id".to_string(), serde_json::Value::String(u.request_id.clone())),
+                ]),
+            ),
+            ConversationLine::Assistant(a) => {
+                let mut meta = BTreeMap::from([
+                    ("request_id".to_string(), serde_json::Value::String(a.request_id.clone())),
+                    ("response_id".to_string(), serde_json::Value::String(a.response_id.clone())),
+                ]);
+                if let Some(ref phase) = a.phase {
+                    meta.insert("phase".to_string(), serde_json::Value::String(format!("{:?}", phase).to_lowercase()));
+                }
+                if let Some(ref thinking) = a.thinking {
+                    meta.insert("thinking".to_string(), serde_json::Value::String(thinking.clone()));
+                }
+                (MessageRole::Assistant, a.text.clone(), a.ts, meta)
+            }
+            ConversationLine::Tool(t) => (
+                MessageRole::Tool,
+                t.output.as_ref().map(|o| o.to_string()).unwrap_or_default(),
+                t.ts,
+                BTreeMap::from([
+                    ("request_id".to_string(), serde_json::Value::String(t.request_id.clone())),
+                    ("call_id".to_string(), serde_json::Value::String(t.call_id.clone())),
+                    ("tool_name".to_string(), serde_json::Value::String(t.name.clone())),
+                    ("message_type".to_string(), serde_json::Value::String(
+                        match t.status {
+                            ToolStatus::Pending => "function_call".to_string(),
+                            _ => "function_call_output".to_string(),
+                        }
+                    )),
+                ]),
+            ),
+        };
+
+        let msg_id = LcmId::new();
+        let token_count = crate::lcm::types::estimate_tokens(&content);
+
+        // Check token budget.
+        if total_tokens + token_count > BACKFILL_MAX_TOKENS {
+            log::warn!(
+                "LCM backfill: reached token budget ({}/{}) after {} messages",
+                total_tokens, BACKFILL_MAX_TOKENS, stored_messages.len()
+            );
+            break;
+        }
+
+        total_tokens += token_count;
+        stored_messages.push(StoredMessage {
+            id: msg_id,
+            conversation_id: conversation_id.to_string(),
+            role,
+            content,
+            token_count,
+            timestamp_unix_ms: ts,
+            covered_by: None,
+            thinking: None,
+            metadata: metadata_map,
+            file_refs: Vec::new(),
+        });
+    }
+
+    if stored_messages.is_empty() {
+        return Ok(false);
+    }
+
+    // ── Step 5: Persist to LCM store ──
+    store.persist_messages(&stored_messages)
+        .map_err(|e| crate::error::AgentJaxError::internal(format!("Failed to persist backfill: {e}")))?;
+
+    log::info!(
+        "LCM backfill: imported {} messages ({} tokens) for '{}' from JSONL",
+        stored_messages.len(),
+        total_tokens,
+        conversation_id,
+    );
+
+    Ok(true)
 }
 
 // ── Smoke tests: JSONL-optional conversations ───────────────────────────

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react';
-import { Plus, Search, Settings } from 'lucide-react';
+import { Activity, Plus, Search, Settings } from 'lucide-react';
 import SidebarActionMenu from './sidebar/SidebarActionMenu';
 import SidebarConversationRow from './sidebar/SidebarConversationRow';
 import AgentSwitcher from './sidebar/AgentSwitcher';
@@ -24,6 +24,7 @@ interface SidebarProps {
   onSelectConversation: (conversationId: string) => void;
   onNewChat: () => void;
   onOpenSettings: () => void;
+  onOpenLcmHealth: () => void;
   onRenameConversation: (conversationId: string, title: string) => Promise<void>;
   onDeleteConversation: (conversationId: string) => Promise<void> | void;
   generatingConversationIds: Set<string>;
@@ -44,6 +45,7 @@ export default function Sidebar({
   onSelectConversation,
   onNewChat,
   onOpenSettings,
+  onOpenLcmHealth,
   onRenameConversation,
   onDeleteConversation,
   generatingConversationIds,
@@ -352,7 +354,25 @@ export default function Sidebar({
         />
       )}
 
-      <div className="shrink-0 p-3">
+      <div className="shrink-0 space-y-1 p-3">
+        <button
+          onClick={onOpenLcmHealth}
+          className={`flex h-9 items-center whitespace-nowrap text-xs text-slate-500 transition-all duration-300 hover:bg-[#2d2f31] hover:text-slate-200 ${
+            isOpen ? 'ml-0 w-[232px] rounded-xl pl-[18px] pr-4' : 'ml-[6px] w-11 rounded-xl pl-[12px]'
+          }`}
+          title="LCM Health"
+        >
+          <Activity className="h-4 w-4 flex-shrink-0" />
+          <span
+            className={`transform overflow-hidden whitespace-nowrap transition-all duration-500 ease-out ${
+              isOpen
+                ? 'ml-3 max-w-[150px] translate-x-0 opacity-100'
+                : 'pointer-events-none max-w-0 -translate-x-4 opacity-0'
+            }`}
+          >
+            LCM Health
+          </span>
+        </button>
         <button
           onClick={onOpenSettings}
           className={`flex h-11 items-center whitespace-nowrap text-sm text-slate-400 transition-all duration-300 hover:bg-[#2d2f31] hover:text-slate-200 ${

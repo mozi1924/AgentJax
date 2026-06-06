@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import ChatComposer from './components/ChatComposer';
 import ConfirmModal from './components/ConfirmModal';
+import LcmHealthModal from './components/LcmHealthModal';
 import SettingsModal from './components/SettingsModal';
 import { useI18n } from './features/i18n';
 import {
@@ -22,6 +23,7 @@ export default function App() {
   const { t } = useI18n();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [lcmHealthOpen, setLcmHealthOpen] = useState(false);
 
   const titlebarRef = useRef<HTMLDivElement | null>(null);
   const mainRef = useRef<HTMLDivElement | null>(null);
@@ -137,6 +139,7 @@ export default function App() {
         onSelectConversation={setActiveConversationId}
         onNewChat={createNewChat}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenLcmHealth={() => setLcmHealthOpen(true)}
         onRenameConversation={renameConversation}
         onDeleteConversation={requestDeleteConversation}
         generatingConversationIds={generatingConversationIds}
@@ -253,6 +256,13 @@ export default function App() {
         />
       )}
 
+      {activeConversationId && (
+        <LcmHealthModal
+          isOpen={lcmHealthOpen}
+          onClose={() => setLcmHealthOpen(false)}
+          conversationId={activeConversationId}
+        />
+      )}
       <SettingsModal
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}

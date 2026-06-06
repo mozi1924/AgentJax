@@ -705,6 +705,76 @@ impl LcmStore {
         Ok(children)
     }
 
+    // ── Summary Queries ────────────────────────────────────────────────
+
+    /// Get all summaries for a conversation.
+    pub fn get_conversation_summaries(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Vec<SummaryNode>, LcmError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| LcmError::Concurrency(format!("Failed to acquire store lock: {e}")))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, conversation_id, kind, text, token_count, created_at_unix_ms, compaction_level
+                 FROM summaries WHERE conversation_id = ?1 ORDER BY created_at_unix_ms ASC",
+            )
+            .map_err(|e| LcmError::Store(format!("Failed to prepare summary query: {e}")))?;
+
+        let rows = stmt
+            .query_map(params![conversation_id], |row| {
+                let id_str: String = row.get(0)?;
+                let kind_str: String = row.get(2)?;
+                let kind = match kind_str.as_str() {
+                    "leaf" => SummaryKind::Leaf,
+                    "condensed" => SummaryKind::Condensed,
+                    _ => SummaryKind::Leaf,
+                };
+
+                Ok(SummaryNode {
+                    id: SummaryId::from(id_str),
+                    conversation_id: row.get(1)?,
+                    kind,
+                    text: row.get(3)?,
+                    token_count: row.get::<_, i64>(4).unwrap_or(0) as u32,
+                    created_at_unix_ms: row.get(5)?,
+                    compaction_level: row.get::<_, i64>(6).unwrap_or(0) as u8,
+                    parents: Vec::new(), // loaded separately
+                    file_refs: Vec::new(),
+                })
+            })
+            .map_err(|e| LcmError::Store(format!("Failed to query summaries: {e}")))?;
+
+        let mut summaries: Vec<SummaryNode> = rows
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Load parent references for each summary.
+        for summary in &mut summaries {
+            let mut parent_stmt = conn
+                .prepare(
+                    "SELECT parent_id FROM summary_parents WHERE summary_id = ?1",
+                )
+                .map_err(|e| LcmError::Store(format!("Failed to prepare parent query: {e}")))?;
+
+                let parent_ids: Vec<SummaryId> = parent_stmt
+                    .query_map(params![summary.id.as_str()], |row| {
+                        let id_str: String = row.get(0)?;
+                        Ok(SummaryId::from(id_str))
+                    })
+                    .map_err(|e| LcmError::Store(format!("Failed to query parents: {e}")))?
+                    .filter_map(|r| r.ok())
+                    .collect();
+
+            summary.parents = parent_ids;
+        }
+
+        Ok(summaries)
+    }
+
     // ── File Reference Operations ──────────────────────────────────────
 
     /// Get a file reference by ID.

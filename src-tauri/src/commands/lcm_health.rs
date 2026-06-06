@@ -1,0 +1,167 @@
+//! Tauri commands for LCM health dashboard.
+//!
+//! Exposes integrity checks, circuit breaker state, spend guard state,
+//! and session metrics to the frontend UI.
+
+use crate::lcm::circuit_breaker::CircuitBreaker;
+use crate::lcm::integrity::{IntegrityChecker, IntegrityReport, LcmMetrics};
+use crate::lcm::spend_guard::SpendGuard;
+use crate::lcm::LcmConfig;
+use serde::Serialize;
+use std::sync::{Arc, OnceLock};
+
+// ── Shared State ────────────────────────────────────────────────────────────
+
+fn global_circuit_breaker() -> &'static CircuitBreaker {
+    static BREAKER: OnceLock<CircuitBreaker> = OnceLock::new();
+    BREAKER.get_or_init(|| CircuitBreaker::default())
+}
+
+fn global_spend_guard() -> &'static SpendGuard {
+    static GUARD: OnceLock<SpendGuard> = OnceLock::new();
+    GUARD.get_or_init(|| SpendGuard::default())
+}
+
+// ── Response Types ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LcmHealthResponse {
+    pub integrity: Option<IntegrityReport>,
+    pub metrics: Option<LcmMetrics>,
+    pub circuit_breaker: Vec<crate::lcm::circuit_breaker::BreakerEntry>,
+    pub spend_guard: Vec<crate::lcm::spend_guard::SpendGuardEntry>,
+    pub config: LcmHealthConfig,
+    pub repair_suggestions: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LcmHealthConfig {
+    pub soft_token_threshold: u32,
+    pub hard_token_threshold: u32,
+    pub compaction_timeout_secs: u32,
+    pub max_compact_block_size: usize,
+    pub truncation_max_tokens: u32,
+    pub summarization_model: String,
+    pub dynamic_thresholds: bool,
+}
+
+impl From<&LcmConfig> for LcmHealthConfig {
+    fn from(c: &LcmConfig) -> Self {
+        Self {
+            soft_token_threshold: c.soft_token_threshold,
+            hard_token_threshold: c.hard_token_threshold,
+            compaction_timeout_secs: c.compaction_timeout_secs,
+            max_compact_block_size: c.max_compact_block_size,
+            truncation_max_tokens: c.truncation_max_tokens,
+            summarization_model: c.summarization_model.clone(),
+            dynamic_thresholds: c.dynamic_thresholds,
+        }
+    }
+}
+
+// ── Commands ────────────────────────────────────────────────────────────────
+
+/// Get the full LCM health dashboard data.
+#[tauri::command]
+pub fn get_lcm_health(agent_id: String, conversation_id: String) -> Result<LcmHealthResponse, String> {
+    let agent_config = crate::config::load_agent_config(&agent_id)
+        .unwrap_or_default()
+        .normalize();
+
+    let lcm_config_types = agent_config
+        .context_management
+        .to_lcm_config()
+        .with_dynamic_thresholds(128_000); // Use 128K default window
+
+    // Open LCM store for the conversation.
+    let db_path = crate::lcm::lcm_store_path(&agent_id, &conversation_id)
+        .map_err(|e| format!("Failed to get LCM store path: {e}"))?;
+
+    let (integrity_report, metrics, repair_suggestions) = match crate::lcm::store::LcmStore::open(&db_path, lcm_config_types.clone()) {
+        Ok(store) => {
+            let store = Arc::new(store);
+            let checker = IntegrityChecker::new(store.clone());
+
+            let report = checker.scan(&conversation_id).ok();
+            let met = checker.collect_metrics(&conversation_id).ok();
+            let suggestions = report.as_ref()
+                .map(|r| crate::lcm::integrity::repair_plan(r))
+                .unwrap_or_default();
+
+            (report, met, suggestions)
+        }
+        Err(e) => {
+            (None, None, vec![format!("Failed to open LCM store: {e}")])
+        }
+    };
+
+    Ok(LcmHealthResponse {
+        integrity: integrity_report,
+        metrics,
+        circuit_breaker: global_circuit_breaker().snapshot(),
+        spend_guard: global_spend_guard().snapshot(),
+        config: LcmHealthConfig::from(&lcm_config_types),
+        repair_suggestions,
+    })
+}
+
+/// Reset the circuit breaker for a specific key (or all if key is empty).
+#[tauri::command]
+pub fn reset_circuit_breaker(key: Option<String>) -> Result<(), String> {
+    match key {
+        Some(k) if !k.is_empty() => {
+            global_circuit_breaker().reset(&k);
+        }
+        _ => {
+            global_circuit_breaker().reset_all();
+        }
+    }
+    Ok(())
+}
+
+/// Reset the spend guard for a specific key (or all if key is empty).
+#[tauri::command]
+pub fn reset_spend_guard(key: Option<String>) -> Result<(), String> {
+    match key {
+        Some(k) if !k.is_empty() => {
+            global_spend_guard().reset(&k);
+        }
+        _ => {
+            global_spend_guard().reset_all();
+        }
+    }
+    Ok(())
+}
+
+/// Record a summarization failure (opens circuit breaker if threshold exceeded).
+///
+/// This is called by the summarizer when a provider returns an auth error.
+#[tauri::command]
+pub fn record_summarization_failure(provider: String, model: String, reason: String) -> Result<(), String> {
+    let key = CircuitBreaker::build_key(&provider, &model);
+    global_circuit_breaker().record_failure(&key, &reason);
+    Ok(())
+}
+
+/// Record a summarization success (resets circuit breaker counter).
+#[tauri::command]
+pub fn record_summarization_success(provider: String, model: String) -> Result<(), String> {
+    let key = CircuitBreaker::build_key(&provider, &model);
+    global_circuit_breaker().record_success(&key);
+    Ok(())
+}
+
+/// Check if the circuit breaker is open for a given provider/model.
+#[tauri::command]
+pub fn is_circuit_breaker_open(provider: String, model: String) -> Result<bool, String> {
+    let key = CircuitBreaker::build_key(&provider, &model);
+    Ok(global_circuit_breaker().is_open(&key))
+}
+
+/// Check if summarization calls are allowed for a given model (spend guard).
+#[tauri::command]
+pub fn is_summarization_allowed(key: String) -> Result<bool, String> {
+    Ok(global_spend_guard().is_allowed(&key))
+}

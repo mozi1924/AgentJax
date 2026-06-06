@@ -98,26 +98,60 @@ fn load_context_from_lcm(
     use crate::conversation_store::paths::conversation_lcm_db_path;
 
     let db_path = conversation_lcm_db_path(agent_id, conversation_id)?;
-    if !db_path.exists() {
-        return Ok(None);
+    let store = if db_path.exists() {
+        let lcm_config = crate::lcm::LcmConfig::default();
+        let store = crate::lcm::LcmStore::open(&db_path, lcm_config)
+            .map_err(|e| format!("Failed to open LCM store for context: {e}"))?;
+        let messages_empty = store
+            .get_conversation_messages(conversation_id)
+            .map(|m| m.is_empty())
+            .unwrap_or(true);
+
+        if !messages_empty {
+            // LCM already has data — use it directly.
+            return load_context_from_lcm_store(store, conversation_id, budget);
+        }
+        store
+    } else {
+        // No LCM DB yet — create it and try backfill.
+        let lcm_config = crate::lcm::LcmConfig::default();
+        let store = crate::lcm::LcmStore::open(&db_path, lcm_config)
+            .map_err(|e| format!("Failed to create LCM store for context: {e}"))?;
+        store
+    };
+
+    // Attempt one-time backfill from JSONL session file.
+    match crate::lcm::backfill_lcm_from_jsonl(agent_id, conversation_id) {
+        Ok(true) => {
+            // Backfill succeeded — reload from LCM.
+            return load_context_from_lcm_store(store, conversation_id, budget);
+        }
+        Ok(false) => {
+            // No JSONL data — fall through to JSONL fallback.
+        }
+        Err(e) => {
+            log::warn!("LCM backfill failed for context '{conversation_id}': {e}");
+        }
     }
 
-    let lcm_config = crate::lcm::LcmConfig::default();
-    let store = crate::lcm::LcmStore::open(&db_path, lcm_config)
-        .map_err(|e| format!("Failed to open LCM store for context: {e}"))?;
+    Ok(None)
+}
 
+/// Inner helper: build context from an already-populated LCM store.
+fn load_context_from_lcm_store(
+    store: crate::lcm::LcmStore,
+    conversation_id: &str,
+    budget: Option<&TokenBudget>,
+) -> crate::error::AgentJaxResult<Option<ConversationContext>> {
     let messages = store
         .get_conversation_messages(conversation_id)
-        .map_err(|e| format!("Failed to read LCM messages: {e}"))?;
+        .map_err(|e| format!("Failed to read LCM messages for context: {e}"))?;
 
     if messages.is_empty() {
         return Ok(None);
     }
 
     // Convert StoredMessages to ConversationLines.
-    // Thinking content is read directly from StoredMessage.thinking by
-    // stored_messages_to_conversation_lines (no separate reasoning_chains
-    // enrichment needed).
     let lines = crate::lcm::stored_messages_to_conversation_lines(&messages);
     let mut input_items = build_context_items(&lines);
     input_items = sanitize_tool_call_pairs(input_items);

@@ -15,6 +15,8 @@
 //! its input**. If a level fails to reduce token count, the system escalates.
 //! Level 3 guarantees convergence by using a non-LLM deterministic truncation.
 
+#![allow(dead_code)]
+
 use crate::lcm::types::{
     FileRefId, LcmError, MessageRole, StoredMessage, SummaryId, SummaryKind, SummaryNode,
 };
@@ -278,7 +280,6 @@ impl CompactionEngine {
         let head = &text[..head_end];
 
         // Tail: last ~33% aligned to message boundary.
-        let remaining = text.len().saturating_sub(head_end);
         let tail_from = text
             .char_indices()
             .rev()
@@ -306,6 +307,164 @@ impl CompactionEngine {
                 "{head}\n\n[... {omitted} bytes truncated by LCM Level 3 compaction ...]\n\n{tail}"
             )
         }
+    }
+
+    // ── Deterministic Fallback Content Sanitization ────────────────────
+
+    /// Marker inserted when deterministic truncation occurs.
+    pub const FALLBACK_SUMMARY_MARKER: &'static str =
+        "[LCM fallback summary; truncated for context management]";
+
+    /// Marker inserted when directive-shaped (jailbreak/DAN) content is omitted.
+    pub const FALLBACK_DIRECTIVE_OMISSION: &'static str =
+        "[LCM fallback summary omitted directive-shaped untrusted content].";
+
+    /// Marker for summaries where directive-shaped content was detected and removed.
+    pub const FALLBACK_DIRECTIVE_SUMMARY_MARKER: &'static str =
+        "[LCM fallback summary; directive-shaped untrusted content omitted]";
+
+    /// Directive-shaped (jailbreak/DAN) content detection patterns.
+    ///
+    /// These are simple substrings checked case-insensitively. For more precise
+    /// detection, the regex crate could be used; for now, plain substring matching
+    /// catches all common jailbreak/DAN patterns with near-zero overhead.
+    const DIRECTIVE_SUBSTRINGS: &[&str] = &[
+        "ignore your instructions",
+        "ignore all instructions",
+        "ignore the system",
+        "ignore system prompt",
+        "ignore previous instructions",
+        "disregard instructions",
+        "forget instructions",
+        "override instructions",
+        "you are now",
+        "from now on",
+        "reply only with",
+        "system prompt",
+        "developer prompt",
+        "jailbreak",
+        "dan mode",
+        "you are dan",
+        "act as dan",
+        "pretend to be dan",
+        "reveal the system",
+        "show the system prompt",
+        "dump the system",
+        "exfiltrate",
+    ];
+
+    /// Sanitize text by detecting and replacing directive-shaped (jailbreak/DAN) content.
+    ///
+    /// Returns the sanitized text and whether any content was omitted.
+    /// Replaces matching sentences with `FALLBACK_DIRECTIVE_OMISSION`.
+    pub fn sanitize_deterministic_fallback_text(text: &str) -> (String, bool) {
+        if text.is_empty() {
+            return (String::new(), false);
+        }
+
+        // Split into sentence-like units for pattern matching.
+        let units: Vec<&str> = text
+            .split_inclusive(|c: char| c == '.' || c == '!' || c == '?' || c == '\n')
+            .collect();
+
+        let mut output = Vec::new();
+        let mut omitted = false;
+        let mut last_was_omission = false;
+
+        for unit in &units {
+            let trimmed = unit.trim();
+            if trimmed.is_empty() {
+                output.push(*unit);
+                continue;
+            }
+
+            let is_directive = Self::DIRECTIVE_SUBSTRINGS
+                .iter()
+                .any(|pat| {
+                    trimmed.to_lowercase().contains(&pat.to_lowercase())
+                });
+
+            if is_directive {
+                omitted = true;
+                if !last_was_omission {
+                    output.push(Self::FALLBACK_DIRECTIVE_OMISSION);
+                    output.push(" ");
+                    last_was_omission = true;
+                }
+                continue;
+            }
+
+            output.push(*unit);
+            last_was_omission = false;
+        }
+
+        let sanitized: String = output.into_iter().collect();
+        let sanitized = sanitized.trim().to_string();
+
+        (sanitized, omitted)
+    }
+
+    /// Build a deterministic fallback summary with content sanitization.
+    ///
+    /// This is used when Level 1 and Level 2 summarization both fail.
+    /// It sanitizes directive-shaped content and truncates to fit within
+    /// the target token budget.
+    ///
+    /// Based on lossless-claw's `buildDeterministicFallbackSummary()`.
+    pub fn build_deterministic_fallback_summary(
+        text: &str,
+        target_tokens: u32,
+        truncation_max_tokens: Option<u32>,
+        count_tokens: &TokenCounter,
+    ) -> String {
+        if text.is_empty() {
+            return String::new();
+        }
+
+        // Step 1: Sanitize directive-shaped content.
+        let (sanitized_text, omitted_directive) = Self::sanitize_deterministic_fallback_text(text);
+
+        if sanitized_text.is_empty() {
+            return if omitted_directive {
+                Self::FALLBACK_DIRECTIVE_SUMMARY_MARKER.to_string()
+            } else {
+                Self::FALLBACK_SUMMARY_MARKER.to_string()
+            };
+        }
+
+        let fallback_note = if omitted_directive {
+            Self::FALLBACK_DIRECTIVE_SUMMARY_MARKER
+        } else {
+            Self::FALLBACK_SUMMARY_MARKER
+        };
+
+        // Step 2: Determine truncation budget.
+        let max_tokens = truncation_max_tokens.unwrap_or(target_tokens.max(128));
+        let note_with_newline = format!("\n{fallback_note}");
+        let note_token_cost = count_tokens(&note_with_newline);
+        let max_summary_tokens = (max_tokens as i32 - note_token_cost as i32).max(1) as u32;
+
+        // Step 3: Truncate to fit within budget.
+        let text_tokens = count_tokens(&sanitized_text);
+        if text_tokens <= max_summary_tokens && !omitted_directive {
+            // Fits within budget — just append note.
+            return format!("{sanitized_text}\n{fallback_note}");
+        }
+
+        // Need to truncate.
+        let max_chars = (max_summary_tokens as usize).saturating_mul(4);
+        let truncated = if sanitized_text.len() <= max_chars {
+            sanitized_text.clone()
+        } else {
+            let mut end = max_chars;
+            // Try to break at a sentence boundary.
+            if let Some(pos) = sanitized_text[..end].rfind(|c| c == '.' || c == '!' || c == '?') {
+                end = pos + 1;
+            }
+            sanitized_text[..end].to_string()
+        };
+
+        format!("{truncated}\n{fallback_note}")
     }
 
     /// Create a new SummaryNode with propagated file references.
