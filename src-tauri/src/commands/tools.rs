@@ -1,4 +1,5 @@
 use crate::config;
+use crate::error::AgentJaxError;
 use crate::plugin_runtime::{PluginPackage, discover_all_plugin_packages};
 use crate::tools::{
     PluginManagerSnapshot, ToolCatalog, ToolManagerSnapshot, ToolManagerSnapshotRequest,
@@ -14,7 +15,7 @@ use tauri::State;
 pub async fn get_tool_manager_snapshot(
     mcp_manager: State<'_, Arc<crate::mcp::McpManager>>,
     request: Option<ToolManagerSnapshotRequest>,
-) -> Result<ToolManagerSnapshot, String> {
+) -> Result<ToolManagerSnapshot, AgentJaxError> {
     let config = config::load_config()?;
     let agent_config = config::AgentConfig::default();
     let catalog =
@@ -26,9 +27,9 @@ pub async fn get_tool_manager_snapshot(
 
 /// Snapshot of all discovered plugins for the Plugin Manager UI.
 #[tauri::command]
-pub fn get_plugin_manager_snapshot() -> Result<PluginManagerSnapshot, String> {
+pub fn get_plugin_manager_snapshot() -> Result<PluginManagerSnapshot, AgentJaxError> {
     let config = config::load_config()?;
-    let packages = discover_all_plugin_packages().map_err(|err| err.to_string())?;
+    let packages = discover_all_plugin_packages()?;
     let package_map: BTreeMap<String, PluginPackage> = packages
         .into_iter()
         .map(|pkg| (pkg.manifest.id.clone(), pkg))
@@ -50,14 +51,14 @@ pub struct PluginSettingsSnapshot {
 }
 
 #[tauri::command]
-pub fn get_plugin_settings_snapshot() -> Result<PluginSettingsSnapshot, String> {
-    let packages = discover_all_plugin_packages().map_err(|err| err.to_string())?;
+pub fn get_plugin_settings_snapshot() -> Result<PluginSettingsSnapshot, AgentJaxError> {
+    let packages = discover_all_plugin_packages()?;
     plugin_settings_snapshot_from_packages(packages)
 }
 
 pub(crate) fn plugin_settings_snapshot_from_packages(
     packages: impl IntoIterator<Item = PluginPackage>,
-) -> Result<PluginSettingsSnapshot, String> {
+) -> Result<PluginSettingsSnapshot, AgentJaxError> {
     let packages = packages.into_iter().collect::<Vec<_>>();
     let mut data_sources = BTreeMap::new();
 
@@ -78,9 +79,9 @@ pub(crate) fn plugin_settings_snapshot_from_packages(
         for (key, value) in package.manifest.settings_data {
             let data_source = normalize_plugin_settings_data_key(&package.manifest.id, &key)?;
             if data_sources.insert(data_source.clone(), value).is_some() {
-                return Err(format!(
+                return Err(AgentJaxError::config(format!(
                     "Duplicate plugin settings data source '{data_source}'"
-                ));
+                )));
             }
         }
     }
@@ -88,12 +89,12 @@ pub(crate) fn plugin_settings_snapshot_from_packages(
     Ok(PluginSettingsSnapshot { data_sources })
 }
 
-fn normalize_plugin_settings_data_key(plugin_id: &str, key: &str) -> Result<String, String> {
+fn normalize_plugin_settings_data_key(plugin_id: &str, key: &str) -> Result<String, AgentJaxError> {
     let key = key.trim();
     if key.is_empty() {
-        return Err(format!(
+        return Err(AgentJaxError::config(format!(
             "Plugin '{plugin_id}' settingsData contains an empty data source key"
-        ));
+        )));
     }
     if key == "plugin" || key.starts_with("plugin.") {
         return Ok(key.to_string());

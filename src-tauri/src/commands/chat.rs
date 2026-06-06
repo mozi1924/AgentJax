@@ -18,6 +18,7 @@ pub use chat_types::{
 
 use crate::config;
 use crate::conversation_store;
+use crate::error::AgentJaxError;
 use crate::provider_api::{build_user_input_item, get_tool_schema_format};
 use crate::runtime::agent_context::{AgentContext, LcmAgentContext};
 use crate::time_context::{build_temporal_context_system_item, render_timed_message};
@@ -40,7 +41,7 @@ pub async fn chat_stream(
     registry: State<'_, ChatRequestRegistry>,
     mcp_manager: State<'_, std::sync::Arc<crate::mcp::McpManager>>,
     req: ChatRequest,
-) -> Result<ChatResponse, String> {
+) -> Result<ChatResponse, AgentJaxError> {
     let agent_id = req
         .agent_id
         .as_deref()
@@ -63,7 +64,7 @@ pub async fn chat_stream(
 
     let input_text = req.input.trim().to_string();
     if input_text.is_empty() {
-        return Err("Input text cannot be empty".to_string());
+        return Err(AgentJaxError::config("Input text cannot be empty"));
     }
 
     let conversation_id = req
@@ -79,7 +80,7 @@ pub async fn chat_stream(
         conversation_id.clone(),
         cancel_tx.clone(),
     )? {
-        return Err("This conversation already has an active request. Stop it or wait for completion before sending another message.".to_string());
+        return Err(AgentJaxError::config("This conversation already has an active request. Stop it or wait for completion before sending another message."));
     }
 
     registry.clear_conversation_deleted(&conversation_id)?;
@@ -99,7 +100,6 @@ pub async fn chat_stream(
                 )?;
             }
             conversation_store::load_context_for_request(&agent_id, &conversation_id, None)
-                .map_err(|e| e.to_string())
         })
     }
     .await
@@ -112,7 +112,6 @@ pub async fn chat_stream(
         let agent_id = agent_id.clone();
         run_blocking(move || {
             conversation_store::build_recovery_developer_note(&agent_id, &conversation_id)
-                .map_err(|e| e.to_string())
         })
         .await
         .ok()
@@ -232,7 +231,6 @@ pub async fn chat_stream(
                     ),
                 },
             )
-            .map_err(|e| e.to_string())
         })
         .await?;
     }
@@ -812,16 +810,16 @@ fn resolve_agent_id(agent_id: Option<&str>) -> String {
 #[tauri::command]
 pub fn list_conversations(
     agent_id: Option<String>,
-) -> Result<Vec<conversation_store::ConversationSummary>, String> {
+) -> Result<Vec<conversation_store::ConversationSummary>, AgentJaxError> {
     let agent_id = resolve_agent_id(agent_id.as_deref());
-    conversation_store::list_conversations(&agent_id).map_err(|e| e.to_string())
+    conversation_store::list_conversations(&agent_id)
 }
 
 #[tauri::command]
 pub async fn load_conversation(
     mcp_manager: State<'_, std::sync::Arc<crate::mcp::McpManager>>,
     req: LoadConversationRequest,
-) -> Result<Option<conversation_store::ConversationDetail>, String> {
+) -> Result<Option<conversation_store::ConversationDetail>, AgentJaxError> {
     let agent_id = resolve_agent_id(req.agent_id.as_deref());
     let conversation_id = req.conversation_id.clone();
     let mut detail = conversation_store::load_conversation(&agent_id, &req.conversation_id)?;
@@ -849,16 +847,15 @@ pub async fn load_conversation(
 #[tauri::command]
 pub fn load_conversation_dynamic_tools(
     req: LoadConversationDynamicToolsRequest,
-) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
+) -> Result<Vec<conversation_store::ConversationDynamicTool>, AgentJaxError> {
     let agent_id = resolve_agent_id(req.agent_id.as_deref());
     conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id)
-        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn replace_conversation_dynamic_tools(
     req: ReplaceConversationDynamicToolsRequest,
-) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
+) -> Result<Vec<conversation_store::ConversationDynamicTool>, AgentJaxError> {
     let agent_id = resolve_agent_id(req.agent_id.as_deref());
     validate_conversation_dynamic_tools(&req.tools)?;
     conversation_store::ensure_conversation(&agent_id, &req.conversation_id)?;
@@ -868,13 +865,12 @@ pub fn replace_conversation_dynamic_tools(
         req.tools,
     )?;
     conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id)
-        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn upsert_conversation_dynamic_tool(
     req: UpsertConversationDynamicToolRequest,
-) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
+) -> Result<Vec<conversation_store::ConversationDynamicTool>, AgentJaxError> {
     let agent_id = resolve_agent_id(req.agent_id.as_deref());
     validate_conversation_dynamic_tools(std::slice::from_ref(&req.tool))?;
     conversation_store::ensure_conversation(&agent_id, &req.conversation_id)?;
@@ -884,17 +880,16 @@ pub fn upsert_conversation_dynamic_tool(
         req.tool,
     )?;
     conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id)
-        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn remove_conversation_dynamic_tool(
     req: RemoveConversationDynamicToolRequest,
-) -> Result<Vec<conversation_store::ConversationDynamicTool>, String> {
+) -> Result<Vec<conversation_store::ConversationDynamicTool>, AgentJaxError> {
     let agent_id = resolve_agent_id(req.agent_id.as_deref());
     let tool_name = req.tool_name.trim();
     if tool_name.is_empty() {
-        return Err("toolName cannot be empty".to_string());
+        return Err(AgentJaxError::config("toolName cannot be empty"));
     }
     conversation_store::ensure_conversation(&agent_id, &req.conversation_id)?;
     conversation_store::remove_conversation_dynamic_tool(
@@ -903,39 +898,36 @@ pub fn remove_conversation_dynamic_tool(
         tool_name,
     )?;
     conversation_store::load_conversation_dynamic_tools(&agent_id, &req.conversation_id)
-        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn rename_conversation(
     registry: State<'_, ChatRequestRegistry>,
     req: RenameConversationRequest,
-) -> Result<conversation_store::ConversationSummary, String> {
+) -> Result<conversation_store::ConversationSummary, AgentJaxError> {
     let agent_id = resolve_agent_id(req.agent_id.as_deref());
     let _ = registry.cancel_title_request(&req.conversation_id)?;
 
     conversation_store::rename_conversation(&agent_id, &req.conversation_id, &req.title)
-        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn delete_conversation(
     registry: State<'_, ChatRequestRegistry>,
     req: DeleteConversationRequest,
-) -> Result<bool, String> {
+) -> Result<bool, AgentJaxError> {
     let agent_id = resolve_agent_id(req.agent_id.as_deref());
     registry.mark_conversation_deleted(&req.conversation_id)?;
     registry.cancel_conversation_tasks(&req.conversation_id)?;
 
     conversation_store::delete_conversation(&agent_id, &req.conversation_id)
-        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn cancel_chat_stream(
     registry: State<'_, ChatRequestRegistry>,
     req: CancelChatRequest,
-) -> Result<bool, String> {
+) -> Result<bool, AgentJaxError> {
     registry.cancel_chat_request(&req.request_id)
 }
 

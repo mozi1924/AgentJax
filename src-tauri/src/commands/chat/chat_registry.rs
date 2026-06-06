@@ -1,4 +1,5 @@
 use super::chat_utils::chrono_like_now_id;
+use crate::error::AgentJaxError;
 use crate::sub_agents::manager::SubAgentManager;
 use crate::tools::background_jobs;
 use std::collections::{HashMap, HashSet};
@@ -30,11 +31,11 @@ impl ChatRequestRegistry {
         request_id: String,
         conversation_id: String,
         cancel_tx: watch::Sender<bool>,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, AgentJaxError> {
         let mut requests = self
             .requests
             .lock()
-            .map_err(|_| "Failed to lock chat request registry".to_string())?;
+            .map_err(|_| AgentJaxError::internal("Failed to lock chat request registry"))?;
 
         if requests
             .values()
@@ -43,10 +44,10 @@ impl ChatRequestRegistry {
             return Ok(false);
         }
         if requests.contains_key(&request_id) {
-            return Err(format!(
+            return Err(AgentJaxError::internal(format!(
                 "Request id '{}' already exists in chat request registry",
                 request_id
-            ));
+            )));
         }
 
         requests.insert(
@@ -62,20 +63,20 @@ impl ChatRequestRegistry {
     pub fn remove_chat_request(
         &self,
         request_id: &str,
-    ) -> Result<Option<ActiveChatRequest>, String> {
+    ) -> Result<Option<ActiveChatRequest>, AgentJaxError> {
         let mut requests = self
             .requests
             .lock()
-            .map_err(|_| "Failed to lock chat request registry".to_string())?;
+            .map_err(|_| AgentJaxError::internal("Failed to lock chat request registry"))?;
         Ok(requests.remove(request_id))
     }
 
-    pub fn cancel_chat_request(&self, request_id: &str) -> Result<bool, String> {
+    pub fn cancel_chat_request(&self, request_id: &str) -> Result<bool, AgentJaxError> {
         let active_request = {
             let requests = self
                 .requests
                 .lock()
-                .map_err(|_| "Failed to lock chat request registry".to_string())?;
+                .map_err(|_| AgentJaxError::internal("Failed to lock chat request registry"))?;
             requests.get(request_id).cloned()
         };
 
@@ -83,7 +84,7 @@ impl ChatRequestRegistry {
             request
                 .cancel_tx
                 .send(true)
-                .map_err(|_| "Failed to signal chat stream cancellation".to_string())?;
+                .map_err(|_| AgentJaxError::internal("Failed to signal chat stream cancellation"))?;
             // Background sidecar jobs are deliberately detached from the
             // provider turn, so user-initiated Stop must cancel them
             // explicitly or they can outlive the visible request.
@@ -99,13 +100,13 @@ impl ChatRequestRegistry {
         &self,
         conversation_id: &str,
         cancel_tx: watch::Sender<bool>,
-    ) -> Result<String, String> {
+    ) -> Result<String, AgentJaxError> {
         let job_id = format!("title-{}-{}", conversation_id, chrono_like_now_id());
         let previous = {
             let mut title_requests = self
                 .title_requests
                 .lock()
-                .map_err(|_| "Failed to lock title request registry".to_string())?;
+                .map_err(|_| AgentJaxError::internal("Failed to lock title request registry"))?;
 
             title_requests.insert(
                 conversation_id.to_string(),
@@ -123,11 +124,11 @@ impl ChatRequestRegistry {
         Ok(job_id)
     }
 
-    pub fn finish_title_request(&self, conversation_id: &str, job_id: &str) -> Result<(), String> {
+    pub fn finish_title_request(&self, conversation_id: &str, job_id: &str) -> Result<(), AgentJaxError> {
         let mut title_requests = self
             .title_requests
             .lock()
-            .map_err(|_| "Failed to lock title request registry".to_string())?;
+            .map_err(|_| AgentJaxError::internal("Failed to lock title request registry"))?;
 
         let should_remove = title_requests
             .get(conversation_id)
@@ -141,12 +142,12 @@ impl ChatRequestRegistry {
         Ok(())
     }
 
-    pub fn cancel_title_request(&self, conversation_id: &str) -> Result<bool, String> {
+    pub fn cancel_title_request(&self, conversation_id: &str) -> Result<bool, AgentJaxError> {
         let request = {
             let mut title_requests = self
                 .title_requests
                 .lock()
-                .map_err(|_| "Failed to lock title request registry".to_string())?;
+                .map_err(|_| AgentJaxError::internal("Failed to lock title request registry"))?;
             title_requests.remove(conversation_id)
         };
 
@@ -158,38 +159,38 @@ impl ChatRequestRegistry {
         Ok(false)
     }
 
-    pub fn mark_conversation_deleted(&self, conversation_id: &str) -> Result<(), String> {
+    pub fn mark_conversation_deleted(&self, conversation_id: &str) -> Result<(), AgentJaxError> {
         let mut deleted_conversations = self
             .deleted_conversations
             .lock()
-            .map_err(|_| "Failed to lock deleted conversation registry".to_string())?;
+            .map_err(|_| AgentJaxError::internal("Failed to lock deleted conversation registry"))?;
         deleted_conversations.insert(conversation_id.to_string());
         Ok(())
     }
 
-    pub fn clear_conversation_deleted(&self, conversation_id: &str) -> Result<(), String> {
+    pub fn clear_conversation_deleted(&self, conversation_id: &str) -> Result<(), AgentJaxError> {
         let mut deleted_conversations = self
             .deleted_conversations
             .lock()
-            .map_err(|_| "Failed to lock deleted conversation registry".to_string())?;
+            .map_err(|_| AgentJaxError::internal("Failed to lock deleted conversation registry"))?;
         deleted_conversations.remove(conversation_id);
         Ok(())
     }
 
-    pub fn is_conversation_deleted(&self, conversation_id: &str) -> Result<bool, String> {
+    pub fn is_conversation_deleted(&self, conversation_id: &str) -> Result<bool, AgentJaxError> {
         let deleted_conversations = self
             .deleted_conversations
             .lock()
-            .map_err(|_| "Failed to lock deleted conversation registry".to_string())?;
+            .map_err(|_| AgentJaxError::internal("Failed to lock deleted conversation registry"))?;
         Ok(deleted_conversations.contains(conversation_id))
     }
 
-    pub fn cancel_conversation_tasks(&self, conversation_id: &str) -> Result<(), String> {
+    pub fn cancel_conversation_tasks(&self, conversation_id: &str) -> Result<(), AgentJaxError> {
         let chat_cancel_txs = {
             let mut requests = self
                 .requests
                 .lock()
-                .map_err(|_| "Failed to lock chat request registry".to_string())?;
+                .map_err(|_| AgentJaxError::internal("Failed to lock chat request registry"))?;
 
             let request_ids = requests
                 .iter()

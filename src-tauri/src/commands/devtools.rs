@@ -1,8 +1,10 @@
+use crate::error::AgentJaxError;
+
 #[tauri::command]
-pub fn open_devtools(window: tauri::WebviewWindow) -> Result<(), String> {
+pub fn open_devtools(window: tauri::WebviewWindow) -> Result<(), AgentJaxError> {
     let full = crate::config::load_active_config()?;
     if !full.agent.enable_developer_tools {
-        return Err("Developer tools are disabled in settings".to_string());
+        return Err(AgentJaxError::config("Developer tools are disabled in settings"));
     }
 
     // Open the frontend inspector for the invoking window so custom labels and

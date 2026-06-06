@@ -1,6 +1,7 @@
 use crate::config::{
     self, ConfigInfo, ConfigUpgradeResult, SettingsPatch, SettingsSnapshot, SettingsUiSnapshot,
 };
+use crate::error::AgentJaxError;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -28,26 +29,26 @@ pub struct ConfigSnapshotEvent {
 }
 
 #[tauri::command]
-pub fn get_runtime_config() -> Result<ConfigInfo, String> {
-    config::get_config_info().map_err(|e| e.to_string())
+pub fn get_runtime_config() -> Result<ConfigInfo, AgentJaxError> {
+    config::get_config_info()
 }
 
 #[tauri::command]
-pub fn get_config_file_path() -> Result<String, String> {
+pub fn get_config_file_path() -> Result<String, AgentJaxError> {
     let path = config::init_config_if_missing()?;
     Ok(path.display().to_string())
 }
 
 #[tauri::command]
-pub fn upgrade_config_file() -> Result<ConfigUpgradeResult, String> {
-    config::upgrade_config_file().map_err(|e| e.to_string())
+pub fn upgrade_config_file() -> Result<ConfigUpgradeResult, AgentJaxError> {
+    config::upgrade_config_file()
 }
 
 #[tauri::command]
 pub fn get_settings_snapshot(
     event_state: State<'_, Arc<ConfigEventState>>,
     agent_id: Option<String>,
-) -> Result<SettingsSnapshot, String> {
+) -> Result<SettingsSnapshot, AgentJaxError> {
     let snapshot = config::get_settings_snapshot(agent_id.as_deref())?;
     event_state.remember_revision(&snapshot.revision);
     Ok(snapshot)
@@ -57,7 +58,7 @@ pub fn get_settings_snapshot(
 pub fn get_settings_ui_snapshot(
     event_state: State<'_, Arc<ConfigEventState>>,
     agent_id: Option<String>,
-) -> Result<SettingsUiSnapshot, String> {
+) -> Result<SettingsUiSnapshot, AgentJaxError> {
     let payload = config::get_settings_ui_snapshot(agent_id.as_deref())?;
     event_state.remember_revision(&payload.snapshot.revision);
     Ok(payload)
@@ -68,7 +69,7 @@ pub fn apply_settings_patch(
     app_handle: AppHandle,
     event_state: State<'_, Arc<ConfigEventState>>,
     patch: SettingsPatch,
-) -> Result<SettingsSnapshot, String> {
+) -> Result<SettingsSnapshot, AgentJaxError> {
     let snapshot = config::apply_settings_patch(patch)?;
     event_state.remember_revision(&snapshot.revision);
     emit_snapshot_event(&app_handle, snapshot.clone(), "internal")?;

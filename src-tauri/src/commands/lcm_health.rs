@@ -68,7 +68,7 @@ impl From<&LcmConfig> for LcmHealthConfig {
 pub fn get_lcm_health(
     agent_id: String,
     conversation_id: String,
-) -> Result<LcmHealthResponse, String> {
+) -> Result<LcmHealthResponse, crate::error::AgentJaxError> {
     let agent_config = crate::config::load_agent_config(&agent_id)
         .unwrap_or_default()
         .normalize();
@@ -128,7 +128,7 @@ pub fn get_lcm_health(
 
 /// Reset the circuit breaker for a specific key (or all if key is empty).
 #[tauri::command]
-pub fn reset_circuit_breaker(key: Option<String>) -> Result<(), String> {
+pub fn reset_circuit_breaker(key: Option<String>) -> Result<(), crate::error::AgentJaxError> {
     match key {
         Some(k) if !k.is_empty() => {
             global_circuit_breaker().reset(&k);
@@ -142,7 +142,7 @@ pub fn reset_circuit_breaker(key: Option<String>) -> Result<(), String> {
 
 /// Reset the spend guard for a specific key (or all if key is empty).
 #[tauri::command]
-pub fn reset_spend_guard(key: Option<String>) -> Result<(), String> {
+pub fn reset_spend_guard(key: Option<String>) -> Result<(), crate::error::AgentJaxError> {
     match key {
         Some(k) if !k.is_empty() => {
             global_spend_guard().reset(&k);
@@ -162,7 +162,7 @@ pub fn record_summarization_failure(
     provider: String,
     model: String,
     reason: String,
-) -> Result<(), String> {
+) -> Result<(), crate::error::AgentJaxError> {
     let key = CircuitBreaker::build_key(&provider, &model);
     global_circuit_breaker().record_failure(&key, &reason);
     Ok(())
@@ -170,7 +170,7 @@ pub fn record_summarization_failure(
 
 /// Record a summarization success (resets circuit breaker counter).
 #[tauri::command]
-pub fn record_summarization_success(provider: String, model: String) -> Result<(), String> {
+pub fn record_summarization_success(provider: String, model: String) -> Result<(), crate::error::AgentJaxError> {
     let key = CircuitBreaker::build_key(&provider, &model);
     global_circuit_breaker().record_success(&key);
     Ok(())
@@ -178,13 +178,13 @@ pub fn record_summarization_success(provider: String, model: String) -> Result<(
 
 /// Check if the circuit breaker is open for a given provider/model.
 #[tauri::command]
-pub fn is_circuit_breaker_open(provider: String, model: String) -> Result<bool, String> {
+pub fn is_circuit_breaker_open(provider: String, model: String) -> Result<bool, crate::error::AgentJaxError> {
     let key = CircuitBreaker::build_key(&provider, &model);
     Ok(global_circuit_breaker().is_open(&key))
 }
 
 /// Check if summarization calls are allowed for a given model (spend guard).
 #[tauri::command]
-pub fn is_summarization_allowed(key: String) -> Result<bool, String> {
+pub fn is_summarization_allowed(key: String) -> Result<bool, crate::error::AgentJaxError> {
     Ok(global_spend_guard().is_allowed(&key))
 }

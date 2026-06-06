@@ -15,12 +15,12 @@ pub fn now_unix_ms() -> i64 {
         .unwrap_or(0)
 }
 
-pub async fn run_blocking<T, F>(task: F) -> Result<T, String>
+pub async fn run_blocking<T, F>(task: F) -> Result<T, crate::error::AgentJaxError>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    F: FnOnce() -> Result<T, crate::error::AgentJaxError> + Send + 'static,
 {
     tauri::async_runtime::spawn_blocking(task)
         .await
-        .map_err(|err| format!("Background task join error: {err}"))?
+        .map_err(|err| crate::error::AgentJaxError::internal(format!("Background task join error: {err}")))?
 }

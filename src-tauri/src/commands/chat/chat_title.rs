@@ -45,7 +45,7 @@ async fn generate_title_and_emit(
     agent_id: &str,
     conversation_id: &str,
     request_id: &str,
-) -> Result<(), String> {
+) -> Result<(), crate::error::AgentJaxError> {
     let registry = app_handle.state::<ChatRequestRegistry>();
     if registry.is_conversation_deleted(conversation_id)? {
         return Ok(());
@@ -56,7 +56,6 @@ async fn generate_title_and_emit(
         let agent_id = agent_id.to_string();
         run_blocking(move || {
             conversation_store::load_title_generation_candidate(&agent_id, &conversation_id)
-                .map_err(|e| e.to_string())
         })
         .await?
     };
@@ -119,7 +118,6 @@ async fn generate_title_and_emit(
         let title = title.clone();
         run_blocking(move || {
             conversation_store::update_auto_title(&agent_id, &conversation_id, &title)
-                .map_err(|e| e.to_string())
         })
         .await?
     }

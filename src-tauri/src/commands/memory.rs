@@ -25,25 +25,25 @@ fn default_max_results() -> usize {
     10
 }
 
-fn open_memory_store() -> Result<MemoryStore, String> {
+fn open_memory_store() -> Result<MemoryStore, AgentJaxError> {
     let base_dir = agentjax_home::agentjax_home_dir()
-        .map_err(|e| AgentJaxError::memory(e).to_string())?
+        .map_err(|e| AgentJaxError::memory(e))?
         .join("memory");
-    MemoryStore::open(base_dir).map_err(|e| e.to_string())
+    MemoryStore::open(base_dir).map_err(|e| AgentJaxError::memory(e))
 }
 
 /// List all memory index entries.
 #[tauri::command]
-pub fn list_memories() -> Result<Vec<MemoryIndexEntry>, String> {
+pub fn list_memories() -> Result<Vec<MemoryIndexEntry>, AgentJaxError> {
     let store = open_memory_store()?;
-    store.list_memories().map_err(|e| e.to_string())
+    store.list_memories().map_err(AgentJaxError::memory)
 }
 
 /// Get the full content of a specific memory by name.
 #[tauri::command]
-pub fn get_memory(req: GetMemoryRequest) -> Result<serde_json::Value, String> {
+pub fn get_memory(req: GetMemoryRequest) -> Result<serde_json::Value, AgentJaxError> {
     let store = open_memory_store()?;
-    let memory = store.read_memory(&req.name).map_err(|e| e.to_string())?;
+    let memory = store.read_memory(&req.name).map_err(AgentJaxError::memory)?;
     Ok(serde_json::json!({
         "name": memory.frontmatter.name,
         "description": memory.frontmatter.description,
@@ -56,10 +56,10 @@ pub fn get_memory(req: GetMemoryRequest) -> Result<serde_json::Value, String> {
 
 /// Search across all memories.
 #[tauri::command]
-pub fn search_memories(req: SearchMemoriesRequest) -> Result<serde_json::Value, String> {
+pub fn search_memories(req: SearchMemoriesRequest) -> Result<serde_json::Value, AgentJaxError> {
     let store = open_memory_store()?;
-    let results =
-        search_memories_impl(&store, &req.query, req.max_results).map_err(|e| e.to_string())?;
+    let results = search_memories_impl(&store, &req.query, req.max_results)
+        .map_err(AgentJaxError::memory)?;
     Ok(serde_json::json!({
         "ok": true,
         "query": req.query,
@@ -76,9 +76,9 @@ pub struct DeleteMemoryRequest {
 }
 
 #[tauri::command]
-pub fn delete_memory(req: DeleteMemoryRequest) -> Result<serde_json::Value, String> {
+pub fn delete_memory(req: DeleteMemoryRequest) -> Result<serde_json::Value, AgentJaxError> {
     let store = open_memory_store()?;
-    let existed = store.delete_memory(&req.name).map_err(|e| e.to_string())?;
+    let existed = store.delete_memory(&req.name).map_err(AgentJaxError::memory)?;
     Ok(serde_json::json!({
         "ok": true,
         "name": req.name,
@@ -94,34 +94,34 @@ pub struct OpenMemoryFileRequest {
 }
 
 #[tauri::command]
-pub fn open_memory_file(req: OpenMemoryFileRequest) -> Result<serde_json::Value, String> {
+pub fn open_memory_file(req: OpenMemoryFileRequest) -> Result<serde_json::Value, AgentJaxError> {
     let base_dir = crate::agentjax_home::agentjax_home_dir()
-        .map_err(|e| AgentJaxError::memory(e).to_string())?
+        .map_err(|e| AgentJaxError::memory(e))?
         .join("memory");
     let file_path = base_dir.join(format!("{}.md", req.name));
     if !file_path.exists() {
-        return Err(format!("Memory file not found: {}", file_path.display()));
+        return Err(AgentJaxError::not_found(format!("Memory file not found: {}", file_path.display())));
     }
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
             .arg(&file_path)
             .spawn()
-            .map_err(|e| format!("Failed to open file: {e}"))?;
+            .map_err(|e| AgentJaxError::internal(format!("Failed to open file: {e}")))?;
     }
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
             .arg(&file_path)
             .spawn()
-            .map_err(|e| format!("Failed to open file: {e}"))?;
+            .map_err(|e| AgentJaxError::internal(format!("Failed to open file: {e}")))?;
     }
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd")
             .args(["/C", "start", "", file_path.to_str().unwrap_or("")])
             .spawn()
-            .map_err(|e| format!("Failed to open file: {e}"))?;
+            .map_err(|e| AgentJaxError::internal(format!("Failed to open file: {e}")))?;
     }
     Ok(serde_json::json!({
         "ok": true,

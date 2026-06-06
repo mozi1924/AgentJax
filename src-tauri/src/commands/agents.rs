@@ -5,6 +5,7 @@
 
 use crate::config::agent_config::{AgentConfig, AgentRegistry};
 use crate::config::constants::DEFAULT_AGENT_ID;
+use crate::error::AgentJaxError;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -16,8 +17,8 @@ pub struct AgentRegistryState {
 }
 
 impl AgentRegistryState {
-    pub fn new() -> Result<Self, String> {
-        let registry = AgentRegistry::new().map_err(|e| e.to_string())?;
+    pub fn new() -> Result<Self, AgentJaxError> {
+        let registry = AgentRegistry::new()?;
         Ok(Self { registry })
     }
 }
@@ -72,8 +73,8 @@ pub struct DeleteAgentRequest {
 
 /// List all discovered agent profiles.
 #[tauri::command]
-pub fn list_agents(state: State<'_, AgentRegistryState>) -> Result<Vec<AgentSummary>, String> {
-    let agent_ids = state.registry.list_agents().map_err(|e| e.to_string())?;
+pub fn list_agents(state: State<'_, AgentRegistryState>) -> Result<Vec<AgentSummary>, AgentJaxError> {
+    let agent_ids = state.registry.list_agents()?;
     Ok(agent_ids
         .iter()
         .map(|id| AgentSummary::from(id.as_str()))
@@ -88,33 +89,27 @@ pub fn list_agents(state: State<'_, AgentRegistryState>) -> Result<Vec<AgentSumm
 pub fn create_agent(
     state: State<'_, AgentRegistryState>,
     req: CreateAgentRequest,
-) -> Result<(), String> {
+) -> Result<(), AgentJaxError> {
     let agent_id = req.agent_id.trim().to_lowercase();
     if agent_id.is_empty() {
-        return Err("Agent ID cannot be empty".to_string());
+        return Err(AgentJaxError::config("Agent ID cannot be empty"));
     }
     if agent_id == DEFAULT_AGENT_ID {
-        return Err(format!(
+        return Err(AgentJaxError::config(format!(
             "Cannot create reserved agent '{}'",
             DEFAULT_AGENT_ID
-        ));
+        )));
     }
 
     let config = if let Some(template) = &req.template_id {
         // Clone from an existing agent's config
-        let template_config = state
-            .registry
-            .load_agent_config(template)
-            .map_err(|e| e.to_string())?;
+        let template_config = state.registry.load_agent_config(template)?;
         template_config
     } else {
         AgentConfig::default()
     };
 
-    state
-        .registry
-        .create_agent(&agent_id, &config)
-        .map_err(|e| e.to_string())?;
+    state.registry.create_agent(&agent_id, &config)?;
 
     Ok(())
 }
@@ -126,19 +121,16 @@ pub fn create_agent(
 pub fn delete_agent(
     state: State<'_, AgentRegistryState>,
     req: DeleteAgentRequest,
-) -> Result<bool, String> {
+) -> Result<bool, AgentJaxError> {
     let agent_id = req.agent_id.trim().to_lowercase();
     if agent_id == DEFAULT_AGENT_ID {
-        return Err(format!(
+        return Err(AgentJaxError::config(format!(
             "Cannot delete the default agent '{}'",
             DEFAULT_AGENT_ID
-        ));
+        )));
     }
 
-    state
-        .registry
-        .delete_agent(&agent_id)
-        .map_err(|e| e.to_string())
+    state.registry.delete_agent(&agent_id)
 }
 
 /// Get the config for a specific agent profile.
@@ -146,9 +138,6 @@ pub fn delete_agent(
 pub fn get_agent_config(
     state: State<'_, AgentRegistryState>,
     agent_id: String,
-) -> Result<AgentConfig, String> {
-    state
-        .registry
-        .load_agent_config(&agent_id)
-        .map_err(|e| e.to_string())
+) -> Result<AgentConfig, AgentJaxError> {
+    state.registry.load_agent_config(&agent_id)
 }

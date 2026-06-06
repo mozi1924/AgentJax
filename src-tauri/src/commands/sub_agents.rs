@@ -1,5 +1,6 @@
 //! Tauri IPC commands for sub-agent management.
 
+use crate::error::AgentJaxError;
 use crate::sub_agents::manager::SubAgentManager;
 use crate::sub_agents::types::SubAgentSnapshot;
 use serde::Deserialize;
@@ -19,13 +20,12 @@ pub struct ListSubAgentsRequest {
 
 /// Cancel a running sub-agent.
 #[tauri::command]
-pub fn cancel_sub_agent(req: CancelSubAgentRequest) -> Result<serde_json::Value, String> {
-    SubAgentManager::cancel(&req.agent_id, req.conversation_id.as_deref())
-        .map_err(|e| e.to_string())
+pub fn cancel_sub_agent(req: CancelSubAgentRequest) -> Result<serde_json::Value, AgentJaxError> {
+    SubAgentManager::cancel(&req.agent_id, req.conversation_id.as_deref()).map_err(|e| AgentJaxError::internal(e))
 }
 
 /// List all sub-agents for a conversation.
 #[tauri::command]
-pub fn list_sub_agents(req: ListSubAgentsRequest) -> Result<Vec<SubAgentSnapshot>, String> {
+pub fn list_sub_agents(req: ListSubAgentsRequest) -> Result<Vec<SubAgentSnapshot>, AgentJaxError> {
     Ok(SubAgentManager::list(req.conversation_id.as_deref()))
 }
