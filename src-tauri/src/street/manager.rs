@@ -3,12 +3,12 @@
 //! Follows the exact same pattern as `SubAgentManager` and `background_jobs`:
 //! `OnceLock<Mutex<HashMap<conv_id, Vec<Arc<Mutex<StreetItem>>>>>>` static registry.
 //!
-//! Items are conversation-scoped. On deposit, an event is sent to the
-//! conversation's event channel (for frontend auto-trigger). On the next turn,
-//! items are collected, formatted, and injected into the system prefix.
+//! Items are conversation-scoped. On deposit, items are persisted to a JSONL
+//! file (see `persist.rs`) so they survive app restarts. On the next turn,
+//! items are collected, formatted, and injected into the context.
 
 use crate::street::types::{StreetEvent, StreetItem, StreetItemStatus, StreetSnapshot};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::mpsc;
 
@@ -21,6 +21,14 @@ const MAX_ITEMS_PER_CONVERSATION: usize = 100;
 /// Registry: conversation_id → Vec<Arc<Mutex<StreetItem>>>
 type StreetItemMap = std::collections::HashMap<String, Vec<Arc<Mutex<StreetItem>>>>;
 static STREET_ITEMS: OnceLock<Mutex<StreetItemMap>> = OnceLock::new();
+
+/// Tracks which conversations have been loaded from persistent storage.
+/// Prevents double-loading on first access after a restart.
+static LOADED_CONVERSATIONS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn loaded_set() -> &'static Mutex<HashSet<String>> {
+    LOADED_CONVERSATIONS.get_or_init(|| Mutex::new(HashSet::new()))
+}
 
 /// Event channels: conversation_id → mpsc::Sender
 static STREET_CHANNELS: OnceLock<Mutex<HashMap<String, mpsc::UnboundedSender<StreetEvent>>>> =
@@ -47,11 +55,52 @@ fn notifiers() -> &'static Mutex<HashMap<String, Arc<tokio::sync::Notify>>> {
 pub struct StreetManager;
 
 impl StreetManager {
+    /// Ensure items for a conversation have been loaded from persistent storage.
+    ///
+    /// Called at the start of every read operation (`collect_pending`,
+    /// `get_pending_count`, `get_pending_snapshots`) so that persisted items
+    /// from previous sessions are available in the in-memory registry.
+    fn ensure_loaded(conversation_id: &str) {
+        let mut loaded = loaded_set()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if loaded.contains(conversation_id) {
+            return;
+        }
+
+        // Load persisted items from disk.
+        let persisted = match crate::street::persist::load_items(conversation_id) {
+            Ok(items) => items,
+            Err(e) => {
+                log::warn!(
+                    "Failed to load persisted Street items for conv={}: {e}",
+                    conversation_id
+                );
+                Vec::new()
+            }
+        };
+
+        if !persisted.is_empty() {
+            let mut guard = registry()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let entry = guard.entry(conversation_id.to_string()).or_default();
+            // Only load if the registry doesn't already have items for this
+            // conversation (avoids overwriting more recent in-process deposits).
+            if entry.is_empty() {
+                *entry = persisted;
+            }
+        }
+
+        loaded.insert(conversation_id.to_string());
+    }
+
     /// Deposit a notification into the Street queue.
     ///
-    /// Items are conversation-scoped. A `StreetEvent::Deposited` is sent
-    /// to the conversation's event channel (if one exists) so the frontend
-    /// can react (badge update, auto-trigger).
+    /// Items are conversation-scoped. On deposit, the item is appended to a
+    /// JSONL file (see `persist.rs`) so it survives app restarts. A
+    /// `StreetEvent::Deposited` is sent to the conversation's event channel
+    /// so the frontend can react (badge update, auto-trigger).
     pub fn deposit(item: StreetItem) {
         let conv_id = item.conversation_id.clone();
         let event = StreetEvent::Deposited {
@@ -60,6 +109,11 @@ impl StreetManager {
             title: item.title.clone(),
             priority: item.priority,
         };
+
+        // Persist to disk first (best-effort, non-critical).
+        if let Err(e) = crate::street::persist::append_item(&item) {
+            log::warn!("Failed to persist Street item for conv={}: {e}", conv_id);
+        }
 
         let mut guard = registry()
             .lock()
@@ -117,6 +171,8 @@ impl StreetManager {
     /// Collect all Pending items for a conversation, sorted by priority
     /// (highest first) then by timestamp (oldest first).
     pub fn collect_pending(conversation_id: &str) -> Vec<StreetItem> {
+        Self::ensure_loaded(conversation_id);
+
         let guard = registry()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -151,12 +207,14 @@ impl StreetManager {
     /// Mark all Pending items for a conversation as Delivered.
     /// Returns the number of items marked.
     pub fn mark_delivered(conversation_id: &str) -> usize {
+        Self::ensure_loaded(conversation_id);
+
         let guard = registry()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let mut count = 0usize;
-        if let Some(items) = guard.get(conversation_id) {
+        let changed = if let Some(items) = guard.get(conversation_id) {
             for item in items {
                 if let Ok(mut i) = item.lock()
                     && i.status == StreetItemStatus::Pending
@@ -165,9 +223,21 @@ impl StreetManager {
                     count += 1;
                 }
             }
-        }
+            count > 0
+        } else {
+            false
+        };
 
-        if count > 0 {
+        if changed {
+            // Persist updated statuses.
+            if let Some(items) = guard.get(conversation_id) {
+                if let Err(e) = crate::street::persist::save_items(conversation_id, items) {
+                    log::warn!(
+                        "Failed to persist delivered Street items for conv={}: {e}",
+                        conversation_id
+                    );
+                }
+            }
             drop(guard);
             Self::send_event(
                 conversation_id,
@@ -183,10 +253,13 @@ impl StreetManager {
 
     /// Mark a single item as Dismissed.
     pub fn mark_dismissed(item_id: &str, conversation_id: &str) -> bool {
+        Self::ensure_loaded(conversation_id);
+
         let guard = registry()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
+        let mut found = false;
         if let Some(items) = guard.get(conversation_id) {
             for item in items {
                 if let Ok(mut i) = item.lock()
@@ -194,15 +267,31 @@ impl StreetManager {
                     && i.status == StreetItemStatus::Pending
                 {
                     i.status = StreetItemStatus::Dismissed;
-                    return true;
+                    found = true;
+                    break;
                 }
             }
         }
-        false
+
+        if found {
+            // Persist updated status.
+            if let Some(items) = guard.get(conversation_id) {
+                if let Err(e) = crate::street::persist::save_items(conversation_id, items) {
+                    log::warn!(
+                        "Failed to persist dismissed Street item for conv={}: {e}",
+                        conversation_id
+                    );
+                }
+            }
+        }
+
+        found
     }
 
     /// Get the count of Pending items for a conversation.
     pub fn get_pending_count(conversation_id: &str) -> usize {
+        Self::ensure_loaded(conversation_id);
+
         let guard = registry()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -246,6 +335,8 @@ impl StreetManager {
 
     /// Get snapshots of Pending items for a conversation (for Tauri IPC).
     pub fn get_pending_snapshots(conversation_id: &str) -> Vec<StreetSnapshot> {
+        Self::ensure_loaded(conversation_id);
+
         let guard = registry()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -277,7 +368,7 @@ impl StreetManager {
     }
 
     /// Remove all items for a conversation (called on conversation delete).
-    #[cfg(test)]
+    /// Also removes the persisted notification file.
     pub fn cleanup_conversation(conversation_id: &str) -> usize {
         let mut guard = registry()
             .lock()
@@ -286,6 +377,17 @@ impl StreetManager {
         // Unregister event channel.
         let mut n_guard = notifiers().lock().unwrap_or_else(|p| p.into_inner());
         n_guard.remove(conversation_id);
+        // Remove persisted file.
+        if let Err(e) = crate::street::persist::save_items(conversation_id, &[]) {
+            log::warn!(
+                "Failed to remove persisted Street items for conv={}: {e}",
+                conversation_id
+            );
+        }
+        // Reset loaded flag so next access re-reads from disk if needed.
+        if let Ok(mut loaded) = loaded_set().lock() {
+            loaded.remove(conversation_id);
+        }
         removed
     }
 

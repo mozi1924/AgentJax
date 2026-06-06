@@ -72,8 +72,8 @@ impl Tool for LlmMapTool {
         "Apply a prompt to every item in a JSONL file, in parallel. \
          Each item is processed as a single LLM call. Results are validated \
          against a JSON Schema and written to a JSONL output file. \
-         The model should write the input file first, then call this tool, \
-         then read the output file.\n\n\
+         The tool blocks until all items complete and returns a summary. \
+         Write the input file first, call this tool, then read the output file.\n\n\
          This is more reliable than writing the loop yourself because the \
          engine handles concurrency, retries, and schema validation \
          deterministically (LCM §3.1, Figure 4)."
@@ -169,161 +169,141 @@ impl Tool for LlmMapTool {
             .unwrap_or_else(|| "default".to_string());
         let conversation_id = context.conversation_id.clone();
 
-        // ── Start background job ───────────────────────────────────────
-        // Instead of blocking the tool execution thread, we launch a
-        // background job that processes items in parallel. The model
-        // receives a job ID and can check status via background job tools
-        // or wait for completion.
-        let job = crate::tools::background_jobs::start_job_for_conversation(
-            "llm_map",
-            conversation_id.clone(),
-        );
-        let job_id = crate::tools::background_jobs::job_id(&job);
-
-        // Clone everything needed for the background task.
-        let input_lines_clone = input_lines.clone();
+        // ── Run all items in parallel (synchronous operator) ──────────
+        // Unlike background_jobs-based async tools, llm_map is an operator
+        // (LCM §3.1 Figure 4): it maps a function over items and returns
+        // results. Making it async would force the model to manually track
+        // job IDs and poll for completion, breaking the operator abstraction.
+        // Instead, we run all items concurrently in-process and return the
+        // summary directly. The tool blocks until all items complete.
         let prompt_template = args.prompt;
         let output_schema = args.output_schema;
         let output_path_clone = output_path.clone();
         let concurrency = args.concurrency.max(1);
         let max_retries = args.max_retries;
 
-        let handle = tokio::spawn({
-            // Clone the Arc for the async block (the original stays for handle registration).
-            let job = job.clone();
-            async move {
-                let completed = Arc::new(AtomicUsize::new(0));
-                let failed = Arc::new(AtomicUsize::new(0));
-                let semaphore = Arc::new(Semaphore::new(concurrency));
-                let results: Arc<std::sync::Mutex<Vec<(usize, Result<Value, String>)>>> =
-                    Arc::new(std::sync::Mutex::new(Vec::with_capacity(total)));
+        let completed = Arc::new(AtomicUsize::new(0));
+        let failed = Arc::new(AtomicUsize::new(0));
+        let semaphore = Arc::new(Semaphore::new(concurrency));
+        let results: Arc<std::sync::Mutex<Vec<(usize, Result<Value, String>)>>> =
+            Arc::new(std::sync::Mutex::new(Vec::with_capacity(total)));
 
-                let mut handles = Vec::with_capacity(total);
+        let mut task_handles = Vec::with_capacity(total);
 
-                for (i, line) in input_lines_clone.iter().enumerate() {
-                    let permit = semaphore.clone().acquire_owned();
-                    let line = line.clone();
-                    let prompt = prompt_template.replace("{input}", &line);
-                    let schema = output_schema.clone();
-                    let model = model_ref.clone();
-                    let comp = completed.clone();
-                    let fail = failed.clone();
-                    let res = results.clone();
-                    let retries = max_retries;
+        for (i, line) in input_lines.iter().enumerate() {
+            let permit = semaphore.clone().acquire_owned();
+            let line = line.clone();
+            let prompt = prompt_template.replace("{input}", &line);
+            let schema = output_schema.clone();
+            let model = model_ref.clone();
+            let comp = completed.clone();
+            let fail = failed.clone();
+            let res = results.clone();
+            let retries = max_retries;
 
-                    handles.push(tokio::spawn(async move {
-                        let _permit = permit.await.unwrap();
+            task_handles.push(tokio::spawn(async move {
+                let _permit = permit.await.unwrap();
 
-                        let result = retry_with_backoff(
-                            RetryStrategy {
-                                max_attempts: retries,
-                                base_delay_ms: 500,
-                                max_delay_ms: 10_000,
-                                jitter: true,
-                                non_retryable_kinds: vec![
-                                    crate::error::ErrorKind::ProviderAuth,
-                                    crate::error::ErrorKind::Config,
-                                ],
-                            },
-                            || {
-                                let p = prompt.clone();
-                                let m = model.clone();
-                                async move { call_llm_for_item(&p, &m).await }
-                            },
-                        )
-                        .await;
+                let result = retry_with_backoff(
+                    RetryStrategy {
+                        max_attempts: retries,
+                        base_delay_ms: 500,
+                        max_delay_ms: 10_000,
+                        jitter: true,
+                        non_retryable_kinds: vec![
+                            crate::error::ErrorKind::ProviderAuth,
+                            crate::error::ErrorKind::Config,
+                        ],
+                    },
+                    || {
+                        let p = prompt.clone();
+                        let m = model.clone();
+                        async move { call_llm_for_item(&p, &m).await }
+                    },
+                )
+                .await;
 
-                        match result {
-                            RetryResult::Success(output) => {
-                                // Validate against schema.
-                                if let Err(e) = validate_against_schema(&output, &schema) {
-                                    fail.fetch_add(1, Ordering::SeqCst);
-                                    let mut lock = res.lock().unwrap();
-                                    lock.push((i, Err(format!("Schema validation failed: {e}"))));
-                                    return;
-                                }
-                                comp.fetch_add(1, Ordering::SeqCst);
-                                let mut lock = res.lock().unwrap();
-                                lock.push((i, Ok(output)));
-                            }
-                            RetryResult::Failed(e) | RetryResult::NonRetryable(e) => {
-                                fail.fetch_add(1, Ordering::SeqCst);
-                                let mut lock = res.lock().unwrap();
-                                lock.push((i, Err(e.to_string())));
-                            }
+                match result {
+                    RetryResult::Success(output) => {
+                        if let Err(e) = validate_against_schema(&output, &schema) {
+                            fail.fetch_add(1, Ordering::SeqCst);
+                            let mut lock = res.lock().unwrap();
+                            lock.push((i, Err(format!("Schema validation failed: {e}"))));
+                            return;
                         }
-                    }));
-                }
-
-                // Wait for all tasks.
-                for handle in handles {
-                    let _ = handle.await;
-                }
-
-                // Sort results by index and write output.
-                let final_results = {
-                    let mut lock = results.lock().unwrap();
-                    lock.sort_by_key(|(i, _)| *i);
-                    lock.clone()
-                };
-
-                let mut output_lines = Vec::new();
-                for (_i, result) in &final_results {
-                    match result {
-                        Ok(val) => {
-                            output_lines.push(serde_json::to_string(val).unwrap_or_default());
-                        }
-                        Err(e) => {
-                            output_lines.push(
-                                serde_json::to_string(&json!({ "error": e })).unwrap_or_default(),
-                            );
-                        }
+                        comp.fetch_add(1, Ordering::SeqCst);
+                        let mut lock = res.lock().unwrap();
+                        lock.push((i, Ok(output)));
+                    }
+                    RetryResult::Failed(e) | RetryResult::NonRetryable(e) => {
+                        fail.fetch_add(1, Ordering::SeqCst);
+                        let mut lock = res.lock().unwrap();
+                        lock.push((i, Err(e.to_string())));
                     }
                 }
+            }));
+        }
 
-                // Write output file.
-                match std::fs::write(&output_path_clone, output_lines.join("\n")) {
-                    Ok(()) => {
-                        let completed_count = completed.load(Ordering::SeqCst);
-                        let failed_count = failed.load(Ordering::SeqCst);
+        // Wait for all tasks to complete.
+        for handle in task_handles {
+            let _ = handle.await;
+        }
 
-                        crate::tools::background_jobs::complete_job(
-                            &job,
-                            Ok(json!({
-                                "status": if failed_count == 0 { "success" } else { "partial" },
-                                "totalItems": total,
-                                "completedItems": completed_count,
-                                "failedItems": failed_count,
-                                "outputPath": output_path_clone.to_string_lossy(),
-                            })),
-                        );
-                    }
-                    Err(e) => {
-                        crate::tools::background_jobs::complete_job(
-                            &job,
-                            Err(AgentJaxError::internal(format!(
-                                "Failed to write llm_map output: {e}"
-                            ))),
-                        );
+        // Sort results by index and write output.
+        let final_results = {
+            let mut lock = results.lock().unwrap();
+            lock.sort_by_key(|(i, _)| *i);
+            lock.clone()
+        };
+
+        let mut output_lines = Vec::new();
+        let mut first_error: Option<String> = None;
+        for (_i, result) in &final_results {
+            match result {
+                Ok(val) => {
+                    output_lines.push(serde_json::to_string(val).unwrap_or_default());
+                }
+                Err(e) => {
+                    output_lines.push(
+                        serde_json::to_string(&json!({ "error": e })).unwrap_or_default(),
+                    );
+                    if first_error.is_none() {
+                        first_error = Some(e.clone());
                     }
                 }
             }
-        });
+        }
 
-        crate::tools::background_jobs::register_job_handle(&job, handle);
+        // Write output file.
+        std::fs::write(&output_path_clone, output_lines.join("\n")).map_err(|e| {
+            AgentJaxError::internal(format!("Failed to write llm_map output: {e}"))
+        })?;
 
-        // Return immediately with job ID so the model can check progress
-        // via background_job_status or wait_for_background_job.
+        let completed_count = completed.load(Ordering::SeqCst);
+        let failed_count = failed.load(Ordering::SeqCst);
+
+        let status = if failed_count == 0 {
+            "success"
+        } else if completed_count > 0 {
+            "partial"
+        } else {
+            "failed"
+        };
+
+        let error_hint = first_error
+            .map(|e| format!("\nFirst error: {}", e.chars().take(200).collect::<String>()))
+            .unwrap_or_default();
+
         Ok(json!({
-            "jobId": job_id,
-            "status": "started",
+            "status": status,
             "totalItems": total,
-            "inputPath": args.input_path,
+            "completedItems": completed_count,
+            "failedItems": failed_count,
             "outputPath": args.output_path,
-            "message": format!(
-                "llm_map job started: processing {total} items in background. \
-                 Use background_job_status(jobId=\"{job_id}\") to check progress, \
-                 or wait_for_background_job(jobId=\"{job_id}\") to wait for completion."
+            "summary": format!(
+                "llm_map completed: {completed_count}/{total} items succeeded, \
+                 {failed_count} failed. Results written to '{}'.{}",
+                args.output_path, error_hint,
             ),
         }))
     }

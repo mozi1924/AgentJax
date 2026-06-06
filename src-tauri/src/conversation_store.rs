@@ -23,9 +23,6 @@ pub use mutations::{
     update_conversation_dynamic_tools, update_conversation_mounted_tool_sources,
     update_conversation_token_usage, update_line, upsert_conversation_dynamic_tool,
 };
-#[allow(unused_imports)]
-#[cfg(test)]
-#[allow(unused_imports)]
 pub use paths::conversation_dir_path;
 pub use paths::conversation_workspace_path;
 pub use queries::{
