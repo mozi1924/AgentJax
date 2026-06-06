@@ -21,6 +21,10 @@ pub struct ToolManagerSnapshotRequest {
     pub source_id: Option<String>,
     pub discover: bool,
     pub conversation_id: Option<String>,
+    /// Agent profile to load tool_manager policy from.
+    /// When `None`, falls back to `AgentConfig::default()`.
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -232,26 +236,27 @@ impl ToolCatalog {
     }
 
     fn native_tools_snapshot(&self) -> ToolManagerSourceSnapshot {
+        // Use the shared ToolExecutionContext for gating consistency.
+        let ctx = ToolExecutionContext::default();
         let mut tools: Vec<ToolManagerToolSnapshot> = self
-            .tools
-            .iter()
-            .filter(|entry| entry.category == ToolCategory::Native)
-            .map(|entry| {
-                let enabled = self.native_tool_enabled(entry.name());
-                let input_schema = entry.tool.parameters_schema();
+            .collect_registered_tools(&ctx)
+            .into_iter()
+            .filter(|info| info.category == ToolCategory::Native)
+            .map(|info| {
+                let name = info.name.clone();
                 ToolManagerToolSnapshot::new(
-                    entry.name().to_string(),
-                    entry.display_name().to_string(),
-                    entry.name().to_string(),
-                    entry.description().to_string(),
-                    entry.icon().map(ToOwned::to_owned),
-                    enabled,
-                    if enabled { "available" } else { "disabled" }.to_string(),
-                    input_schema,
+                    info.name,
+                    info.display_name,
+                    name.clone(),
+                    info.description,
+                    info.icon,
+                    info.enabled,
+                    if info.enabled { "available" } else { "disabled" }.to_string(),
+                    info.schema,
                     ToolManagerSchemaFormat::JsonSchema,
                     vec!["policy:tool_enabled".to_string()],
                     ToolManagerToolPolicyPaths {
-                        tool_enabled_path: Some(native_tool_enabled_path(entry.name())),
+                        tool_enabled_path: Some(native_tool_enabled_path(&name)),
                     },
                 )
             })
@@ -289,23 +294,24 @@ impl ToolCatalog {
     }
 
     fn context_tools_snapshot(&self) -> ToolManagerSourceSnapshot {
+        let ctx = ToolExecutionContext::default();
         let tools = self
-            .tools
-            .iter()
-            .filter(|entry| entry.category == ToolCategory::Context)
-            .map(|entry| {
-                // Context tools are always enabled — the agent depends on them
-                // to read conversation history. User configuration is ignored.
-                let input_schema = entry.tool.parameters_schema();
+            .collect_registered_tools(&ctx)
+            .into_iter()
+            .filter(|info| info.category == ToolCategory::Context)
+            .map(|info| {
+                let name = info.name.clone();
                 ToolManagerToolSnapshot::new(
-                    entry.name().to_string(),
-                    entry.display_name().to_string(),
-                    entry.name().to_string(),
-                    entry.description().to_string(),
-                    entry.icon().map(ToOwned::to_owned),
+                    info.name,
+                    info.display_name,
+                    name,
+                    info.description,
+                    info.icon,
+                    // Context tools are always shown as enabled in the UI
+                    // (they are forced on — the agent depends on them).
                     true,
                     "available".to_string(),
-                    input_schema,
+                    info.schema,
                     ToolManagerSchemaFormat::JsonSchema,
                     vec![],
                     ToolManagerToolPolicyPaths::default(),

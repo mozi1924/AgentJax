@@ -17,12 +17,18 @@ pub async fn get_tool_manager_snapshot(
     request: Option<ToolManagerSnapshotRequest>,
 ) -> Result<ToolManagerSnapshot, AgentJaxError> {
     let config = config::load_config()?;
-    let agent_config = config::AgentConfig::default();
+    let request = request.unwrap_or_default();
+    // Load the per-agent tool_manager policy. When no agent_id is provided,
+    // fall back to the default agent config so enablement toggles are
+    // reflected even without explicit per-agent configuration.
+    let agent_config = request
+        .agent_id
+        .as_deref()
+        .and_then(|id| config::load_agent_config(id).ok())
+        .unwrap_or_default();
     let catalog =
         ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config, &agent_config);
-    Ok(catalog
-        .tool_manager_snapshot(request.unwrap_or_default())
-        .await)
+    Ok(catalog.tool_manager_snapshot(request).await)
 }
 
 /// Snapshot of all discovered plugins for the Plugin Manager UI.

@@ -4,8 +4,16 @@
 //! `ToolCatalog` with a single `Vec<ToolEntry>` where each entry carries
 //! its category and gating rules. This eliminates duplicated enumeration
 //! logic across model snapshots and tool manager snapshots.
+//!
+//! ## Phase 2: Shared enumeration
+//!
+//! [`RegisteredToolInfo`] is an intermediate representation produced by
+//! `ToolCatalog::collect_registered_tools()` and consumed by both the
+//! model snapshot and the tool manager snapshot, ensuring identical
+//! filtering and gating for native + context tools in both paths.
 
 use crate::tools::Tool;
+use serde_json::Value;
 use std::sync::Arc;
 
 // ── Tool Category ───────────────────────────────────────────────────────────
@@ -101,5 +109,43 @@ impl ToolEntry {
     /// Proxy to the underlying tool's icon.
     pub(crate) fn icon(&self) -> Option<&str> {
         self.tool.icon()
+    }
+}
+
+// ── RegisteredToolInfo (shared enumeration output) ──────────────────────────
+
+/// Intermediate representation of a registered (native or context) tool,
+/// produced by `ToolCatalog::collect_registered_tools()`.
+///
+/// Both the model snapshot and the tool manager snapshot consume this same
+/// struct, ensuring identical filtering and gating for native + context tools.
+#[derive(Clone)]
+pub(crate) struct RegisteredToolInfo {
+    pub name: String,
+    pub display_name: String,
+    pub description: String,
+    pub icon: Option<String>,
+    /// The JSON schema (parameters) for the tool.
+    pub schema: Value,
+    /// The underlying tool implementation.
+    pub tool: Arc<dyn Tool>,
+    /// Whether this tool's category is Native or Context.
+    pub category: ToolCategory,
+    /// Whether the tool passes the base enablement policy check.
+    pub enabled: bool,
+}
+
+impl RegisteredToolInfo {
+    pub(crate) fn from_entry(entry: &ToolEntry, enabled: bool) -> Self {
+        Self {
+            name: entry.name().to_string(),
+            display_name: entry.display_name().to_string(),
+            description: entry.description().to_string(),
+            icon: entry.icon().map(ToOwned::to_owned),
+            schema: entry.tool.parameters_schema(),
+            tool: entry.tool.clone(),
+            category: entry.category,
+            enabled,
+        }
     }
 }

@@ -27,7 +27,7 @@ use crate::tools::{
     SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation, ToolSchemaFormat,
     format_tool_schema, humanize_tool_name,
 };
-pub(crate) use entry::{ContextGating, ToolCategory, ToolEntry};
+pub(crate) use entry::{ContextGating, RegisteredToolInfo, ToolCategory, ToolEntry};
 #[allow(unused_imports)]
 pub use manager_snapshot::{
     ToolManagerSchemaFormat, ToolManagerSnapshot, ToolManagerSnapshotRequest,
@@ -241,39 +241,32 @@ impl ToolCatalog {
         let mut entries = HashMap::new();
         let mut presentations = HashMap::new();
 
-        // Memory enablement is per-agent; fall back to the default agent
-        // config when no context is available.
-        let memory_enabled = context
-            .agent_config
-            .as_ref()
-            .map(|a| a.memory.enabled)
-            .or_else(|| {
-                crate::config::load_agent_config(crate::config::constants::DEFAULT_AGENT_ID)
-                    .ok()
-                    .map(|a| a.normalize().memory.enabled)
-            })
-            .unwrap_or(false);
-
-        // ── Unified tool enumeration ────────────────────────────────────
-        // Both native and context tools live in the single `tools` vec.
-        // Enablement policy and context gating are checked per-entry.
-        for entry in &self.tools {
-            if !self.entry_enabled(entry) {
+        // ── Unified registered-tool enumeration ─────────────────────────
+        for info in self.collect_registered_tools(context) {
+            if !info.enabled {
                 continue;
             }
-            if !self.entry_available_in_context(entry, memory_enabled, context) {
-                continue;
-            }
-            let schema = entry.tool.to_schema_with_format(format);
-            let tool_name = entry.tool.name().to_string();
-            presentations.insert(tool_name.clone(), entry.tool.presentation());
+            let schema = format_tool_schema(
+                format,
+                &info.name,
+                &info.description,
+                info.schema.clone(),
+            );
+            presentations.insert(
+                info.name.clone(),
+                ToolPresentation::new(
+                    info.display_name,
+                    info.description,
+                    info.icon.clone(),
+                ),
+            );
             insert_snapshot_tool(
                 &mut schemas,
                 schema,
                 &mut active_tool_names,
                 &mut entries,
-                tool_name,
-                ToolSnapshotEntry::Native(entry.tool.clone()),
+                info.name.clone(),
+                ToolSnapshotEntry::Native(info.tool.clone()),
             );
         }
 
@@ -512,6 +505,42 @@ impl ToolCatalog {
             .await
             .execute(prefixed_name, arguments, context)
             .await
+    }
+
+    // ── Shared tool enumeration ─────────────────────────────────────────
+    //
+    // Called by both the model snapshot and the tool manager snapshot so
+    // that native + context tools go through identical filtering and gating.
+
+    /// Enumerate all registered (native + context) tools with gating applied.
+    ///
+    /// Returns a `Vec<RegisteredToolInfo>` where each entry's `enabled` field
+    /// reflects whether the tool should be visible given the current context
+    /// (policy + memory gating).  Both snapshot paths consume this same data
+    /// to avoid duplicated filtering logic.
+    pub(crate) fn collect_registered_tools(
+        &self,
+        context: &ToolExecutionContext,
+    ) -> Vec<RegisteredToolInfo> {
+        let memory_enabled = context
+            .agent_config
+            .as_ref()
+            .map(|a| a.memory.enabled)
+            .or_else(|| {
+                crate::config::load_agent_config(crate::config::constants::DEFAULT_AGENT_ID)
+                    .ok()
+                    .map(|a| a.normalize().memory.enabled)
+            })
+            .unwrap_or(false);
+
+        self.tools
+            .iter()
+            .map(|entry| {
+                let enabled = self.entry_enabled(entry)
+                    && self.entry_available_in_context(entry, memory_enabled, context);
+                RegisteredToolInfo::from_entry(entry, enabled)
+            })
+            .collect()
     }
 
     // ── Unified enablement & gating ──────────────────────────────────────

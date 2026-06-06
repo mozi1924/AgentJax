@@ -1761,6 +1761,7 @@ globalThis.AgentJaxPlugin = {
                 source_id: Some("broken".to_string()),
                 discover: true,
                 conversation_id: None,
+                agent_id: None,
             })
             .await;
 
