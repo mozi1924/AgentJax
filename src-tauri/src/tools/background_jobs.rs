@@ -317,6 +317,36 @@ pub(crate) fn complete_job(
 
     job.notify.notify_waiters();
 
+    // Persist task record for traceability.
+    if let Some(ref conv_id) = conv_id {
+        let summary = crate::street::tasks::job_summary(
+            &job.tool_name,
+            output_val.as_ref(),
+            error_msg.as_deref(),
+            is_success,
+        );
+        let status = if is_success { "completed" } else { "failed" };
+        let record = crate::street::tasks::TaskRecord {
+            id: job.job_id.clone(),
+            kind: crate::street::tasks::TaskKind::BackgroundJob,
+            conversation_id: conv_id.clone(),
+            status: status.to_string(),
+            summary,
+            subagent_type: None,
+            prompt: None,
+            tool_name: Some(job.tool_name.clone()),
+            started_at_unix_ms: job.started_at_unix_ms,
+            completed_at_unix_ms,
+            duration_ms,
+            turns_completed: 0,
+            result: output_val.clone(),
+            error: error_msg.clone(),
+        };
+        if let Err(e) = crate::street::tasks::append_task(&record) {
+            log::warn!("Failed to persist background job task record: {e}");
+        }
+    }
+
     // Deposit into Street for proactive context injection.
     if let Some(conv_id) = conv_id {
         let title = if is_success {

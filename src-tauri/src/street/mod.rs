@@ -19,6 +19,7 @@
 pub(crate) mod context;
 pub(crate) mod manager;
 pub(crate) mod persist;
+pub(crate) mod tasks;
 pub(crate) mod types;
 
 pub use context::{build_street_context_item, format_street_items};

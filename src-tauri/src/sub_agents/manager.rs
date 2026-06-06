@@ -297,7 +297,7 @@ impl SubAgentManager {
     /// Mark a sub-agent as completed with a result.
     pub fn complete(task: &Arc<SubAgentTask>, result: Value) {
         let completed_at = now_unix_ms();
-        let (conv_id, agent_id, type_str) = {
+        let (conv_id, agent_id, type_str, started_at, turns_used) = {
             let mut state = task
                 .state
                 .lock()
@@ -314,10 +314,43 @@ impl SubAgentManager {
                 state.spec.parent_conversation_id.clone(),
                 state.agent_id.clone(),
                 state.spec.subagent_type.as_str().to_string(),
+                state.started_at_unix_ms,
+                state.turns_completed,
             )
         };
         task.notify.notify_waiters();
         crate::street::StreetManager::get_or_create_notifier(&conv_id).notify_one();
+
+        // Persist task record for traceability.
+        {
+            let state = task.state.lock().unwrap_or_else(|p| p.into_inner());
+            let summary = crate::street::tasks::sub_agent_summary(
+                &type_str,
+                &state.spec.prompt,
+                Some(&result),
+                None,
+                "completed",
+            );
+            let record = crate::street::tasks::TaskRecord {
+                id: agent_id.clone(),
+                kind: crate::street::tasks::TaskKind::SubAgent,
+                conversation_id: conv_id.clone(),
+                status: "completed".to_string(),
+                summary,
+                subagent_type: Some(type_str.clone()),
+                prompt: Some(state.spec.prompt.chars().take(500).collect()),
+                tool_name: None,
+                started_at_unix_ms: started_at,
+                completed_at_unix_ms: completed_at,
+                duration_ms: completed_at.saturating_sub(started_at).max(0) as u64,
+                turns_completed: turns_used,
+                result: Some(result.clone()),
+                error: None,
+            };
+            if let Err(e) = crate::street::tasks::append_task(&record) {
+                log::warn!("Failed to persist sub-agent task record: {e}");
+            }
+        }
 
         // Deposit into Street for proactive context injection.
         crate::street::StreetManager::deposit(crate::street::StreetItem::new(
@@ -335,7 +368,7 @@ impl SubAgentManager {
     /// Mark a sub-agent as failed with an error.
     pub fn fail(task: &Arc<SubAgentTask>, error: String) {
         let completed_at = now_unix_ms();
-        let (conv_id, agent_id, type_str) = {
+        let (conv_id, agent_id, type_str, started_at, turns_used) = {
             let mut state = task
                 .state
                 .lock()
@@ -352,10 +385,43 @@ impl SubAgentManager {
                 state.spec.parent_conversation_id.clone(),
                 state.agent_id.clone(),
                 state.spec.subagent_type.as_str().to_string(),
+                state.started_at_unix_ms,
+                state.turns_completed,
             )
         };
         task.notify.notify_waiters();
         crate::street::StreetManager::get_or_create_notifier(&conv_id).notify_one();
+
+        // Persist task record for traceability.
+        {
+            let state = task.state.lock().unwrap_or_else(|p| p.into_inner());
+            let summary = crate::street::tasks::sub_agent_summary(
+                &type_str,
+                &state.spec.prompt,
+                None,
+                Some(&error),
+                "failed",
+            );
+            let record = crate::street::tasks::TaskRecord {
+                id: agent_id.clone(),
+                kind: crate::street::tasks::TaskKind::SubAgent,
+                conversation_id: conv_id.clone(),
+                status: "failed".to_string(),
+                summary,
+                subagent_type: Some(type_str.clone()),
+                prompt: Some(state.spec.prompt.chars().take(500).collect()),
+                tool_name: None,
+                started_at_unix_ms: started_at,
+                completed_at_unix_ms: completed_at,
+                duration_ms: completed_at.saturating_sub(started_at).max(0) as u64,
+                turns_completed: turns_used,
+                result: None,
+                error: Some(error.clone()),
+            };
+            if let Err(e) = crate::street::tasks::append_task(&record) {
+                log::warn!("Failed to persist sub-agent task record: {e}");
+            }
+        }
 
         // Deposit into Street for proactive context injection.
         let truncated: String = error.chars().take(200).collect();
