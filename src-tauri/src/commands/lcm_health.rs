@@ -10,17 +10,22 @@ use crate::lcm::spend_guard::SpendGuard;
 use serde::Serialize;
 use std::sync::{Arc, OnceLock};
 
+// ── Singleton macro ─────────────────────────────────────────────────────────
+
+/// Define a function returning a lazily-initialized `&'static T` via `OnceLock`.
+macro_rules! lazy_singleton {
+    ($name:ident, $ty:ty) => {
+        fn $name() -> &'static $ty {
+            static INSTANCE: OnceLock<$ty> = OnceLock::new();
+            INSTANCE.get_or_init(|| <$ty>::default())
+        }
+    };
+}
+
 // ── Shared State ────────────────────────────────────────────────────────────
 
-fn global_circuit_breaker() -> &'static CircuitBreaker {
-    static BREAKER: OnceLock<CircuitBreaker> = OnceLock::new();
-    BREAKER.get_or_init(|| CircuitBreaker::default())
-}
-
-fn global_spend_guard() -> &'static SpendGuard {
-    static GUARD: OnceLock<SpendGuard> = OnceLock::new();
-    GUARD.get_or_init(|| SpendGuard::default())
-}
+lazy_singleton!(global_circuit_breaker, CircuitBreaker);
+lazy_singleton!(global_spend_guard, SpendGuard);
 
 // ── Response Types ──────────────────────────────────────────────────────────
 

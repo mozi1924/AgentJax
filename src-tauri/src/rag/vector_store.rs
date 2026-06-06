@@ -63,32 +63,12 @@ impl VectorStore {
         }
 
         let batch = self.build_record_batch(chunks, dims)?;
-        let batches = vec![batch];
+        let db = self.open_db().await?;
+        let table = self.open_or_create_table(&db, vec![batch.clone()]).await?;
 
-        let db = lancedb::connect(&self.db_path)
-            .execute()
-            .await
-            .map_err(|e| AgentJaxError::embedding(format!("Failed to open LanceDB: {e}")))?;
-
-        let table_name = "document_chunks";
-        let existing = db.open_table(table_name).execute().await;
-
-        match existing {
-            Ok(table) => {
-                table.add(batches.clone()).execute().await.map_err(|e| {
-                    AgentJaxError::embedding(format!("Failed to add to LanceDB table: {e}"))
-                })?;
-            }
-            Err(_) => {
-                // Table doesn't exist — create it with schema
-                db.create_table(table_name, batches)
-                    .execute()
-                    .await
-                    .map_err(|e| {
-                        AgentJaxError::embedding(format!("Failed to create LanceDB table: {e}"))
-                    })?;
-            }
-        }
+        table.add(vec![batch]).execute().await.map_err(|e| {
+            AgentJaxError::embedding(format!("Failed to add to LanceDB table: {e}"))
+        })?;
 
         Ok(())
     }
@@ -103,19 +83,10 @@ impl VectorStore {
             return Err(AgentJaxError::embedding("Query vector is empty"));
         }
 
-        let db = lancedb::connect(&self.db_path)
-            .execute()
-            .await
-            .map_err(|e| AgentJaxError::embedding(format!("Failed to open LanceDB: {e}")))?;
-
-        let table = db
-            .open_table("document_chunks")
-            .execute()
-            .await
-            .map_err(|e| {
-                AgentJaxError::embedding(format!("Failed to open LanceDB table: {e}"))
-                    .with_context("search vector store")
-            })?;
+        let db = self.open_db().await?;
+        let table = self.open_table(&db).await.map_err(|e| {
+            e.with_context("search vector store")
+        })?;
 
         // Build the ANN search query
         let mut query_builder = table
@@ -130,36 +101,22 @@ impl VectorStore {
         query_builder = query_builder.limit(config.top_k);
 
         // Execute and collect results
-        let mut stream = query_builder
+        let stream = query_builder
             .execute()
             .await
             .map_err(|e| AgentJaxError::embedding(format!("LanceDB search failed: {e}")))?;
 
-        let mut batches = Vec::new();
-        while let Some(batch_result) = stream.next().await {
-            let batch = batch_result
-                .map_err(|e| AgentJaxError::embedding(format!("LanceDB stream error: {e}")))?;
-            batches.push(batch);
-        }
+        let batches = self.collect_stream(stream).await?;
 
         self.parse_results(&batches, config.min_score)
     }
 
     /// Delete all chunks belonging to a document.
     pub async fn delete_document(&self, document_id: &str) -> AgentJaxResult<()> {
-        let db = lancedb::connect(&self.db_path)
-            .execute()
-            .await
-            .map_err(|e| AgentJaxError::embedding(format!("Failed to open LanceDB: {e}")))?;
-
-        let table = db
-            .open_table("document_chunks")
-            .execute()
-            .await
-            .map_err(|e| {
-                AgentJaxError::embedding(format!("Failed to open table: {e}"))
-                    .with_context("delete document")
-            })?;
+        let db = self.open_db().await?;
+        let table = self.open_table(&db).await.map_err(|e| {
+            e.with_context("delete document")
+        })?;
 
         table
             .delete(format!("document_id = '{document_id}'").as_str())
@@ -171,29 +128,26 @@ impl VectorStore {
 
     /// List all document IDs in the store.
     pub async fn list_documents(&self) -> AgentJaxResult<Vec<String>> {
-        let db = lancedb::connect(&self.db_path)
-            .execute()
-            .await
-            .map_err(|e| AgentJaxError::embedding(format!("Failed to open LanceDB: {e}")))?;
+        let db = self.open_db().await?;
 
         let table = match db.open_table("document_chunks").execute().await {
             Ok(t) => t,
             Err(_) => return Ok(vec![]), // Table doesn't exist yet
         };
 
-        let mut stream = table
+        let stream = table
             .query()
             .limit(10000)
             .execute()
             .await
             .map_err(|e| AgentJaxError::embedding(format!("Failed to query LanceDB: {e}")))?;
 
+        let batches = self.collect_stream(stream).await?;
+
         let mut doc_ids: Vec<String> = Vec::new();
         let mut seen = std::collections::HashSet::new();
 
-        while let Some(batch_result) = stream.next().await {
-            let batch = batch_result
-                .map_err(|e| AgentJaxError::embedding(format!("LanceDB stream error: {e}")))?;
+        for batch in &batches {
 
             if let Some(col) = batch.column_by_name("document_id") {
                 let arr = col.as_any().downcast_ref::<StringArray>().unwrap();
@@ -213,6 +167,68 @@ impl VectorStore {
     }
 
     // ── Private helpers ─────────────────────────────────────────────────────
+
+    /// Open the LanceDB database connection.
+    async fn open_db(&self) -> AgentJaxResult<lancedb::Connection> {
+        lancedb::connect(&self.db_path)
+            .execute()
+            .await
+            .map_err(|e| AgentJaxError::embedding(format!("Failed to open LanceDB: {e}")))
+    }
+
+    /// Open the document_chunks table, creating it if it doesn't exist
+    /// with the given batches as schema template.
+    async fn open_or_create_table(
+        &self,
+        db: &lancedb::Connection,
+        schema_batches: Vec<RecordBatch>,
+    ) -> AgentJaxResult<lancedb::Table> {
+        let table_name = "document_chunks";
+        match db.open_table(table_name).execute().await {
+            Ok(table) => Ok(table),
+            Err(_) => db
+                .create_table(table_name, schema_batches)
+                .execute()
+                .await
+                .map_err(|e| {
+                    AgentJaxError::embedding(format!("Failed to create LanceDB table: {e}"))
+                }),
+        }
+    }
+
+    /// Open the existing document_chunks table.
+    async fn open_table(&self, db: &lancedb::Connection) -> AgentJaxResult<lancedb::Table> {
+        db.open_table("document_chunks")
+            .execute()
+            .await
+            .map_err(|e| {
+                AgentJaxError::embedding(format!("Failed to open LanceDB table: {e}"))
+            })
+    }
+
+    /// Collect all batches from a query result stream.
+    async fn collect_stream(
+        &self,
+        mut stream: impl futures_util::Stream<Item = Result<RecordBatch, lancedb::Error>> + std::marker::Unpin,
+    ) -> AgentJaxResult<Vec<RecordBatch>> {
+        let mut batches = Vec::new();
+        while let Some(batch_result) = stream.next().await {
+            let batch = batch_result
+                .map_err(|e| AgentJaxError::embedding(format!("LanceDB stream error: {e}")))?;
+            batches.push(batch);
+        }
+        Ok(batches)
+    }
+
+    /// Get a StringArray column from a batch, returning a descriptive error if missing.
+    fn string_column<'a>(batch: &'a RecordBatch, name: &str) -> AgentJaxResult<&'a StringArray> {
+        batch
+            .column_by_name(name)
+            .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+            .ok_or_else(|| {
+                AgentJaxError::embedding(format!("Missing '{name}' column in search results"))
+            })
+    }
 
     fn make_schema(&self, dims: usize) -> SchemaRef {
         Schema::new(vec![
@@ -290,28 +306,10 @@ impl VectorStore {
         let mut results = Vec::new();
 
         for batch in batches {
-            let ids = batch
-                .column_by_name("id")
-                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-                .ok_or_else(|| AgentJaxError::embedding("Missing 'id' column in search results"))?;
-            let doc_ids = batch
-                .column_by_name("document_id")
-                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-                .ok_or_else(|| {
-                    AgentJaxError::embedding("Missing 'document_id' column in search results")
-                })?;
-            let contents = batch
-                .column_by_name("content")
-                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-                .ok_or_else(|| {
-                    AgentJaxError::embedding("Missing 'content' column in search results")
-                })?;
-            let metas = batch
-                .column_by_name("metadata")
-                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-                .ok_or_else(|| {
-                    AgentJaxError::embedding("Missing 'metadata' column in search results")
-                })?;
+            let ids = Self::string_column(batch, "id")?;
+            let doc_ids = Self::string_column(batch, "document_id")?;
+            let contents = Self::string_column(batch, "content")?;
+            let metas = Self::string_column(batch, "metadata")?;
 
             // Try to get _distance column (LanceDB uses this for vector distance)
             let distances: Option<Vec<f32>> = batch.column_by_name("_distance").map(|c| {
