@@ -2,11 +2,11 @@
 
 use crate::config::{AppConfig, ProviderConfig};
 use crate::error::{AgentJaxError, AgentJaxResult};
-use crate::provider_api::core::ProviderIdFactory;
-use crate::provider_api::network::{apply_headers_to_reqwest, split_sse_event_block};
-use crate::provider_api::protocol::{build_client, send_and_check};
+use crate::provider_api::protocol::base_streaming;
+use crate::provider_api::protocol::base_streaming::{
+    finalize_response_id, run_sse_stream, setup_http_request, HasReasoningState, StreamStateMachine,
+};
 use crate::provider_api::types::*;
-use futures_util::StreamExt;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use tokio::sync::watch;
@@ -24,85 +24,30 @@ pub async fn stream_response<F>(
 where
     F: FnMut(ProviderStreamEvent) -> AgentJaxResult<()> + Send,
 {
-    let timeout_seconds =
-        provider_config.resolved_timeout_seconds(crate::config::constants::DEFAULT_TIMEOUT_SECONDS);
-    let client = build_client(timeout_seconds)?;
-
-    let base_url = provider_config
-        .api_endpoint()
-        .trim_end_matches('/')
-        .to_string();
-    let url = format!("{base_url}/chat/completions");
-
     let body = build_chat_payload(model_id, req);
+    let response = setup_http_request(provider_key, provider_config, "/chat/completions", &body).await?;
 
-    let credential = provider_config.resolved_credential();
-    let mut builder = client.post(&url).json(&body);
-    if let Some(ref credential) = credential {
-        builder = builder.header("Authorization", format!("Bearer {credential}"));
-    }
-    let headers = provider_config.resolved_http_headers();
-    builder = apply_headers_to_reqwest(builder, &headers)?;
-    let response = send_and_check(builder, provider_key).await?;
-
-    // ── Parse SSE stream inline ──
-    let mut state = ChatStreamState::new();
+    // ── Parse SSE stream via shared infrastructure ──
     let mut response_id = String::new();
     let mut output_text = String::new();
     let mut output_items: Vec<Value> = Vec::new();
     let mut usage: Option<ProviderUsage> = None;
-    let mut buffer = String::new();
-    let mut stream = response.bytes_stream();
-    let mut stream_done = false;
 
-    while !stream_done {
-        tokio::select! {
-            changed = cancel_rx.changed() => {
-                if changed.is_ok() && *cancel_rx.borrow() { break; }
-            }
-            next_chunk = stream.next() => {
-                let Some(next_chunk) = next_chunk else { break; };
-                let bytes = next_chunk
-                    .map_err(|err| AgentJaxError::network(format!("Failed to read stream: {err}")))?;
-                buffer.push_str(&String::from_utf8_lossy(&bytes));
-                while let Some((event_block, rest)) = split_sse_event_block(&buffer) {
-                    buffer = rest;
-                    if process_chat_event(
-                        &event_block, &mut state,
-                        &mut response_id, &mut output_text, &mut output_items, &mut usage,
-                        &mut on_delta,
-                    )? {
-                        stream_done = true;
-                        break;
-                    }
-                }
-            }
-        }
-    }
+    let mut state = ChatStreamState::new();
+    state = run_sse_stream(
+        response,
+        state,
+        cancel_rx,
+        &mut response_id,
+        &mut output_text,
+        &mut output_items,
+        &mut usage,
+        &mut on_delta,
+    )
+    .await?;
 
-    if !stream_done && !buffer.trim().is_empty() {
-        let _ = process_chat_event(
-            &buffer,
-            &mut state,
-            &mut response_id,
-            &mut output_text,
-            &mut output_items,
-            &mut usage,
-            &mut on_delta,
-        )?;
-    }
-
-    // Flush any remaining reasoning that wasn't terminated by a finish_reason
-    // or regular content (e.g. stream ended mid-reasoning).
-    if state.reasoning_started && !state.reasoning_buffer.is_empty() {
-        state.reasoning_started = false;
-        let _ = on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None });
-        output_items.push(json!({
-            "type": "reasoning",
-            "text": state.reasoning_buffer.clone(),
-        }));
-        state.reasoning_buffer.clear();
-    }
+    // Flush any remaining reasoning (e.g. stream ended mid-reasoning).
+    state.flush_remaining_reasoning(&mut output_items, &mut on_delta)?;
 
     let final_output_items = if !output_text.trim().is_empty() {
         let mut items = vec![json!({
@@ -115,22 +60,8 @@ where
         output_items
     };
 
-    let final_response_id = if response_id.is_empty() {
-        ProviderIdFactory::new(provider_key)
-            .response_id()
-            .to_string()
-    } else {
-        response_id
-    };
-
-    let usage_hops = usage
-        .clone()
-        .map(|u| ProviderUsageRecord {
-            response_id: final_response_id.clone(),
-            usage: u,
-        })
-        .into_iter()
-        .collect();
+    let final_response_id = finalize_response_id(&response_id, provider_key);
+    let usage_hops = base_streaming::build_usage_hops(&usage, &final_response_id);
 
     Ok(ResponseStreamResult {
         response_id: final_response_id,
@@ -361,207 +292,9 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
 
 // ── SSE Event Processing ─────────────────────────────────────────────────────
 
-#[allow(clippy::too_many_arguments)]
-fn process_chat_event(
-    event_block: &str,
-    state: &mut ChatStreamState,
-    response_id: &mut String,
-    output_text: &mut String,
-    output_items: &mut Vec<Value>,
-    usage: &mut Option<ProviderUsage>,
-    on_delta: &mut dyn FnMut(ProviderStreamEvent) -> AgentJaxResult<()>,
-) -> AgentJaxResult<bool> {
-    let data = event_block
-        .lines()
-        .filter(|line| line.starts_with("data:"))
-        .map(|line| line[5..].trim_start())
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    if data.is_empty() || data == "[DONE]" {
-        return Ok(data == "[DONE]");
-    }
-
-    let value: Value = serde_json::from_str(&data)
-        .map_err(|_| AgentJaxError::internal("Failed to parse Chat Completions SSE JSON"))?;
-    if let Some(err) = value.get("error") {
-        return Err(AgentJaxError::internal(format!(
-            "Chat Completions error: {err}"
-        )));
-    }
-
-    if let Some(id) = value
-        .get("id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-    {
-        *response_id = id.to_string();
-    }
-    if let Some(u) = parse_chat_usage(&value) {
-        // Emit usage in real-time so the UI can show live token counts.
-        on_delta(ProviderStreamEvent::UsageUpdated {
-            response_id: response_id.clone(),
-            usage: u.clone(),
-            aggregate_usage: u.clone(),
-        })?;
-        *usage = Some(u);
-    }
-
-    if let Some(choices) = value.get("choices").and_then(Value::as_array) {
-        for choice in choices {
-            let delta = choice
-                .get("delta")
-                .and_then(Value::as_object)
-                .cloned()
-                .unwrap_or_default();
-
-            if let Some(content) = delta.get("reasoning_content").and_then(Value::as_str)
-                && !content.is_empty()
-            {
-                if !state.reasoning_started {
-                    state.reasoning_started = true;
-                    on_delta(ProviderStreamEvent::ReasoningStarted)?;
-                }
-                on_delta(ProviderStreamEvent::ReasoningDelta {
-                    delta: content.to_string(),
-                })?;
-                state.reasoning_buffer.push_str(content);
-            }
-
-            if let Some(content) = delta.get("content").and_then(Value::as_str)
-                && !content.is_empty()
-            {
-                // If reasoning was streaming and now regular content begins,
-                // emit ReasoningCompleted before the first output text.
-                if state.reasoning_started {
-                    state.reasoning_started = false;
-                    on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None })?;
-                    // Flush accumulated reasoning into output_items.
-                    if !state.reasoning_buffer.is_empty() {
-                        output_items.push(json!({
-                            "type": "reasoning",
-                            "text": state.reasoning_buffer.clone(),
-                        }));
-                        state.reasoning_buffer.clear();
-                    }
-                }
-                if !state.emitted_output_started {
-                    state.emitted_output_started = true;
-                    on_delta(ProviderStreamEvent::OutputTextStarted)?;
-                }
-                output_text.push_str(content);
-                on_delta(ProviderStreamEvent::OutputTextDelta {
-                    delta: content.to_string(),
-                    phase: None,
-                })?;
-            }
-
-            if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
-                for tc in tool_calls {
-                    let index = tc.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
-                    let entry =
-                        state
-                            .tool_calls
-                            .entry(index)
-                            .or_insert_with(|| ChatToolCallEntry {
-                                item_id: format!("item_chat_{index}"),
-                                call_id: tc
-                                    .get("id")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .to_string(),
-                                name: String::new(),
-                                arguments: String::new(),
-                                started: false,
-                                completed: false,
-                            });
-                    if let Some(id) = tc
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .filter(|id| !id.is_empty())
-                    {
-                        entry.call_id = id.to_string();
-                    }
-                    if let Some(name) = tc.pointer("/function/name").and_then(Value::as_str) {
-                        entry.name.push_str(name);
-                    }
-                    if !entry.started && !entry.name.is_empty() {
-                        entry.started = true;
-                        on_delta(ProviderStreamEvent::ToolCallStarted {
-                            item_id: entry.item_id.clone(),
-                            call_id: entry.call_id.clone(),
-                            name: entry.name.clone(),
-                            presentation: None,
-                        })?;
-                    }
-                    if let Some(args) = tc.pointer("/function/arguments").and_then(Value::as_str) {
-                        entry.arguments.push_str(args);
-                        on_delta(ProviderStreamEvent::ToolCallArgumentsDelta {
-                            item_id: entry.item_id.clone(),
-                            call_id: entry.call_id.clone(),
-                            delta: args.to_string(),
-                        })?;
-                    }
-                }
-            }
-
-            if let Some(finish_reason) = choice.get("finish_reason").and_then(Value::as_str) {
-                // Flush any accumulated reasoning before processing tool_calls / stop.
-                if state.reasoning_started && !state.reasoning_buffer.is_empty() {
-                    state.reasoning_started = false;
-                    on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None })?;
-                    output_items.push(json!({
-                        "type": "reasoning",
-                        "text": state.reasoning_buffer.clone(),
-                    }));
-                    state.reasoning_buffer.clear();
-                }
-                if finish_reason == "tool_calls" {
-                    let entries: Vec<(String, String, String, String)> = state
-                        .tool_calls
-                        .values()
-                        .filter(|e| !e.completed && !e.name.is_empty())
-                        .map(|e| {
-                            (
-                                e.item_id.clone(),
-                                e.call_id.clone(),
-                                e.name.clone(),
-                                e.arguments.clone(),
-                            )
-                        })
-                        .collect();
-                    for (item_id, call_id, name, arguments) in entries {
-                        if let Some(entry) =
-                            state.tool_calls.values_mut().find(|e| e.call_id == call_id)
-                        {
-                            entry.completed = true;
-                        }
-                        on_delta(ProviderStreamEvent::ToolCallCompleted {
-                            item_id: item_id.clone(),
-                            call_id: call_id.clone(),
-                            name: name.clone(),
-                            arguments: arguments.clone(),
-                            presentation: None,
-                        })?;
-                        output_items.push(json!({"type": "function_call", "id": item_id, "call_id": call_id, "name": name, "arguments": arguments}));
-                    }
-                }
-                // Do NOT return true here to terminate the stream.
-                // When stream_options: {include_usage: true} is set, the API
-                // sends a separate usage chunk AFTER the finish_reason chunk
-                // but BEFORE the [DONE] marker. Terminating on finish_reason
-                // would cause the usage data to be lost.
-                // The stream is instead terminated by [DONE] or stream end.
-            }
-        }
-    }
-    Ok(false)
-}
-
 fn parse_chat_usage(value: &Value) -> Option<ProviderUsage> {
     let usage: ProviderUsage = serde_json::from_value(value.get("usage")?.clone()).ok()?;
-    (usage.prompt_tokens > 0 || usage.completion_tokens > 0 || usage.total_tokens > 0)
-        .then_some(usage)
+    base_streaming::has_nonzero_usage(&usage).then_some(usage)
 }
 
 struct ChatStreamState {
@@ -588,5 +321,218 @@ impl ChatStreamState {
             reasoning_buffer: String::new(),
             tool_calls: BTreeMap::new(),
         }
+    }
+}
+
+impl HasReasoningState for ChatStreamState {
+    fn reasoning_started(&self) -> bool {
+        self.reasoning_started
+    }
+    fn reasoning_buffer(&self) -> &str {
+        &self.reasoning_buffer
+    }
+    fn set_reasoning_started(&mut self, val: bool) {
+        self.reasoning_started = val;
+    }
+    fn take_reasoning_buffer(&mut self) -> String {
+        std::mem::take(&mut self.reasoning_buffer)
+    }
+}
+
+impl StreamStateMachine for ChatStreamState {
+    fn process_event(
+        &mut self,
+        event_block: &str,
+        response_id: &mut String,
+        output_text: &mut String,
+        output_items: &mut Vec<Value>,
+        usage: &mut Option<ProviderUsage>,
+        on_delta: &mut dyn FnMut(ProviderStreamEvent) -> AgentJaxResult<()>,
+    ) -> AgentJaxResult<bool> {
+        let data = event_block
+            .lines()
+            .filter(|line| line.starts_with("data:"))
+            .map(|line| line[5..].trim_start())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if data.is_empty() || data == "[DONE]" {
+            return Ok(data == "[DONE]");
+        }
+
+        let value: Value = serde_json::from_str(&data)
+            .map_err(|_| AgentJaxError::internal("Failed to parse Chat Completions SSE JSON"))?;
+        if let Some(err) = value.get("error") {
+            return Err(AgentJaxError::internal(format!(
+                "Chat Completions error: {err}"
+            )));
+        }
+
+        if let Some(id) = value
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        {
+            *response_id = id.to_string();
+        }
+        if let Some(u) = parse_chat_usage(&value) {
+            // Emit usage in real-time so the UI can show live token counts.
+            on_delta(ProviderStreamEvent::UsageUpdated {
+                response_id: response_id.clone(),
+                usage: u.clone(),
+                aggregate_usage: u.clone(),
+            })?;
+            *usage = Some(u);
+        }
+
+        if let Some(choices) = value.get("choices").and_then(Value::as_array) {
+            for choice in choices {
+                let delta = choice
+                    .get("delta")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+
+                if let Some(content) = delta.get("reasoning_content").and_then(Value::as_str)
+                    && !content.is_empty()
+                {
+                    if !self.reasoning_started {
+                        self.reasoning_started = true;
+                        on_delta(ProviderStreamEvent::ReasoningStarted)?;
+                    }
+                    on_delta(ProviderStreamEvent::ReasoningDelta {
+                        delta: content.to_string(),
+                    })?;
+                    self.reasoning_buffer.push_str(content);
+                }
+
+                if let Some(content) = delta.get("content").and_then(Value::as_str)
+                    && !content.is_empty()
+                {
+                    // If reasoning was streaming and now regular content begins,
+                    // emit ReasoningCompleted before the first output text.
+                    if self.reasoning_started {
+                        self.reasoning_started = false;
+                        on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None })?;
+                        // Flush accumulated reasoning into output_items.
+                        if !self.reasoning_buffer.is_empty() {
+                            output_items.push(json!({
+                                "type": "reasoning",
+                                "text": self.reasoning_buffer.clone(),
+                            }));
+                            self.reasoning_buffer.clear();
+                        }
+                    }
+                    if !self.emitted_output_started {
+                        self.emitted_output_started = true;
+                        on_delta(ProviderStreamEvent::OutputTextStarted)?;
+                    }
+                    output_text.push_str(content);
+                    on_delta(ProviderStreamEvent::OutputTextDelta {
+                        delta: content.to_string(),
+                        phase: None,
+                    })?;
+                }
+
+                if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
+                    for tc in tool_calls {
+                        let index = tc.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                        let entry =
+                            self
+                                .tool_calls
+                                .entry(index)
+                                .or_insert_with(|| ChatToolCallEntry {
+                                    item_id: format!("item_chat_{index}"),
+                                    call_id: tc
+                                        .get("id")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    name: String::new(),
+                                    arguments: String::new(),
+                                    started: false,
+                                    completed: false,
+                                });
+                        if let Some(id) = tc
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .filter(|id| !id.is_empty())
+                        {
+                            entry.call_id = id.to_string();
+                        }
+                        if let Some(name) = tc.pointer("/function/name").and_then(Value::as_str) {
+                            entry.name.push_str(name);
+                        }
+                        if !entry.started && !entry.name.is_empty() {
+                            entry.started = true;
+                            on_delta(ProviderStreamEvent::ToolCallStarted {
+                                item_id: entry.item_id.clone(),
+                                call_id: entry.call_id.clone(),
+                                name: entry.name.clone(),
+                                presentation: None,
+                            })?;
+                        }
+                        if let Some(args) = tc.pointer("/function/arguments").and_then(Value::as_str) {
+                            entry.arguments.push_str(args);
+                            on_delta(ProviderStreamEvent::ToolCallArgumentsDelta {
+                                item_id: entry.item_id.clone(),
+                                call_id: entry.call_id.clone(),
+                                delta: args.to_string(),
+                            })?;
+                        }
+                    }
+                }
+
+                if let Some(finish_reason) = choice.get("finish_reason").and_then(Value::as_str) {
+                    // Flush any accumulated reasoning before processing tool_calls / stop.
+                    if self.reasoning_started && !self.reasoning_buffer.is_empty() {
+                        self.reasoning_started = false;
+                        on_delta(ProviderStreamEvent::ReasoningCompleted { total_tokens: None })?;
+                        output_items.push(json!({
+                            "type": "reasoning",
+                            "text": self.reasoning_buffer.clone(),
+                        }));
+                        self.reasoning_buffer.clear();
+                    }
+                    if finish_reason == "tool_calls" {
+                        let entries: Vec<(String, String, String, String)> = self
+                            .tool_calls
+                            .values()
+                            .filter(|e| !e.completed && !e.name.is_empty())
+                            .map(|e| {
+                                (
+                                    e.item_id.clone(),
+                                    e.call_id.clone(),
+                                    e.name.clone(),
+                                    e.arguments.clone(),
+                                )
+                            })
+                            .collect();
+                        for (item_id, call_id, name, arguments) in entries {
+                            if let Some(entry) =
+                                self.tool_calls.values_mut().find(|e| e.call_id == call_id)
+                            {
+                                entry.completed = true;
+                            }
+                            on_delta(ProviderStreamEvent::ToolCallCompleted {
+                                item_id: item_id.clone(),
+                                call_id: call_id.clone(),
+                                name: name.clone(),
+                                arguments: arguments.clone(),
+                                presentation: None,
+                            })?;
+                            output_items.push(json!({"type": "function_call", "id": item_id, "call_id": call_id, "name": name, "arguments": arguments}));
+                        }
+                    }
+                    // Do NOT return true here to terminate the stream.
+                    // When stream_options: {include_usage: true} is set, the API
+                    // sends a separate usage chunk AFTER the finish_reason chunk
+                    // but BEFORE the [DONE] marker. Terminating on finish_reason
+                    // would cause the usage data to be lost.
+                    // The stream is instead terminated by [DONE] or stream end.
+                }
+            }
+        }
+        Ok(false)
     }
 }

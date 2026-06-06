@@ -13,6 +13,7 @@
 //!
 //! See [`builtin_protocols`] for the global registry accessor.
 
+pub(crate) mod base_streaming;
 pub(crate) mod chat;
 pub(crate) mod embeddings;
 pub(crate) mod responses;
