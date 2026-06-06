@@ -12,7 +12,7 @@
 //!   recent LCM history. Used by the background memory agent.
 
 use crate::error::AgentJaxResult;
-use crate::lcm::types::{MessageRole, StoredMessage};
+use crate::lcm::types::StoredMessage;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -132,85 +132,7 @@ impl AgentContext for InMemoryContext {
 
         let mut items = Vec::with_capacity(messages.len());
         for msg in &messages {
-            match msg.role {
-                MessageRole::User => {
-                    items.push(serde_json::json!({
-                        "role": "user",
-                        "content": [{"type": "input_text", "text": &msg.content}]
-                    }));
-                }
-                MessageRole::Assistant => {
-                    // Inject thinking content if present.
-                    if let Some(ref t) = msg.thinking {
-                        let trimmed = t.trim();
-                        if !trimmed.is_empty() {
-                            items.push(serde_json::json!({
-                                "type": "reasoning",
-                                "text": trimmed,
-                            }));
-                        }
-                    }
-                    items.push(serde_json::json!({
-                        "role": "assistant",
-                        "content": [{"type": "input_text", "text": &msg.content}]
-                    }));
-                }
-                MessageRole::Tool => {
-                    // Structured tool messages via metadata.
-                    if let Some(msg_type) =
-                        msg.metadata.get("message_type").and_then(|v| v.as_str())
-                    {
-                        match msg_type {
-                            "function_call" => {
-                                let call_id = msg
-                                    .metadata
-                                    .get("call_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                let name = msg
-                                    .metadata
-                                    .get("tool_name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                let arguments = msg
-                                    .metadata
-                                    .get("arguments")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("{}");
-                                items.push(serde_json::json!({
-                                    "type": "function_call",
-                                    "call_id": call_id,
-                                    "name": name,
-                                    "arguments": arguments,
-                                }));
-                            }
-                            "function_call_output" => {
-                                let call_id = msg
-                                    .metadata
-                                    .get("call_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                items.push(serde_json::json!({
-                                    "type": "function_call_output",
-                                    "call_id": call_id,
-                                    "output": &msg.content,
-                                }));
-                            }
-                            _ => {
-                                items.push(serde_json::json!({
-                                    "role": "user",
-                                    "content": [{"type": "input_text", "text": &msg.content}]
-                                }));
-                            }
-                        }
-                    } else {
-                        items.push(serde_json::json!({
-                            "role": "user",
-                            "content": [{"type": "input_text", "text": &msg.content}]
-                        }));
-                    }
-                }
-            }
+            items.extend(crate::lcm::stored_message_to_provider_items(msg));
         }
         items
     }
@@ -299,86 +221,10 @@ impl AgentContext for MemoryAgentContext {
             .rev()
             .collect();
 
-        // Convert to provider-ready items using the same logic as InMemoryContext.
+        // Convert to provider-ready items using the canonical implementation.
         let mut items = Vec::with_capacity(recent.len());
         for msg in recent {
-            match msg.role {
-                MessageRole::User => {
-                    items.push(serde_json::json!({
-                        "role": "user",
-                        "content": [{"type": "input_text", "text": &msg.content}]
-                    }));
-                }
-                MessageRole::Assistant => {
-                    if let Some(ref t) = msg.thinking {
-                        let trimmed = t.trim();
-                        if !trimmed.is_empty() {
-                            items.push(serde_json::json!({
-                                "type": "reasoning",
-                                "text": trimmed,
-                            }));
-                        }
-                    }
-                    items.push(serde_json::json!({
-                        "role": "assistant",
-                        "content": [{"type": "input_text", "text": &msg.content}]
-                    }));
-                }
-                MessageRole::Tool => {
-                    if let Some(msg_type) =
-                        msg.metadata.get("message_type").and_then(|v| v.as_str())
-                    {
-                        match msg_type {
-                            "function_call" => {
-                                let call_id = msg
-                                    .metadata
-                                    .get("call_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                let name = msg
-                                    .metadata
-                                    .get("tool_name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                let arguments = msg
-                                    .metadata
-                                    .get("arguments")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("{}");
-                                items.push(serde_json::json!({
-                                    "type": "function_call",
-                                    "call_id": call_id,
-                                    "name": name,
-                                    "arguments": arguments,
-                                }));
-                            }
-                            "function_call_output" => {
-                                let call_id = msg
-                                    .metadata
-                                    .get("call_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                items.push(serde_json::json!({
-                                    "type": "function_call_output",
-                                    "call_id": call_id,
-                                    "output": &msg.content,
-                                }));
-                            }
-                            _ => {
-                                items.push(serde_json::json!({
-                                    "role": "user",
-                                    "content": [{"type": "input_text", "text": &msg.content}]
-                                }));
-                            }
-                        }
-                    } else {
-                        items.push(serde_json::json!({
-                            "role": "user",
-                            "content": [{"type": "input_text", "text": &msg.content}]
-                        }));
-                    }
-                }
-            }
+            items.extend(crate::lcm::stored_message_to_provider_items(msg));
         }
 
         let mut guard = self.items.lock().await;

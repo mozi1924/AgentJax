@@ -263,28 +263,19 @@ pub fn sanitize_tool_use_result_pairing(
                 i += 1;
             }
             MessageRole::Tool => {
-                // Orphaned tool result — check if it was already matched.
-                let tool_call_id = extract_tool_call_id(msg);
-                let is_orphan = match &tool_call_id {
-                    Some(_id) => !tool_result_indices_used.contains(
-                        &all_messages
-                            .iter()
-                            .position(|(idx, _)| *idx == i)
-                            .unwrap_or(usize::MAX),
-                    ),
-                    None => true,
-                };
-
-                if is_orphan {
-                    report.orphaned_results += 1;
-                    report.changed = true;
-                    // Drop orphan.
+                // Check if this tool result was already matched by a preceding
+                // assistant message. If so, skip it (avoid double-add).
+                let (orig_idx, _) = all_messages[i];
+                if tool_result_indices_used.contains(&orig_idx) {
                     i += 1;
                     continue;
                 }
 
-                repaired.push(RepairedMessage::Original(msg.clone()));
+                // Orphaned tool result — no matching tool_use found.
+                report.orphaned_results += 1;
+                report.changed = true;
                 i += 1;
+                continue;
             }
             _ => {
                 repaired.push(RepairedMessage::Original(msg.clone()));

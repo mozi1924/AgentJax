@@ -3,11 +3,12 @@ use crate::error::{AgentJaxError, AgentJaxResult};
 use std::fs;
 use std::path::PathBuf;
 
-const SESSIONS_DIR_NAME: &str = "sessions";
-const METADATA_FILE_NAME: &str = "metadata.json";
-const MESSAGES_FILE_NAME: &str = "messages.jsonl";
-const LCM_DB_FILE_NAME: &str = "lcm.db";
-const WORKSPACE_DIR_NAME: &str = "workspace";
+pub const SESSIONS_DIR_NAME: &str = "sessions";
+pub const METADATA_FILE_NAME: &str = "metadata.json";
+pub const MESSAGES_FILE_NAME: &str = "messages.jsonl";
+pub const LCM_DB_FILE_NAME: &str = "lcm.db";
+pub const WORKSPACE_DIR_NAME: &str = "workspace";
+pub const NOTIFICATIONS_FILE_NAME: &str = "notifications.jsonl";
 
 /// `~/.agentjax/agents/{agent_id}/sessions/` — root for all conversations of an agent.
 pub fn conversations_dir_path(agent_id: &str) -> AgentJaxResult<PathBuf> {

@@ -2,7 +2,7 @@ mod context;
 mod file_io;
 mod locks;
 mod mutations;
-mod paths;
+pub(crate) mod paths;
 mod queries;
 mod recovery;
 mod types;

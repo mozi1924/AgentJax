@@ -230,7 +230,7 @@ pub fn serialize_config_to_yaml(normalized: &AppConfig) -> AgentJaxResult<String
     })
 }
 
-fn persist_config_if_changed(
+pub fn persist_config_if_changed(
     path: &Path,
     raw: &str,
     normalized: &AppConfig,
@@ -251,13 +251,13 @@ fn persist_config_if_changed(
         return Ok(false);
     }
 
-    fs::write(path, normalized_yaml).map_err(|e| {
-        AgentJaxError::config(format!(
-            "Failed to write upgraded config file {}: {e}",
-            path.display()
-        ))
-        .with_error_source(&e)
-    })?;
+    crate::atomic_io::write_file_atomically(path, normalized_yaml.as_bytes(), "config")
+        .map_err(|e| {
+            AgentJaxError::config(format!(
+                "Failed to write upgraded config file {}: {e}",
+                path.display()
+            ))
+        })?;
     log::info!("Config file upgraded at {}", path.display());
 
     Ok(true)

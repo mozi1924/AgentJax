@@ -1,6 +1,7 @@
 #![recursion_limit = "512"]
 
 mod agentjax_home;
+pub(crate) mod atomic_io;
 mod commands;
 pub mod config;
 mod conversation_store;

@@ -36,7 +36,6 @@ use crate::lcm::types::{
     SummaryId, SummaryKind, estimate_tokens,
 };
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
@@ -1317,17 +1316,20 @@ impl LcmEngine {
         max_import_tokens: u32,
     ) -> Result<BootstrapResult, LcmError> {
         // ── Step 1: Locate the JSONL session file ──
-        // Construct the messages.jsonl path relative to the agent's session directory.
-        let base_dir = dirs::data_dir()
-            .map(|d| {
-                d.join("agentjax")
-                    .join("agents")
-                    .join(agent_id)
-                    .join("sessions")
-                    .join(conversation_id)
-            })
-            .unwrap_or_else(|| PathBuf::from("."));
-        let messages_path = base_dir.join("messages.jsonl");
+        let dir = match crate::conversation_store::conversation_dir_path(
+            agent_id,
+            conversation_id,
+        ) {
+            Ok(d) => d,
+            Err(e) => {
+                return Ok(BootstrapResult {
+                    bootstrapped: false,
+                    imported_count: 0,
+                    reason: format!("Cannot resolve session path: {e}"),
+                });
+            }
+        };
+        let messages_path = dir.join(crate::conversation_store::paths::MESSAGES_FILE_NAME);
 
         if !messages_path.exists() {
             return Ok(BootstrapResult {
@@ -1380,91 +1382,10 @@ impl LcmEngine {
 
             match conv_line {
                 Ok(cl) => {
-                    // Convert ConversationLine to StoredMessage parts.
-                    use crate::conversation_store::{ConversationLine, ToolStatus};
-                    use crate::lcm::types::MessageRole;
-                    use std::collections::BTreeMap;
+                    let (line_id, role, content, ts, metadata_map) =
+                        crate::lcm::conversation_line_to_stored_message_parts(&cl);
 
-                    let (role, content, ts, mut metadata_map): (
-                        MessageRole,
-                        String,
-                        i64,
-                        BTreeMap<String, serde_json::Value>,
-                    ) = match &cl {
-                        ConversationLine::User(u) => (
-                            MessageRole::User,
-                            u.text.clone(),
-                            u.ts,
-                            BTreeMap::from([(
-                                "request_id".to_string(),
-                                serde_json::Value::String(u.request_id.clone()),
-                            )]),
-                        ),
-                        ConversationLine::Assistant(a) => (
-                            MessageRole::Assistant,
-                            a.text.clone(),
-                            a.ts,
-                            BTreeMap::from([
-                                (
-                                    "request_id".to_string(),
-                                    serde_json::Value::String(a.request_id.clone()),
-                                ),
-                                (
-                                    "response_id".to_string(),
-                                    serde_json::Value::String(a.response_id.clone()),
-                                ),
-                            ]),
-                        ),
-                        ConversationLine::Tool(t) => (
-                            MessageRole::Tool,
-                            t.output.as_ref().map(|o| o.to_string()).unwrap_or_default(),
-                            t.ts,
-                            BTreeMap::from([
-                                (
-                                    "request_id".to_string(),
-                                    serde_json::Value::String(t.request_id.clone()),
-                                ),
-                                (
-                                    "call_id".to_string(),
-                                    serde_json::Value::String(t.call_id.clone()),
-                                ),
-                                (
-                                    "tool_name".to_string(),
-                                    serde_json::Value::String(t.name.clone()),
-                                ),
-                                (
-                                    "message_type".to_string(),
-                                    serde_json::Value::String(match t.status {
-                                        ToolStatus::Pending => "function_call".to_string(),
-                                        _ => "function_call_output".to_string(),
-                                    }),
-                                ),
-                            ]),
-                        ),
-                    };
-
-                    // Extract thinking content for assistant messages.
-                    if let ConversationLine::Assistant(a) = &cl {
-                        if let Some(ref thinking) = a.thinking {
-                            metadata_map.insert(
-                                "thinking".to_string(),
-                                serde_json::Value::String(thinking.clone()),
-                            );
-                        }
-                        if let Some(ref phase) = a.phase {
-                            metadata_map.insert(
-                                "phase".to_string(),
-                                serde_json::Value::String(format!("{:?}", phase).to_lowercase()),
-                            );
-                        }
-                    }
-
-                    // Derive a stable ID from the conversation line's own ID.
-                    let msg_id = crate::lcm::types::MessageId::from(match &cl {
-                        ConversationLine::User(u) => u.id.clone(),
-                        ConversationLine::Assistant(a) => a.id.clone(),
-                        ConversationLine::Tool(t) => t.id.clone(),
-                    });
+                    let msg_id = crate::lcm::types::MessageId::from(line_id);
 
                     // Skip if already exists in LCM.
                     if existing_ids.contains(msg_id.as_str()) {

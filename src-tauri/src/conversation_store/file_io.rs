@@ -121,7 +121,7 @@ pub fn write_conversation_file(
         buf.push_str(&json);
         buf.push('\n');
     }
-    write_file_atomically(messages_path, buf.as_bytes(), "messages")
+    crate::atomic_io::write_file_atomically(messages_path, buf.as_bytes(), "messages")
 }
 
 pub fn append_conversation_line(
@@ -170,7 +170,7 @@ pub fn write_conversation_metadata(
     ensure_parent_dir(metadata_path, "metadata")?;
     let meta_json = serde_json::to_string_pretty(meta)
         .map_err(|e| format!("Failed to serialize metadata: {e}"))?;
-    write_file_atomically(
+    crate::atomic_io::write_file_atomically(
         metadata_path,
         format!("{meta_json}\n").as_bytes(),
         "metadata",
@@ -243,7 +243,7 @@ where
         )
     })?;
     let reader = BufReader::new(file);
-    let (tmp_path, mut tmp_file) = create_temp_file(messages_path, "messages")?;
+    let (tmp_path, mut tmp_file) = crate::atomic_io::create_temp_file(messages_path, "messages")?;
 
     let mut rebuilt_meta = current_meta.clone();
     sanitize_meta_basics(&mut rebuilt_meta);
@@ -293,7 +293,7 @@ where
         )
     })?;
     drop(tmp_file);
-    finalize_atomic_replace(&tmp_path, messages_path, "messages")?;
+    crate::atomic_io::finalize_atomic_replace(&tmp_path, messages_path, "messages")?;
 
     rebuilt_meta.updated_at_unix_ms = rebuilt_meta.updated_at_unix_ms.max(previous_updated_at);
     Ok((rebuilt_meta, transformed_any, line_ids))
@@ -337,67 +337,6 @@ fn ensure_parent_dir(path: &Path, label: &str) -> crate::error::AgentJaxResult<(
     Ok(())
 }
 
-fn write_file_atomically(
-    path: &Path,
-    contents: &[u8],
-    label: &str,
-) -> crate::error::AgentJaxResult<()> {
-    let (tmp_path, mut tmp_file) = create_temp_file(path, label)?;
-    tmp_file.write_all(contents).map_err(|e| {
-        format!(
-            "Failed to write temporary {} file {}: {e}",
-            label,
-            tmp_path.display()
-        )
-    })?;
-    tmp_file.sync_all().map_err(|e| {
-        format!(
-            "Failed to sync temporary {} file {}: {e}",
-            label,
-            tmp_path.display()
-        )
-    })?;
-    drop(tmp_file);
-
-    finalize_atomic_replace(&tmp_path, path, label)
-}
-
-fn create_temp_file(
-    path: &Path,
-    label: &str,
-) -> crate::error::AgentJaxResult<(std::path::PathBuf, fs::File)> {
-    let parent = path.parent().ok_or_else(|| {
-        format!(
-            "Failed to resolve parent directory for {} file {}",
-            label,
-            path.display()
-        )
-    })?;
-
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| format!("Invalid {} file name {}", label, path.display()))?;
-    let unique_suffix = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
-    let tmp_path = parent.join(format!(
-        ".{file_name}.tmp-{}-{unique_suffix}",
-        std::process::id()
-    ));
-
-    let tmp_file = fs::File::create(&tmp_path).map_err(|e| {
-        format!(
-            "Failed to create temporary {} file {}: {e}",
-            label,
-            tmp_path.display()
-        )
-    })?;
-
-    Ok((tmp_path, tmp_file))
-}
-
 fn write_jsonl_line(
     file: &mut fs::File,
     line: &ConversationLine,
@@ -421,63 +360,6 @@ fn write_jsonl_line(
         ))
         .with_error_source(&e)
     })
-}
-
-fn finalize_atomic_replace(
-    tmp_path: &Path,
-    path: &Path,
-    label: &str,
-) -> crate::error::AgentJaxResult<()> {
-    if let Err(rename_err) = fs::rename(tmp_path, path) {
-        #[cfg(target_os = "windows")]
-        {
-            if path.exists() {
-                fs::remove_file(path).map_err(|e| {
-                    format!(
-                        "Failed to replace existing {} file {} after rename error {}: {e}",
-                        label,
-                        path.display(),
-                        rename_err
-                    )
-                })?;
-                fs::rename(tmp_path, path).map_err(|e| {
-                    format!(
-                        "Failed to finalize {} file {} after rename retry: {e}",
-                        label,
-                        path.display()
-                    )
-                })?;
-            } else {
-                return Err(agentjax_err!(
-                    format!(
-                        "Failed to atomically rename temporary {} file {} to {}: {}",
-                        label,
-                        tmp_path.display(),
-                        path.display(),
-                        rename_err
-                    ),
-                    Internal
-                ));
-            }
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            let _ = fs::remove_file(tmp_path);
-            return Err(agentjax_err!(
-                format!(
-                    "Failed to atomically rename temporary {} file {} to {}: {}",
-                    label,
-                    tmp_path.display(),
-                    path.display(),
-                    rename_err
-                ),
-                Internal
-            ));
-        }
-    }
-
-    Ok(())
 }
 
 // ── Metadata helpers ──────────────────────────────────────────────────────

@@ -72,7 +72,7 @@ pub fn lcm_store_path(agent_id: &str, conversation_id: &str) -> AgentJaxResult<P
         })?
         .to_path_buf();
     // Directory creation is handled by LcmStore::open().
-    Ok(dir.join("lcm.db"))
+    Ok(dir.join(crate::conversation_store::paths::LCM_DB_FILE_NAME))
 }
 
 /// Open (or create) the LCM store and engine for a conversation.
@@ -166,6 +166,184 @@ pub fn open_lcm_engine_with_summarizer(
     engine.spawn_compaction_task();
 
     Ok(engine)
+}
+
+/// Convert a single `ConversationLine` to the fields needed for a `StoredMessage`.
+///
+/// Returns `(original_id, role, content, timestamp_unix_ms, metadata)`.
+/// The caller is responsible for generating the final `MessageId`, computing
+/// `token_count`, and setting `covered_by`, `thinking`, and `file_refs`.
+pub fn conversation_line_to_stored_message_parts(
+    line: &crate::conversation_store::ConversationLine,
+) -> (String, types::MessageRole, String, i64, std::collections::BTreeMap<String, serde_json::Value>)
+{
+    use crate::conversation_store::{ConversationLine, ToolStatus};
+    use crate::lcm::types::MessageRole;
+    use std::collections::BTreeMap;
+
+    match line {
+        ConversationLine::User(u) => (
+            u.id.clone(),
+            MessageRole::User,
+            u.text.clone(),
+            u.ts,
+            BTreeMap::from([(
+                "request_id".to_string(),
+                serde_json::Value::String(u.request_id.clone()),
+            )]),
+        ),
+        ConversationLine::Assistant(a) => {
+            let mut meta = BTreeMap::from([
+                (
+                    "request_id".to_string(),
+                    serde_json::Value::String(a.request_id.clone()),
+                ),
+                (
+                    "response_id".to_string(),
+                    serde_json::Value::String(a.response_id.clone()),
+                ),
+            ]);
+            if let Some(ref thinking) = a.thinking {
+                meta.insert(
+                    "thinking".to_string(),
+                    serde_json::Value::String(thinking.clone()),
+                );
+            }
+            if let Some(ref phase) = a.phase {
+                meta.insert(
+                    "phase".to_string(),
+                    serde_json::Value::String(format!("{:?}", phase).to_lowercase()),
+                );
+            }
+            (a.id.clone(), MessageRole::Assistant, a.text.clone(), a.ts, meta)
+        }
+        ConversationLine::Tool(t) => (
+            t.id.clone(),
+            MessageRole::Tool,
+            t.output.as_ref().map(|o| o.to_string()).unwrap_or_default(),
+            t.ts,
+            BTreeMap::from([
+                (
+                    "request_id".to_string(),
+                    serde_json::Value::String(t.request_id.clone()),
+                ),
+                (
+                    "call_id".to_string(),
+                    serde_json::Value::String(t.call_id.clone()),
+                ),
+                (
+                    "tool_name".to_string(),
+                    serde_json::Value::String(t.name.clone()),
+                ),
+                (
+                    "message_type".to_string(),
+                    serde_json::Value::String(match t.status {
+                        ToolStatus::Pending => "function_call".to_string(),
+                        _ => "function_call_output".to_string(),
+                    }),
+                ),
+            ]),
+        ),
+    }
+}
+
+/// Convert a single `StoredMessage` into provider API items.
+///
+/// For assistant messages with thinking content, this produces two items:
+/// a `reasoning` block followed by the `output_text`. Tool messages are
+/// converted to `function_call` / `function_call_output` items based on
+/// message_type metadata. All other messages become role-based items with
+/// `input_text` content.
+///
+/// This is the canonical implementation — both `InMemoryContext` and
+/// `MemoryAgentContext` delegate to this to avoid code duplication with
+/// `LcmEngine::context_to_provider_items`.
+pub fn stored_message_to_provider_items(
+    msg: &types::StoredMessage,
+) -> Vec<serde_json::Value> {
+    let mut items = Vec::with_capacity(2);
+
+    match msg.role {
+        types::MessageRole::User => {
+            items.push(serde_json::json!({
+                "role": "user",
+                "content": [{"type": "input_text", "text": &msg.content}]
+            }));
+        }
+        types::MessageRole::Assistant => {
+            // Inject thinking content if present.
+            if let Some(ref t) = msg.thinking {
+                let trimmed = t.trim();
+                if !trimmed.is_empty() {
+                    items.push(serde_json::json!({
+                        "type": "reasoning",
+                        "text": trimmed,
+                    }));
+                }
+            }
+            items.push(serde_json::json!({
+                "role": "assistant",
+                "content": [{"type": "input_text", "text": &msg.content}]
+            }));
+        }
+        types::MessageRole::Tool => {
+            // Structured tool messages via metadata.
+            if let Some(msg_type) =
+                msg.metadata.get("message_type").and_then(|v| v.as_str())
+            {
+                match msg_type {
+                    "function_call" => {
+                        let call_id = msg
+                            .metadata
+                            .get("call_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let name = msg
+                            .metadata
+                            .get("tool_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let arguments = msg
+                            .metadata
+                            .get("arguments")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("{}");
+                        items.push(serde_json::json!({
+                            "type": "function_call",
+                            "call_id": call_id,
+                            "name": name,
+                            "arguments": arguments,
+                        }));
+                    }
+                    "function_call_output" => {
+                        let call_id = msg
+                            .metadata
+                            .get("call_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        items.push(serde_json::json!({
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": &msg.content,
+                        }));
+                    }
+                    _ => {
+                        items.push(serde_json::json!({
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": &msg.content}]
+                        }));
+                    }
+                }
+            } else {
+                items.push(serde_json::json!({
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": &msg.content}]
+                }));
+            }
+        }
+    }
+
+    items
 }
 
 /// Convert LCM `StoredMessage`s into `ConversationLine`s for frontend display.
@@ -348,22 +526,13 @@ pub fn backfill_lcm_from_jsonl(
     }
 
     // ── Step 2: Read JSONL session file ──
-    let messages_path = db_path
-        .parent()
-        .map(|p| p.join("messages.jsonl"))
-        .unwrap_or_else(|| {
-            // Fallback: use the standard path.
-            let dir = dirs::data_dir()
-                .map(|d| {
-                    d.join("agentjax")
-                        .join("agents")
-                        .join(agent_id)
-                        .join("sessions")
-                        .join(conversation_id)
-                })
-                .unwrap_or_else(|| std::path::PathBuf::from("."));
-            dir.join("messages.jsonl")
-        });
+    let messages_path = match crate::conversation_store::conversation_dir_path(
+        agent_id,
+        conversation_id,
+    ) {
+        Ok(d) => d.join(crate::conversation_store::paths::MESSAGES_FILE_NAME),
+        Err(_) => return Ok(false),
+    };
 
     if !messages_path.exists() {
         return Ok(false); // No JSONL file to import from.
@@ -390,85 +559,19 @@ pub fn backfill_lcm_from_jsonl(
         })?;
 
     // ── Step 4: Parse JSONL and convert to StoredMessages ──
-    use crate::conversation_store::{ConversationLine, ToolStatus};
-    use crate::lcm::types::{LcmId, MessageRole, StoredMessage};
-    use std::collections::BTreeMap;
+    use crate::lcm::types::{LcmId, StoredMessage};
 
     let mut stored_messages: Vec<StoredMessage> = Vec::new();
     let mut total_tokens: u32 = 0;
 
     for line in &jsonl_lines {
-        let Ok(cl) = serde_json::from_str::<ConversationLine>(line) else {
+        let Ok(cl) = serde_json::from_str::<crate::conversation_store::ConversationLine>(line)
+        else {
             continue;
         };
 
-        let (role, content, ts, metadata_map): (
-            MessageRole,
-            String,
-            i64,
-            BTreeMap<String, serde_json::Value>,
-        ) = match &cl {
-            ConversationLine::User(u) => (
-                MessageRole::User,
-                u.text.clone(),
-                u.ts,
-                BTreeMap::from([(
-                    "request_id".to_string(),
-                    serde_json::Value::String(u.request_id.clone()),
-                )]),
-            ),
-            ConversationLine::Assistant(a) => {
-                let mut meta = BTreeMap::from([
-                    (
-                        "request_id".to_string(),
-                        serde_json::Value::String(a.request_id.clone()),
-                    ),
-                    (
-                        "response_id".to_string(),
-                        serde_json::Value::String(a.response_id.clone()),
-                    ),
-                ]);
-                if let Some(ref phase) = a.phase {
-                    meta.insert(
-                        "phase".to_string(),
-                        serde_json::Value::String(format!("{:?}", phase).to_lowercase()),
-                    );
-                }
-                if let Some(ref thinking) = a.thinking {
-                    meta.insert(
-                        "thinking".to_string(),
-                        serde_json::Value::String(thinking.clone()),
-                    );
-                }
-                (MessageRole::Assistant, a.text.clone(), a.ts, meta)
-            }
-            ConversationLine::Tool(t) => (
-                MessageRole::Tool,
-                t.output.as_ref().map(|o| o.to_string()).unwrap_or_default(),
-                t.ts,
-                BTreeMap::from([
-                    (
-                        "request_id".to_string(),
-                        serde_json::Value::String(t.request_id.clone()),
-                    ),
-                    (
-                        "call_id".to_string(),
-                        serde_json::Value::String(t.call_id.clone()),
-                    ),
-                    (
-                        "tool_name".to_string(),
-                        serde_json::Value::String(t.name.clone()),
-                    ),
-                    (
-                        "message_type".to_string(),
-                        serde_json::Value::String(match t.status {
-                            ToolStatus::Pending => "function_call".to_string(),
-                            _ => "function_call_output".to_string(),
-                        }),
-                    ),
-                ]),
-            ),
-        };
+        let (_line_id, role, content, ts, metadata_map) =
+            conversation_line_to_stored_message_parts(&cl);
 
         let msg_id = LcmId::new();
         let token_count = crate::lcm::types::estimate_tokens(&content);

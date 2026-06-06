@@ -28,7 +28,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-const NOTIFICATIONS_FILE_NAME: &str = "notifications.jsonl";
+use crate::conversation_store::paths::NOTIFICATIONS_FILE_NAME;
 
 /// Resolve the path to the JSONL file for a given conversation.
 ///

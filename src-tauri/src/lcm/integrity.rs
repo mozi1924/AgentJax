@@ -162,7 +162,7 @@ impl IntegrityChecker {
                     .store
                     .db_path()
                     .parent()
-                    .map(|dir| dir.join("metadata.json"))
+                    .map(|dir| dir.join(crate::conversation_store::paths::METADATA_FILE_NAME))
                     .filter(|p| p.exists())
                     .is_some();
 
@@ -463,9 +463,14 @@ mod tests {
         let checker = IntegrityChecker::new(store.clone());
 
         let result = checker.check_conversation_exists(&conv_id).unwrap();
-        assert_eq!(result.status, IntegrityStatus::Fail);
+        // In-memory store with no metadata.json → Warn (not Fail, since
+        // the conversation may be a new pre-populated one).
+        assert_eq!(result.status, IntegrityStatus::Warn);
 
         add_test_message(&store, &conv_id);
+        // persist_message alone does NOT create conversation_meta.
+        // We need to ensure it explicitly for the check to pass.
+        store.ensure_conversation_meta(&conv_id).unwrap();
         let result = checker.check_conversation_exists(&conv_id).unwrap();
         assert_eq!(result.status, IntegrityStatus::Pass);
     }
