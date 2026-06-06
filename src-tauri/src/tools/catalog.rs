@@ -27,7 +27,10 @@ use crate::tools::{
     SystemTimeTool, Tool, ToolExecutionContext, ToolPresentation, ToolSchemaFormat,
     format_tool_schema, humanize_tool_name,
 };
-pub(crate) use entry::{ContextGating, RegisteredToolInfo, ToolCategory, ToolEntry};
+pub(crate) use entry::{
+    ContextGating, McpCollectedTool, PluginCollectedTool, RegisteredToolInfo, ToolCategory,
+    ToolEntry,
+};
 #[allow(unused_imports)]
 pub use manager_snapshot::{
     ToolManagerSchemaFormat, ToolManagerSnapshot, ToolManagerSnapshotRequest,
@@ -352,16 +355,18 @@ impl ToolCatalog {
 
                 if let Some(mounted) = mounted_servers.get(server_id) {
                     for tool in &mounted.tools {
-                        if !self.mcp_tool_enabled(server_id, &tool.tool_name) {
+                        let collected = self.collect_mcp_tool(server_id, tool);
+                        if !collected.enabled {
                             continue;
                         }
-                        let prefixed_name = prefixed_mcp_tool_name(server_id, &tool.tool_name);
+                        let prefixed_name =
+                            prefixed_mcp_tool_name(server_id, &collected.tool_name);
                         presentations.insert(
                             prefixed_name.clone(),
                             ToolPresentation {
-                                display_name: tool.display_name.clone(),
-                                description: tool.description.clone(),
-                                icon: tool.icon.clone(),
+                                display_name: collected.display_name.clone(),
+                                description: collected.description.clone(),
+                                icon: collected.icon.clone(),
                             },
                         );
                         insert_snapshot_tool(
@@ -369,15 +374,15 @@ impl ToolCatalog {
                             format_tool_schema(
                                 format,
                                 &prefixed_name,
-                                &tool.description,
-                                tool.input_schema.clone(),
+                                &collected.description,
+                                collected.input_schema,
                             ),
                             &mut active_tool_names,
                             &mut entries,
                             prefixed_name,
                             ToolSnapshotEntry::Mcp {
                                 server_id: mounted.source_id.clone(),
-                                tool_name: tool.tool_name.clone(),
+                                tool_name: collected.tool_name,
                                 server_config: mounted
                                     .mcp_config
                                     .as_ref()
@@ -390,47 +395,30 @@ impl ToolCatalog {
             }
         }
 
-        for registered_tool in self
-            .plugin_manifests
-            .values()
-            .flat_map(registered_tools_for_manifest)
-        {
-            if !self.plugin_tool_enabled(&registered_tool.plugin_id, &registered_tool.tool.name) {
+        for info in self.collect_plugin_tools() {
+            if !info.enabled {
                 continue;
             }
-            let prefixed_name =
-                prefixed_plugin_tool_name(&registered_tool.plugin_id, &registered_tool.tool.name);
-            let display_name = if registered_tool.tool.display_name.trim().is_empty() {
-                humanize_tool_name(&registered_tool.tool.name)
-            } else {
-                registered_tool.tool.display_name.clone()
-            };
+            let prefixed_name = prefixed_plugin_tool_name(&info.plugin_id, &info.tool_name);
+            let plugin_id = info.plugin_id.clone();
             presentations.insert(
                 prefixed_name.clone(),
                 ToolPresentation {
-                    display_name,
-                    description: registered_tool.tool.description.clone(),
-                    icon: registered_tool.tool.icon.clone(),
+                    display_name: info.display_name,
+                    description: info.description.clone(),
+                    icon: info.icon.clone(),
                 },
             );
             insert_snapshot_tool(
                 &mut schemas,
-                format_tool_schema(
-                    format,
-                    &prefixed_name,
-                    &registered_tool.tool.description,
-                    registered_tool.tool.input_schema.clone(),
-                ),
+                format_tool_schema(format, &prefixed_name, &info.description, info.input_schema),
                 &mut active_tool_names,
                 &mut entries,
                 prefixed_name,
                 ToolSnapshotEntry::Plugin {
-                    plugin_id: registered_tool.plugin_id.clone(),
-                    tool_name: registered_tool.tool.name,
-                    package: self
-                        .plugin_packages
-                        .get(&registered_tool.plugin_id)
-                        .cloned(),
+                    plugin_id: info.plugin_id,
+                    tool_name: info.tool_name,
+                    package: self.plugin_packages.get(&plugin_id).cloned(),
                 },
             );
         }
@@ -543,6 +531,36 @@ impl ToolCatalog {
             .collect()
     }
 
+    /// Enumerate all plugin tools with source-level filtering applied.
+    ///
+    /// Returns a `Vec<PluginCollectedTool>` where each entry's `enabled` field
+    /// reflects `plugin_tool_enabled()`.  Both snapshot paths consume the same
+    /// data to avoid duplicated filtering logic.
+    pub(crate) fn collect_plugin_tools(&self) -> Vec<PluginCollectedTool> {
+        self.plugin_manifests
+            .values()
+            .flat_map(registered_tools_for_manifest)
+            .map(|registered| {
+                let enabled =
+                    self.plugin_tool_enabled(&registered.plugin_id, &registered.tool.name);
+                let display_name = if registered.tool.display_name.trim().is_empty() {
+                    humanize_tool_name(&registered.tool.name)
+                } else {
+                    registered.tool.display_name.clone()
+                };
+                PluginCollectedTool {
+                    plugin_id: registered.plugin_id,
+                    tool_name: registered.tool.name,
+                    display_name,
+                    description: registered.tool.description,
+                    icon: registered.tool.icon,
+                    input_schema: registered.tool.input_schema,
+                    enabled,
+                }
+            })
+            .collect()
+    }
+
     // ── Unified enablement & gating ──────────────────────────────────────
     //
     // These replace the old split between native_tool_enabled() and
@@ -581,6 +599,26 @@ impl ToolCatalog {
     ///
     /// Kept as a convenience for the tool manager snapshot and background
     /// task checks; prefer `entry_enabled()` for unified dispatch.
+    /// Convert a `MountedToolDefinition` + server metadata into an
+    /// `McpCollectedTool`, applying the per-tool enablement policy.
+    ///
+    /// Both snapshot paths use this to avoid duplicating the enablement
+    /// check and field mapping.
+    pub(crate) fn collect_mcp_tool(
+        &self,
+        server_id: &str,
+        tool: &MountedToolDefinition,
+    ) -> McpCollectedTool {
+        McpCollectedTool {
+            tool_name: tool.tool_name.clone(),
+            display_name: tool.display_name.clone(),
+            description: tool.description.clone(),
+            icon: tool.icon.clone(),
+            input_schema: tool.input_schema.clone(),
+            enabled: self.mcp_tool_enabled(server_id, &tool.tool_name),
+        }
+    }
+
     pub(crate) fn native_tool_enabled(&self, tool_name: &str) -> bool {
         self.tool_manager
             .native_tools

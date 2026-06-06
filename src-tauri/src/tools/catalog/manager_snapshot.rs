@@ -1,14 +1,15 @@
 use super::ToolCatalog;
-use super::entry::ToolCategory;
+use super::entry::{PluginCollectedTool, ToolCategory};
 use super::names::{escape_policy_path_segment, mount_tool_name_for_server, prefixed_mcp_tool_name};
 use super::schemas::{
     BACKGROUND_TASK_NAME, build_background_task_schema, build_manage_mcp_server_tool_schema,
     normalize_mcp_tool_definitions,
 };
-use crate::plugin_runtime::{prefixed_plugin_tool_name, registered_tools_for_manifest};
+use crate::plugin_runtime::prefixed_plugin_tool_name;
 use crate::tools::{ToolExecutionContext, ToolSchemaFormat, humanize_tool_name};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 /// Optional query parameters for the read-only Tools Manager snapshot.
 ///
@@ -349,33 +350,40 @@ impl ToolCatalog {
             };
             let mounted = mounted_servers.get(server_id);
             let should_discover = discover_source_id == Some(server_id.as_str());
-            let mut tools = mounted
+            let mut tools: Vec<ToolManagerToolSnapshot> = mounted
                 .map(|session| {
                     session
                         .tools
                         .iter()
                         .map(|tool| {
-                            let enabled = self.mcp_tool_enabled(server_id, &tool.tool_name);
+                            let collected =
+                                self.collect_mcp_tool(server_id, tool);
+                            let tool_name = collected.tool_name.clone();
                             ToolManagerToolSnapshot::new(
-                                tool.tool_name.clone(),
-                                tool.display_name.clone(),
-                                prefixed_mcp_tool_name(server_id, &tool.tool_name),
-                                tool.description.clone(),
-                                tool.icon.clone(),
-                                enabled,
-                                if enabled { "mounted" } else { "disabled" }.to_string(),
-                                tool.input_schema.clone(),
+                                collected.tool_name,
+                                collected.display_name,
+                                prefixed_mcp_tool_name(server_id, &tool_name),
+                                collected.description,
+                                collected.icon,
+                                collected.enabled,
+                                if collected.enabled {
+                                    "mounted"
+                                } else {
+                                    "disabled"
+                                }
+                                .to_string(),
+                                collected.input_schema,
                                 ToolManagerSchemaFormat::Mcp,
                                 mcp_source_capabilities(),
                                 ToolManagerToolPolicyPaths {
                                     tool_enabled_path: Some(mcp_tool_enabled_path(
                                         server_id,
-                                        &tool.tool_name,
+                                        &tool_name,
                                     )),
                                 },
                             )
                         })
-                        .collect::<Vec<_>>()
+                        .collect()
                 })
                 .unwrap_or_default();
 
@@ -400,25 +408,33 @@ impl ToolCatalog {
                 {
                     Ok(raw_tools) => {
                         status = "discovered".to_string();
-                        tools = normalize_mcp_tool_definitions(raw_tools)
-                            .into_iter()
+                        let mounted_defs = normalize_mcp_tool_definitions(raw_tools);
+                        tools = mounted_defs
+                            .iter()
                             .map(|tool| {
-                                let enabled = self.mcp_tool_enabled(server_id, &tool.tool_name);
+                                let collected =
+                                    self.collect_mcp_tool(server_id, tool);
+                                let tool_name = collected.tool_name.clone();
                                 ToolManagerToolSnapshot::new(
-                                    tool.tool_name.clone(),
-                                    tool.display_name,
-                                    prefixed_mcp_tool_name(server_id, &tool.tool_name),
-                                    tool.description,
-                                    tool.icon,
-                                    enabled,
-                                    if enabled { "available" } else { "disabled" }.to_string(),
-                                    tool.input_schema,
+                                    collected.tool_name,
+                                    collected.display_name,
+                                    prefixed_mcp_tool_name(server_id, &tool_name),
+                                    collected.description,
+                                    collected.icon,
+                                    collected.enabled,
+                                    if collected.enabled {
+                                        "available"
+                                    } else {
+                                        "disabled"
+                                    }
+                                    .to_string(),
+                                    collected.input_schema,
                                     ToolManagerSchemaFormat::Mcp,
                                     mcp_source_capabilities(),
                                     ToolManagerToolPolicyPaths {
                                         tool_enabled_path: Some(mcp_tool_enabled_path(
                                             server_id,
-                                            &tool.tool_name,
+                                            &tool_name,
                                         )),
                                     },
                                 )
@@ -452,57 +468,60 @@ impl ToolCatalog {
     }
 
     fn plugin_sources_snapshot(&self) -> Vec<ToolManagerSourceSnapshot> {
-        self.plugin_manifests
-            .values()
-            // Only show plugins that register tools in the tool manager.
-            // Provider-only plugins are managed via the Plugin Manager instead.
-            .filter(|manifest| !manifest.tools.is_empty())
-            .map(|manifest| {
-                let source_enabled = self.plugin_source_enabled(&manifest.id);
-                let tools = registered_tools_for_manifest(manifest)
+        // Group collected plugin tools by plugin_id so we can build one
+        // ToolManagerSourceSnapshot per plugin.
+        let mut by_plugin: BTreeMap<String, Vec<PluginCollectedTool>> = BTreeMap::new();
+        for tool in self.collect_plugin_tools() {
+            by_plugin
+                .entry(tool.plugin_id.clone())
+                .or_default()
+                .push(tool);
+        }
+
+        by_plugin
+            .into_iter()
+            .filter_map(|(plugin_id, tools)| {
+                let manifest = self.plugin_manifests.get(&plugin_id)?;
+                // Only show plugins that register tools in the tool manager.
+                // Provider-only plugins are managed via the Plugin Manager instead.
+                if manifest.tools.is_empty() {
+                    return None;
+                }
+                let source_enabled = self.plugin_source_enabled(&plugin_id);
+                let tool_snapshots: Vec<ToolManagerToolSnapshot> = tools
                     .into_iter()
-                    .map(|registered| {
-                        let enabled =
-                            self.plugin_tool_enabled(&registered.plugin_id, &registered.tool.name);
-                        let friendly_name = if registered.tool.display_name.trim().is_empty() {
-                            humanize_tool_name(&registered.tool.name)
+                    .map(|info| {
+                        let availability = if source_enabled && info.enabled {
+                            "available"
                         } else {
-                            registered.tool.display_name.clone()
+                            "disabled"
                         };
                         ToolManagerToolSnapshot::new(
-                            registered.tool.name.clone(),
-                            friendly_name,
-                            prefixed_plugin_tool_name(
-                                &registered.plugin_id,
-                                &registered.tool.name,
-                            ),
-                            registered.tool.description.clone(),
-                            registered.tool.icon.clone(),
-                            enabled,
-                            if source_enabled && enabled {
-                                "available"
-                            } else {
-                                "disabled"
-                            }
-                            .to_string(),
-                            registered.tool.input_schema.clone(),
+                            info.tool_name.clone(),
+                            info.display_name,
+                            prefixed_plugin_tool_name(&info.plugin_id, &info.tool_name),
+                            info.description,
+                            info.icon,
+                            info.enabled,
+                            availability.to_string(),
+                            info.input_schema,
                             ToolManagerSchemaFormat::JsonSchema,
                             plugin_source_capabilities(),
                             ToolManagerToolPolicyPaths {
                                 tool_enabled_path: Some(plugin_tool_enabled_path(
-                                    &registered.plugin_id,
-                                    &registered.tool.name,
+                                    &info.plugin_id,
+                                    &info.tool_name,
                                 )),
                             },
                         )
                     })
                     .collect();
 
-                ToolManagerSourceSnapshot {
+                Some(ToolManagerSourceSnapshot {
                     source_type: ToolManagerSourceType::Plugin,
-                    source_id: manifest.id.clone(),
+                    source_id: plugin_id.clone(),
                     source_name: if manifest.name.trim().is_empty() {
-                        manifest.id.clone()
+                        plugin_id
                     } else {
                         manifest.name.clone()
                     },
@@ -514,9 +533,9 @@ impl ToolCatalog {
                         source_enabled_path: Some(plugin_source_enabled_path(&manifest.id)),
                         exposure_path: None,
                     },
-                    tools,
+                    tools: tool_snapshots,
                     error: None,
-                }
+                })
             })
             .collect()
     }

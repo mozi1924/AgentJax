@@ -107,23 +107,6 @@ pub trait Tool: Send + Sync {
     fn icon(&self) -> Option<&'static str> {
         None
     }
-
-    fn presentation(&self) -> ToolPresentation {
-        ToolPresentation::new(
-            self.display_name(),
-            self.description(),
-            self.icon().map(str::to_string),
-        )
-    }
-
-    fn to_schema_with_format(&self, format: ToolSchemaFormat) -> Value {
-        format_tool_schema(
-            format,
-            self.name(),
-            self.description(),
-            self.parameters_schema(),
-        )
-    }
 }
 
 #[derive(Clone, Default)]

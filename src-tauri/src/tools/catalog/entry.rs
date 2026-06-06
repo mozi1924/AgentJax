@@ -149,3 +149,36 @@ impl RegisteredToolInfo {
         }
     }
 }
+
+// ── PluginCollectedTool (shared enumeration output) ─────────────────────────
+
+/// Intermediate representation of a plugin tool, produced by
+/// `ToolCatalog::collect_plugin_tools()`.
+#[derive(Clone)]
+pub(crate) struct PluginCollectedTool {
+    pub plugin_id: String,
+    pub tool_name: String,
+    pub display_name: String,
+    pub description: String,
+    pub icon: Option<String>,
+    pub input_schema: Value,
+    pub enabled: bool,
+}
+
+// ── McpCollectedTool (shared enumeration output) ────────────────────────────
+
+/// Intermediate representation of a collected MCP tool, produced when
+/// enumerating MCP server tools for either the model snapshot or the
+/// tool manager snapshot.
+///
+/// The `server_id` is not stored here because callers already have it
+/// in their scope — this struct carries only per-tool fields.
+#[derive(Clone)]
+pub(crate) struct McpCollectedTool {
+    pub tool_name: String,
+    pub display_name: String,
+    pub description: String,
+    pub icon: Option<String>,
+    pub input_schema: Value,
+    pub enabled: bool,
+}
