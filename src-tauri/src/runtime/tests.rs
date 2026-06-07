@@ -451,25 +451,31 @@ fn assert_archived_carrier_pair(items: &[Value], original_call_id: &str) {
 }
 
 /// Check that an orphaned `function_call` (no matching output) was archived
-/// — only the function_call is rewritten, no function_call_output exists.
+/// — both a function_call and a synthetic function_call_output are emitted
+/// to preserve Chat Completions pairing.
 fn assert_archived_orphaned_call(items: &[Value], original_call_id: &str) {
     let fc = items.iter().find(|item| {
         item.get("type").and_then(|v| v.as_str()) == Some("function_call")
             && item.get("call_id").and_then(|v| v.as_str()) == Some(original_call_id)
             && item.get("name").and_then(|v| v.as_str()) == Some("_archived_tool")
     });
-    assert!(fc.is_some(), "expected _archived_tool function_call with call_id={original_call_id} (orphaned call)");
-    // No function_call_output should match this call_id.
     let fco = items.iter().find(|item| {
         item.get("type").and_then(|v| v.as_str()) == Some("function_call_output")
             && item.get("call_id").and_then(|v| v.as_str()) == Some(original_call_id)
     });
-    assert!(fco.is_none(), "expected NO function_call_output for orphaned call {original_call_id}");
+    assert!(fc.is_some(), "expected _archived_tool function_call with call_id={original_call_id} (orphaned call)");
+    assert!(fco.is_some(), "expected synthetic function_call_output with call_id={original_call_id} (orphaned call needs pairing)");
 }
 
 /// Check that an orphaned `function_call_output` (no matching call) was
-/// archived — only the output is wrapped, no function_call exists.
+/// archived — both a function_call and function_call_output are emitted
+/// for `_archived_tool` to form a valid Chat Completions pair.
 fn assert_archived_orphaned_output(items: &[Value], original_call_id: &str) {
+    let fc = items.iter().find(|item| {
+        item.get("type").and_then(|v| v.as_str()) == Some("function_call")
+            && item.get("call_id").and_then(|v| v.as_str()) == Some(original_call_id)
+            && item.get("name").and_then(|v| v.as_str()) == Some("_archived_tool")
+    });
     let fco = items.iter().find(|item| {
         item.get("type").and_then(|v| v.as_str()) == Some("function_call_output")
             && item.get("call_id").and_then(|v| v.as_str()) == Some(original_call_id)
@@ -477,13 +483,8 @@ fn assert_archived_orphaned_output(items: &[Value], original_call_id: &str) {
                 .map(|o| o.contains("\"original_tool\""))
                 .unwrap_or(false)
     });
+    assert!(fc.is_some(), "expected _archived_tool function_call with call_id={original_call_id} (orphaned output now has matching fc)");
     assert!(fco.is_some(), "expected wrapped function_call_output with call_id={original_call_id} (orphaned output)");
-    // No function_call should match this call_id.
-    let fc = items.iter().find(|item| {
-        item.get("type").and_then(|v| v.as_str()) == Some("function_call")
-            && item.get("call_id").and_then(|v| v.as_str()) == Some(original_call_id)
-    });
-    assert!(fc.is_none(), "expected NO function_call for orphaned output {original_call_id}");
 }
 
 /// Helper: assert that no carrier pair exists (used when archiving should not happen).

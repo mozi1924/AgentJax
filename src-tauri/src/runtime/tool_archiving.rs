@@ -249,6 +249,25 @@ pub(crate) fn archive_unavailable_historical_tool_calls(
                     arguments,
                     note,
                 ));
+
+                // For orphaned calls (category 2), emit a synthetic
+                // function_call_output so the Chat Completions pairing
+                // is preserved — otherwise we'd get "assistant with
+                // tool_calls without tool messages".
+                if is_orphaned_call {
+                    let synthetic_output = json!({
+                        "original_tool": display_name,
+                        "original_arguments": arguments,
+                        "original_output": null,
+                        "note": "Output was compacted by LCM and is not recoverable.",
+                    });
+                    output.push(json!({
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": to_compact_json(&synthetic_output, 8000),
+                    }));
+                }
+
                 emitted_call_ids.insert(call_id.to_string());
                 continue;
             }
@@ -281,6 +300,19 @@ pub(crate) fn archive_unavailable_historical_tool_calls(
                 };
                 let display_name: &str =
                     if tool_name.is_empty() { "(unknown)" } else { tool_name };
+
+                // For orphaned outputs (category 3), we must also emit
+                // the matching function_call — otherwise the Chat
+                // Completions conversion produces a tool-role message
+                // with no preceding assistant(tool_calls).
+                if is_orphaned_output && !emitted_call_ids.contains(call_id) {
+                    output.push(build_carrier_function_call(
+                        call_id,
+                        display_name,
+                        arguments,
+                        note,
+                    ));
+                }
 
                 output.push(build_carrier_function_call_output(
                     call_id,

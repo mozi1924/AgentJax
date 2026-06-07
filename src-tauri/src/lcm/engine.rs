@@ -534,7 +534,7 @@ impl LcmEngine {
                     Some("function_call") | Some("function_call_output")
                 ))
             };
-            let oldest_messages: Vec<ContextEntry> = ctx
+            let mut oldest_messages: Vec<ContextEntry> = ctx
                 .entries
                 .iter()
                 .filter(|e| {
@@ -543,6 +543,55 @@ impl LcmEngine {
                 .take(block_size)
                 .cloned()
                 .collect();
+
+            // ── Pull in matching tool results ───────────────────────
+            // Assistant messages embed tool_calls in `tool_calls_json`
+            // metadata.  When such an assistant is compacted, its
+            // corresponding tool-result messages (function_call_output)
+            // must also be compacted — otherwise they become orphaned
+            // outputs with no preceding tool_calls, breaking Chat
+            // Completions interleaving.
+            {
+                let mut paired_call_ids: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
+                for entry in &oldest_messages {
+                    if let ContextEntry::RawMessage { metadata, .. } = entry
+                        && let Some(tc_json) =
+                            metadata.get("tool_calls_json").and_then(|v| v.as_str())
+                    {
+                        if let Ok(tool_calls) =
+                            serde_json::from_str::<Vec<serde_json::Value>>(tc_json)
+                        {
+                            for tc in &tool_calls {
+                                if let Some(cid) =
+                                    tc.get("call_id").and_then(|v| v.as_str())
+                                {
+                                    paired_call_ids.insert(cid.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !paired_call_ids.is_empty() {
+                    for entry in &ctx.entries {
+                        if let ContextEntry::RawMessage { metadata, .. } = entry
+                            && let Some(msg_type) =
+                                metadata.get("message_type").and_then(|v| v.as_str())
+                            && msg_type == "function_call_output"
+                            && let Some(call_id) =
+                                metadata.get("call_id").and_then(|v| v.as_str())
+                            && paired_call_ids.contains(call_id)
+                        {
+                            // Tool messages were excluded by the initial
+                            // filter — pull them into the block now so
+                            // they are compacted together with their
+                            // parent assistant message.
+                            oldest_messages.push(entry.clone());
+                        }
+                    }
+                }
+            }
 
             if oldest_messages.is_empty() {
                 // If there are no raw messages to compact, try compacting
