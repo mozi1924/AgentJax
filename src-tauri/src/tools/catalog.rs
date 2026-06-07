@@ -569,14 +569,27 @@ impl ToolCatalog {
     /// Check whether a tool entry's base enablement policy allows it.
     ///
     /// Native tools are gated by `tool_manager.native_tools.*.enabled`.
-    /// Knowledge Base tools are gated by `tool_manager.context_tools.*.enabled`.
-    /// Context tools are forced enabled (the agent depends on them).
+    /// Knowledge Base and Context tools are both gated by
+    /// `tool_manager.context_tools.*.enabled`.
+    ///
+    /// Context tools (LCM, memory) default to enabled when no policy entry
+    /// exists — the UI does not expose toggles for them, but the runtime
+    /// respects any explicit config so that the archiver can handle
+    /// disabled tools uniformly.
     pub(crate) fn entry_enabled(&self, entry: &ToolEntry) -> bool {
-        match entry.category {
+        let enabled = match entry.category {
             ToolCategory::Native => self.native_tool_enabled(entry.name()),
-            ToolCategory::KnowledgeBase => self.context_tool_enabled(entry.name()),
-            ToolCategory::Context => true,
-        }
+            ToolCategory::KnowledgeBase | ToolCategory::Context => {
+                self.context_tool_enabled(entry.name())
+            }
+        };
+        log::debug!(
+            "entry_enabled: category={:?} name={} enabled={}",
+            entry.category,
+            entry.name(),
+            enabled
+        );
+        enabled
     }
 
     /// Check whether a context tool is gatable by the current runtime state.

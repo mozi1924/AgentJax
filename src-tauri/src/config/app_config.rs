@@ -308,6 +308,7 @@ impl ToolManagerConfig {
         self.plugin_tools =
             normalize_tool_source_policy_map(std::mem::take(&mut self.plugin_tools));
         self.mcp_tools = normalize_mcp_tool_source_policy_map(std::mem::take(&mut self.mcp_tools));
+        self.context_tools = normalize_tool_enabled_map(std::mem::take(&mut self.context_tools));
         self
     }
 }
