@@ -187,8 +187,31 @@ impl LcmStore {
     }
 
     /// Persist multiple messages in a single transaction.
+    ///
+    /// Messages with `seq == 0` are auto-assigned sequential sequence numbers
+    /// based on the current max seq for the conversation. This ensures
+    /// monotonically increasing seq even when callers don't track seq explicitly.
     pub fn persist_messages(&self, messages: &[StoredMessage]) -> Result<(), LcmError> {
+        if messages.is_empty() {
+            return Ok(());
+        }
+
         let conn = self.lock_conn()?;
+
+        // Compute the starting seq for messages that need auto-assignment.
+        let needs_seq = messages.iter().any(|m| m.seq == 0);
+        let next_seq: u32 = if needs_seq {
+            let max_existing: u32 = conn
+                .query_row(
+                    "SELECT COALESCE(MAX(seq), 0) FROM messages WHERE conversation_id = ?1",
+                    params![messages[0].conversation_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            max_existing + 1
+        } else {
+            0 // not used
+        };
 
         let tx = conn
             .unchecked_transaction()
@@ -199,7 +222,16 @@ impl LcmStore {
                 .prepare(MESSAGE_INSERT_SQL)
                 .map_err(|e| LcmError::Store(format!("Failed to prepare insert: {e}")))?;
 
+            let mut auto_seq = next_seq;
             for msg in messages {
+                let effective_seq = if msg.seq == 0 {
+                    let s = auto_seq;
+                    auto_seq += 1;
+                    s
+                } else {
+                    msg.seq
+                };
+
                 let metadata_json = serde_json::to_string(&msg.metadata).unwrap_or_default();
                 let file_refs_json = serde_json::to_string(&msg.file_refs).unwrap_or_default();
                 stmt.execute(params![
@@ -210,7 +242,7 @@ impl LcmStore {
                     msg.token_count,
                     msg.timestamp_unix_ms,
                     msg.covered_by.as_ref().map(|s| s.as_str()),
-                    msg.seq,
+                    effective_seq,
                     msg.hop_index,
                     msg.thinking.as_deref(),
                     msg.search_text(),
@@ -259,7 +291,7 @@ impl LcmStore {
         // Order by seq ASC to ensure correct hop-by-hop context reconstruction.
         let mut stmt = conn
             .prepare(&format!(
-                "{} WHERE conversation_id = ?1 ORDER BY seq ASC",
+                "{} WHERE conversation_id = ?1 ORDER BY seq ASC, timestamp_unix_ms ASC",
                 MESSAGE_SELECT_SQL,
             ))
             .map_err(|e| LcmError::Store(format!("Failed to prepare query: {e}")))?;
@@ -992,6 +1024,150 @@ impl LcmStore {
             .map_err(|e| LcmError::Store(format!("Failed to commit deletion: {e}")))?;
 
         Ok(())
+    }
+
+    // ── Repair Operations ──────────────────────────────────────────────
+
+    /// Delete orphan summary nodes (those with no lineage connections).
+    /// Returns the number of summaries deleted.
+    pub fn delete_orphan_summaries(&self, conversation_id: &str) -> Result<usize, LcmError> {
+        let conn = self.lock_conn()?;
+
+        // Find orphan summaries: those that are neither parents nor children
+        // of any other summary, and have no parents themselves.
+        let mut stmt = conn
+            .prepare(
+                "SELECT s.id FROM summaries s
+                 WHERE s.conversation_id = ?1
+                   AND s.id NOT IN (SELECT DISTINCT summary_id FROM summary_children)
+                   AND s.id NOT IN (SELECT DISTINCT parent_id FROM summary_parents)
+                   AND s.id NOT IN (SELECT DISTINCT summary_id FROM summary_parents)",
+            )
+            .map_err(|e| LcmError::Store(format!("Failed to find orphan summaries: {e}")))?;
+
+        let orphans: Vec<String> = stmt
+            .query_map(params![conversation_id], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if orphans.is_empty() {
+            return Ok(0);
+        }
+
+        let count = orphans.len();
+        for id in &orphans {
+            conn.execute("DELETE FROM summaries WHERE id = ?1", params![id])
+                .map_err(|e| LcmError::Store(format!("Failed to delete orphan summary {id}: {e}")))?;
+        }
+
+        Ok(count)
+    }
+
+    /// Repair message sequence numbers.
+    /// Re-indexes seq for all messages in a conversation, ordered by timestamp.
+    pub fn repair_message_sequence(&self, conversation_id: &str) -> Result<usize, LcmError> {
+        let conn = self.lock_conn()?;
+
+        // Get all message IDs ordered by timestamp
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM messages WHERE conversation_id = ?1 ORDER BY timestamp_unix_ms ASC",
+            )
+            .map_err(|e| LcmError::Store(format!("Failed to query messages for repair: {e}")))?;
+
+        let ids: Vec<String> = stmt
+            .query_map(params![conversation_id], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| LcmError::Store(format!("Failed to begin repair transaction: {e}")))?;
+
+        for (i, id) in ids.iter().enumerate() {
+            tx.execute(
+                "UPDATE messages SET seq = ?1 WHERE id = ?2",
+                params![(i + 1) as u32, id],
+            )
+            .map_err(|e| {
+                LcmError::Store(format!("Failed to update seq for message {id}: {e}"))
+            })?;
+        }
+
+        tx.commit()
+            .map_err(|e| LcmError::Store(format!("Failed to commit seq repair: {e}")))?;
+
+        Ok(ids.len())
+    }
+
+    /// Repair summary lineage: for each summary, ensure it has proper
+    /// parent/child relationships in the DAG tables.
+    /// Returns the number of summaries repaired.
+    pub fn repair_summary_lineage(&self, conversation_id: &str) -> Result<usize, LcmError> {
+        let conn = self.lock_conn()?;
+
+        // Find summaries that have no children entries
+        let mut stmt = conn
+            .prepare(
+                "SELECT s.id, s.kind FROM summaries s
+                 WHERE s.conversation_id = ?1
+                   AND s.id NOT IN (SELECT DISTINCT summary_id FROM summary_children)",
+            )
+            .map_err(|e| LcmError::Store(format!("Failed to find lineage gaps: {e}")))?;
+
+        let unlinked: Vec<(String, String)> = stmt
+            .query_map(params![conversation_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if unlinked.is_empty() {
+            return Ok(0);
+        }
+
+        // For leaf summaries with no children, try to link to messages
+        // via covered_by. For condensed summaries, we can't automatically
+        // repair without knowing what they cover, so we just log.
+        let mut repaired = 0usize;
+        for (summary_id, kind) in &unlinked {
+            if kind == "leaf" {
+                // Find messages covered by this summary
+                let mut msg_stmt = conn
+                    .prepare("SELECT id FROM messages WHERE covered_by = ?1")
+                    .map_err(|e| {
+                        LcmError::Store(format!("Failed to find covered messages: {e}"))
+                    })?;
+
+                let msg_ids: Vec<String> = msg_stmt
+                    .query_map(params![summary_id], |row| row.get::<_, String>(0))?
+                    .filter_map(|r| r.ok())
+                    .collect();
+
+                if !msg_ids.is_empty() {
+                    // Insert summary_children row
+                    let children_json = serde_json::json!({
+                        "ids": msg_ids
+                    });
+                    conn.execute(
+                        "INSERT OR IGNORE INTO summary_children (summary_id, child_type, child_ids_json) VALUES (?1, 'messages', ?2)",
+                        params![summary_id, children_json.to_string()],
+                    )
+                    .map_err(|e| {
+                        LcmError::Store(format!(
+                            "Failed to insert lineage for summary {summary_id}: {e}"
+                        ))
+                    })?;
+                    repaired += 1;
+                }
+            }
+        }
+
+        Ok(repaired)
     }
 }
 

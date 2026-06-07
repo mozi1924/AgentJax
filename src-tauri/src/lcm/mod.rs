@@ -629,7 +629,7 @@ pub fn backfill_lcm_from_jsonl(
     let mut stored_messages: Vec<StoredMessage> = Vec::new();
     let mut total_tokens: u32 = 0;
 
-    for line in &jsonl_lines {
+    for (i, line) in jsonl_lines.iter().enumerate() {
         let Ok(cl) = serde_json::from_str::<crate::conversation_store::ConversationLine>(line)
         else {
             continue;
@@ -662,7 +662,7 @@ pub fn backfill_lcm_from_jsonl(
             timestamp_unix_ms: ts,
             covered_by: None,
             thinking: None,
-            seq: 0,
+            seq: (i + 1) as u32,
             hop_index: 0,
             metadata: metadata_map,
             file_refs: Vec::new(),

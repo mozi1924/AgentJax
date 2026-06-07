@@ -326,12 +326,34 @@ impl IntegrityChecker {
             });
         }
 
+        // Check seq ordering (the canonical sort key).
+        // Messages are returned ORDER BY seq ASC, timestamp_unix_ms ASC.
+        let all_seq_zero = messages.iter().all(|m| m.seq == 0);
+
+        if all_seq_zero {
+            // Seq hasn't been populated yet (legacy data or pre-backfill state).
+            // This is a warning, not a failure — the data is usable but would
+            // benefit from running repair to assign proper seq values.
+            return Ok(IntegrityCheck {
+                name: "message_seq_contiguous".to_string(),
+                status: IntegrityStatus::Warn,
+                message: format!(
+                    "{} messages have uninitialized seq (all zero). Run 'Fix' to re-index sequence numbers.",
+                    messages.len()
+                ),
+                details: Some(serde_json::json!({
+                    "issue": "all_seq_zero",
+                    "messageCount": messages.len()
+                })),
+            });
+        }
+
         let mut issues = Vec::new();
         for i in 1..messages.len() {
-            if messages[i].timestamp_unix_ms < messages[i - 1].timestamp_unix_ms {
+            if messages[i].seq < messages[i - 1].seq {
                 issues.push(format!(
-                    "message {} has timestamp before previous",
-                    messages[i].id
+                    "message {} has seq {} before previous seq {}",
+                    messages[i].id, messages[i].seq, messages[i - 1].seq
                 ));
             }
         }
@@ -357,20 +379,43 @@ impl IntegrityChecker {
         let messages = self.store.get_conversation_messages(conversation_id)?;
         let summaries = self.store.get_conversation_summaries(conversation_id)?;
 
+        let msg_count = messages.len();
         let msg_tokens: u32 = messages.iter().map(|m| m.token_count).sum();
+        let summary_count = summaries.len();
         let summary_tokens: u32 = summaries.iter().map(|s| s.token_count).sum();
         let total = msg_tokens + summary_tokens;
 
+        // Detect if token counts appear uninitialized (all zeros).
+        let tokens_uninitialized = total == 0 && (msg_count > 0 || summary_count > 0);
+
+        let status = if tokens_uninitialized {
+            IntegrityStatus::Warn
+        } else {
+            IntegrityStatus::Pass
+        };
+
+        let message = if tokens_uninitialized {
+            format!(
+                "{msg_count} messages + {summary_count} summaries → token counts uninitialized (all zero). Consider running 'Backfill from JSONL' to populate."
+            )
+        } else {
+            format!(
+                "{} messages ({} tokens) + {} summaries ({} tokens) → {total} tokens total",
+                msg_count, msg_tokens, summary_count, summary_tokens
+            )
+        };
+
         Ok(IntegrityCheck {
             name: "context_token_count".to_string(),
-            status: IntegrityStatus::Pass,
-            message: format!(
-                "{total} tokens total ({msg_tokens} messages + {summary_tokens} summaries)"
-            ),
+            status,
+            message,
             details: Some(serde_json::json!({
+                "messageCount": msg_count,
                 "messageTokens": msg_tokens,
+                "summaryCount": summary_count,
                 "summaryTokens": summary_tokens,
                 "total": total,
+                "tokensUninitialized": tokens_uninitialized,
             })),
         })
     }
@@ -378,8 +423,19 @@ impl IntegrityChecker {
 
 // ── Repair Plan ─────────────────────────────────────────────────────────────
 
-pub fn repair_plan(report: &IntegrityReport) -> Vec<String> {
+/// Generate actionable repair suggestions from an integrity report.
+///
+/// Each suggestion includes the action name in a machine-parseable format
+/// for the frontend to offer "Fix" buttons. Format: `[action:name] description`
+pub fn repair_plan_with_actions(report: &IntegrityReport, backfill_available: bool) -> Vec<String> {
     let mut suggestions = Vec::new();
+
+    if backfill_available {
+        suggestions.push(
+            "[action:backfill] JSONL data exists but LCM store is empty or stale. Run backfill to populate the LCM store."
+                .to_string(),
+        );
+    }
 
     for check in &report.checks {
         if check.status == IntegrityStatus::Pass {
@@ -389,25 +445,25 @@ pub fn repair_plan(report: &IntegrityReport) -> Vec<String> {
         let suggestion = match check.name.as_str() {
             "conversation_exists" => {
                 format!(
-                    "Create or restore conversation metadata for '{}'",
+                    "[action:ensure_conversation_meta] Create or restore conversation metadata for '{}'",
                     report.conversation_id
                 )
             }
             "summaries_have_lineage" => {
                 format!(
-                    "Add missing summary_message or summary_parent links for '{}'",
+                    "[action:repair_lineage] Add missing summary_message or summary_parent links for '{}'",
                     report.conversation_id
                 )
             }
             "no_orphan_summaries" => {
                 format!(
-                    "Remove orphan summary records for '{}'",
+                    "[action:remove_orphan_summaries] Remove orphan summary records for '{}'",
                     report.conversation_id
                 )
             }
             "message_seq_contiguous" => {
                 format!(
-                    "Re-index message sequence values for '{}'",
+                    "[action:recompute_message_sequence] Re-index message sequence values for '{}'",
                     report.conversation_id
                 )
             }
@@ -506,7 +562,7 @@ mod tests {
             warn_count: 0,
             scanned_at_unix_ms: 1000,
         };
-        let plans = repair_plan(&report);
+        let plans = repair_plan_with_actions(&report, false);
         assert!(plans.is_empty());
     }
 }

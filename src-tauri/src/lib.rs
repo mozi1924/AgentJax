@@ -185,6 +185,8 @@ pub fn run() {
             commands::lcm_health::record_summarization_success,
             commands::lcm_health::is_circuit_breaker_open,
             commands::lcm_health::is_summarization_allowed,
+            commands::lcm_health::trigger_lcm_backfill,
+            commands::lcm_health::execute_lcm_repair,
             crate::knowledge_base::commands::list_knowledge_bases,
             crate::knowledge_base::commands::scan_knowledge_base_path,
             crate::knowledge_base::commands::refresh_knowledge_base,
