@@ -22,28 +22,44 @@ use tokio::task::JoinHandle;
 
 const TERMINAL_AGENT_RETENTION_MS: i64 = 6 * 60 * 60 * 1_000; // 6 hours
 const MAX_RETAINED_TERMINAL_AGENTS: usize = 200;
-pub(crate) const DEFAULT_MAX_TURNS: usize = 5;
-pub(crate) const HARD_MAX_TURNS: usize = 10;
+
+/// Fallback default for max turns when neither config nor LLM provide a value.
+/// `usize::MAX` means "effectively unlimited" — the runner will apply the
+/// config-driven `hard_max_turns` cap (or none, when config says 0).
+pub(crate) const DEFAULT_MAX_TURNS: usize = usize::MAX;
+
+/// Fallback hard cap for max turns (used in `sub_agent_tools.rs` before the
+/// runner can read `agent_config.sub_agent.hard_max_turns`).
+/// `usize::MAX` means "no cap at this layer".
+pub(crate) const HARD_MAX_TURNS: usize = usize::MAX;
 
 // ── Global Concurrency ──────────────────────────────────────────────────────
 
 /// Maximum concurrent sub-agent executions (across all conversations).
 /// This is the fallback used when no `SubAgentConfig` has been provided.
-pub(crate) const MAX_CONCURRENT_SUB_AGENTS: usize = 16;
+/// `usize::MAX` means "effectively unlimited concurrency".
+pub(crate) const MAX_CONCURRENT_SUB_AGENTS: usize = usize::MAX;
 
 static SUB_AGENT_SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
 
 /// Initialize the global sub-agent concurrency semaphore with a specific limit.
 ///
 /// Should be called during startup (or whenever an agent config is loaded) with
-/// the configured `sub_agent.max_concurrent` value.  Once initialized, the
-/// semaphore capacity is fixed for the lifetime of the process — subsequent
-/// calls are silently ignored (the first call wins).
+/// the configured `sub_agent.max_concurrent` value.  A value of `0` means
+/// "unlimited" — the semaphore is created with [`usize::MAX`] permits.
+///
+/// Once initialized, the semaphore capacity is fixed for the lifetime of the
+/// process — subsequent calls are silently ignored (the first call wins).
 ///
 /// If never called explicitly, `sub_agent_semaphore()` falls back to
 /// [`MAX_CONCURRENT_SUB_AGENTS`] so there is always a safe default.
 pub(crate) fn init_sub_agent_semaphore(max_concurrent: usize) {
-    SUB_AGENT_SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(max_concurrent));
+    let permits = if max_concurrent == 0 {
+        usize::MAX
+    } else {
+        max_concurrent
+    };
+    SUB_AGENT_SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(permits));
 }
 
 /// Return the global sub-agent concurrency semaphore.

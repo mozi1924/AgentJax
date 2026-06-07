@@ -35,10 +35,10 @@ pub struct SubAgentConfig {
 impl Default for SubAgentConfig {
     fn default() -> Self {
         Self {
-            max_concurrent: 4,
-            default_max_turns: 5,
-            hard_max_turns: 10,
-            timeout_secs: 300,
+            max_concurrent: 0,       // 0 = unlimited
+            default_max_turns: 0,    // 0 = unlimited
+            hard_max_turns: 0,       // 0 = unlimited
+            timeout_secs: 0,         // 0 = no timeout
             worktree_enabled: false,
         }
     }

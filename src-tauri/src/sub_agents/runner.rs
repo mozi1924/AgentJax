@@ -40,7 +40,11 @@ pub async fn run_sub_agent(
     event_tx: mpsc::UnboundedSender<SubAgentEvent>,
 ) {
     let agent_id = spec.agent_id.clone();
-    let hard_max = agent_config.sub_agent.hard_max_turns;
+    let hard_max = if agent_config.sub_agent.hard_max_turns == 0 {
+        usize::MAX // 0 means unlimited
+    } else {
+        agent_config.sub_agent.hard_max_turns
+    };
     let max_turns = spec.max_turns.min(hard_max);
 
     // Emit spawned event.
