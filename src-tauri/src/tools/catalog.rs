@@ -115,11 +115,11 @@ impl ToolCatalog {
                     Arc::new(MemoryRecallTool),
                     ContextGating::MemoryEnabled,
                 ),
-                // ── Context tools: Knowledge base ───────────────────────
-                ToolEntry::context_always(Arc::new(KbListTool)),
-                ToolEntry::context_always(Arc::new(KbSearchTool)),
-                ToolEntry::context_always(Arc::new(KbGetTool)),
-                ToolEntry::context_always(Arc::new(KbIndexTool)),
+                // ── Knowledge Base tools ────────────────────────────────
+                ToolEntry::kb(Arc::new(KbListTool)),
+                ToolEntry::kb(Arc::new(KbSearchTool)),
+                ToolEntry::kb(Arc::new(KbGetTool)),
+                ToolEntry::kb(Arc::new(KbIndexTool)),
             ],
             mcp_manager,
             mcp_runtime: config.mcp.runtime(),
@@ -569,10 +569,12 @@ impl ToolCatalog {
     /// Check whether a tool entry's base enablement policy allows it.
     ///
     /// Native tools are gated by `tool_manager.native_tools.*.enabled`.
+    /// Knowledge Base tools are gated by `tool_manager.context_tools.*.enabled`.
     /// Context tools are forced enabled (the agent depends on them).
     pub(crate) fn entry_enabled(&self, entry: &ToolEntry) -> bool {
         match entry.category {
             ToolCategory::Native => self.native_tool_enabled(entry.name()),
+            ToolCategory::KnowledgeBase => self.context_tool_enabled(entry.name()),
             ToolCategory::Context => true,
         }
     }
@@ -621,6 +623,19 @@ impl ToolCatalog {
     pub(crate) fn native_tool_enabled(&self, tool_name: &str) -> bool {
         self.tool_manager
             .native_tools
+            .get(&tool_name.to_ascii_lowercase())
+            .map(|policy| policy.enabled)
+            .unwrap_or(true)
+    }
+
+    /// Whether a context/KB tool is enabled in the tool manager policy.
+    ///
+    /// Used by Knowledge Base tools (`kb_list`, `kb_search`, `kb_get`,
+    /// `kb_index`) to allow users to disable individual KB tools via
+    /// `tool_manager.context_tools.{name}.enabled`.
+    pub(crate) fn context_tool_enabled(&self, tool_name: &str) -> bool {
+        self.tool_manager
+            .context_tools
             .get(&tool_name.to_ascii_lowercase())
             .map(|policy| policy.enabled)
             .unwrap_or(true)

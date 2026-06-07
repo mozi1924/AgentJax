@@ -26,13 +26,14 @@ type SplitLayoutStrategy = (
  */
 const SPLIT_LAYOUT_STRATEGIES: Record<string, SplitLayoutStrategy> = {
   /**
-   * Tool manager: when the active tab is "native", "session", or "context",
-   * the three-pane layout collapses to two-pane (hiding the source list).
+   * Tool manager: when the active tab is "native", "knowledge_base",
+   * "session", or "context", the three-pane layout collapses to
+   * two-pane (hiding the source list).
    */
   'tool-manager-layout': (node, dataContext): SplitLayoutOverride | null => {
     const queryState = asRecord(dataContext.getDataSource('toolManager.query'));
     const activeTab = queryState.activeTab;
-    if (activeTab === 'native' || activeTab === 'session' || activeTab === 'context') {
+    if (activeTab === 'native' || activeTab === 'knowledge_base' || activeTab === 'session' || activeTab === 'context') {
       return {
         layout: 'two-pane',
         children: node.children?.filter((child) => child.id !== 'tool-source-list'),

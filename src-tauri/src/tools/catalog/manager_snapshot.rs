@@ -67,6 +67,7 @@ pub enum ToolManagerSourceType {
     Dynamic,
     Control,
     Context,
+    KnowledgeBase,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -201,6 +202,7 @@ impl ToolCatalog {
         let mut sources = Vec::new();
         sources.push(self.native_tools_snapshot());
         sources.push(self.context_tools_snapshot());
+        sources.push(self.knowledge_base_tools_snapshot());
         sources.extend(
             self.mcp_sources_snapshot(&context, &mounted_servers, discover_source_id.as_deref())
                 .await,
@@ -213,6 +215,10 @@ impl ToolCatalog {
             ToolManagerCategory {
                 id: "native".to_string(),
                 label_key: "settings.tools.category.native".to_string(),
+            },
+            ToolManagerCategory {
+                id: "knowledge_base".to_string(),
+                label_key: "settings.tools.category.knowledge_base".to_string(),
             },
             ToolManagerCategory {
                 id: "context".to_string(),
@@ -330,6 +336,45 @@ impl ToolCatalog {
             "ready".to_string(),
             "always".to_string(),
             vec![],
+            ToolManagerSourcePolicyPaths::default(),
+            tools,
+        )
+    }
+
+    fn knowledge_base_tools_snapshot(&self) -> ToolManagerSourceSnapshot {
+        let ctx = ToolExecutionContext::default();
+        let tools = self
+            .collect_registered_tools(&ctx)
+            .into_iter()
+            .filter(|info| info.category == ToolCategory::KnowledgeBase)
+            .map(|info| {
+                let name = info.name.clone();
+                ToolManagerToolSnapshot::new(
+                    info.name,
+                    info.display_name,
+                    name.clone(),
+                    info.description,
+                    info.icon,
+                    info.enabled,
+                    if info.enabled { "available" } else { "disabled" }.to_string(),
+                    info.schema,
+                    ToolManagerSchemaFormat::JsonSchema,
+                    vec!["policy:tool_enabled".to_string()],
+                    ToolManagerToolPolicyPaths {
+                        tool_enabled_path: Some(context_tool_enabled_path(&name)),
+                    },
+                )
+            })
+            .collect();
+
+        ToolManagerSourceSnapshot::new(
+            ToolManagerSourceType::KnowledgeBase,
+            "knowledge_base".to_string(),
+            "Knowledge Base".to_string(),
+            true,
+            "ready".to_string(),
+            "always".to_string(),
+            vec!["policy:tool_enabled".to_string()],
             ToolManagerSourcePolicyPaths::default(),
             tools,
         )
@@ -689,6 +734,13 @@ fn schema_summary(schema: &Value) -> ToolSchemaSummary {
 fn native_tool_enabled_path(tool_id: &str) -> String {
     format!(
         "tool_manager.native_tools.{}.enabled",
+        escape_policy_path_segment(tool_id)
+    )
+}
+
+fn context_tool_enabled_path(tool_id: &str) -> String {
+    format!(
+        "tool_manager.context_tools.{}.enabled",
         escape_policy_path_segment(tool_id)
     )
 }

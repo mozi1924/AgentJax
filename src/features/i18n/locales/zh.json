@@ -259,6 +259,7 @@
   "settings.tools.manager.title": "工具管理器",
   "settings.tools.manager.description": "按来源展示工具清单和当前有效可用性。",
   "settings.tools.category.native": "原生",
+  "settings.tools.category.knowledge_base": "知识库",
   "settings.tools.category.context": "上下文",
   "settings.tools.category.mcp": "MCP",
   "settings.tools.category.plugin": "插件",

@@ -259,6 +259,7 @@
   "settings.tools.manager.title": "Tools Manager",
   "settings.tools.manager.description": "Read-only catalog of tool sources and effective availability.",
   "settings.tools.category.native": "Native",
+  "settings.tools.category.knowledge_base": "Knowledge Base",
   "settings.tools.category.context": "Context",
   "settings.tools.category.mcp": "MCP",
   "settings.tools.category.plugin": "Plugins",

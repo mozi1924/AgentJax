@@ -1,7 +1,7 @@
 import { escapePathSegment } from '../../../../features/settings/utils';
 
-export type ToolSourceType = 'native' | 'mcp' | 'plugin' | 'dynamic' | 'control' | 'context';
-export type ToolCategory = 'native' | 'mcp' | 'plugin' | 'session' | 'context';
+export type ToolSourceType = 'native' | 'mcp' | 'plugin' | 'dynamic' | 'control' | 'context' | 'knowledge_base';
+export type ToolCategory = 'native' | 'mcp' | 'plugin' | 'session' | 'context' | 'knowledge_base';
 export type McpExposureMode = 'collapsed' | 'unfolded';
 
 export interface ToolSchemaSummary {
@@ -55,6 +55,7 @@ export interface ToolManagerSnapshot {
 
 export const TOOL_MANAGER_CATEGORIES: ToolCategoryItem[] = [
   { id: 'native', labelKey: 'settings.tools.category.native' },
+  { id: 'knowledge_base', labelKey: 'settings.tools.category.knowledge_base' },
   { id: 'context', labelKey: 'settings.tools.category.context' },
   { id: 'mcp', labelKey: 'settings.tools.category.mcp' },
   { id: 'plugin', labelKey: 'settings.tools.category.plugin' },
@@ -67,6 +68,7 @@ export const categoryForSource = (sourceType: ToolSourceType): ToolCategory => {
   if (sourceType === 'dynamic') return 'session';
   if (sourceType === 'control') return 'mcp';
   if (sourceType === 'context') return 'context';
+  if (sourceType === 'knowledge_base') return 'knowledge_base';
   return sourceType;
 };
 

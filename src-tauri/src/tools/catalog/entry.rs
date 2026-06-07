@@ -18,15 +18,18 @@ use std::sync::Arc;
 
 // ── Tool Category ───────────────────────────────────────────────────────────
 
-/// Whether a registered tool is a built-in native tool or a context tool
-/// (LCM, memory, knowledge base).
+/// Whether a registered tool is a built-in native tool, a context tool
+/// (LCM, memory), or a knowledge base tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolCategory {
     /// Built-in tools — enablement controlled via `tool_manager.native_tools.*`.
     Native,
-    /// Context/LCM/memory/KB tools — forced enabled; some gated by the
+    /// Context/LCM/memory tools — forced enabled; some gated by the
     /// agent's memory configuration or sub-agent type.
     Context,
+    /// Knowledge Base tools (kb_list, kb_search, kb_get, kb_index) —
+    /// enablement controlled via `tool_manager.context_tools.*`.
+    KnowledgeBase,
 }
 
 // ── Context Gating ──────────────────────────────────────────────────────────
@@ -89,6 +92,15 @@ impl ToolEntry {
     /// Convenience: context tool with no gating.
     pub(crate) fn context_always(tool: Arc<dyn Tool>) -> Self {
         Self::context(tool, ContextGating::None)
+    }
+
+    /// Create a knowledge base tool entry (disableable, no context gating).
+    pub(crate) fn kb(tool: Arc<dyn Tool>) -> Self {
+        Self {
+            tool,
+            category: ToolCategory::KnowledgeBase,
+            context_gating: ContextGating::None,
+        }
     }
 
     /// Proxy to the underlying tool's name.
