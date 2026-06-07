@@ -234,37 +234,45 @@ impl Default for EmbeddingProviderConfig {
 
 /// RAG (Retrieval-Augmented Generation) system configuration.
 /// Stored globally in config.yaml (shared across all agent profiles).
+///
+/// ## Field ownership
+///
+/// - **RAG engine fields**: `chunk_size`, `chunk_overlap`, `chunk_window`,
+///   `embedding`, `embedding_batch_size`, `embedding_concurrency`,
+///   `embedding_batch_throttle_ms` — used by `RagEngine` for embedding.
+/// - **KB application fields**: `enabled`, `top_k`, `knowledge_bases` —
+///   extracted into `KnowledgeBaseSettings` for `KnowledgeBaseManager`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct RagConfig {
-    /// Whether the RAG system is enabled.
+    /// Whether the RAG/KB system is enabled. (KB-level)
     pub enabled: bool,
-    /// Default chunk size in characters for text splitting.
+    /// Default chunk size in characters for text splitting. (RAG engine)
     pub chunk_size: usize,
-    /// Chunk overlap in characters.
+    /// Chunk overlap in characters. (RAG engine)
     pub chunk_overlap: usize,
-    /// Search window for markdown-aware break-point detection.
+    /// Search window for markdown-aware break-point detection. (RAG engine)
     /// If unset, defaults to 800 chars (~200 tokens).
     pub chunk_window: Option<usize>,
-    /// Default top-K results for searches.
+    /// Default top-K results for searches. (KB-level)
     pub top_k: usize,
-    /// Embedding provider configuration.
+    /// Embedding provider configuration. (RAG engine)
     #[serde(default)]
     pub embedding: EmbeddingProviderConfig,
-    /// Knowledge base definitions, keyed by KB ID.
+    /// Knowledge base definitions, keyed by KB ID. (KB-level)
     #[serde(default)]
     pub knowledge_bases: BTreeMap<String, KnowledgeBaseEntry>,
-    /// Maximum number of texts per embedding API call.
+    /// Maximum number of texts per embedding API call. (RAG engine)
     /// Lower values reduce server load at the cost of more round-trips.
     /// Default: 30.
     #[serde(default = "default_embedding_batch_size")]
     pub embedding_batch_size: usize,
-    /// Maximum concurrent embedding API calls.
+    /// Maximum concurrent embedding API calls. (RAG engine)
     /// Higher values pipeline more requests at once, reducing total wall-clock
     /// time.  Set to 1 to disable pipelining.  Default: 2.
     #[serde(default = "default_embedding_concurrency")]
     pub embedding_concurrency: usize,
-    /// Cooldown in milliseconds between successful embedding batches.
+    /// Cooldown in milliseconds between successful embedding batches. (RAG engine)
     /// Gives the embedding server time to breathe. Default: 2000 (2s).
     #[serde(default = "default_embedding_batch_throttle_ms")]
     pub embedding_batch_throttle_ms: u64,
@@ -295,6 +303,38 @@ impl Default for RagConfig {
             embedding_batch_size: default_embedding_batch_size(),
             embedding_concurrency: default_embedding_concurrency(),
             embedding_batch_throttle_ms: default_embedding_batch_throttle_ms(),
+        }
+    }
+}
+
+// ── Knowledge Base Settings ─────────────────────────────────────────────────
+
+/// Knowledge Base configuration extracted from `RagConfig`.
+///
+/// Separates KB-level settings (enabled, top-K, KB list) from RAG engine
+/// settings (chunking, embedding, batching). This type-level separation
+/// clarifies that RAG is a general-purpose retrieval engine while KB is
+/// a specific application built on top of it.
+///
+/// The underlying YAML serialization stays under the `rag:` key for
+/// backward compatibility. This struct is a runtime view, not a standalone
+/// config section.
+#[derive(Debug, Clone)]
+pub struct KnowledgeBaseSettings {
+    /// Whether knowledge base access is enabled.
+    pub enabled: bool,
+    /// Default top-K results for KB searches.
+    pub top_k: usize,
+    /// Configured knowledge bases, keyed by KB ID.
+    pub knowledge_bases: BTreeMap<String, KnowledgeBaseEntry>,
+}
+
+impl From<&RagConfig> for KnowledgeBaseSettings {
+    fn from(rag: &RagConfig) -> Self {
+        Self {
+            enabled: rag.enabled,
+            top_k: rag.top_k,
+            knowledge_bases: rag.knowledge_bases.clone(),
         }
     }
 }

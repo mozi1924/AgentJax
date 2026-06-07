@@ -28,7 +28,8 @@ pub use prompt_composer::{
 };
 #[allow(unused_imports)]
 pub use schema::{
-    AppConfig, ContextManagementConfig, EmbeddingProviderConfig, KbPathType, KnowledgeBaseEntry,
+    AppConfig, ContextManagementConfig, EmbeddingProviderConfig, KbPathType,
+    KnowledgeBaseEntry, KnowledgeBaseSettings,
     McpConfig, McpRuntimeConfig, McpServerConfig, McpStdioRuntimeConfig,
     McpToolSourcePolicyConfig, McpTransportKind, MemoryConfig, ModelRequestConfig,
     PluginEntryConfig, PluginManagerConfig, PluginPermissionOverride, ProviderConfig,

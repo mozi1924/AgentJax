@@ -10,6 +10,7 @@ mod conversation_store_utils;
 pub(crate) mod error;
 mod error_classifier;
 pub(crate) mod jsonl_store;
+pub(crate) mod knowledge_base;
 pub(crate) mod lcm;
 pub(crate) mod mcp;
 pub(crate) mod memory;
@@ -184,9 +185,9 @@ pub fn run() {
             commands::lcm_health::record_summarization_success,
             commands::lcm_health::is_circuit_breaker_open,
             commands::lcm_health::is_summarization_allowed,
-            commands::knowledge::list_knowledge_bases,
-            commands::knowledge::scan_knowledge_base_path,
-            commands::knowledge::refresh_knowledge_base,
+            crate::knowledge_base::commands::list_knowledge_bases,
+            crate::knowledge_base::commands::scan_knowledge_base_path,
+            crate::knowledge_base::commands::refresh_knowledge_base,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
