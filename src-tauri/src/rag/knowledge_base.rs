@@ -55,27 +55,30 @@ pub struct KnowledgeBaseManager {
 }
 
 impl KnowledgeBaseManager {
+    /// Return a reference to the root directory for KB storage.
+    pub fn root_dir(&self) -> &std::path::Path {
+        &self.root_dir
+    }
+
     /// Create a new KB manager from app + agent config.
     ///
     /// KBs are stored under `$AGENTJAX_HOME/knowledge_bases/` and use the
     /// agent's embedding provider configuration.
-    pub fn from_config(_app_config: &AppConfig, agent_config: &AgentConfig) -> AgentJaxResult<Self> {
+    pub fn from_config(app_config: &AppConfig, _agent_config: &AgentConfig) -> AgentJaxResult<Self> {
         let home = agentjax_home::agentjax_home_dir()?;
         let root_dir = home.join("knowledge_bases");
-        let rag = &agent_config.rag;
+        let rag = &app_config.rag;
         let chunker = Chunker::new(
             rag.chunk_size,
             rag.chunk_overlap,
             rag.chunk_window
                 .unwrap_or(super::chunking::DEFAULT_WINDOW_CHARS),
         )?;
-        let provider_key = rag
-            .embedding
-            .provider_key
-            .clone()
-            .filter(|k| !k.is_empty())
-            .unwrap_or_else(|| agent_config.active_provider.clone());
-        let embedding_model = rag.embedding.model.clone();
+
+        // Resolve the embedding model reference using the same config-driven path
+        // as LLM model resolution — replaces the old ad-hoc `split_once` parsing.
+        let (provider_key, _provider, embedding_model) =
+            app_config.resolve_embedding_profile(&rag.embedding.model)?;
 
         Ok(Self {
             bases: RwLock::new(HashMap::new()),
@@ -93,7 +96,7 @@ impl KnowledgeBaseManager {
     ///
     /// Scans the KB root directory for subdirectories containing both a
     /// LanceDB database and an FTS database.
-    pub async fn list_kbs(&self, agent_config: &AgentConfig) -> AgentJaxResult<Vec<KnowledgeBaseInfo>> {
+    pub async fn list_kbs(&self, app_config: &AppConfig) -> AgentJaxResult<Vec<KnowledgeBaseInfo>> {
         let mut infos = Vec::new();
 
         if !self.root_dir.exists() {
@@ -144,7 +147,7 @@ impl KnowledgeBaseManager {
                         document_count: fts_docs.len(),
                         chunk_count: _doc_ids.len(),
                         total_bytes,
-                        enabled: agent_config.rag.enabled,
+                        enabled: app_config.rag.enabled,
                     });
                 }
                 Err(e) => {

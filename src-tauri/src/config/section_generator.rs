@@ -344,46 +344,6 @@ mod tests {
     }
 
     #[test]
-    fn generate_rag_section() {
-        let meta = SectionMeta {
-            id: "rag",
-            title_key: "settings.rag.title",
-            icon: "Library",
-            order: 70,
-            description_key: "settings.rag.description",
-        };
-
-        let section = generate_simple_section::<super::super::RagConfig>(&meta, "rag")
-            .expect("generate rag section");
-
-        let children = section["children"].as_array().expect("children array");
-        let group = &children[0];
-        let fields = group["children"].as_array().expect("group children");
-
-        let paths: Vec<&str> = fields
-            .iter()
-            .filter_map(|f| f.get("path").and_then(Value::as_str))
-            .collect();
-
-        assert!(paths.contains(&"rag.enabled"), "should have enabled");
-        assert!(
-            paths.contains(&"rag.storage_path"),
-            "should have storage_path"
-        );
-        assert!(paths.contains(&"rag.chunk_size"), "should have chunk_size");
-        assert!(
-            paths.contains(&"rag.chunk_overlap"),
-            "should have chunk_overlap"
-        );
-        assert!(paths.contains(&"rag.top_k"), "should have top_k");
-        // embedding is a nested object — should be skipped by is_map_type check
-        assert!(
-            !paths.contains(&"rag.embedding"),
-            "embedding is an object and should be skipped"
-        );
-    }
-
-    #[test]
     fn generated_section_passes_path_validation() {
         let meta = SectionMeta {
             id: "sub_agent",

@@ -99,12 +99,12 @@ impl Tool for KbListTool {
         let manager = guard
             .as_ref()
             .ok_or_else(|| AgentJaxError::tool("KB manager not initialized"))?;
-        let agent_config = context
-            .agent_config
+        let app_config = context
+            .app_config
             .as_ref()
-            .ok_or_else(|| AgentJaxError::tool("No agent config"))?;
+            .ok_or_else(|| AgentJaxError::tool("No app config"))?;
 
-        let mut kbs = manager.list_kbs(agent_config).await?;
+        let mut kbs = manager.list_kbs(app_config).await?;
 
         // Filter by query if provided
         if let Some(ref q) = args.query {

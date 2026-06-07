@@ -24,6 +24,7 @@ const PLUGIN_MANAGER_SECTION_JSON: &str = include_str!("settings_ui_sections/plu
 const CONTEXT_MANAGEMENT_SECTION_JSON: &str =
     include_str!("settings_ui_sections/context_management.json");
 const MEMORY_SECTION_JSON: &str = include_str!("settings_ui_sections/memory.json");
+const KNOWLEDGE_SECTION_JSON: &str = include_str!("settings_ui_sections/knowledge.json");
 
 pub fn build_settings_sections() -> AgentJaxResult<Vec<Value>> {
     let mut sections = build_builtin_settings_sections()?;
@@ -50,6 +51,7 @@ fn build_builtin_settings_sections() -> AgentJaxResult<Vec<Value>> {
         PLUGIN_MANAGER_SECTION_JSON,
         CONTEXT_MANAGEMENT_SECTION_JSON,
         MEMORY_SECTION_JSON,
+        KNOWLEDGE_SECTION_JSON,
     ];
 
     let mut sections = Vec::with_capacity(section_sources.len());
@@ -66,7 +68,7 @@ fn build_builtin_settings_sections() -> AgentJaxResult<Vec<Value>> {
 
     // Append auto-generated sections for config types with simple layouts.
     // These are generated from Rust struct schemas so they stay in sync.
-    let generated_sections: [Option<Value>; 2] = [
+    let generated_sections: [Option<Value>; 1] = [
         Some(generate_simple_section::<super::SubAgentConfig>(
             &SectionMeta {
                 id: "sub_agent",
@@ -76,16 +78,6 @@ fn build_builtin_settings_sections() -> AgentJaxResult<Vec<Value>> {
                 description_key: "settings.sub_agent.description",
             },
             "sub_agent",
-        )?),
-        Some(generate_simple_section::<super::RagConfig>(
-            &SectionMeta {
-                id: "rag",
-                title_key: "settings.rag.title",
-                icon: "Library",
-                order: 70,
-                description_key: "settings.rag.description",
-            },
-            "rag",
         )?),
     ];
 

@@ -202,6 +202,15 @@ impl FtsStore {
         Ok(count as usize)
     }
 
+    /// Count total chunks across all documents in this KB.
+    pub fn total_chunk_count(&self) -> AgentJaxResult<usize> {
+        let conn = self.lock_conn()?;
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM chunks", [], |row| row.get(0))
+            .map_err(|e| AgentJaxError::embedding(format!("Total chunk count failed: {e}")))?;
+        Ok(count as usize)
+    }
+
     // ── Full-Text Search ───────────────────────────────────────────────
 
     /// Search chunks using SQLite FTS5 with BM25 scoring.

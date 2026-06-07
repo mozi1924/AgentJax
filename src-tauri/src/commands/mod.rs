@@ -2,6 +2,7 @@ pub mod agents;
 pub mod chat;
 pub mod config;
 pub mod devtools;
+pub mod knowledge;
 pub mod lcm_health;
 pub mod memory;
 pub mod models;

@@ -9,7 +9,6 @@
 //! - [`chunking`] — Markdown-aware text splitting with distance-decay scoring
 //! - [`vector_store`] — LanceDB-backed vector store
 //! - [`fts_store`] — SQLite FTS5 keyword search store
-//! - [`index`] — Legacy `RagIndex` (per-agent vector-only)
 //! - [`knowledge_base`] — Global `KnowledgeBaseManager` with hybrid search
 //!
 //! ## Usage
@@ -23,15 +22,12 @@
 
 pub(crate) mod chunking;
 pub(crate) mod fts_store;
-pub(crate) mod index;
 pub(crate) mod knowledge_base;
 pub(crate) mod types;
 pub(crate) mod vector_store;
 
 #[allow(unused_imports)]
 pub(crate) use fts_store::FtsStore;
-#[allow(unused_imports)]
-pub use index::RagIndex;
 #[allow(unused_imports)]
 pub use knowledge_base::KnowledgeBaseManager;
 #[allow(unused_imports)]

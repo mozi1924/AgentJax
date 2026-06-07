@@ -182,6 +182,9 @@ pub fn run() {
             commands::lcm_health::record_summarization_success,
             commands::lcm_health::is_circuit_breaker_open,
             commands::lcm_health::is_summarization_allowed,
+            commands::knowledge::list_knowledge_bases,
+            commands::knowledge::scan_knowledge_base_path,
+            commands::knowledge::refresh_knowledge_base,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

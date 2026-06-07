@@ -1,0 +1,144 @@
+{
+  "id": "knowledge",
+  "title": "settings.knowledge.title",
+  "icon": "Library",
+  "order": 70,
+  "description": "settings.knowledge.description",
+  "children": [
+    {
+      "kind": "group",
+      "id": "knowledge-general",
+      "title": "settings.knowledge.general.title",
+      "children": [
+        {
+          "kind": "field",
+          "id": "knowledge-enabled",
+          "title": "settings.knowledge.enabled.title",
+          "description": "settings.knowledge.enabled.description",
+          "path": "rag.enabled",
+          "valueType": "boolean",
+          "control": "switch"
+        },
+        {
+          "kind": "field",
+          "id": "knowledge-chunk-size",
+          "title": "settings.knowledge.chunk_size.title",
+          "description": "settings.knowledge.chunk_size.description",
+          "path": "rag.chunk_size",
+          "valueType": "integer",
+          "control": "number",
+          "min": 100,
+          "max": 32000,
+          "step": 100
+        },
+        {
+          "kind": "field",
+          "id": "knowledge-chunk-overlap",
+          "title": "settings.knowledge.chunk_overlap.title",
+          "description": "settings.knowledge.chunk_overlap.description",
+          "path": "rag.chunk_overlap",
+          "valueType": "integer",
+          "control": "number",
+          "min": 0,
+          "max": 16000,
+          "step": 50
+        },
+        {
+          "kind": "field",
+          "id": "knowledge-top-k",
+          "title": "settings.knowledge.top_k.title",
+          "description": "settings.knowledge.top_k.description",
+          "path": "rag.top_k",
+          "valueType": "integer",
+          "control": "number",
+          "min": 1,
+          "max": 100,
+          "step": 1
+        }
+      ]
+    },
+    {
+      "kind": "group",
+      "id": "knowledge-embedding-group",
+      "title": "settings.knowledge.embedding.title",
+      "children": [
+        {
+          "kind": "field",
+          "id": "knowledge-embedding-model",
+          "title": "settings.knowledge.embedding.model.title",
+          "description": "settings.knowledge.embedding.model.description",
+          "path": "rag.embedding.model",
+          "valueType": "string",
+          "control": "select",
+          "optionSourceKey": "embedding_model_refs"
+        },
+        {
+          "kind": "field",
+          "id": "knowledge-embedding-dimensions",
+          "title": "settings.knowledge.embedding.dimensions.title",
+          "description": "settings.knowledge.embedding.dimensions.description",
+          "path": "rag.embedding.dimensions",
+          "valueType": "integer",
+          "control": "number",
+          "min": 64,
+          "max": 8192,
+          "step": 64
+        }
+      ]
+    },
+    {
+      "kind": "collection",
+      "id": "knowledge-base-collection",
+      "title": "settings.knowledge.collection.title",
+      "description": "settings.knowledge.collection.description",
+      "path": "rag.knowledge_bases",
+      "valueType": "object_collection",
+      "addLabel": "settings.knowledge.collection.add_label",
+      "keyLabel": "settings.knowledge.collection.key_label",
+      "itemLabel": "settings.knowledge.collection.item_label",
+      "keyPattern": "^[A-Za-z0-9_-]+$",
+      "children": [
+        {
+          "kind": "field",
+          "id": "kb-entry-name",
+          "title": "settings.knowledge.collection.name.title",
+          "description": "settings.knowledge.collection.name.description",
+          "path": "name",
+          "valueType": "string",
+          "control": "text"
+        },
+        {
+          "kind": "field",
+          "id": "kb-entry-path",
+          "title": "settings.knowledge.collection.path.title",
+          "description": "settings.knowledge.collection.path.description",
+          "path": "path",
+          "valueType": "string",
+          "control": "text"
+        },
+        {
+          "kind": "field",
+          "id": "kb-entry-path-type",
+          "title": "settings.knowledge.collection.path_type.title",
+          "description": "settings.knowledge.collection.path_type.description",
+          "path": "path_type",
+          "valueType": "enum",
+          "control": "select",
+          "options": [
+            { "label": "File", "value": "file" },
+            { "label": "Folder", "value": "folder" }
+          ]
+        },
+        {
+          "kind": "field",
+          "id": "kb-entry-disabled-agents",
+          "title": "settings.knowledge.collection.disabled_agents.title",
+          "description": "settings.knowledge.collection.disabled_agents.description",
+          "path": "disabled_agents",
+          "valueType": "string_list",
+          "control": "tags"
+        }
+      ]
+    }
+  ]
+}

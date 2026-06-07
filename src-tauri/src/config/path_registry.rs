@@ -333,7 +333,6 @@ pub fn known_top_level_paths() -> BTreeSet<&'static str> {
     paths.insert("sub_agent.timeout_secs");
     paths.insert("sub_agent.worktree_enabled");
     paths.insert("rag.enabled");
-    paths.insert("rag.storage_path");
     paths.insert("rag.chunk_size");
     paths.insert("rag.chunk_overlap");
     paths.insert("rag.top_k");
@@ -346,6 +345,11 @@ pub fn known_top_level_paths() -> BTreeSet<&'static str> {
 #[allow(dead_code)]
 pub fn known_collection_paths() -> BTreeSet<&'static str> {
     let mut paths = BTreeSet::new();
+    // Knowledge base entry fields
+    paths.insert("rag.knowledge_bases.name");
+    paths.insert("rag.knowledge_bases.path");
+    paths.insert("rag.knowledge_bases.path_type");
+    paths.insert("rag.knowledge_bases.disabled_agents");
     // Provider fields
     paths.insert("providers.kind");
     paths.insert("providers.apiEndpoint");

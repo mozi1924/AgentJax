@@ -84,7 +84,11 @@ impl DynamicOptionsProvider for ProviderKeysProvider {
     }
 }
 
-/// Model references from the current configuration.
+/// Model references for LLM/chat model selectors.
+///
+/// Only includes models with `kind = "chat"` (or no declared kind, which
+/// defaults to chat for backward compatibility). This excludes embedding,
+/// TTS, ASR, and other non-chat model types.
 struct ModelRefsProvider;
 
 impl DynamicOptionsProvider for ModelRefsProvider {
@@ -94,7 +98,7 @@ impl DynamicOptionsProvider for ModelRefsProvider {
         options: &mut BTreeMap<String, Vec<SettingsOption>>,
     ) -> AgentJaxResult<()> {
         let model_options: Vec<SettingsOption> = config
-            .configured_models()
+            .configured_models_by_kind("chat")
             .into_iter()
             .map(|model_ref| SettingsOption {
                 label: model_ref.clone(),
@@ -103,7 +107,7 @@ impl DynamicOptionsProvider for ModelRefsProvider {
             .collect();
         options.insert("model_refs".to_string(), model_options.clone());
 
-        // Summarization model options: all model_refs + a "default" entry.
+        // Summarization model options: chat model_refs + a "default" entry.
         let mut summarization_options = vec![SettingsOption {
             label: "settings.context_management.summarization_model.default".to_string(),
             value: String::new(), // empty = use utility_small_model
@@ -114,6 +118,32 @@ impl DynamicOptionsProvider for ModelRefsProvider {
             summarization_options,
         );
 
+        Ok(())
+    }
+}
+
+/// Embedding model references for the knowledge base embedding model selector.
+///
+/// Only includes models with `kind = "embedding"` declared in their plugin
+/// metadata. Settings UI shows these in a dropdown so users can pick from
+/// available embedding models rather than typing a raw model reference.
+struct EmbeddingModelRefsProvider;
+
+impl DynamicOptionsProvider for EmbeddingModelRefsProvider {
+    fn contribute(
+        &self,
+        config: &AppConfig,
+        options: &mut BTreeMap<String, Vec<SettingsOption>>,
+    ) -> AgentJaxResult<()> {
+        let model_options: Vec<SettingsOption> = config
+            .configured_models_by_kind("embedding")
+            .into_iter()
+            .map(|model_ref| SettingsOption {
+                label: model_ref.clone(),
+                value: model_ref,
+            })
+            .collect();
+        options.insert("embedding_model_refs".to_string(), model_options);
         Ok(())
     }
 }
@@ -297,6 +327,7 @@ fn registered_providers() -> Vec<Box<dyn DynamicOptionsProvider>> {
     vec![
         Box::new(ProviderKeysProvider),
         Box::new(ModelRefsProvider),
+        Box::new(EmbeddingModelRefsProvider),
         Box::new(ProviderKindProvider),
         Box::new(ApiProtocolProvider),
         Box::new(StreamTransportProvider),

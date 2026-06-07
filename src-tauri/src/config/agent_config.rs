@@ -10,7 +10,7 @@
 use crate::config::constants::{AGENT_CONFIG_FILE_NAME, DEFAULT_TIMEOUT_SECONDS};
 use crate::config::prompt_composer::{PromptComposerConfig, normalize_prompt_composer};
 use crate::config::schema::{
-    ContextManagementConfig, MemoryConfig, RagConfig, SubAgentConfig, ToolManagerConfig,
+    ContextManagementConfig, MemoryConfig, SubAgentConfig, ToolManagerConfig,
 };
 use crate::error::{AgentJaxError, AgentJaxResult};
 use schemars::JsonSchema;
@@ -61,9 +61,6 @@ pub struct AgentConfig {
     /// Memory system settings.
     #[serde(default)]
     pub memory: MemoryConfig,
-    /// RAG / vector store settings.
-    #[serde(default)]
-    pub rag: RagConfig,
     /// Tool management — enable/disable individual tools per agent.
     #[serde(default)]
     pub tool_manager: ToolManagerConfig,
@@ -83,7 +80,6 @@ impl Default for AgentConfig {
             context_management: ContextManagementConfig::default(),
             sub_agent: SubAgentConfig::default(),
             memory: MemoryConfig::default(),
-            rag: RagConfig::default(),
             tool_manager: ToolManagerConfig::default(),
         }
     }

@@ -467,6 +467,35 @@ impl AppConfig {
         models
     }
 
+    /// Return model refs filtered by model kind (`"chat"`, `"embedding"`, etc.).
+    ///
+    /// Models without a declared `kind` in their metadata are treated as
+    /// `"chat"` for backward compatibility. If `target_kind` is `None` or
+    /// empty, all enabled models are returned (same as `configured_models()`).
+    pub fn configured_models_by_kind(&self, target_kind: &str) -> Vec<String> {
+        let target = target_kind.trim().to_lowercase();
+        let mut models = Vec::new();
+        for (provider_key, provider) in &self.providers {
+            for (model_key, model) in &provider.models {
+                if !model.enabled {
+                    continue;
+                }
+                // Resolve model kind from plugin metadata.
+                let kind = crate::provider_api::get_model_metadata(&provider.kind, model_key)
+                    .ok()
+                    .and_then(|meta| meta.kind)
+                    .filter(|k| !k.is_empty());
+                // Models without a declared kind default to "chat".
+                let effective = kind.as_deref().unwrap_or("chat");
+                if effective == target {
+                    models.push(model_ref(provider_key, model_key));
+                }
+            }
+        }
+        models.sort();
+        models
+    }
+
     fn resolve_model_ref(
         &self,
         full_ref: &str,
@@ -567,5 +596,39 @@ impl AppConfig {
                 Config
             )
         })
+    }
+
+    /// Resolve an embedding model reference `{provider}/{model_id}`.
+    ///
+    /// Validates that the provider exists and the model is enabled in config,
+    /// returning the resolved provider + model components. This replaces ad-hoc
+    /// string splitting with proper config-driven resolution, consistent with
+    /// how LLM models are resolved via `resolve_model_profile()`.
+    ///
+    /// Returns `(provider_key, provider_config, model_id)` on success.
+    pub fn resolve_embedding_profile(
+        &self,
+        model_ref: &str,
+    ) -> AgentJaxResult<(String, ProviderConfig, String)> {
+        let trimmed = model_ref.trim();
+        if trimmed.is_empty() {
+            return Err(agentjax_err!(
+                "Embedding model reference is empty. Expected format: `provider/model_id`",
+                Config
+            ));
+        }
+
+        let resolved = self.resolve_model_ref(trimmed).ok_or_else(|| {
+            agentjax_err!(
+                format!(
+                    "Embedding model '{}' not found or disabled. Expected format: `{{provider}}/{{model_id}}`",
+                    trimmed
+                ),
+                Config
+            )
+        })?;
+
+        let (provider_key, provider, model_key, _model_cfg) = resolved;
+        Ok((provider_key, provider, model_key))
     }
 }

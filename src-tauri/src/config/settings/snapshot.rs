@@ -23,7 +23,6 @@ const AGENT_CONFIG_PATHS: &[&str] = &[
     "context_management",
     "sub_agent",
     "memory",
-    "rag",
     "tool_manager",
 ];
 

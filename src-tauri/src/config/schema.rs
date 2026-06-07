@@ -166,48 +166,82 @@ impl ContextManagementConfig {
     }
 }
 
-// ── AppConfig ─────────────────────────────────────────────────────────────────
-
 // ── RAG / Embedding Config ──────────────────────────────────────────────────────
 
-/// Configuration for the embedding provider used by RAG.
-/// Credentials are resolved by referencing an existing provider config
-/// via `provider_key` (e.g., "openai-responses").
+/// The type of path a knowledge base points to.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum KbPathType {
+    /// A single markdown file.
+    File,
+    /// A folder containing markdown files (scanned recursively).
+    Folder,
+}
+
+impl Default for KbPathType {
+    fn default() -> Self {
+        Self::Folder
+    }
+}
+
+/// A single knowledge base entry in the global config.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct KnowledgeBaseEntry {
+    /// Human-readable display name.
+    pub name: String,
+    /// Absolute path to a markdown file or a folder of markdown files.
+    /// Supports `~` for home directory.
+    pub path: String,
+    /// Whether this path is a single file or a folder.
+    pub path_type: KbPathType,
+    /// Agent profile IDs that should NOT have access to this KB.
+    /// Empty list means all agents can use it.
+    pub disabled_agents: Vec<String>,
+}
+
+impl Default for KnowledgeBaseEntry {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            path: String::new(),
+            path_type: KbPathType::Folder,
+            disabled_agents: Vec::new(),
+        }
+    }
+}
+
+/// Configuration for the embedding model used by RAG.
+///
+/// Uses the same `{provider}/{model_id}` model reference format as LLM models,
+/// so e.g. `"openai/text-embedding-3-small"` means: use the provider config
+/// registered under key `"openai"` with model `"text-embedding-3-small"`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct EmbeddingProviderConfig {
-    /// Embedding provider implementation name (e.g., "openai").
-    pub provider: String,
-    /// Optional reference to an existing provider config key for credentials.
-    /// When set, the system reads apiEndpoint and credential/credentialEnv
-    /// from the referenced provider config in AppConfig.providers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_key: Option<String>,
-    /// Embedding model name (e.g., "text-embedding-3-small").
+    /// Model reference in `{provider}/{model_id}` format, same as LLM models.
+    /// E.g., `"openai/text-embedding-3-small"`.
     pub model: String,
-    /// Output vector dimensions.
+    /// Output vector dimensions (required for vector store schema).
     pub dimensions: usize,
 }
 
 impl Default for EmbeddingProviderConfig {
     fn default() -> Self {
         Self {
-            provider: "openai".to_string(),
-            provider_key: None,
-            model: "text-embedding-3-small".to_string(),
+            model: "openai/text-embedding-3-small".to_string(),
             dimensions: 1536,
         }
     }
 }
 
 /// RAG (Retrieval-Augmented Generation) system configuration.
+/// Stored globally in config.yaml (shared across all agent profiles).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct RagConfig {
     /// Whether the RAG system is enabled.
     pub enabled: bool,
-    /// Directory for vector store data (relative to agentjax home).
-    pub storage_path: String,
     /// Default chunk size in characters for text splitting.
     pub chunk_size: usize,
     /// Chunk overlap in characters.
@@ -220,18 +254,21 @@ pub struct RagConfig {
     /// Embedding provider configuration.
     #[serde(default)]
     pub embedding: EmbeddingProviderConfig,
+    /// Knowledge base definitions, keyed by KB ID.
+    #[serde(default)]
+    pub knowledge_bases: BTreeMap<String, KnowledgeBaseEntry>,
 }
 
 impl Default for RagConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            storage_path: "rag".to_string(),
             chunk_size: 3600,
             chunk_overlap: 540,
             chunk_window: None,
             top_k: 5,
             embedding: EmbeddingProviderConfig::default(),
+            knowledge_bases: BTreeMap::new(),
         }
     }
 }
@@ -249,6 +286,10 @@ pub struct AppConfig {
     pub mcp: McpConfig,
     #[serde(default)]
     pub plugin_manager: PluginManagerConfig,
+    /// RAG (Retrieval-Augmented Generation) configuration.
+    /// Stored globally in config.yaml, shared across all agent profiles.
+    #[serde(default)]
+    pub rag: RagConfig,
 }
 
 // ── MCP Config ─────────────────────────────────────────────────────────────
@@ -704,6 +745,7 @@ impl Default for AppConfig {
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),
             plugin_manager: PluginManagerConfig::default(),
+            rag: RagConfig::default(),
         }
     }
 }

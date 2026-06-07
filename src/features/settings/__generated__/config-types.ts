@@ -258,6 +258,81 @@ export interface PluginPermissionOverride {
 
 }
 
+  /** RAG (Retrieval-Augmented Generation) system configuration. */
+  /** Stored globally in config.yaml (shared across all agent profiles). */
+export interface RagConfig {
+  /** Whether the RAG system is enabled. */
+  // default: true
+  enabled?: boolean;
+
+  /** Default chunk size in characters for text splitting. */
+  // default: 3600
+  chunk_size?: number;
+
+  /** Chunk overlap in characters. */
+  // default: 540
+  chunk_overlap?: number;
+
+  /** Search window for markdown-aware break-point detection. */
+  /** If unset, defaults to 800 chars (~200 tokens). */
+  // default: null
+  chunk_window?: number | null;
+
+  /** Default top-K results for searches. */
+  // default: 5
+  top_k?: number;
+
+  /** Embedding provider configuration. */
+  // default: {"model":"openai/text-embedding-3-small","dimensions":1536}
+  embedding?: EmbeddingProviderConfig;
+
+  /** Knowledge base definitions, keyed by KB ID. */
+  // default: {}
+  knowledge_bases?: Record<string, KnowledgeBaseEntry>;
+
+}
+
+  /** Configuration for the embedding model used by RAG. */
+  /**  */
+  /** Uses the same `{provider}/{model_id}` model reference format as LLM models, */
+  /** so e.g. `"openai/text-embedding-3-small"` means: use the provider config */
+  /** registered under key `"openai"` with model `"text-embedding-3-small"`. */
+export interface EmbeddingProviderConfig {
+  /** Model reference in `{provider}/{model_id}` format, same as LLM models. */
+  /** E.g., `"openai/text-embedding-3-small"`. */
+  // default: "openai/text-embedding-3-small"
+  model?: string;
+
+  /** Output vector dimensions (required for vector store schema). */
+  // default: 1536
+  dimensions?: number;
+
+}
+
+  /** A single knowledge base entry in the global config. */
+export interface KnowledgeBaseEntry {
+  /** Human-readable display name. */
+  // default: ""
+  name?: string;
+
+  /** Absolute path to a markdown file or a folder of markdown files. */
+  /** Supports `~` for home directory. */
+  // default: ""
+  path?: string;
+
+  /** Whether this path is a single file or a folder. */
+  // default: "folder"
+  path_type?: KbPathType;
+
+  /** Agent profile IDs that should NOT have access to this KB. */
+  /** Empty list means all agents can use it. */
+  // default: []
+  disabled_agents?: string[];
+
+}
+
+export type KbPathType = "file" | "folder";
+
 export interface AppConfig {
   // default: "auto"
   language?: string;
@@ -274,6 +349,11 @@ export interface AppConfig {
 
   // default: {"plugins":{}}
   plugin_manager?: PluginManagerConfig;
+
+  /** RAG (Retrieval-Augmented Generation) configuration. */
+  /** Stored globally in config.yaml, shared across all agent profiles. */
+  // default: {"enabled":true,"chunk_size":3600,"chunk_overlap":540,"chunk_window":null,"top_k":5,"embedding":{"model":"openai/text-embedding-3-small","dimensions":1536},"knowledge_bases":{}}
+  rag?: RagConfig;
 
 }
 
@@ -339,32 +419,15 @@ export interface ContextManagementConfig {
   // default: 100
   street_max_items_per_conversation?: number;
 
+  /** Maximum time (seconds) to wait for sub-agents / background jobs */
+  /** before giving up and ending the turn. Prevents the conversation from */
+  /** hanging indefinitely when a sub-agent silently fails. Default: 300 (5 min). */
+  // default: 300
+  street_resume_timeout_secs?: number;
+
   /** Whether to write a JSONL backup alongside the context store. */
   // default: true
   jsonl_backup_enabled?: boolean;
-
-}
-
-  /** Configuration for the embedding provider used by RAG. */
-  /** Credentials are resolved by referencing an existing provider config */
-  /** via `provider_key` (e.g., "openai-responses"). */
-export interface EmbeddingProviderConfig {
-  /** Embedding provider implementation name (e.g., "openai"). */
-  // default: "openai"
-  provider?: string;
-
-  /** Optional reference to an existing provider config key for credentials. */
-  /** When set, the system reads apiEndpoint and credential/credentialEnv */
-  /** from the referenced provider config in AppConfig.providers. */
-  provider_key?: string | null;
-
-  /** Embedding model name (e.g., "text-embedding-3-small"). */
-  // default: "text-embedding-3-small"
-  model?: string;
-
-  /** Output vector dimensions. */
-  // default: 1536
-  dimensions?: number;
 
 }
 
@@ -462,34 +525,6 @@ export interface PromptBlock {
 export interface PromptComposerConfig {
   // default: [{"id":"builtin-core-system","title":"AgentJax Core System","role":"system","content":"You are AgentJax, an agentic coding assistant operating through the Responses API and tool calls.\n\nHow you work:\n- Persist until the user's request is fully handled whenever feasible.\n- Use available tools to inspect, modify, verify, and gather information instead of asking for data you can obtain yourself.\n- If the task implies code or environment work, perform the work directly rather than only proposing it.\n- Prefer grounded actions and verifiable results over speculation.\n\nCommentary protocol:\n- Commentary messages are short progress updates while work is still in progress.\n- Before a substantial new tool phase or a meaningful change in approach, emit one fresh commentary update.\n- Commentary should say what you are about to do next or what you just learned, in concise language.\n- Do not use commentary as the answer to the task.\n- Do not front-load long plans unless the user explicitly asks for a plan.\n\nFinal-answer protocol:\n- The final answer must be separate from commentary.\n- A `final_answer` message must contain the completed answer for the user, not a transcript of prior commentary or tool narration.\n- Never restate earlier commentary lines inside a `final_answer`.\n- If commentary already covered progress, the final answer should focus on the result, verification, and any important remaining risk or follow-up.\n\nContext protocol:\n- Preserve the distinction between in-progress commentary and completed answers.\n- Earlier `commentary` items are progress updates, not the answer.\n- Earlier `final_answer` items are the assistant's completed answers.\n- If a prior assistant message has no phase, treat it as phase-unknown compatibility data rather than rewriting its meaning.\n\nVerification protocol:\n- Reuse relevant information already present in the conversation and tool results.\n- After making changes, run the best available focused verification before concluding when feasible.\n- When you cannot verify something directly, say so plainly in the final answer.\n\nBackground tool protocol:\n- If a tool may take a long time and you can make progress elsewhere, start it with `background_task` with `action: \"start\"` instead of blocking on the target tool directly.\n- Treat waiting as a separate awaiter step. Call `background_task` with `action: \"wait\"` only when that background result is on the critical path.\n- Prefer short awaiter checkpoints. If `background_task` with `action: \"wait\"` reports `timedOut: true` or `decision: continue_other_work_or_wait_again`, decide whether to continue other useful work, wait again later, list jobs, or cancel.\n- Do not immediately use a long wait after starting a background job unless there is truly nothing else useful to do.","enabled":true,"source":"builtin","source_id":"agentjax/core/system","locked":true}]
   blocks?: PromptBlock[];
-
-}
-
-  /** RAG (Retrieval-Augmented Generation) system configuration. */
-export interface RagConfig {
-  /** Whether the RAG system is enabled. */
-  // default: true
-  enabled?: boolean;
-
-  /** Directory for vector store data (relative to agentjax home). */
-  // default: "rag"
-  storage_path?: string;
-
-  /** Default chunk size in characters for text splitting. */
-  // default: 512
-  chunk_size?: number;
-
-  /** Chunk overlap in characters. */
-  // default: 64
-  chunk_overlap?: number;
-
-  /** Default top-K results for searches. */
-  // default: 5
-  top_k?: number;
-
-  /** Embedding provider configuration. */
-  // default: {"provider":"openai","model":"text-embedding-3-small","dimensions":1536}
-  embedding?: EmbeddingProviderConfig;
 
 }
 

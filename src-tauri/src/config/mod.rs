@@ -28,11 +28,12 @@ pub use prompt_composer::{
 };
 #[allow(unused_imports)]
 pub use schema::{
-    AppConfig, ContextManagementConfig, EmbeddingProviderConfig, McpConfig, McpRuntimeConfig,
-    McpServerConfig, McpStdioRuntimeConfig, McpToolSourcePolicyConfig, McpTransportKind,
-    MemoryConfig, ModelRequestConfig, PluginEntryConfig, PluginManagerConfig,
-    PluginPermissionOverride, ProviderConfig, ProviderModelConfig, RagConfig, ResolvedModelConfig,
-    SubAgentConfig, ToolEnabledConfig, ToolManagerConfig, ToolSourcePolicyConfig,
+    AppConfig, ContextManagementConfig, EmbeddingProviderConfig, KbPathType, KnowledgeBaseEntry,
+    McpConfig, McpRuntimeConfig, McpServerConfig, McpStdioRuntimeConfig,
+    McpToolSourcePolicyConfig, McpTransportKind, MemoryConfig, ModelRequestConfig,
+    PluginEntryConfig, PluginManagerConfig, PluginPermissionOverride, ProviderConfig,
+    ProviderModelConfig, RagConfig, ResolvedModelConfig, SubAgentConfig, ToolEnabledConfig,
+    ToolManagerConfig, ToolSourcePolicyConfig,
 };
 #[allow(unused_imports)]
 pub use settings::{

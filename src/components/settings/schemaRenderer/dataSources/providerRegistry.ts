@@ -1,3 +1,4 @@
+import { useKnowledgeDataProvider } from './useKnowledgeDataProvider';
 import { useMemoryDataProvider } from './useMemoryDataProvider';
 import { usePluginManagerDataProvider } from './usePluginManagerDataProvider';
 import { usePluginSettingsDataProvider } from './usePluginSettingsDataProvider';
@@ -17,6 +18,7 @@ export function useRegisteredSchemaDataProviders(
   });
   const pluginManagerProvider = usePluginManagerDataProvider(args);
   const memoryManagerProvider = useMemoryDataProvider(args);
+  const knowledgeManagerProvider = useKnowledgeDataProvider(args);
 
-  return [toolManagerProvider, pluginProvider, pluginManagerProvider, memoryManagerProvider];
+  return [toolManagerProvider, pluginProvider, pluginManagerProvider, memoryManagerProvider, knowledgeManagerProvider];
 }
