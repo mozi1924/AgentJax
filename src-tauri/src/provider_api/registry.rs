@@ -65,6 +65,13 @@ pub fn builtin_provider_definitions() -> Vec<DynamicProviderDefinition> {
                 .ok()
         })
         .collect::<Vec<_>>();
+
+    // Add the built-in "openai-compatible" provider — a generic provider that
+    // uses the native Chat Completions protocol without requiring a JS plugin.
+    // This allows users to add any OpenAI-compatible API (Ollama, vLLM, etc.)
+    // directly from the settings UI without writing a plugin.
+    definitions.push(openai_compatible_provider_definition());
+
     sort_provider_definitions(&mut definitions);
     definitions
 }
@@ -393,4 +400,84 @@ fn build_default_config(
     }
 
     config
+}
+
+/// Build a built-in "openai-compatible" provider definition that uses the
+/// native Chat Completions protocol without requiring a JS plugin package.
+///
+/// This allows users to add any OpenAI-compatible API (Ollama, vLLM, LM Studio,
+/// TabbyAPI, etc.) directly from the settings UI without writing a plugin.
+fn openai_compatible_provider_definition() -> DynamicProviderDefinition {
+    let config_schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "apiEndpoint": {
+                "type": "string",
+                "default": "http://localhost:11434/v1",
+                "title": "API Endpoint"
+            },
+            "modelsEndpointCandidates": {
+                "type": "array",
+                "items": { "type": "string" },
+                "default": []
+            },
+            "httpHeaders": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "default": {}
+            },
+            "envHttpHeaders": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "default": {}
+            },
+            "credential": {
+                "type": ["string", "null"],
+                "default": null,
+                "sensitive": true
+            },
+            "credentialEnv": {
+                "type": "string",
+                "default": ""
+            },
+            "requestTimeoutSeconds": {
+                "type": ["integer", "null"],
+                "default": null
+            },
+            "requestMaxRetries": {
+                "type": ["integer", "null"],
+                "default": null
+            },
+            "streamMaxRetries": {
+                "type": ["integer", "null"],
+                "default": null
+            },
+            "streamIdleTimeoutMs": {
+                "type": ["integer", "null"],
+                "default": null
+            }
+        }
+    });
+
+    let default_config = ProviderConfig {
+        kind: "openai-compatible".to_string(),
+        api_endpoint: "http://localhost:11434/v1".to_string(),
+        models: BTreeMap::new(),
+        ..Default::default()
+    };
+
+    DynamicProviderDefinition {
+        kind: "openai-compatible".to_string(),
+        display_name: "OpenAI Compatible".to_string(),
+        default_priority: 100,
+        plugin_package: None,
+        config_schema,
+        capabilities: super::capabilities::ProviderCapabilities::chat_completions(),
+        tool_schema_format: crate::tools::ToolSchemaFormat::ChatCompletions,
+        default_config,
+        supports_protocols: vec!["chat_completions".to_string()],
+        builtin_models: Vec::new(),
+        reasoning_schema: None,
+        model_routing: Vec::new(),
+    }
 }

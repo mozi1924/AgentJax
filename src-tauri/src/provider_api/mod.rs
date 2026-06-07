@@ -39,7 +39,7 @@ pub use types::{
 pub fn get_capabilities(provider_kind: &str) -> AgentJaxResult<ProviderCapabilities> {
     registry::provider_capabilities(provider_kind).ok_or_else(|| {
         AgentJaxError::config(format!(
-            "Unsupported provider kind '{}'. Register a provider plugin to enable it.",
+            "Unsupported provider kind '{}'. Register a provider plugin or use kind 'openai-compatible' to enable it.",
             provider_kind
         ))
     })
@@ -50,7 +50,7 @@ pub fn get_tool_schema_format(
 ) -> AgentJaxResult<crate::tools::ToolSchemaFormat> {
     registry::provider_tool_schema_format(provider_kind).ok_or_else(|| {
         AgentJaxError::config(format!(
-            "Unsupported provider kind '{}'. Register a provider plugin to enable it.",
+            "Unsupported provider kind '{}'. Register a provider plugin or use kind 'openai-compatible' to enable it.",
             provider_kind
         ))
     })
@@ -286,6 +286,26 @@ pub fn get_reasoning_capability(
                 supported_reasoning_levels: Vec::new(),
             });
         }
+        // If the provider definition exists but has no plugin package and
+        // no builtin_models (e.g. "openai-compatible"), return a default
+        // rather than falling through to the plugin path which will fail.
+        if def.plugin_package.is_none() {
+            return Ok(ModelReasoningCapability {
+                supports_reasoning: false,
+                supported_reasoning_levels: Vec::new(),
+            });
+        }
+    } else {
+        // Provider kind is not registered at all — return a sensible default
+        // instead of falling through to the plugin path which will fail with
+        // "registered without an executable plugin package".
+        log::debug!(
+            "Provider kind '{provider_kind}' is not registered, returning default reasoning capability"
+        );
+        return Ok(ModelReasoningCapability {
+            supports_reasoning: false,
+            supported_reasoning_levels: Vec::new(),
+        });
     }
 
     // Fall back to JS plugin for providers that still use the legacy path.
@@ -335,6 +355,26 @@ pub fn get_model_metadata(
                 kind: None,
             });
         }
+        // If the provider definition exists but has no plugin package and
+        // no builtin_models (e.g. "openai-compatible"), return a default
+        // rather than falling through to the plugin path which will fail.
+        if def.plugin_package.is_none() {
+            return Ok(ProviderModelMetadata {
+                context_window: None,
+                kind: None,
+            });
+        }
+    } else {
+        // Provider kind is not registered at all — return a sensible default
+        // instead of falling through to the plugin path which will fail with
+        // "registered without an executable plugin package".
+        log::debug!(
+            "Provider kind '{provider_kind}' is not registered, returning default model metadata"
+        );
+        return Ok(ProviderModelMetadata {
+            context_window: None,
+            kind: None,
+        });
     }
 
     // Fall back to JS plugin path for legacy providers.
