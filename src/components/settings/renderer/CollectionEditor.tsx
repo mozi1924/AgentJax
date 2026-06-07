@@ -136,6 +136,28 @@ export function CollectionEditor({
             | undefined;
           const kbStatus = kbStatuses?.find((s) => s.id === itemKey);
 
+          // ── Indexing progress (real-time from Tauri events) ──
+          interface KbProgressState {
+            kbId: string;
+            phase: string;
+            processed: number;
+            total: number;
+            currentFile: string;
+            chunksCreated: number;
+            done: boolean;
+            error: string | null;
+            startedAt: number;
+          }
+          const kbProgress: KbProgressState | null =
+            hasDataSource
+              ? (dataContext?.getDataSource?.(`${collection.dataSource}.kbProgress.${itemKey}`) as KbProgressState | null) ?? null
+              : null;
+          const isIndexing = kbProgress && !kbProgress.done;
+          const progressPct = kbProgress && kbProgress.total > 0
+            ? Math.round((kbProgress.processed / kbProgress.total) * 100)
+            : 0;
+          const isEmbeddingPhase = kbProgress?.phase === 'embedding';
+
           return (
             <div
               key={itemPath}
@@ -207,6 +229,39 @@ export function CollectionEditor({
                   </button>
                 </div>
               </div>
+
+              {/* ── Indexing progress bar ── */}
+              {isIndexing && (
+                <div className="border-t border-[#242426]/50 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-[10px] font-medium text-sky-400">
+                      {t(
+                        isEmbeddingPhase
+                          ? 'settings.knowledge.indexing.progress_chunks'
+                          : 'settings.knowledge.indexing.progress_files',
+                        {
+                          processed: String(kbProgress.processed),
+                          total: String(kbProgress.total),
+                        },
+                      )}
+                    </span>
+                    <span className="text-[10px] text-neutral-500">
+                      {t(`settings.knowledge.indexing.phase_${kbProgress.phase}`)}
+                      {kbProgress.currentFile ? ` · ${kbProgress.currentFile}` : ''}
+                    </span>
+                  </div>
+                  {/* Progress track */}
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#2e2e30]/60">
+                    <div
+                      className="h-full rounded-full bg-sky-500 transition-all duration-300 ease-out"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                  {kbProgress.error && (
+                    <p className="mt-1 text-[9px] text-rose-400 truncate">{kbProgress.error}</p>
+                  )}
+                </div>
+              )}
 
               {isExpanded && (
                 <div className="border-t border-[#242426]/50 px-3 py-3 bg-[#171717]/30">

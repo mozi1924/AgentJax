@@ -474,6 +474,14 @@
   "settings.knowledge.loading": "正在加载知识库状态...",
   "settings.knowledge.error": "加载知识库状态失败。",
 
+  "settings.knowledge.indexing.phase_scanning": "扫描文件",
+  "settings.knowledge.indexing.phase_chunking": "分块中",
+  "settings.knowledge.indexing.phase_embedding": "向量化中",
+  "settings.knowledge.indexing.phase_done": "完成",
+  "settings.knowledge.indexing.phase_error": "错误",
+  "settings.knowledge.indexing.progress_files": "{processed}/{total} 文件",
+  "settings.knowledge.indexing.progress_chunks": "{processed}/{total} 块",
+
   "agent.switcher.label": "切换 Agent",
   "agent.switcher.loading": "加载中...",
   "agent.switcher.new_agent": "新建 Agent",

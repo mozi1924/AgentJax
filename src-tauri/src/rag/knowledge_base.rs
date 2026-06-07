@@ -70,6 +70,18 @@ impl KnowledgeBaseManager {
         self.embedding_disabled
     }
 
+    /// Check how many unembedded chunks exist for a KB.
+    ///
+    /// Returns 0 if the KB doesn't exist or has no unembedded chunks.
+    /// Used by the refresh command to decide whether to resume embedding
+    /// after an incremental prepare that added no new chunks.
+    pub async fn unembedded_chunk_count(&self, kb_id: &str) -> AgentJaxResult<usize> {
+        match self.open_kb(kb_id).await {
+            Ok(kb) => kb.fts_store.unembedded_chunk_count(),
+            Err(_) => Ok(0),
+        }
+    }
+
     /// Create a new KB manager from the global app config.
     ///
     /// KBs are stored under `$AGENTJAX_HOME/knowledge_bases/` and use the
@@ -368,12 +380,19 @@ impl KnowledgeBaseManager {
     /// 2. After processing, deletes any documents from the store whose
     ///    IDs are no longer in the incoming list (file was deleted).
     ///
+    /// The `on_progress` callback receives `(processed, total, doc_id)`
+    /// after each document is handled (including skipped ones).
+    ///
     /// Returns the total number of chunks prepared.
-    pub async fn prepare_kb(
+    pub async fn prepare_kb<F>(
         &self,
         kb_id: &str,
         documents: &[(String, String, i64)], // (doc_id, content, modified_at)
-    ) -> AgentJaxResult<usize> {
+        mut on_progress: F,
+    ) -> AgentJaxResult<usize>
+    where
+        F: FnMut(usize, usize, &str),
+    {
         use std::collections::HashSet;
 
         let kb = self.open_kb(kb_id).await?;
@@ -390,8 +409,12 @@ impl KnowledgeBaseManager {
         // Track which incoming document IDs are actually processed
         let incoming_ids: HashSet<&str> = documents.iter().map(|(id, _, _)| id.as_str()).collect();
 
-        for (doc_id, content, modified_at) in documents {
+        let total_docs = documents.len();
+        for (idx, (doc_id, content, modified_at)) in documents.iter().enumerate() {
             let hash = content_hash(content);
+
+            // Report progress for every document (including skipped ones).
+            on_progress(idx, total_docs, doc_id);
 
             // Check if this document has already been indexed with the same
             // content AND the same modification time — skip if unchanged.

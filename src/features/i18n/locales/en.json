@@ -471,6 +471,14 @@
   "settings.knowledge.loading": "Loading knowledge base status...",
   "settings.knowledge.error": "Failed to load knowledge base status.",
 
+  "settings.knowledge.indexing.phase_scanning": "Scanning",
+  "settings.knowledge.indexing.phase_chunking": "Chunking",
+  "settings.knowledge.indexing.phase_embedding": "Embedding",
+  "settings.knowledge.indexing.phase_done": "Done",
+  "settings.knowledge.indexing.phase_error": "Error",
+  "settings.knowledge.indexing.progress_files": "{processed}/{total} files",
+  "settings.knowledge.indexing.progress_chunks": "{processed}/{total} chunks",
+
   "agent.switcher.label": "Switch Agent",
   "agent.switcher.loading": "Loading...",
   "agent.switcher.new_agent": "New Agent",

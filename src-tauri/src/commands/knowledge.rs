@@ -312,6 +312,9 @@ pub async fn refresh_knowledge_base(
             }
         }
         KbPathType::Folder => {
+            // ═══════════════════════════════════════════════════════════
+            // Phase 1: Scanning — find .md files and read their contents
+            // ═══════════════════════════════════════════════════════════
             let mut md_files: Vec<std::path::PathBuf> = Vec::new();
             scan_markdown_files_for_indexing(&resolved_path, &mut md_files)?;
             let total_files = md_files.len();
@@ -325,10 +328,7 @@ pub async fn refresh_knowledge_base(
                 }));
             }
 
-            // ═══════════════════════════════════════════════════════════
-            // Phase 1: Chunking (local-only, fast)
-            // ═══════════════════════════════════════════════════════════
-            emit_progress("chunking", 0, total_files, "", 0, false, None);
+            emit_progress("scanning", 0, total_files, "", 0, false, None);
 
             let mut documents: Vec<(String, String, i64)> = Vec::with_capacity(total_files);
             for (idx, file_path) in md_files.iter().enumerate() {
@@ -337,11 +337,10 @@ pub async fn refresh_knowledge_base(
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_else(|| "doc".to_string());
 
-                emit_progress("chunking", idx, total_files, &file_name, 0, false, None);
+                emit_progress("scanning", idx, total_files, &file_name, 0, false, None);
 
                 match tokio::fs::read_to_string(file_path).await {
                     Ok(content) => {
-                        // Capture file modification time for incremental detection.
                         let modified_at = std::fs::metadata(file_path)
                             .ok()
                             .and_then(|m| m.modified().ok())
@@ -353,7 +352,7 @@ pub async fn refresh_knowledge_base(
                     Err(e) => {
                         log::warn!("Failed to read '{}': {e}", file_path.display());
                         emit_progress(
-                            "chunking",
+                            "scanning",
                             idx + 1,
                             total_files,
                             "",
@@ -366,8 +365,41 @@ pub async fn refresh_knowledge_base(
             }
 
             total_docs = documents.len();
-            let prepared_chunks = kb_manager.prepare_kb(&kb_id, &documents).await?;
-            emit_progress("chunking", total_files, total_files, "", prepared_chunks, false, None);
+
+            // ═══════════════════════════════════════════════════════════
+            // Phase 2: Chunking — split docs into chunks, store in FTS
+            // ═══════════════════════════════════════════════════════════
+            let app_handle3 = app_handle.clone();
+            let kb_id3 = kb_id.clone();
+            let total_docs_chunk = total_docs;
+
+            let prepared_chunks = kb_manager
+                .prepare_kb(&kb_id, &documents, move |idx, total, doc_id| {
+                    let _ = app_handle3.emit(
+                        "kb_indexing_progress",
+                        KnowledgeIndexingProgress {
+                            kb_id: kb_id3.clone(),
+                            phase: "chunking".to_string(),
+                            processed: idx,
+                            total,
+                            current_file: doc_id.to_string(),
+                            chunks_created: 0,
+                            done: false,
+                            error: None,
+                        },
+                    );
+                })
+                .await?;
+            // Signal chunking complete.
+            emit_progress(
+                "chunking",
+                total_docs_chunk,
+                total_docs_chunk,
+                "",
+                prepared_chunks,
+                false,
+                None,
+            );
 
             log::info!(
                 "KB '{}' chunking complete: {} docs → {} chunks",
@@ -375,16 +407,10 @@ pub async fn refresh_knowledge_base(
             );
 
             // ═══════════════════════════════════════════════════════════
-            // Phase 2: FTS Indexing (local-only, instant)
+            // Phase 3: Embedding — generate vectors via embedding API
             // ═══════════════════════════════════════════════════════════
-            emit_progress("fts", 0, 1, "", prepared_chunks, false, None);
-            // FTS is already rebuilt by prepare_kb; this is a no-op signal
-            emit_progress("fts", 1, 1, "", prepared_chunks, false, None);
-
-            // ═══════════════════════════════════════════════════════════
-            // Phase 3: Embedding (API-heavy, continuous streaming)
-            // ═══════════════════════════════════════════════════════════
-            if prepared_chunks > 0 && !kb_manager.is_embedding_disabled() {
+            let unembedded = kb_manager.unembedded_chunk_count(&kb_id).await.unwrap_or(0);
+            if unembedded > 0 && !kb_manager.is_embedding_disabled() {
                 let app_handle2 = app_handle.clone();
                 let kb_id2 = kb_id.clone();
                 let total_docs_embed = total_docs;
@@ -424,7 +450,7 @@ pub async fn refresh_knowledge_base(
                             total_docs,
                             total_docs,
                             "",
-                            prepared_chunks,
+                            unembedded,
                             true,
                             Some(format!(
                                 "Embedding partially failed: {}. FTS-only search is available.",
@@ -434,20 +460,20 @@ pub async fn refresh_knowledge_base(
                         return Ok(serde_json::json!({
                             "kbId": kb_id,
                             "totalDocuments": total_docs,
-                            "totalChunks": prepared_chunks,
+                            "totalChunks": unembedded,
                             "warning": format!("Embedding phase failed: {}", e),
                         }));
                     }
                 }
-            } else if prepared_chunks == 0 {
-                total_chunks = 0;
             } else {
-                // Embedding disabled — FTS5-only mode, skip vector store
+                // No unembedded chunks, or embedding is disabled.
                 total_chunks = prepared_chunks;
-                log::info!(
-                    "KB '{}': embedding disabled, skipping vector indexing ({} chunks in FTS only)",
-                    kb_id, prepared_chunks
-                );
+                if kb_manager.is_embedding_disabled() && prepared_chunks > 0 {
+                    log::info!(
+                        "KB '{}': embedding disabled, FTS-only ({} chunks)",
+                        kb_id, prepared_chunks
+                    );
+                }
             }
         }
     }
