@@ -466,6 +466,7 @@ export default function SettingsModal({ isOpen, onClose, agentId }: SettingsModa
                 snapshot={snapshot}
                 savingPath={savingPath}
                 fieldErrors={fieldErrors}
+                agentId={agentId}
                 queryState={{
                   search: settingsSearch,
                   onSearchChange: setSettingsSearch,

@@ -5,6 +5,7 @@ export interface SchemaDataProviderArgs {
   nodes: SettingsSchemaNode[];
   requestedDataSourceNamespaces: string[];
   queryState?: SchemaRendererQueryState;
+  agentId?: string;
   onSaveField: (path: string, value: unknown) => Promise<void>;
 }
 

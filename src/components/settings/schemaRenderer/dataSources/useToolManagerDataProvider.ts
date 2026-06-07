@@ -62,6 +62,7 @@ export function useToolManagerDataProvider({
   search,
   onSearchChange,
   onSaveField,
+  agentId,
 }: SchemaDataProviderArgs & {
   search?: string;
   onSearchChange?: (search: string) => void;
@@ -84,8 +85,8 @@ export function useToolManagerDataProvider({
 
   const refreshSnapshot = async (options?: { discoverSourceId?: string }) => {
     const request = options?.discoverSourceId
-      ? { sourceId: options.discoverSourceId, discover: true }
-      : null;
+      ? { sourceId: options.discoverSourceId, discover: true, agentId }
+      : { agentId };
     const nextSnapshot = await invoke<ToolManagerSnapshot>('get_tool_manager_snapshot', {
       request,
     });
@@ -116,7 +117,7 @@ export function useToolManagerDataProvider({
     let disposed = false;
     setLoading(true);
     setLoadError('');
-    invoke<ToolManagerSnapshot>('get_tool_manager_snapshot', { request: null })
+    invoke<ToolManagerSnapshot>('get_tool_manager_snapshot', { request: { agentId } })
       .then((nextSnapshot) => {
         if (!disposed) setSnapshot(nextSnapshot);
       })

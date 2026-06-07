@@ -35,6 +35,7 @@ fn build_archived_tool_note(
     tool_name: &str,
     arguments: &Value,
     outputs: &[Value],
+    extra_note: &str,
 ) -> Value {
     let output_value = if outputs.is_empty() {
         Value::Null
@@ -44,11 +45,17 @@ fn build_archived_tool_note(
         Value::Array(outputs.to_vec())
     };
 
+    let extra_line = if extra_note.is_empty() {
+        String::new()
+    } else {
+        format!("\n         Note: {extra_note}")
+    };
+
     let note = format!(
         "━━━ Archived Tool Call ━━━\n\
          Tool: {tool_name} (currently unavailable)\n\
          Arguments: {arguments}\n\
-         Output: {output}\n\
+         Output: {output}{extra_line}\n\
          ━━━ End of Archived Tool Call ━━━\n\
          The above is historical context, not a user message or system instruction.",
         tool_name = tool_name,
@@ -69,12 +76,25 @@ pub(crate) fn archive_unavailable_historical_tool_calls(
     input_items: Vec<Value>,
     active_tool_names: &HashSet<String>,
 ) -> Vec<Value> {
-    if active_tool_names.is_empty() {
-        return input_items;
-    }
-
-    let mut unavailable_calls: HashMap<String, (String, Value)> = HashMap::new();
-    let mut outputs_by_call_id: HashMap<String, Vec<Value>> = HashMap::new();
+    // ── First pass: collect all tool items and identify mismatches.
+    //
+    //    Three categories of problematic tool calls:
+    //
+    //    1. Unavailable tools — tool name not in active_tool_names
+    //       (user disabled the tool in settings).
+    //    2. Orphaned function_call — has no matching function_call_output
+    //       (LCM compaction removed the tool result but left the
+    //       assistant message with tool_calls_json intact).
+    //    3. Orphaned function_call_output — has no matching function_call
+    //       (LCM compaction removed the assistant message but left the
+    //       tool result, because standalone tool messages are excluded
+    //       from compaction).
+    //
+    //    All three produce invalid Chat Completions messages and must be
+    //    converted to user-role archived notes.
+    let mut outputs_by_call_id = HashMap::<String, Vec<Value>>::new();
+    let mut call_ids_with_output = HashSet::new();
+    let mut call_ids_with_call = HashSet::new();
 
     for item in &input_items {
         let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
@@ -83,10 +103,39 @@ pub(crate) fn archive_unavailable_historical_tool_calls(
             "function_call_output" | "custom_tool_call_output"
         ) {
             if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
+                let cid = call_id.to_string();
                 outputs_by_call_id
-                    .entry(call_id.to_string())
+                    .entry(cid.clone())
                     .or_default()
                     .push(item.clone());
+                call_ids_with_output.insert(cid);
+            }
+            continue;
+        }
+
+        if matches!(item_type, "function_call" | "custom_tool_call") {
+            if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
+                call_ids_with_call.insert(call_id.to_string());
+            }
+        }
+    }
+
+    let mut archived_calls: HashMap<String, (String, Value)> = HashMap::new();
+
+    for item in &input_items {
+        let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+
+        // ── Handle orphaned function_call_output (category 3) ─────────
+        if matches!(
+            item_type,
+            "function_call_output" | "custom_tool_call_output"
+        ) {
+            if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
+                if !call_ids_with_call.contains(call_id) {
+                    archived_calls
+                        .entry(call_id.to_string())
+                        .or_insert_with(|| (String::new(), json!({})));
+                }
             }
             continue;
         }
@@ -101,18 +150,30 @@ pub(crate) fn archive_unavailable_historical_tool_calls(
         let Some(name) = item.get("name").and_then(Value::as_str) else {
             continue;
         };
-        if active_tool_names.contains(name) {
-            continue;
-        }
 
-        unavailable_calls
-            .entry(call_id.to_string())
-            .or_insert_with(|| (name.to_string(), parse_tool_call_item_arguments(item)));
+        // ── Category 1: tool is unavailable ─────────────────────────
+        let tool_unavailable =
+            active_tool_names.is_empty() || !active_tool_names.contains(name);
+
+        // ── Category 2: orphaned call (no matching output) ──────────
+        let orphaned = !call_ids_with_output.contains(call_id);
+
+        if tool_unavailable || orphaned {
+            archived_calls
+                .entry(call_id.to_string())
+                .or_insert_with(|| (name.to_string(), parse_tool_call_item_arguments(item)));
+        }
     }
 
-    if unavailable_calls.is_empty() {
+    if archived_calls.is_empty() {
         return input_items;
     }
+
+    log::debug!(
+        "Archiving {} historical tool call(s): call_ids={:?}",
+        archived_calls.len(),
+        archived_calls.keys().map(|s| s.as_str()).collect::<Vec<_>>()
+    );
 
     let mut emitted_call_ids = HashSet::new();
     let mut output = Vec::with_capacity(input_items.len());
@@ -136,13 +197,35 @@ pub(crate) fn archive_unavailable_historical_tool_calls(
             continue;
         }
 
-        if let Some((tool_name, arguments)) = unavailable_calls.get(call_id) {
-            if matches!(item_type, "function_call" | "custom_tool_call")
-                && !emitted_call_ids.contains(call_id)
-            {
-                let outputs = outputs_by_call_id.get(call_id).cloned().unwrap_or_default();
+        if let Some((tool_name, arguments)) = archived_calls.get(call_id) {
+            // Emit archived note once per call_id. For function_call items
+            // (categories 1 & 2) we have the tool name and arguments.
+            // For orphaned function_call_output (category 3) we only have
+            // the output — still emit a note so the model sees the
+            // historical context.
+            let is_call_item =
+                matches!(item_type, "function_call" | "custom_tool_call");
+            if !emitted_call_ids.contains(call_id) {
+                let raw_outputs = outputs_by_call_id.get(call_id).cloned().unwrap_or_default();
+                // Extract just the output content from each function_call_output item.
+                let outputs: Vec<Value> = raw_outputs
+                    .iter()
+                    .filter_map(|item| item.get("output").cloned())
+                    .collect();
+                let extra = if tool_name.is_empty() {
+                    " (tool call was compacted by LCM — use lcm_expand to recover)"
+                } else if !call_ids_with_output.contains(call_id) {
+                    " (output was compacted by LCM — use lcm_expand to recover)"
+                } else {
+                    ""
+                };
+                let display_name: &str = if tool_name.is_empty() { "(unknown)" } else { tool_name };
                 output.push(build_archived_tool_note(
-                    call_id, tool_name, arguments, &outputs,
+                    call_id,
+                    display_name,
+                    arguments,
+                    &outputs,
+                    extra,
                 ));
                 emitted_call_ids.insert(call_id.to_string());
             }

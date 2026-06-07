@@ -56,7 +56,7 @@ impl super::AgentRuntime {
         req: &ChatRequest,
         conversation_id: &str,
         user_message_ts: i64,
-        context_items: Vec<Value>,
+        _context_items: Vec<Value>,
         recovery_note: Option<Value>,
         tools_catalog: &Arc<ToolCatalog>,
         context: &dyn AgentContext,
@@ -132,19 +132,6 @@ impl super::AgentRuntime {
         let tool_context = build_tool_context(&tctx);
         let mut mounted_mcp_servers =
             tctx.tools_catalog.load_persisted_mounted_servers(&tool_context);
-        let initial_snapshot = tctx
-            .tools_catalog
-            .snapshot_with_format_and_mounted_servers(
-                tctx.tool_schema_format,
-                &tool_context,
-                &mounted_mcp_servers,
-            )
-            .await;
-        // Archive unavailable tool calls from the initial context.
-        let _ = archive_unavailable_historical_tool_calls(
-            context_items.clone(),
-            initial_snapshot.active_tool_names(),
-        );
 
         // ── Seed active context ──────────────────────────────────────────
         context.rebuild(tctx.conversation_id).await.ok();
@@ -384,7 +371,7 @@ impl super::AgentRuntime {
             apply_tool_state_changes(&mut mounted_mcp_servers, executed_batch.state_changes);
             if !tctx.is_sub_agent
                 && let Err(err) = tctx.tools_catalog.persist_mounted_servers(
-                    crate::config::constants::DEFAULT_AGENT_ID,
+                    tctx.agent_id,
                     tctx.conversation_id,
                     &mounted_mcp_servers,
                 ) {

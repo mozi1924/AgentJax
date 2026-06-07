@@ -12,6 +12,7 @@ export interface SettingsRendererProps {
   savingPath: string | null;
   fieldErrors: Record<string, string>;
   queryState?: SchemaRendererQueryState;
+  agentId?: string;
   onSaveField: (path: string, value: unknown) => Promise<void>;
   onDeletePath: (path: string) => Promise<void>;
   onAddCollectionItem: (

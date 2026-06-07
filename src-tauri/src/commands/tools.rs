@@ -25,6 +25,7 @@ pub async fn get_tool_manager_snapshot(
         .agent_id
         .as_deref()
         .and_then(|id| config::load_agent_config(id).ok())
+        .or_else(|| config::load_agent_config(config::constants::DEFAULT_AGENT_ID).ok())
         .unwrap_or_default();
     let catalog =
         ToolCatalog::new_with_home_plugins(mcp_manager.inner().clone(), &config, &agent_config);

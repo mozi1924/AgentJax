@@ -10,6 +10,7 @@ export default function SettingsRenderer(props: SettingsRendererProps) {
   const dataContext = useSchemaDataContext({
     nodes: props.section.children,
     queryState: props.queryState,
+    agentId: props.agentId,
     onSaveField: props.onSaveField,
   });
   const nodes = filterSchemaNodesForSearch(

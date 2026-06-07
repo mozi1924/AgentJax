@@ -8,6 +8,7 @@ use crate::config::{AppConfig, PromptBlock, PromptBlockRole, PromptBlockSource};
 use crate::message_phase::AssistantPhase;
 use crate::provider_api::types::ProviderStreamEvent;
 use crate::tools::ToolCatalog;
+use std::collections::HashSet;
 use serde_json::json;
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
@@ -519,6 +520,186 @@ fn preserves_tool_calls_when_tool_is_re_registered() {
                 .unwrap_or(false)
         }),
         "no archived notes should exist when all tools are active"
+    );
+}
+
+#[test]
+fn archives_all_tool_calls_when_no_tools_are_active() {
+    // When every tool is disabled (active_tool_names is empty), every
+    // historical function_call should be archived into a user-role note.
+    let active_tools = HashSet::new(); // empty — no tools available
+
+    let context = vec![
+        json!({"role":"user","content":[{"type":"input_text","text":"hi"}]}),
+        json!({"type":"function_call","call_id":"call_a","name":"read_file","arguments":"{\"path\":\"/tmp/x\"}"}),
+        json!({"type":"function_call_output","call_id":"call_a","output":"{\"ok\":true}"}),
+        json!({"type":"function_call","call_id":"call_b","name":"calculator","arguments":"{\"expression\":\"2+2\"}"}),
+        json!({"type":"function_call_output","call_id":"call_b","output":"{\"ok\":true,\"result\":4}"}),
+    ];
+
+    let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
+
+    // No raw function_call or function_call_output items should remain.
+    assert!(
+        !normalized.iter().any(|item| {
+            matches!(
+                item.get("type").and_then(|v| v.as_str()),
+                Some("function_call") | Some("function_call_output")
+            )
+        }),
+        "all function_call/output items should be archived when no tools are active"
+    );
+
+    // At least one archived note should exist.
+    let archived_count = normalized
+        .iter()
+        .filter(|item| {
+            item.get("role").and_then(|v| v.as_str()) == Some("user")
+                && item
+                    .get("content")
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|part| part.get("text"))
+                    .and_then(|v| v.as_str())
+                    .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
+                    .unwrap_or(false)
+        })
+        .count();
+    assert_eq!(
+        archived_count, 2,
+        "expected 2 archived notes (one per unavailable call) when no tools are active"
+    );
+}
+
+#[test]
+fn archives_orphaned_tool_calls_without_matching_output() {
+    // When LCM compaction removes a tool result message but leaves the
+    // assistant message with tool_calls_json intact, the function_call
+    // has no matching function_call_output. The archiver must handle
+    // this by archiving the orphaned call — otherwise the Chat Completions
+    // API rejects the request because an assistant with tool_calls is
+    // not followed by tool-role response messages.
+    let active_tools = extract_active_tool_names(&[json!({
+        "type": "function",
+        "name": "calculator",
+        "description": "",
+        "parameters": {"type":"object"}
+    })]);
+
+    // calculator is in active_tools but has NO output in context
+    // (simulating LCM compaction removing the tool result).
+    let context = vec![
+        json!({"role":"user","content":[{"type":"input_text","text":"hi"}]}),
+        json!({"type":"function_call","call_id":"call_a","name":"calculator","arguments":"{\"expression\":\"1+1\"}"}),
+        // function_call_output for call_a is MISSING (compacted by LCM)
+        json!({"role":"assistant","content":[{"type":"output_text","text":"Let me help with that."}]}),
+    ];
+
+    let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
+
+    // The orphaned function_call should be archived.
+    assert!(
+        !normalized.iter().any(|item| {
+            matches!(
+                item.get("type").and_then(|v| v.as_str()),
+                Some("function_call") | Some("function_call_output")
+            )
+        }),
+        "orphaned function_call without matching output should be archived"
+    );
+
+    let archived_note = normalized.iter().find(|item| {
+        item.get("role").and_then(|v| v.as_str()) == Some("user")
+            && item
+                .get("content")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|part| part.get("text"))
+                .and_then(|v| v.as_str())
+                .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
+                .unwrap_or(false)
+    });
+    assert!(
+        archived_note.is_some(),
+        "expected an archived note for orphaned tool call"
+    );
+
+    // The assistant message should still be present.
+    assert!(
+        normalized.iter().any(|item| {
+            item.get("role").and_then(|v| v.as_str()) == Some("assistant")
+        }),
+        "assistant message should be preserved after archiving orphaned call"
+    );
+}
+
+#[test]
+fn archives_orphaned_tool_output_without_matching_call() {
+    // When LCM compaction removes the assistant message (with tool_calls_json)
+    // but leaves the tool result message (standalone Tool-role messages are
+    // excluded from compaction), the function_call_output has no matching
+    // function_call. The archiver must handle this by archiving the orphaned
+    // output — otherwise the Chat Completions API rejects the request because
+    // a tool-role message has no preceding tool_calls.
+    let active_tools = extract_active_tool_names(&[json!({
+        "type": "function",
+        "name": "calculator",
+        "description": "",
+        "parameters": {"type":"object"}
+    })]);
+
+    // function_call_output for call_a is present, but the function_call
+    // is MISSING (simulating LCM compaction removing the assistant message).
+    let context = vec![
+        json!({"role":"user","content":[{"type":"input_text","text":"hi"}]}),
+        json!({"type":"function_call_output","call_id":"call_a","output":"{\"ok\":true,\"result\":2}"}),
+        json!({"role":"assistant","content":[{"type":"output_text","text":"The answer is 2."}]}),
+    ];
+
+    let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
+
+    // The orphaned function_call_output should be archived.
+    assert!(
+        !normalized.iter().any(|item| {
+            matches!(
+                item.get("type").and_then(|v| v.as_str()),
+                Some("function_call") | Some("function_call_output")
+            )
+        }),
+        "orphaned function_call_output without matching call should be archived"
+    );
+
+    let archived_note = normalized.iter().find(|item| {
+        item.get("role").and_then(|v| v.as_str()) == Some("user")
+            && item
+                .get("content")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|part| part.get("text"))
+                .and_then(|v| v.as_str())
+                .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
+                .unwrap_or(false)
+    });
+    assert!(
+        archived_note.is_some(),
+        "expected an archived note for orphaned tool output"
+    );
+
+    // The archived note should mention that output is available.
+    let note_text = archived_note
+        .and_then(|item| {
+            item.get("content")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|part| part.get("text"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .unwrap_or_default();
+    assert!(
+        note_text.contains("ok") && note_text.contains("true") && note_text.contains("result") && note_text.contains('2'),
+        "archived note should include the orphaned output content: {}",
+        note_text
     );
 }
 

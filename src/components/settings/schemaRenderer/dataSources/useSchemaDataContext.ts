@@ -10,10 +10,12 @@ import { mergeSchemaDataProviders } from './runtime';
 export function useSchemaDataContext({
   nodes,
   queryState,
+  agentId,
   onSaveField,
 }: {
   nodes: SettingsSchemaNode[];
   queryState?: SchemaRendererQueryState;
+  agentId?: string;
   onSaveField: (path: string, value: unknown) => Promise<void>;
 }): SchemaRendererDataContext | undefined {
   const requestedDataSourceNamespaces = useMemo(
@@ -24,6 +26,7 @@ export function useSchemaDataContext({
     nodes,
     requestedDataSourceNamespaces,
     queryState,
+    agentId,
     onSaveField,
   });
 
