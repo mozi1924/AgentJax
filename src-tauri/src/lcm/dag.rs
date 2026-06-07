@@ -213,6 +213,8 @@ mod tests {
             content,
             crate::lcm::types::estimate_tokens(content),
             ts,
+            0,
+            0,
         )
     }
 

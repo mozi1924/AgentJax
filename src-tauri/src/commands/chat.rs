@@ -411,48 +411,8 @@ pub async fn chat_stream(
         }
     });
 
-    // ── Memory Agent Lifecycle ──────────────────────────────────────────
-    // If memory is enabled and no memory agent exists for this conversation,
-    // spawn a persistent background memory observer.
-    if agent_config.memory.enabled {
-        use crate::sub_agents::manager::SubAgentManager;
-        use crate::sub_agents::types::SubAgentType;
-        if SubAgentManager::get_memory_agent_for_conversation(&conversation_id).is_none() {
-            let mem_agent_id = format!("mem_{}", uuid::Uuid::new_v4().simple());
-            let (mem_signal_tx, mem_signal_rx) = tokio::sync::watch::channel(None);
-            let mem_spec = crate::sub_agents::types::SubAgentSpec {
-                agent_id: mem_agent_id.clone(),
-                parent_conversation_id: conversation_id.clone(),
-                subagent_type: SubAgentType::Memory,
-                prompt: "Background memory observer".to_string(),
-                delegated_scope: vec!["lcm".to_string(), "memory".to_string()],
-                kept_work: vec!["memory_update".to_string()],
-                max_turns: 3,
-                max_retries: 0,
-                use_worktree: false,
-                model_id: None,
-                parent_request_id: request_id.clone(),
-                persistent: true,
-            };
-            let mem_task = SubAgentManager::register(mem_spec.clone());
-            // Store the signal sender in the task for signal dispatch.
-            if let Ok(mut tx_guard) = mem_task.memory_signal_tx.lock() {
-                *tx_guard = Some(mem_signal_tx);
-            }
-            let mem_config = Arc::new(config.clone());
-            let mem_agent_config = Arc::new(agent_config.clone());
-            tokio::spawn(async move {
-                crate::sub_agents::runner::run_memory_agent(
-                    mem_spec,
-                    mem_config,
-                    mem_agent_config,
-                    mem_signal_rx,
-                )
-                .await;
-            });
-            log::info!("Memory agent spawned for conv={}", conversation_id);
-        }
-    }
+    // Memory evaluation now runs inline after each turn
+    // (see the signal_memory_agent replacement below)
 
     let mut is_first_turn = true;
     let mut current_input_items = context.input_items.clone();
@@ -604,14 +564,22 @@ pub async fn chat_stream(
         last_response = Some(response.clone());
         last_final_token_count = final_token_count;
 
-        // ── Signal the memory agent ───────────────────────────────────────────
-        // After the main turn completes, notify the memory agent so it can
-        // evaluate the conversation and write/update memories.
+        // ── Inline memory evaluation ────────────────────────────────────────
+        // After each turn completes, directly evaluate the conversation context
+        // and write memories if appropriate. This replaces the old persistent
+        // memory sub-agent approach — no registry entries, no signals.
         if agent_config.memory.enabled {
-            crate::sub_agents::manager::SubAgentManager::signal_memory_agent(
-                &conversation_id,
-                crate::sub_agents::types::MemoryAgentSignal::TurnCompleted,
-            );
+            let mem_config = config.clone();
+            let mem_agent_config = agent_config.clone();
+            let mem_conv_id = conversation_id.clone();
+            tokio::spawn(async move {
+                crate::memory::evaluate::evaluate_and_write_memories(
+                    &mem_conv_id,
+                    &mem_config,
+                    &mem_agent_config,
+                )
+                .await;
+            });
         }
 
         log::info!(
@@ -628,10 +596,9 @@ pub async fn chat_stream(
             crate::sub_agents::manager::SubAgentManager::list(Some(&conversation_id))
                 .iter()
                 .any(|s| {
-                    s.subagent_type != crate::sub_agents::types::SubAgentType::Memory.as_str()
-                        && (s.status == crate::sub_agents::types::SubAgentStatus::Running.as_str()
-                            || s.status
-                                == crate::sub_agents::types::SubAgentStatus::Pending.as_str())
+                    s.status == crate::sub_agents::types::SubAgentStatus::Running.as_str()
+                        || s.status
+                            == crate::sub_agents::types::SubAgentStatus::Pending.as_str()
                 });
 
         if !still_has_active {

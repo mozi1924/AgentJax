@@ -152,6 +152,8 @@ impl AgentRuntime {
                 user_text,
                 crate::lcm::types::estimate_tokens(user_text),
                 user_message_ts,
+                1, // seq: user message is always first
+                0, // hop_index: 0 for user messages
             );
             user_msg.metadata.insert(
                 "request_id".to_string(),
@@ -270,18 +272,20 @@ impl AgentRuntime {
             turn_idx += 1;
 
             // ── Determine input for this hop ──────────────────────────────
-            // All hops use the active context as the single source of truth
-            // for conversation history. Hop 1 additionally includes the prefix
-            // (system items + recovery note) and a formatted user message.
-            let active_context = context.context_items();
-            let lcm_context = if active_context.is_empty() {
-                accumulated_context.clone()
-            } else {
-                active_context
-            };
-
+            // Hop 1 builds its input from LCM context + prefix + user message.
+            // Hop 2+ uses accumulated_context, which contains the full
+            // cumulative history from all previous hops (prefix + LCM history +
+            // user message + prior reasoning + tool_calls + tool_results).
+            // This matches the "thinking model" context assembly pattern where
+            // each hop sees all prior outputs.
             let input_items = if turn_idx == 1 {
                 // Hop 1: prefix + LCM history + rendered user input (with timestamp).
+                let active_context = context.context_items();
+                let lcm_context = if active_context.is_empty() {
+                    accumulated_context.clone()
+                } else {
+                    active_context
+                };
                 let mut items = hop_prefix.clone();
                 if is_auto_resume {
                     items.extend(lcm_context);
@@ -320,7 +324,12 @@ impl AgentRuntime {
                     items
                 }
             } else {
-                lcm_context
+                // Hop 2+: use accumulated_context which contains the full
+                // history including all previous hops' reasoning, tool calls,
+                // and tool results. This is the correct source because LCM
+                // context is asynchronously persisted and may not yet reflect
+                // the current turn's intermediate hop deltas.
+                accumulated_context.clone()
             };
 
             // Freeze tool visibility per hop. A tool execution may mount an MCP
@@ -456,6 +465,8 @@ impl AgentRuntime {
                             text,
                             crate::lcm::types::estimate_tokens(text),
                             now_ms,
+                            0, // seq: will be assigned by runtime
+                            turn_idx as u32, // hop_index: current hop number
                         );
                         msg.metadata.insert(
                             "request_id".to_string(),
@@ -497,11 +508,46 @@ impl AgentRuntime {
                     }
                 };
 
-                // Attach thinking to all assistant messages in this batch.
+                // Attach thinking to the first assistant message in this batch.
+                // Each hop produces at most one thinking block, which should
+                // be associated with the primary message (not duplicated across
+                // Commentary + FinalAnswer).
                 if let Some(ref thinking_text) = hop_thinking_text {
-                    for msg in &mut batch_messages {
-                        if msg.role == crate::lcm::types::MessageRole::Assistant {
-                            msg.thinking = Some(thinking_text.clone());
+                    if let Some(msg) = batch_messages.iter_mut().find(
+                        |m| m.role == crate::lcm::types::MessageRole::Assistant
+                    ) {
+                        msg.thinking = Some(thinking_text.clone());
+                    }
+                }
+
+                // ── Embed tool calls in the first assistant message ──────
+                // Instead of storing tool calls as separate Tool-role messages
+                // (which loses the hop structure), embed them as a JSON array
+                // in the assistant message's metadata. This preserves the
+                // correct interleaving order for thinking model context:
+                //   reasoning → function_call(s) → function_call_output(s)
+                // →
+                //   reasoning → function_call(s) → function_call_output(s)
+                {
+                    let tool_calls: Vec<serde_json::Value> = collected
+                        .response_result
+                        .output_items
+                        .iter()
+                        .filter(|item| {
+                            item.get("type").and_then(Value::as_str) == Some("function_call")
+                        })
+                        .cloned()
+                        .collect();
+                    if !tool_calls.is_empty() {
+                        if let Some(msg) = batch_messages.iter_mut().find(
+                            |m| m.role == crate::lcm::types::MessageRole::Assistant
+                        ) {
+                            msg.metadata.insert(
+                                "tool_calls_json".to_string(),
+                                serde_json::Value::String(
+                                    serde_json::to_string(&tool_calls).unwrap_or_default(),
+                                ),
+                            );
                         }
                     }
                 }
@@ -540,6 +586,8 @@ impl AgentRuntime {
                         &text,
                         crate::lcm::types::estimate_tokens(&text),
                         now_ms,
+                        0, // seq: will be assigned by runtime
+                        turn_idx as u32, // hop_index: current hop number
                     );
                     msg.metadata.insert(
                         "request_id".to_string(),
@@ -599,6 +647,12 @@ impl AgentRuntime {
                 let lcm_tool_calls = executed_batch.executed_tool_call_items.clone();
                 let mut batch_messages: Vec<crate::lcm::types::StoredMessage> = Vec::new();
 
+                // Tool calls are NOT stored as separate messages anymore.
+                // They are embedded in the assistant message's metadata as
+                // `tool_calls_json` (see the assistant persistence block above).
+                // This preserves the correct hop structure for thinking model
+                // context reconstruction.
+                
                 let tool_name_by_call_id: std::collections::HashMap<String, String> =
                     lcm_tool_calls
                         .iter()
@@ -615,49 +669,6 @@ impl AgentRuntime {
                             Some((call_id, name))
                         })
                         .collect();
-
-                for item in &lcm_tool_calls {
-                    let call_id = item
-                        .get("call_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
-                    let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                    let arguments = item
-                        .get("arguments")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("{}");
-                    let mut metadata = std::collections::BTreeMap::new();
-                    metadata.insert(
-                        "message_type".to_string(),
-                        serde_json::Value::String("function_call".to_string()),
-                    );
-                    metadata.insert(
-                        "call_id".to_string(),
-                        serde_json::Value::String(call_id.to_string()),
-                    );
-                    metadata.insert(
-                        "tool_name".to_string(),
-                        serde_json::Value::String(name.to_string()),
-                    );
-                    metadata.insert(
-                        "arguments".to_string(),
-                        serde_json::Value::String(arguments.to_string()),
-                    );
-                    metadata.insert(
-                        "request_id".to_string(),
-                        serde_json::Value::String(tool_request_id.to_string()),
-                    );
-                    let mut msg = crate::lcm::types::StoredMessage::new(
-                        crate::lcm::types::MessageId::new(),
-                        &lcm_conv_id,
-                        crate::lcm::types::MessageRole::Tool,
-                        arguments,
-                        crate::lcm::types::estimate_tokens(arguments),
-                        now_ms,
-                    );
-                    msg.metadata = metadata;
-                    batch_messages.push(msg);
-                }
 
                 for item in &lcm_tool_results {
                     if let Some(output_str) = item.get("output").and_then(|v| v.as_str()) {
@@ -693,6 +704,8 @@ impl AgentRuntime {
                             output_str,
                             crate::lcm::types::estimate_tokens(output_str),
                             now_ms,
+                            0, // seq: will be assigned by runtime
+                            turn_idx as u32, // hop_index: current hop number
                         );
                         msg.metadata = metadata;
                         batch_messages.push(msg);

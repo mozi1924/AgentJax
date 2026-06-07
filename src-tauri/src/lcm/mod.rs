@@ -270,30 +270,74 @@ pub fn conversation_line_to_stored_message_parts(
 pub fn stored_message_to_provider_items(
     msg: &types::StoredMessage,
 ) -> Vec<serde_json::Value> {
-    let mut items = Vec::with_capacity(2);
-
     match msg.role {
         types::MessageRole::User => {
-            items.push(serde_json::json!({
+            vec![serde_json::json!({
                 "role": "user",
                 "content": [{"type": "input_text", "text": &msg.content}]
-            }));
+            })]
         }
         types::MessageRole::Assistant => {
-            // Inject thinking content if present.
-            if let Some(ref t) = msg.thinking {
+            let mut items = Vec::with_capacity(3);
+
+            // 1. Inject thinking content if present.
+            let emitted_thinking = if let Some(ref t) = msg.thinking {
                 let trimmed = t.trim();
                 if !trimmed.is_empty() {
                     items.push(serde_json::json!({
                         "type": "reasoning",
                         "text": trimmed,
                     }));
+                    true
+                } else {
+                    false
                 }
+            } else {
+                false
+            };
+
+            // 2. Emit embedded tool calls from metadata.
+            //    The new storage pattern embeds tool calls directly in the
+            //    assistant message's tool_calls_json metadata so that the
+            //    correct interleaving (reasoning → function_call → result)
+            //    is preserved during context reconstruction.
+            let emitted_tool_calls = if let Some(tc_json) = msg
+                .metadata
+                .get("tool_calls_json")
+                .and_then(|v| v.as_str())
+            {
+                if let Ok(tool_calls) =
+                    serde_json::from_str::<Vec<serde_json::Value>>(tc_json)
+                {
+                    for tc in &tool_calls {
+                        items.push(serde_json::json!({
+                            "type": "function_call",
+                            "call_id": tc.get("call_id").and_then(serde_json::Value::as_str).unwrap_or(""),
+                            "name": tc.get("name").and_then(serde_json::Value::as_str).unwrap_or(""),
+                            "arguments": tc.get("arguments").and_then(serde_json::Value::as_str).unwrap_or("{}"),
+                        }));
+                    }
+                    !tool_calls.is_empty()
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            // 3. Skip empty-content assistant messages when thinking or
+            //    tool calls were already emitted. This prevents spurious
+            //    `{"role": "assistant", "content": []}` items.
+            if msg.content.trim().is_empty() && (emitted_thinking || emitted_tool_calls) {
+                return items;
             }
+
+            // 4. Emit assistant content message.
             items.push(serde_json::json!({
                 "role": "assistant",
-                "content": [{"type": "input_text", "text": &msg.content}]
+                "content": [{"type": "output_text", "text": &msg.content}]
             }));
+            items
         }
         types::MessageRole::Tool => {
             // Structured tool messages via metadata.
@@ -301,7 +345,20 @@ pub fn stored_message_to_provider_items(
                 msg.metadata.get("message_type").and_then(|v| v.as_str())
             {
                 match msg_type {
+                    "function_call_output" => {
+                        let call_id = msg
+                            .metadata
+                            .get("call_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        vec![serde_json::json!({
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": &msg.content,
+                        })]
+                    }
                     "function_call" => {
+                        // Legacy: tool calls stored as separate rows.
                         let call_id = msg
                             .metadata
                             .get("call_id")
@@ -317,42 +374,28 @@ pub fn stored_message_to_provider_items(
                             .get("arguments")
                             .and_then(|v| v.as_str())
                             .unwrap_or("{}");
-                        items.push(serde_json::json!({
+                        vec![serde_json::json!({
                             "type": "function_call",
                             "call_id": call_id,
                             "name": name,
                             "arguments": arguments,
-                        }));
-                    }
-                    "function_call_output" => {
-                        let call_id = msg
-                            .metadata
-                            .get("call_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        items.push(serde_json::json!({
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": &msg.content,
-                        }));
+                        })]
                     }
                     _ => {
-                        items.push(serde_json::json!({
+                        vec![serde_json::json!({
                             "role": "user",
                             "content": [{"type": "input_text", "text": &msg.content}]
-                        }));
+                        })]
                     }
                 }
             } else {
-                items.push(serde_json::json!({
+                vec![serde_json::json!({
                     "role": "user",
                     "content": [{"type": "input_text", "text": &msg.content}]
-                }));
+                })]
             }
         }
     }
-
-    items
 }
 
 /// Convert LCM `StoredMessage`s into `ConversationLine`s for frontend display.
@@ -621,6 +664,8 @@ pub fn backfill_lcm_from_jsonl(
             timestamp_unix_ms: ts,
             covered_by: None,
             thinking: None,
+            seq: 0,
+            hop_index: 0,
             metadata: metadata_map,
             file_refs: Vec::new(),
         });
@@ -679,9 +724,11 @@ mod smoke_tests {
             token_count: types::estimate_tokens(content),
             timestamp_unix_ms: ts,
             covered_by: None,
+            thinking: None,
+            seq: 0,
+            hop_index: 0,
             metadata,
             file_refs: Vec::new(),
-            thinking: None,
         }
     }
 

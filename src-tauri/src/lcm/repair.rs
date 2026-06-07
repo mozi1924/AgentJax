@@ -314,6 +314,8 @@ pub fn sanitize_tool_use_result_pairing(
                     timestamp_unix_ms: chrono::Utc::now().timestamp_millis(),
                     covered_by: None,
                     thinking: None,
+                    seq: 0,
+                    hop_index: 0,
                     metadata: metadata.into_iter().collect(),
                     file_refs: Vec::new(),
                 };
@@ -537,6 +539,8 @@ mod tests {
             timestamp_unix_ms: 1000,
             covered_by: None,
             thinking: None,
+            seq: 0,
+            hop_index: 0,
             metadata,
             file_refs: Vec::new(),
         }
@@ -561,6 +565,8 @@ mod tests {
             timestamp_unix_ms: 1000,
             covered_by: None,
             thinking: None,
+            seq: 0,
+            hop_index: 0,
             metadata,
             file_refs: Vec::new(),
         }

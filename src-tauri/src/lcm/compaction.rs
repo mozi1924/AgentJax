@@ -543,6 +543,8 @@ mod tests {
             content,
             estimate_tokens(content),
             1000,
+            0,
+            0,
         )
     }
 

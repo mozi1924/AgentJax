@@ -335,10 +335,22 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
                 // Chat Completions API rejects consecutive assistant messages
                 // and DeepSeek requires `reasoning_content` on the message
                 // that carries the tool calls / output text.
+                //
+                // When multiple reasoning blocks appear (accumulated from
+                // multiple hops), append rather than overwrite so no
+                // intermediate thinking content is lost.
                 let text = item.get("text").and_then(Value::as_str).unwrap_or("");
                 if !text.trim().is_empty() {
                     let p = pending.get_or_insert_with(AssistantBuilder::new);
-                    p.reasoning_content = Some(text.to_string());
+                    match &mut p.reasoning_content {
+                        Some(existing) => {
+                            existing.push('\n');
+                            existing.push_str(text);
+                        }
+                        None => {
+                            p.reasoning_content = Some(text.to_string());
+                        }
+                    }
                 }
             }
             _ => {

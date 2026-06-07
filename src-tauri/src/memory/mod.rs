@@ -19,6 +19,7 @@
 //! ```
 
 pub(crate) mod context;
+pub(crate) mod evaluate;
 pub(crate) mod index;
 pub(crate) mod search;
 pub(crate) mod store;

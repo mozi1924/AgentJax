@@ -300,6 +300,8 @@ impl LcmEngine {
                 role: msg.role,
                 content: msg.content.clone(),
                 thinking: msg.thinking.clone(),
+                seq: msg.seq,
+                hop_index: msg.hop_index,
                 metadata: msg.metadata.clone(),
             };
 
@@ -371,6 +373,8 @@ impl LcmEngine {
                         role: msg.role,
                         content: msg.content.clone(),
                         thinking: msg.thinking.clone(),
+                        seq: msg.seq,
+                        hop_index: msg.hop_index,
                         metadata: msg.metadata.clone(),
                     };
                     let thinking_tokens: u32 = msg
@@ -644,6 +648,8 @@ impl LcmEngine {
                         timestamp_unix_ms: summary.created_at_unix_ms,
                         covered_by: None,
                         thinking: None,
+                        seq: 0,
+                        hop_index: 0,
                         metadata: std::collections::BTreeMap::new(),
                         file_refs: summary.file_refs.clone(),
                     };
@@ -940,6 +946,8 @@ impl LcmEngine {
                         role: msg.role,
                         content: msg.content.clone(),
                         thinking: msg.thinking.clone(),
+                        seq: msg.seq,
+                        hop_index: msg.hop_index,
                         metadata: msg.metadata.clone(),
                     };
 
@@ -982,58 +990,61 @@ impl LcmEngine {
                     metadata,
                     ..
                 } => {
-                    // ── Structured tool messages (via metadata) ────────────
-                    // When a message carries a `message_type` in its metadata,
-                    // reconstruct the proper Responses-API item shape so that
-                    // function_call / function_call_output pairs are correctly
-                    // linked by call_id. This preserves fidelity that would
-                    // otherwise be lost when the LCM compresses history.
-                    if let Some(msg_type) = metadata.get("message_type").and_then(|v| v.as_str()) {
-                        match msg_type {
-                            "function_call" => {
-                                let call_id = metadata
-                                    .get("call_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                let name = metadata
-                                    .get("tool_name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                let arguments = metadata
-                                    .get("arguments")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("{}");
-                                items.push(serde_json::json!({
-                                    "type": "function_call",
-                                    "call_id": call_id,
-                                    "name": name,
-                                    "arguments": arguments,
-                                }));
-                                continue;
-                            }
-                            "function_call_output" => {
-                                let call_id = metadata
-                                    .get("call_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                items.push(serde_json::json!({
-                                    "type": "function_call_output",
-                                    "call_id": call_id,
-                                    "output": content,
-                                }));
-                                continue;
-                            }
-                            _ => {
-                                // Unknown message_type — fall through to
-                                // role-based fallback below.
+                    // ── Tool messages (function_call_output) ─────────────
+                    // Tool results are stored as role=Tool with message_type
+                    // metadata. These always produce a standalone item.
+                    if *role == crate::lcm::types::MessageRole::Tool {
+                        if let Some(msg_type) =
+                            metadata.get("message_type").and_then(|v| v.as_str())
+                        {
+                            match msg_type {
+                                "function_call_output" => {
+                                    let call_id = metadata
+                                        .get("call_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                    items.push(serde_json::json!({
+                                        "type": "function_call_output",
+                                        "call_id": call_id,
+                                        "output": content,
+                                    }));
+                                    continue;
+                                }
+                                "function_call" => {
+                                    // Legacy: tool calls were stored as
+                                    // separate Tool-role rows. Emit as-is
+                                    // for backward compatibility.
+                                    let call_id = metadata
+                                        .get("call_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                    let name = metadata
+                                        .get("tool_name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                    let arguments = metadata
+                                        .get("arguments")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("{}");
+                                    items.push(serde_json::json!({
+                                        "type": "function_call",
+                                        "call_id": call_id,
+                                        "name": name,
+                                        "arguments": arguments,
+                                    }));
+                                    continue;
+                                }
+                                _ => {} // fall through to role-based fallback
                             }
                         }
+                        // Tool messages without recognized message_type
+                        // fall through to role-based fallback below.
                     }
 
-                    // ── Inject thinking content for assistant messages ──
-                    // Must come BEFORE the output text so the model sees its
-                    // prior chain-of-thought when continuing the conversation.
-                    if *role == crate::lcm::types::MessageRole::Assistant
+                    // ── Assistant: inject thinking content ───────────────
+                    // Must come BEFORE output text / tool calls so the model
+                    // sees its prior chain-of-thought when continuing.
+                    let emitted_thinking = if *role == crate::lcm::types::MessageRole::Assistant
                         && let Some(t) = thinking
                     {
                         let trimmed = t.trim();
@@ -1042,15 +1053,61 @@ impl LcmEngine {
                                 "type": "reasoning",
                                 "text": trimmed,
                             }));
+                            true
+                        } else {
+                            false
                         }
+                    } else {
+                        false
+                    };
+
+                    // ── Assistant: emit embedded tool calls from metadata ──
+                    // The new storage pattern embeds tool calls directly in
+                    // the assistant message's tool_calls_json metadata rather
+                    // than storing them as separate rows. This preserves the
+                    // correct interleaving (reasoning → function_call → result).
+                    let emitted_tool_calls = if *role == crate::lcm::types::MessageRole::Assistant
+                    {
+                        if let Some(tc_json) =
+                            metadata.get("tool_calls_json").and_then(|v| v.as_str())
+                        {
+                            if let Ok(tool_calls) =
+                                serde_json::from_str::<Vec<serde_json::Value>>(tc_json)
+                            {
+                                for tc in &tool_calls {
+                                    items.push(serde_json::json!({
+                                        "type": "function_call",
+                                        "call_id": tc.get("call_id").and_then(serde_json::Value::as_str).unwrap_or(""),
+                                        "name": tc.get("name").and_then(serde_json::Value::as_str).unwrap_or(""),
+                                        "arguments": tc.get("arguments").and_then(serde_json::Value::as_str).unwrap_or("{}"),
+                                    }));
+                                }
+                                !tool_calls.is_empty()
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    // ── Role-based fallback ──────────────────────────────
+                    // For assistant messages: skip if content is empty AND
+                    // we already emitted thinking and/or tool calls. This
+                    // prevents spurious `{"role": "assistant", "content": []}`
+                    // items from appearing between reasoning and tool calls.
+                    if *role == crate::lcm::types::MessageRole::Assistant
+                        && content.trim().is_empty()
+                        && (emitted_thinking || emitted_tool_calls)
+                    {
+                        continue;
                     }
 
-                    // ── Role-based fallback (legacy messages without metadata) ──
                     let provider_role = match role {
                         crate::lcm::types::MessageRole::User => "user",
                         crate::lcm::types::MessageRole::Assistant => "assistant",
-                        // Legacy Tool messages without metadata: map to "user"
-                        // since "tool" is not a valid role in the Responses API.
                         crate::lcm::types::MessageRole::Tool => "user",
                     };
                     let text_type = match role {
@@ -1142,6 +1199,8 @@ mod tests {
             content,
             estimate_tokens(content),
             1000 + id.len() as i64,
+            0,
+            0,
         )
     }
 
@@ -1228,6 +1287,8 @@ mod tests {
             role: MessageRole::User,
             content: "Hello".to_string(),
             thinking: None,
+            seq: 0,
+            hop_index: 0,
             metadata: BTreeMap::new(),
         }];
 
@@ -1281,6 +1342,8 @@ mod tests {
                 role: MessageRole::User,
                 content: "First".to_string(),
                 thinking: None,
+                seq: 0,
+                hop_index: 0,
                 metadata: BTreeMap::new(),
             },
             ContextEntry::SummaryPointer {
@@ -1368,6 +1431,8 @@ mod tests {
             role: MessageRole::Assistant,
             content: "So the total is 84.".to_string(),
             thinking: Some("Let me compute 12*(3+4) = 12*7 = 84".to_string()),
+            seq: 0,
+            hop_index: 0,
             metadata: BTreeMap::new(),
         }];
 
@@ -1391,6 +1456,8 @@ mod tests {
             role: MessageRole::User,
             content: "Hello".to_string(),
             thinking: Some("user thinking".to_string()),
+            seq: 0,
+            hop_index: 0,
             metadata: BTreeMap::new(),
         }];
         let user_items = engine.context_to_provider_items(&user_entries);
@@ -1403,6 +1470,8 @@ mod tests {
             role: MessageRole::Assistant,
             content: "Plain answer.".to_string(),
             thinking: None,
+            seq: 0,
+            hop_index: 0,
             metadata: BTreeMap::new(),
         }];
         let no_think_items = engine.context_to_provider_items(&no_think_entries);

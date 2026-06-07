@@ -373,8 +373,8 @@ async fn execute_spawn(
     // phase still catches edge cases lacking resources (e.g., test envs
     // without a sub_agent_event_tx channel).
     //
-    // Memory agents are excluded — they use the event-driven run_memory_agent
-    // with a different lifecycle managed entirely in chat.rs.
+    // Memory agents are excluded — memory evaluation now runs inline
+    // after each turn via crate::memory::evaluate::evaluate_and_write_memories.
     let spawned_inline = if is_persistent {
         false
     } else if let (Some(app_config), Some(agent_config), Some(tool_catalog), Some(event_tx)) =

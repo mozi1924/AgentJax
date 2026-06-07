@@ -123,6 +123,13 @@ fn build_response_payload(model_id: &str, req: &ResponseStreamRequest) -> Value 
 fn normalize_input_items(items: &[Value]) -> Value {
     let normalized: Vec<Value> = items
         .iter()
+        .filter(|item| {
+            // Filter out reasoning items — the OpenAI Responses API does not
+            // accept them as input. Reasoning context from previous hops is
+            // implicitly available through the API's internal continuation
+            // mechanism; sending them explicitly would cause an error.
+            item.get("type").and_then(Value::as_str) != Some("reasoning")
+        })
         .map(|item| {
             let mut cloned = item.clone();
             if let Some(obj) = cloned.as_object_mut() {

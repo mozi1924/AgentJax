@@ -120,6 +120,16 @@ pub struct StoredMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<String>,
 
+    /// Global sequence number within the conversation.
+    /// Provides monotonic ordering for context reconstruction.
+    /// 1-based — user messages get seq=1, then incrementing for each item.
+    pub seq: u32,
+
+    /// Hop index within the turn.
+    /// 0 = user message or pre-assistant items
+    /// 1+ = which assistant response-continuation cycle this belongs to
+    pub hop_index: u32,
+
     /// Additional metadata (provider-specific, tool names, etc.).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub metadata: BTreeMap<String, Value>,
@@ -139,6 +149,8 @@ impl StoredMessage {
         content: impl Into<String>,
         token_count: u32,
         timestamp_unix_ms: i64,
+        seq: u32,
+        hop_index: u32,
     ) -> Self {
         Self {
             id,
@@ -149,6 +161,8 @@ impl StoredMessage {
             timestamp_unix_ms,
             covered_by: None,
             thinking: None,
+            seq,
+            hop_index,
             metadata: BTreeMap::new(),
             file_refs: Vec::new(),
         }
@@ -361,6 +375,10 @@ pub enum ContextEntry {
         /// Reasoning / thinking content (chain-of-thought) for this message.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thinking: Option<String>,
+        /// Global sequence number within the conversation (for ordering).
+        seq: u32,
+        /// Hop index within the turn (0=user, 1+=assistant hops).
+        hop_index: u32,
         /// Opaque metadata carried from the StoredMessage (e.g. call_id, tool name).
         /// When present, `context_to_provider_items` uses this to reconstruct
         /// structured `function_call` / `function_call_output` items instead of
@@ -663,6 +681,8 @@ mod tests {
             "Hello, world!",
             3,
             1000,
+            1,
+            0,
         );
         assert_eq!(msg.role, MessageRole::User);
         assert_eq!(msg.content, "Hello, world!");

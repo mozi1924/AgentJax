@@ -175,20 +175,6 @@ pub struct SubAgentSnapshot {
     pub error: Option<String>,
 }
 
-// ── Memory Agent Signal ───────────────────────────────────────────────────────
-
-/// Signals sent to the persistent background memory sub-agent.
-#[derive(Debug, Clone)]
-pub enum MemoryAgentSignal {
-    /// A main-agent turn has completed. The memory agent should evaluate
-    /// the conversation context and decide whether to write/update memories.
-    TurnCompleted,
-    /// The conversation has ended. The memory agent should perform a final
-    /// evaluation and then exit.
-    #[allow(dead_code)]
-    Terminate,
-}
-
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

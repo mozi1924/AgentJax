@@ -452,6 +452,8 @@ mod tests {
             "Hello, this is a test message.",
             10,
             1000,
+            1,
+            0,
         );
         store.persist_message(&msg).unwrap();
         msg

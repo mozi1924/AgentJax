@@ -172,6 +172,8 @@ impl LcmStore {
                 msg.token_count,
                 msg.timestamp_unix_ms,
                 msg.covered_by.as_ref().map(|s| s.as_str()),
+                msg.seq,
+                msg.hop_index,
                 msg.thinking.as_deref(),
                 msg.search_text(),
                 metadata_json,
@@ -207,6 +209,8 @@ impl LcmStore {
                     msg.token_count,
                     msg.timestamp_unix_ms,
                     msg.covered_by.as_ref().map(|s| s.as_str()),
+                    msg.seq,
+                    msg.hop_index,
                     msg.thinking.as_deref(),
                     msg.search_text(),
                     metadata_json,
@@ -236,7 +240,7 @@ impl LcmStore {
 
         let result = stmt
             .query_row(params![id.as_str()], |row| {
-                row_to_stored_message(row, Some(7), 8, 9)
+                row_to_stored_message(row, Some(9), 10, 11)
             })
             .optional()
             .map_err(|e| LcmError::Store(format!("Failed to query message {id}: {e}")))?;
@@ -244,23 +248,24 @@ impl LcmStore {
         Ok(result)
     }
 
-    /// Retrieve all messages for a conversation, ordered by timestamp.
+    /// Retrieve all messages for a conversation, ordered by global sequence.
     pub fn get_conversation_messages(
         &self,
         conversation_id: &str,
     ) -> Result<Vec<StoredMessage>, LcmError> {
         let conn = self.lock_conn()?;
 
+        // Order by seq ASC to ensure correct hop-by-hop context reconstruction.
         let mut stmt = conn
             .prepare(&format!(
-                "{} WHERE conversation_id = ?1 ORDER BY timestamp_unix_ms ASC",
+                "{} WHERE conversation_id = ?1 ORDER BY seq ASC",
                 MESSAGE_SELECT_SQL,
             ))
             .map_err(|e| LcmError::Store(format!("Failed to prepare query: {e}")))?;
 
         let rows = stmt
             .query_map(params![conversation_id], |row| {
-                row_to_stored_message(row, Some(7), 8, 9)
+                row_to_stored_message(row, Some(9), 10, 11)
             })
             .map_err(|e| LcmError::Store(format!("Failed to query messages: {e}")))?;
 
@@ -292,6 +297,8 @@ impl LcmStore {
         let mut sql = format!(
             "SELECT m.id, m.conversation_id, m.role, m.content, m.token_count,
                     m.timestamp_unix_ms, m.covered_by,
+                    -- seq and hop_index for context reconstruction
+                    m.seq, m.hop_index,
                     -- Note: column order differs from MESSAGE_SELECT_SQL (no thinking)
                     m.metadata_json, m.file_refs_json,
                     snippet(messages_fts, 2, '<mark>', '</mark>', '...', 40) as snippet
@@ -340,8 +347,8 @@ impl LcmStore {
 
         let rows = stmt
             .query_map(params_ref.as_slice(), |row| {
-                let snippet: String = row.get(9)?;
-                let msg = row_to_stored_message(row, None, 7, 8)?;
+                let snippet: String = row.get(11)?;
+                let msg = row_to_stored_message(row, None, 9, 10)?;
                 Ok((msg, snippet))
             })
             .map_err(|e| LcmError::Store(format!("Failed to execute FTS query: {e}")))?;
@@ -1011,10 +1018,12 @@ CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'tool')),
-    content TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
     token_count INTEGER NOT NULL DEFAULT 0,
     timestamp_unix_ms INTEGER NOT NULL,
     covered_by TEXT,
+    seq INTEGER NOT NULL DEFAULT 0,
+    hop_index INTEGER NOT NULL DEFAULT 0,
     thinking TEXT,
     search_text TEXT NOT NULL DEFAULT '',
     metadata_json TEXT NOT NULL DEFAULT '{}',
@@ -1022,8 +1031,8 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (covered_by) REFERENCES summaries(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_messages_conv_ts
-    ON messages(conversation_id, timestamp_unix_ms);
+CREATE INDEX IF NOT EXISTS idx_messages_conv_seq
+    ON messages(conversation_id, seq);
 
 CREATE INDEX IF NOT EXISTS idx_messages_covered
     ON messages(covered_by);
@@ -1123,6 +1132,8 @@ const SCHEMA_MIGRATIONS: &[&str] = &[
     "ALTER TABLE conversation_meta ADD COLUMN version INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE conversation_meta ADD COLUMN last_message_preview TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE messages ADD COLUMN thinking TEXT",
+    "ALTER TABLE messages ADD COLUMN seq INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE messages ADD COLUMN hop_index INTEGER NOT NULL DEFAULT 0",
 ];
 
 fn parse_role(s: &str) -> Result<MessageRole, rusqlite::Error> {
@@ -1192,10 +1203,16 @@ fn build_fts_query(pattern: &str) -> String {
 /// Convert a SQLite row to a `StoredMessage`.
 ///
 /// Expects columns in `MESSAGE_SELECT_SQL` order (indices 0-9).
-/// The `thinking_idx` parameter specifies the column index for thinking
-/// content (Some(7) for standard SELECT, None when thinking is absent
-/// in FTS queries), while `meta_idx` and `refs_idx` control where
-/// metadata_json and file_refs_json reside.
+/// Convert a SQLite row to a `StoredMessage`.
+///
+/// For `MESSAGE_SELECT_SQL` queries, columns are:
+///   0=id, 1=conversation_id, 2=role, 3=content, 4=token_count,
+///   5=timestamp_unix_ms, 6=covered_by, 7=seq, 8=hop_index,
+///   9=thinking (if thinking_idx=Some(9)), 10=metadata_json, 11=file_refs_json.
+///
+/// `thinking_idx` specifies the column index for thinking content
+/// (Some(9) for standard SELECT, None when thinking is absent in FTS queries).
+/// seq/hop_index default to 0 for callers (like FTS) that don't select them.
 fn row_to_stored_message(
     row: &rusqlite::Row,
     thinking_idx: Option<usize>,
@@ -1212,6 +1229,10 @@ fn row_to_stored_message(
     let metadata: BTreeMap<String, Value> =
         serde_json::from_str(&metadata_json).unwrap_or_default();
     let file_refs: Vec<FileRefId> = serde_json::from_str(&file_refs_json).unwrap_or_default();
+    // seq is at index 7, hop_index at index 8 when using MESSAGE_SELECT_SQL.
+    // For FTS queries these columns aren't selected, so default to 0.
+    let seq: u32 = row.get(7).unwrap_or(0);
+    let hop_index: u32 = row.get(8).unwrap_or(0);
     Ok(StoredMessage {
         id: MessageId::from(row.get::<_, String>(0)?),
         conversation_id: row.get(1)?,
@@ -1221,6 +1242,8 @@ fn row_to_stored_message(
         timestamp_unix_ms: row.get(5)?,
         covered_by: covered_by.map(SummaryId::from),
         thinking,
+        seq,
+        hop_index,
         metadata,
         file_refs,
     })
@@ -1248,17 +1271,17 @@ fn row_to_conversation_meta(row: &rusqlite::Row) -> Result<ConversationMeta, rus
 
 // ── SQL Column Constants ───────────────────────────────────────────
 
-/// INSERT into messages with all 11 columns.
+/// INSERT into messages with all 13 columns.
 const MESSAGE_INSERT_SQL: &str =
     "INSERT OR IGNORE INTO messages \
      (id, conversation_id, role, content, token_count, timestamp_unix_ms, \
-      covered_by, thinking, search_text, metadata_json, file_refs_json) \
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
+      covered_by, seq, hop_index, thinking, search_text, metadata_json, file_refs_json) \
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
 
-/// SELECT columns (0-9) from messages — caller must append WHERE clause.
+/// SELECT columns (0-10) from messages — caller must append WHERE clause.
 const MESSAGE_SELECT_SQL: &str =
     "SELECT id, conversation_id, role, content, token_count, timestamp_unix_ms, \
-            covered_by, thinking, metadata_json, file_refs_json \
+            covered_by, seq, hop_index, thinking, metadata_json, file_refs_json \
      FROM messages";
 
 /// SELECT all columns from conversation_meta — caller must append WHERE clause.
