@@ -166,6 +166,32 @@ impl DynamicOptionsProvider for ProviderKindProvider {
     }
 }
 
+/// Model kind options (chat, embedding).
+struct ModelKindProvider;
+
+impl DynamicOptionsProvider for ModelKindProvider {
+    fn contribute(
+        &self,
+        _config: &AppConfig,
+        options: &mut BTreeMap<String, Vec<SettingsOption>>,
+    ) -> AgentJaxResult<()> {
+        options.insert(
+            "model_kind".to_string(),
+            vec![
+                SettingsOption {
+                    label: "Chat".to_string(),
+                    value: "chat".to_string(),
+                },
+                SettingsOption {
+                    label: "Embedding".to_string(),
+                    value: "embedding".to_string(),
+                },
+            ],
+        );
+        Ok(())
+    }
+}
+
 /// API protocol options sourced from the protocol registry.
 struct ApiProtocolProvider;
 
@@ -329,6 +355,7 @@ fn registered_providers() -> Vec<Box<dyn DynamicOptionsProvider>> {
         Box::new(ModelRefsProvider),
         Box::new(EmbeddingModelRefsProvider),
         Box::new(ProviderKindProvider),
+        Box::new(ModelKindProvider),
         Box::new(ApiProtocolProvider),
         Box::new(StreamTransportProvider),
         Box::new(McpTransportProvider),

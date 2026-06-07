@@ -115,6 +115,16 @@
               "optionSourceKey": "api_protocol"
             },
             {
+              "kind": "field",
+              "id": "profile-kind",
+              "title": "settings.model_profiles.kind.title",
+              "description": "settings.model_profiles.kind.description",
+              "path": "kind",
+              "valueType": "enum",
+              "control": "select",
+              "optionSourceKey": "model_kind"
+            },
+            {
               "kind": "group",
               "id": "profile-request-group",
               "title": "settings.model_profiles.request_overrides.title",
@@ -128,7 +138,10 @@
                   "control": "number",
                   "min": 0,
                   "max": 2,
-                  "step": 0.1
+                  "step": 0.1,
+                  "visibleWhen": [
+                    { "path": "api_protocol", "notEquals": "embeddings" }
+                  ]
                 },
                 {
                   "kind": "field",
@@ -139,7 +152,10 @@
                   "control": "number",
                   "min": 0,
                   "max": 1,
-                  "step": 0.05
+                  "step": 0.05,
+                  "visibleWhen": [
+                    { "path": "api_protocol", "notEquals": "embeddings" }
+                  ]
                 },
                 {
                   "kind": "field",
@@ -150,7 +166,11 @@
                   "control": "number",
                   "min": 1,
                   "max": 999999,
-                  "step": 1
+                  "step": 1,
+                  "visibleWhen": [
+                    { "path": "api_protocol", "notEquals": "responses" },
+                    { "path": "api_protocol", "notEquals": "embeddings" }
+                  ]
                 },
                 {
                   "kind": "field",
@@ -161,7 +181,10 @@
                   "control": "number",
                   "min": 1,
                   "max": 999999,
-                  "step": 1
+                  "step": 1,
+                  "visibleWhen": [
+                    { "path": "api_protocol", "notEquals": "embeddings" }
+                  ]
                 },
                 {
                   "kind": "field",
@@ -172,7 +195,11 @@
                   "control": "number",
                   "min": -2,
                   "max": 2,
-                  "step": 0.1
+                  "step": 0.1,
+                  "visibleWhen": [
+                    { "path": "api_protocol", "notEquals": "responses" },
+                    { "path": "api_protocol", "notEquals": "embeddings" }
+                  ]
                 },
                 {
                   "kind": "field",
@@ -183,7 +210,11 @@
                   "control": "number",
                   "min": -2,
                   "max": 2,
-                  "step": 0.1
+                  "step": 0.1,
+                  "visibleWhen": [
+                    { "path": "api_protocol", "notEquals": "responses" },
+                    { "path": "api_protocol", "notEquals": "embeddings" }
+                  ]
                 },
                 {
                   "kind": "field",
@@ -193,7 +224,10 @@
                   "path": "request.reasoning.effort",
                   "valueType": "enum",
                   "control": "select",
-                  "optionSourceKey": "reasoning.effort"
+                  "optionSourceKey": "reasoning.effort",
+                  "visibleWhen": [
+                    { "path": "api_protocol", "notEquals": "embeddings" }
+                  ]
                 },
                 {
                   "kind": "field",

@@ -126,6 +126,8 @@
   "settings.model_profiles.enabled.title": "启用",
   "settings.model_profiles.api_protocol.title": "API 协议",
   "settings.model_profiles.api_protocol.description": "为此模型强制指定 API 协议。留空则从 provider 自动检测。",
+  "settings.model_profiles.kind.title": "模型种类",
+  "settings.model_profiles.kind.description": "覆盖模型的类别用于过滤（chat、embedding 等）。留空则使用提供商的预设分类。",
   "settings.model_profiles.request_overrides.title": "请求参数重写",
   "settings.model_profiles.temperature.title": "温度 (Temperature)",
   "settings.model_profiles.top_p.title": "Top P",

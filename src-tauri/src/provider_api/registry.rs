@@ -267,6 +267,7 @@ fn build_default_config(
             ProviderModelConfig {
                 name: None,
                 api_protocol: None,
+                kind: None,
                 enabled: true,
                 request: ModelRequestConfig::default(),
             },

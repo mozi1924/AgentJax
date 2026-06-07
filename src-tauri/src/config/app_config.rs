@@ -112,6 +112,7 @@ impl ProviderConfig {
                             ProviderModelConfig {
                                 name: None,
                                 api_protocol: None,
+                                kind: None,
                                 enabled: true,
                                 request: ModelRequestConfig::default(),
                             },
@@ -480,11 +481,18 @@ impl AppConfig {
                 if !model.enabled {
                     continue;
                 }
-                // Resolve model kind from plugin metadata.
-                let kind = crate::provider_api::get_model_metadata(&provider.kind, model_key)
-                    .ok()
-                    .and_then(|meta| meta.kind)
-                    .filter(|k| !k.is_empty());
+                // Resolve model kind: user override takes precedence, then
+                // plugin metadata, then default to "chat".
+                let kind = model
+                    .kind
+                    .clone()
+                    .filter(|k| !k.is_empty())
+                    .or_else(|| {
+                        crate::provider_api::get_model_metadata(&provider.kind, model_key)
+                            .ok()
+                            .and_then(|meta| meta.kind)
+                            .filter(|k| !k.is_empty())
+                    });
                 // Models without a declared kind default to "chat".
                 let effective = kind.as_deref().unwrap_or("chat");
                 if effective == target {

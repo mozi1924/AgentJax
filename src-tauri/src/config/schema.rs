@@ -684,6 +684,12 @@ pub struct ProviderModelConfig {
     /// uses this protocol instead of auto-detecting from the provider kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_protocol: Option<String>,
+    /// Optional user-specified model kind override.
+    /// Overrides the model kind declared by the provider's plugin metadata.
+    /// When set to "chat", "embedding" (or "reasoning" etc.), this value
+    /// takes precedence over the built-in model kind for filtering purposes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "ModelRequestConfig::is_default")]
     pub request: ModelRequestConfig,
 }
@@ -838,6 +844,7 @@ impl Default for ProviderModelConfig {
             enabled: true,
             name: None,
             api_protocol: None,
+            kind: None,
             request: ModelRequestConfig::default(),
         }
     }

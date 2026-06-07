@@ -388,11 +388,18 @@ fn build_model_catalog_entries(
                 continue;
             }
 
-            // Resolve the model kind from the plugin's metadata table.
-            let model_kind = provider_api::get_model_metadata(&provider.kind, model_key)
-                .ok()
-                .and_then(|meta| meta.kind)
-                .filter(|k| !k.is_empty());
+            // Resolve the model kind: user override takes precedence, then
+            // the plugin's metadata table.
+            let model_kind = model_cfg
+                .kind
+                .clone()
+                .filter(|k| !k.is_empty())
+                .or_else(|| {
+                    provider_api::get_model_metadata(&provider.kind, model_key)
+                        .ok()
+                        .and_then(|meta| meta.kind)
+                        .filter(|k| !k.is_empty())
+                });
 
             // Skip non-chat models (e.g. embeddings) in the chat model selector.
             // Models without a declared kind are treated as chat for backward compat.

@@ -126,6 +126,8 @@
   "settings.model_profiles.enabled.title": "Enabled",
   "settings.model_profiles.api_protocol.title": "API Protocol",
   "settings.model_profiles.api_protocol.description": "Force a specific API protocol for this model. Leave blank to auto-detect from the provider.",
+  "settings.model_profiles.kind.title": "Model Kind",
+  "settings.model_profiles.kind.description": "Overrides the model category for filtering (chat, embedding, etc). Leave blank to use the provider's built-in classification.",
   "settings.model_profiles.request_overrides.title": "Request overrides",
   "settings.model_profiles.temperature.title": "Temperature",
   "settings.model_profiles.top_p.title": "Top P",
