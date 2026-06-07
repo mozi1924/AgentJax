@@ -273,6 +273,10 @@ export default function App() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         agentId={activeAgentId}
+        agents={agents}
+        switchAgent={switchAgent}
+        createAgent={createAgent}
+        deleteAgent={deleteAgent}
       />
     </div>
   );

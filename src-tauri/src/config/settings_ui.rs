@@ -15,6 +15,7 @@ pub struct SettingsUiSnapshot {
 }
 
 const GENERAL_SECTION_JSON: &str = include_str!("settings_ui_sections/general.json");
+const MODELS_SECTION_JSON: &str = include_str!("settings_ui_sections/models.json");
 const PROMPT_COMPOSER_SECTION_JSON: &str =
     include_str!("settings_ui_sections/prompt_composer.json");
 const PROVIDERS_SECTION_JSON: &str = include_str!("settings_ui_sections/providers.json");
@@ -44,6 +45,7 @@ pub fn build_settings_sections() -> AgentJaxResult<Vec<Value>> {
 fn build_builtin_settings_sections() -> AgentJaxResult<Vec<Value>> {
     let section_sources = [
         GENERAL_SECTION_JSON,
+        MODELS_SECTION_JSON,
         PROMPT_COMPOSER_SECTION_JSON,
         PROVIDERS_SECTION_JSON,
         MCP_SECTION_JSON,

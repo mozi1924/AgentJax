@@ -531,7 +531,6 @@ mod tests {
             "allow_stateless",
             "channel_buffer_capacity",
             "reinit_on_expired_session",
-            "unfolded",
         ] {
             assert!(
                 validate_field_path(path, &ms, &root).is_ok(),

@@ -49,9 +49,19 @@
   "settings.modal.save_failed": "Save failed, please try again later.",
   "settings.modal.removing_item": "Removing item...",
   "settings.modal.item_removed": "Item removed.",
+
+  "settings.nav.agents": "Agents",
+  "settings.agents.list_title": "Agents",
+  "settings.agents.type_default": "Default",
+  "settings.agents.type_custom": "Custom",
+  "settings.agents.create_agent": "Create agent",
+  "settings.agents.create_placeholder": "agent-id",
+  "settings.agents.delete_agent": "Delete agent",
+  "settings.agents.confirm_delete": "Confirm delete",
+  "settings.agents.cancel_delete": "Cancel",
   
   "settings.general.title": "General",
-  "settings.general.description": "Global execution behavior and default models.",
+  "settings.general.description": "Application-wide settings including language.",
   "settings.general.basics.title": "Application",
   "settings.general.language.title": "Language",
   "settings.general.language.description": "The interface language displayed by the application.",
@@ -68,11 +78,17 @@
   "settings.general.request_timeout.description": "Global fallback timeout for all providers.",
   "settings.general.max_tool_turns.title": "Max tool execution turns",
   "settings.general.max_tool_turns.description": "Maximum number of tool-using turns (hops) allowed per request. Set to 0 for unlimited.",
+  "settings.general.developer.title": "Developer",
   "settings.general.show_advanced_options.title": "Show advanced request options",
   "settings.general.show_advanced_options.description": "When enabled, shows advanced request options button next to message composer.",
   "settings.general.enable_developer_tools.title": "Enable developer tools",
   "settings.general.enable_developer_tools.description": "When enabled, use Command/Ctrl + Shift + I or F12 to open the frontend developer tools.",
-  
+
+  "settings.models.title": "Models",
+  "settings.models.description": "Model selection, provider assignment, and request configuration for this agent.",
+  "settings.models.provider.title": "Provider & Model",
+  "settings.models.request.title": "Request Defaults",
+
   "settings.prompt_composer.title": "Prompt Composer",
   "settings.prompt_composer.description": "Compose system and developer prompt blocks, and preview the final structure sent to models.",
   "settings.prompt_composer.main.title": "Prompt Blocks",
@@ -169,8 +185,6 @@
   "settings.mcp.servers.channel_buffer.title": "Channel buffer capacity",
   "settings.mcp.servers.channel_buffer.description": "Falls back to default value when left blank.",
   "settings.mcp.servers.reinit.title": "Reinit on expired session",
-  "settings.mcp.servers.unfolded.title": "Unfolded",
-  "settings.mcp.servers.unfolded.description": "Directly expose all tools from this server without a separate mount/unmount tool.",
 
   "settings.renderer.unknown_error": "Unknown error",
   "settings.renderer.error_in_section": "Error in “{label}”",

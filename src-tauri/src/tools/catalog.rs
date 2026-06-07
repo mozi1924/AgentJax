@@ -286,7 +286,7 @@ impl ToolCatalog {
             let resolved_server_config =
                 self.resolve_server_config_with_workspace_fallback(server_config, context);
 
-            if self.mcp_source_unfolded(server_id, server_config) {
+            if self.mcp_source_unfolded(server_id) {
                 match self
                     .mcp_manager
                     .list_tools(server_id, &resolved_server_config, &self.mcp_runtime)
@@ -751,16 +751,12 @@ impl ToolCatalog {
             .unwrap_or(true)
     }
 
-    pub(crate) fn mcp_source_unfolded(
-        &self,
-        server_id: &str,
-        server_config: &crate::config::McpServerConfig,
-    ) -> bool {
+    pub(crate) fn mcp_source_unfolded(&self, server_id: &str) -> bool {
         self.tool_manager
             .mcp_tools
             .get(&server_id.to_ascii_lowercase())
             .and_then(|policy| policy.exposure.as_deref())
             .map(|exposure| exposure == "unfolded")
-            .unwrap_or(server_config.unfolded)
+            .unwrap_or(false)
     }
 }

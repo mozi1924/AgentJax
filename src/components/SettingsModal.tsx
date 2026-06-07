@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { AlertTriangle, CheckCircle, LoaderCircle, Search, Settings2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle, LoaderCircle, Search, Settings2, X, Bot } from 'lucide-react';
 import { useI18n } from '../features/i18n';
 import SettingsRenderer from './settings/SettingsRenderer';
+import AgentsPanel from './settings/AgentsPanel';
 
 import type {
   SettingsSectionSchema,
@@ -10,6 +11,7 @@ import type {
   SettingsSnapshotEvent,
   SettingsUiSnapshot,
 } from '../features/settings/types';
+import type { AgentSummary } from '../hooks/useActiveAgent';
 import {
   appendPathSegment,
   buildOptimisticSnapshot,
@@ -196,13 +198,39 @@ function SaveStatusBanner({
   );
 }
 
+// Section IDs that belong to per-agent configuration.
+// These are rendered inside the Agents panel, not in the global sidebar.
+const AGENT_SECTION_IDS = new Set([
+  'models',
+  'tools',
+  'prompt-composer',
+  'memory',
+  'context-management',
+  'sub_agent',
+]);
+
+// Pseudo section ID for the "Agents" navigation item.
+const AGENTS_NAV_ID = '__agents__';
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   agentId?: string;
+  agents: AgentSummary[];
+  switchAgent: (agentId: string) => void;
+  createAgent: (agentId: string, templateId?: string) => Promise<void>;
+  deleteAgent: (agentId: string) => Promise<void>;
 }
 
-export default function SettingsModal({ isOpen, onClose, agentId }: SettingsModalProps) {
+export default function SettingsModal({
+  isOpen,
+  onClose,
+  agentId,
+  agents,
+  switchAgent,
+  createAgent,
+  deleteAgent,
+}: SettingsModalProps) {
   const { t } = useI18n();
   const [sections, setSections] = useState<SettingsSectionSchema[]>([]);
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
@@ -217,6 +245,8 @@ export default function SettingsModal({ isOpen, onClose, agentId }: SettingsModa
 
   useEffect(() => {
     setActiveSectionId((current) => {
+      // Keep Agents panel open if it was active
+      if (current === AGENTS_NAV_ID) return current;
       if (current && sections.some((section) => section.id === current)) {
         return current;
       }
@@ -299,7 +329,21 @@ export default function SettingsModal({ isOpen, onClose, agentId }: SettingsModa
         unlisten();
       }
     };
-  }, [isOpen]);
+  }, [isOpen, agentId]);
+
+  // ── Split sections: global (sidebar) vs agent (Agents panel) ────────
+  const { globalSections, agentSections } = useMemo(() => {
+    const glob: SettingsSectionSchema[] = [];
+    const ag: SettingsSectionSchema[] = [];
+    for (const section of sections) {
+      if (AGENT_SECTION_IDS.has(section.id)) {
+        ag.push(section);
+      } else {
+        glob.push(section);
+      }
+    }
+    return { globalSections: glob, agentSections: ag };
+  }, [sections]);
 
   const dataSourceNamespaces = useMemo(
     () => collectSchemaDataSourceNamespaces(sections.flatMap((section) => section.children)),
@@ -309,19 +353,22 @@ export default function SettingsModal({ isOpen, onClose, agentId }: SettingsModa
     search: settingsSearch,
     namespaces: dataSourceNamespaces,
   });
-  const visibleSections = useMemo(
+  const visibleGlobalSections = useMemo(
     () =>
-      sections.filter((section) =>
+      globalSections.filter((section) =>
         sectionMatchesSearch(section, settingsSearch, t, dynamicSearchDataSources)
       ),
-    [dynamicSearchDataSources, sections, settingsSearch, t]
+    [dynamicSearchDataSources, globalSections, settingsSearch, t]
   );
 
-  const activeSection =
-    visibleSections.find((section) => section.id === activeSectionId) ||
-    visibleSections[0] ||
-    sections.find((section) => section.id === activeSectionId) ||
-    sections[0];
+  const isAgentsMode = activeSectionId === AGENTS_NAV_ID;
+
+  const activeSection = isAgentsMode
+    ? undefined
+    : visibleGlobalSections.find((section) => section.id === activeSectionId) ||
+      visibleGlobalSections[0] ||
+      globalSections.find((section) => section.id === activeSectionId) ||
+      globalSections[0];
 
   const applyPatch = async (
     path: string,
@@ -397,7 +444,7 @@ export default function SettingsModal({ isOpen, onClose, agentId }: SettingsModa
           </div>
 
           <OverlayScrollArea containerClassName="flex-1" className="h-full space-y-1 px-3 pb-4 pt-1">
-            {visibleSections.map((section) => {
+            {visibleGlobalSections.map((section) => {
               const Icon = getSectionIcon(section.icon);
               const isActive = section.id === activeSection?.id;
               return (
@@ -415,7 +462,21 @@ export default function SettingsModal({ isOpen, onClose, agentId }: SettingsModa
                 </button>
               );
             })}
-            {settingsSearch && visibleSections.length === 0 && (
+
+            {/* ── Agents nav item ── */}
+            <button
+              onClick={() => setActiveSectionId(AGENTS_NAV_ID)}
+              className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition ${
+                isAgentsMode
+                  ? 'bg-[#2a2a2c] text-white'
+                  : 'text-neutral-400 hover:bg-[#202022] hover:text-white'
+              }`}
+            >
+              <Bot className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-[13px] font-normal">{t('settings.nav.agents')}</span>
+            </button>
+
+            {settingsSearch && visibleGlobalSections.length === 0 && !isAgentsMode && (
               <div className="px-2 py-6 text-center text-xs text-neutral-500">
                 {t('settings.modal.no_results')}
               </div>
@@ -424,49 +485,20 @@ export default function SettingsModal({ isOpen, onClose, agentId }: SettingsModa
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col bg-[#171717] relative">
-          <div className="border-b border-[#242426]/50 px-6 pt-5 pb-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="font-sans text-[17px] font-bold text-white">
-                {t(activeSection?.title)}
-              </h3>
-              <div className="flex min-w-0 items-center gap-2 text-right text-xs text-slate-500">
-                <div className="relative min-w-[220px]">
-                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-500" />
-                  <input
-                    value={settingsSearch}
-                    onChange={(event) => setSettingsSearch(event.target.value)}
-                    placeholder={t('settings.modal.search')}
-                    className="h-8 w-full rounded-lg border border-[#2b2b2d] bg-[#141516] pl-8 pr-2.5 text-[12px] text-neutral-200 outline-none transition placeholder:text-neutral-600 focus:border-neutral-500"
-                  />
-                </div>
-                {savingPath && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-indigo-200">
-                    <LoaderCircle className="h-3 w-3 animate-spin" />
-                    {t('settings.modal.saving')}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <OverlayScrollArea
-            containerClassName="flex-1 min-h-0"
-            className={`flex h-full flex-col ${activeSection?.id === 'tools' ? '' : 'px-6 py-4'}`}
-          >
-            {loading && (
-              <div className="flex h-full items-center justify-center text-slate-400">
-                <LoaderCircle className="mr-3 h-4 w-4 animate-spin" />
-                {t('settings.modal.loading')}
-              </div>
-            )}
-
-            {!loading && snapshot && activeSection && (
-              <SettingsRenderer
-                section={activeSection}
+          {isAgentsMode ? (
+            /* ── Agents Panel ── */
+            snapshot && agentSections.length > 0 ? (
+              <AgentsPanel
+                agents={agents}
+                activeAgentId={agentId || 'main'}
+                switchAgent={switchAgent}
+                createAgent={createAgent}
+                deleteAgent={deleteAgent}
+                agentSections={agentSections}
                 snapshot={snapshot}
                 savingPath={savingPath}
                 fieldErrors={fieldErrors}
-                agentId={agentId}
+                agentId={agentId || 'main'}
                 queryState={{
                   search: settingsSearch,
                   onSearchChange: setSettingsSearch,
@@ -477,9 +509,72 @@ export default function SettingsModal({ isOpen, onClose, agentId }: SettingsModa
                   applyPatch(appendPathSegment(path, key), value, 'set')
                 }
               />
-            )}
+            ) : (
+              <div className="flex h-full items-center justify-center text-slate-400">
+                <LoaderCircle className="mr-3 h-4 w-4 animate-spin" />
+                {t('settings.modal.loading')}
+              </div>
+            )
+          ) : (
+            /* ── Global settings ── */
+            <>
+              <div className="border-b border-[#242426]/50 px-6 pt-5 pb-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="font-sans text-[17px] font-bold text-white">
+                    {t(activeSection?.title || '')}
+                  </h3>
+                  <div className="flex min-w-0 items-center gap-2 text-right text-xs text-slate-500">
+                    <div className="relative min-w-[220px]">
+                      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-500" />
+                      <input
+                        value={settingsSearch}
+                        onChange={(event) => setSettingsSearch(event.target.value)}
+                        placeholder={t('settings.modal.search')}
+                        className="h-8 w-full rounded-lg border border-[#2b2b2d] bg-[#141516] pl-8 pr-2.5 text-[12px] text-neutral-200 outline-none transition placeholder:text-neutral-600 focus:border-neutral-500"
+                      />
+                    </div>
+                    {savingPath && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-indigo-200">
+                        <LoaderCircle className="h-3 w-3 animate-spin" />
+                        {t('settings.modal.saving')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
 
-          </OverlayScrollArea>
+              <OverlayScrollArea
+                containerClassName="flex-1 min-h-0"
+                className={`flex h-full flex-col ${activeSection?.id === 'tools' ? '' : 'px-6 py-4'}`}
+              >
+                {loading && (
+                  <div className="flex h-full items-center justify-center text-slate-400">
+                    <LoaderCircle className="mr-3 h-4 w-4 animate-spin" />
+                    {t('settings.modal.loading')}
+                  </div>
+                )}
+
+                {!loading && snapshot && activeSection && (
+                  <SettingsRenderer
+                    section={activeSection}
+                    snapshot={snapshot}
+                    savingPath={savingPath}
+                    fieldErrors={fieldErrors}
+                    agentId={agentId}
+                    queryState={{
+                      search: settingsSearch,
+                      onSearchChange: setSettingsSearch,
+                    }}
+                    onSaveField={(path, value) => applyPatch(path, value, 'set')}
+                    onDeletePath={(path) => applyPatch(path, undefined, 'delete')}
+                    onAddCollectionItem={(path, key, value) =>
+                      applyPatch(appendPathSegment(path, key), value, 'set')
+                    }
+                  />
+                )}
+              </OverlayScrollArea>
+            </>
+          )}
 
           {(() => {
             const hasError = !!loadingError || Object.keys(fieldErrors).length > 0 || statusType === 'error';

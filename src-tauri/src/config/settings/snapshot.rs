@@ -17,8 +17,6 @@ const AGENT_CONFIG_PATHS: &[&str] = &[
     "default_model",
     "utility_small_model",
     "request_timeout_seconds",
-    "show_advanced_request_options",
-    "enable_developer_tools",
     "prompt_composer",
     "context_management",
     "sub_agent",

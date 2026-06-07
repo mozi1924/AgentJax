@@ -266,15 +266,6 @@
               "equals": "streamable_http"
             }
           ]
-        },
-        {
-          "kind": "field",
-          "id": "mcp-server-unfolded",
-          "title": "settings.mcp.servers.unfolded.title",
-          "description": "settings.mcp.servers.unfolded.description",
-          "path": "unfolded",
-          "valueType": "boolean",
-          "control": "switch"
         }
       ]
     }

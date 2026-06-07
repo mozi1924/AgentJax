@@ -49,9 +49,19 @@
   "settings.modal.save_failed": "保存失败，请稍后重试。",
   "settings.modal.removing_item": "正在移除...",
   "settings.modal.item_removed": "已移除。",
+
+  "settings.nav.agents": "Agents",
+  "settings.agents.list_title": "Agent 列表",
+  "settings.agents.type_default": "默认",
+  "settings.agents.type_custom": "自定义",
+  "settings.agents.create_agent": "创建 Agent",
+  "settings.agents.create_placeholder": "agent-id",
+  "settings.agents.delete_agent": "删除 Agent",
+  "settings.agents.confirm_delete": "确认删除",
+  "settings.agents.cancel_delete": "取消",
   
   "settings.general.title": "常规",
-  "settings.general.description": "全局运行行为与默认模型。",
+  "settings.general.description": "应用全局设置，包括语言。",
   "settings.general.basics.title": "应用基础",
   "settings.general.language.title": "语言",
   "settings.general.language.description": "应用程序显示的界面语言。",
@@ -68,11 +78,17 @@
   "settings.general.request_timeout.description": "所有 provider 的全局超时时间。",
   "settings.general.max_tool_turns.title": "最大工具执行次数",
   "settings.general.max_tool_turns.description": "单次请求中最多允许执行工具的轮数（Hops）。设置为 0 表示无限制。",
+  "settings.general.developer.title": "开发者",
   "settings.general.show_advanced_options.title": "显示高级参数按钮",
   "settings.general.show_advanced_options.description": "启用后在消息输入框旁显示高级请求参数按钮。",
   "settings.general.enable_developer_tools.title": "启用开发者工具",
   "settings.general.enable_developer_tools.description": "启用后可通过 Command/Ctrl + Shift + I 或 F12 打开前端开发者工具。",
-  
+
+  "settings.models.title": "模型",
+  "settings.models.description": "当前 Agent 的模型选择、Provider 分配和请求配置。",
+  "settings.models.provider.title": "Provider 与模型",
+  "settings.models.request.title": "请求默认值",
+
   "settings.prompt_composer.title": "提示词组合器",
   "settings.prompt_composer.description": "组合 system 与 developer 提示词块，并预览最终发送给模型的结构。",
   "settings.prompt_composer.main.title": "提示词块组合",
@@ -169,8 +185,6 @@
   "settings.mcp.servers.channel_buffer.title": "通道缓冲区容量",
   "settings.mcp.servers.channel_buffer.description": "留空表示使用默认值。",
   "settings.mcp.servers.reinit.title": "会话过期重新初始化",
-  "settings.mcp.servers.unfolded.title": "工具不折叠",
-  "settings.mcp.servers.unfolded.description": "直接激活该服务器提供的所有工具，不生成单独的挂载/卸载管理工具。",
 
   "settings.renderer.unknown_error": "未知错误",
   "settings.renderer.error_in_section": "在“{label}”中遇到错误",

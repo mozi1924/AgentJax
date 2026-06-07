@@ -212,9 +212,6 @@ export interface McpServerConfig {
   // default: true
   reinit_on_expired_session?: boolean;
 
-  // default: false
-  unfolded?: boolean;
-
 }
 
 export type McpTransportKind =
@@ -266,35 +263,60 @@ export interface PluginPermissionOverride {
 
   /** RAG (Retrieval-Augmented Generation) system configuration. */
   /** Stored globally in config.yaml (shared across all agent profiles). */
+  /**  */
+  /** ## Field ownership */
+  /**  */
+  /** - **RAG engine fields**: `chunk_size`, `chunk_overlap`, `chunk_window`, */
+  /**   `embedding`, `embedding_batch_size`, `embedding_concurrency`, */
+  /**   `embedding_batch_throttle_ms` — used by `RagEngine` for embedding. */
+  /** - **KB application fields**: `enabled`, `top_k`, `knowledge_bases` — */
+  /**   extracted into `KnowledgeBaseSettings` for `KnowledgeBaseManager`. */
 export interface RagConfig {
-  /** Whether the RAG system is enabled. */
+  /** Whether the RAG/KB system is enabled. (KB-level) */
   // default: true
   enabled?: boolean;
 
-  /** Default chunk size in characters for text splitting. */
+  /** Default chunk size in characters for text splitting. (RAG engine) */
   // default: 3600
   chunk_size?: number;
 
-  /** Chunk overlap in characters. */
+  /** Chunk overlap in characters. (RAG engine) */
   // default: 540
   chunk_overlap?: number;
 
-  /** Search window for markdown-aware break-point detection. */
+  /** Search window for markdown-aware break-point detection. (RAG engine) */
   /** If unset, defaults to 800 chars (~200 tokens). */
   // default: null
   chunk_window?: number | null;
 
-  /** Default top-K results for searches. */
+  /** Default top-K results for searches. (KB-level) */
   // default: 5
   top_k?: number;
 
-  /** Embedding provider configuration. */
+  /** Embedding provider configuration. (RAG engine) */
   // default: {"model":"openai/text-embedding-3-small","dimensions":1536}
   embedding?: EmbeddingProviderConfig;
 
-  /** Knowledge base definitions, keyed by KB ID. */
+  /** Knowledge base definitions, keyed by KB ID. (KB-level) */
   // default: {}
   knowledge_bases?: Record<string, KnowledgeBaseEntry>;
+
+  /** Maximum number of texts per embedding API call. (RAG engine) */
+  /** Lower values reduce server load at the cost of more round-trips. */
+  /** Default: 30. */
+  // default: 30
+  embedding_batch_size?: number;
+
+  /** Maximum concurrent embedding API calls. (RAG engine) */
+  /** Higher values pipeline more requests at once, reducing total wall-clock */
+  /** time.  Set to 1 to disable pipelining.  Default: 2. */
+  // default: 2
+  embedding_concurrency?: number;
+
+  /** Cooldown in milliseconds between successful embedding batches. (RAG engine) */
+  /** Gives the embedding server time to breathe. Default: 2000 (2s). */
+  // default: 2000
+  embedding_batch_throttle_ms?: number;
 
 }
 
@@ -347,6 +369,14 @@ export interface AppConfig {
   // default: "main"
   active_agent_id?: string;
 
+  /** Whether to show advanced request options in the UI. */
+  // default: false
+  show_advanced_request_options?: boolean;
+
+  /** Whether developer tools are enabled. */
+  // default: false
+  enable_developer_tools?: boolean;
+
   // default: {}
   providers?: Record<string, ProviderConfig>;
 
@@ -358,7 +388,7 @@ export interface AppConfig {
 
   /** RAG (Retrieval-Augmented Generation) configuration. */
   /** Stored globally in config.yaml, shared across all agent profiles. */
-  // default: {"enabled":true,"chunk_size":3600,"chunk_overlap":540,"chunk_window":null,"top_k":5,"embedding":{"model":"openai/text-embedding-3-small","dimensions":1536},"knowledge_bases":{}}
+  // default: {"enabled":true,"chunk_size":3600,"chunk_overlap":540,"chunk_window":null,"top_k":5,"embedding":{"model":"openai/text-embedding-3-small","dimensions":1536},"knowledge_bases":{},"embedding_batch_size":30,"embedding_concurrency":2,"embedding_batch_throttle_ms":2000}
   rag?: RagConfig;
 
 }
@@ -563,19 +593,19 @@ export interface SettingsSnapshot {
 
 export interface SubAgentConfig {
   /** Maximum concurrent sub-agents allowed process-wide. */
-  // default: 4
+  // default: 0
   max_concurrent?: number;
 
   /** Default maximum turns for a sub-agent. */
-  // default: 5
+  // default: 0
   default_max_turns?: number;
 
   /** Hard cap on sub-agent turns. */
-  // default: 10
+  // default: 0
   hard_max_turns?: number;
 
   /** Maximum time a sub-agent may run before being timed out (seconds). */
-  // default: 300
+  // default: 0
   timeout_secs?: number;
 
   /** Whether git worktree isolation is enabled. */

@@ -43,10 +43,6 @@ pub struct AgentConfig {
     pub utility_small_model: String,
     /// Default timeout for API requests (seconds).
     pub request_timeout_seconds: u64,
-    /// Whether to show advanced request options in the UI.
-    pub show_advanced_request_options: bool,
-    /// Whether developer tools are enabled for this agent.
-    pub enable_developer_tools: bool,
     /// Maximum number of tool execution turns (hops) allowed per request (0 for unlimited).
     pub max_tool_turns: usize,
     /// Prompt composer — the assembly of system/developer prompt blocks.
@@ -73,8 +69,6 @@ impl Default for AgentConfig {
             default_model: String::new(),
             utility_small_model: String::new(),
             request_timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
-            show_advanced_request_options: false,
-            enable_developer_tools: false,
             max_tool_turns: 0,
             prompt_composer: PromptComposerConfig::default(),
             context_management: ContextManagementConfig::default(),

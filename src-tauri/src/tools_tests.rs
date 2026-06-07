@@ -1652,15 +1652,24 @@ globalThis.AgentJaxPlugin = {
             "unfolded_server".to_string(),
             McpServerConfig {
                 enabled: true,
-                unfolded: true,
                 ..McpServerConfig::default()
+            },
+        );
+
+        let mut agent_config = crate::config::AgentConfig::default();
+        agent_config.tool_manager.mcp_tools.insert(
+            "unfolded_server".to_string(),
+            crate::config::McpToolSourcePolicyConfig {
+                enabled: true,
+                exposure: Some("unfolded".to_string()),
+                tools: Default::default(),
             },
         );
 
         let catalog = ToolCatalog::new(
             Arc::new(crate::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &agent_config,
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 

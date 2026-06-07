@@ -309,13 +309,13 @@ pub fn known_top_level_paths() -> BTreeSet<&'static str> {
     paths.insert("mcp.stdio.env");
     paths.insert("mcp.startup_timeout_ms");
     paths.insert("mcp.tool_timeout_ms");
+    paths.insert("show_advanced_request_options");
+    paths.insert("enable_developer_tools");
     // ── Per-agent (AgentConfig) ────────────────────────────────────────────
     paths.insert("active_provider");
     paths.insert("default_model");
     paths.insert("utility_small_model");
     paths.insert("request_timeout_seconds");
-    paths.insert("show_advanced_request_options");
-    paths.insert("enable_developer_tools");
     paths.insert("max_tool_turns");
     paths.insert("prompt_composer");
     paths.insert("memory.enabled");
@@ -393,7 +393,6 @@ pub fn known_collection_paths() -> BTreeSet<&'static str> {
     paths.insert("mcp.servers.allow_stateless");
     paths.insert("mcp.servers.channel_buffer_capacity");
     paths.insert("mcp.servers.reinit_on_expired_session");
-    paths.insert("mcp.servers.unfolded");
     paths
 }
 

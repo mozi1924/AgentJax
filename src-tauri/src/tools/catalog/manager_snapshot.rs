@@ -395,7 +395,7 @@ impl ToolCatalog {
         for (server_id, server_config) in &self.mcp_config {
             let source_policy_enabled = self.mcp_source_enabled(server_id);
             let source_enabled = server_config.enabled && source_policy_enabled;
-            let exposure_mode = if self.mcp_source_unfolded(server_id, server_config) {
+            let exposure_mode = if self.mcp_source_unfolded(server_id) {
                 "unfolded"
             } else {
                 "collapsed"
@@ -655,7 +655,7 @@ impl ToolCatalog {
             .filter(|(server_id, server_config)| {
                 server_config.enabled
                     && self.mcp_source_enabled(server_id)
-                    && !self.mcp_source_unfolded(server_id, server_config)
+                    && !self.mcp_source_unfolded(server_id)
             })
             .map(|(server_id, _)| {
                 let model_name = mount_tool_name_for_server(server_id);

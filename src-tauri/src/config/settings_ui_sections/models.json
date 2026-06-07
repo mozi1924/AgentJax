@@ -1,0 +1,77 @@
+{
+  "id": "models",
+  "title": "settings.models.title",
+  "icon": "BrainCircuit",
+  "order": 15,
+  "description": "settings.models.description",
+  "children": [
+    {
+      "kind": "group",
+      "id": "models-provider",
+      "title": "settings.models.provider.title",
+      "children": [
+        {
+          "kind": "field",
+          "id": "active-provider",
+          "title": "settings.general.active_provider.title",
+          "description": "settings.general.active_provider.description",
+          "path": "active_provider",
+          "valueType": "enum",
+          "control": "select",
+          "optionSourceKey": "provider_keys"
+        },
+        {
+          "kind": "field",
+          "id": "default-model",
+          "title": "settings.general.default_model.title",
+          "description": "settings.general.default_model.description",
+          "path": "default_model",
+          "valueType": "enum",
+          "control": "select",
+          "optionSourceKey": "model_refs"
+        },
+        {
+          "kind": "field",
+          "id": "utility-small-model",
+          "title": "settings.general.utility_small_model.title",
+          "description": "settings.general.utility_small_model.description",
+          "path": "utility_small_model",
+          "valueType": "enum",
+          "control": "select",
+          "optionSourceKey": "model_refs"
+        }
+      ]
+    },
+    {
+      "kind": "group",
+      "id": "models-request",
+      "title": "settings.models.request.title",
+      "children": [
+        {
+          "kind": "field",
+          "id": "request-timeout-seconds",
+          "title": "settings.general.request_timeout.title",
+          "description": "settings.general.request_timeout.description",
+          "path": "request_timeout_seconds",
+          "valueType": "integer",
+          "control": "number",
+          "min": 1,
+          "max": 3600,
+          "step": 1
+        },
+        {
+          "kind": "field",
+          "id": "max-tool-turns",
+          "title": "settings.general.max_tool_turns.title",
+          "description": "settings.general.max_tool_turns.description",
+          "path": "max_tool_turns",
+          "valueType": "integer",
+          "control": "number",
+          "min": 0,
+          "max": 1000,
+          "step": 1
+        }
+      ]
+    }
+  ]
+}

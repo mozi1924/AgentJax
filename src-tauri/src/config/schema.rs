@@ -347,6 +347,12 @@ pub struct AppConfig {
     /// The currently active agent profile ID. Stored in shared config.yaml.
     #[serde(default = "default_active_agent_id")]
     pub active_agent_id: String,
+    /// Whether to show advanced request options in the UI.
+    #[serde(default)]
+    pub show_advanced_request_options: bool,
+    /// Whether developer tools are enabled.
+    #[serde(default)]
+    pub enable_developer_tools: bool,
     pub providers: BTreeMap<String, ProviderConfig>,
     #[serde(default)]
     pub mcp: McpConfig,
@@ -512,8 +518,6 @@ pub struct McpServerConfig {
     pub channel_buffer_capacity: Option<usize>,
     #[serde(default = "default_true")]
     pub reinit_on_expired_session: bool,
-    #[serde(default)]
-    pub unfolded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -814,6 +818,8 @@ impl Default for AppConfig {
         Self {
             language: default_language(),
             active_agent_id: default_active_agent_id(),
+            show_advanced_request_options: false,
+            enable_developer_tools: false,
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),
             plugin_manager: PluginManagerConfig::default(),
@@ -864,7 +870,6 @@ impl Default for McpServerConfig {
             allow_stateless: true,
             channel_buffer_capacity: None,
             reinit_on_expired_session: true,
-            unfolded: false,
         }
     }
 }
