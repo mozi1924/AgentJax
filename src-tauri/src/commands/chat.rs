@@ -531,7 +531,30 @@ pub async fn chat_stream(
             break 'resume_loop;
         }
 
-        let (response, _timeline_events) = run_result?;
+        let (response, _timeline_events) = run_result
+            .inspect_err(|e| {
+                log::error!(
+                    "Agent turn failed: conv={} req={} kind={:?} message={}",
+                    conversation_id, request_id, e.kind, e.message
+                );
+                // Emit an error event so the frontend can display the error
+                // before the IPC command returns an Err.
+                let mut idx = event_index.load(std::sync::atomic::Ordering::SeqCst);
+                let _ = emit_mapped_stream_event(
+                    &window,
+                    &request_id,
+                    &conversation_id,
+                    &mut idx,
+                    crate::provider_api::types::ProviderStreamEvent::Error {
+                        kind: format!("{:?}", e.kind),
+                        message: e.message.clone(),
+                        retryable: e.retryable,
+                        provider_key: e.provider_key.clone(),
+                    },
+                    None,
+                );
+                event_index.store(idx, std::sync::atomic::Ordering::SeqCst);
+            })?;
 
         // ── Spawn remaining pending sub-agents ───────────────────────────────
         // Most sub-agents are now spawned inline during tool execution (when

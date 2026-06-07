@@ -358,7 +358,9 @@
   "settings.validation.min": "Minimum value is {count}",
   "settings.validation.max": "Maximum value is {count}",
   "chat.stopped": "Stopped",
+  "chat.continue": "Continue",
   "chat.error.request_failed": "Request failed, please check the credentials/api_endpoint in the config file and your network connection.",
+  "chat.error.agent_failed": "Agent turn failed",
 
   "settings.memory.title": "Memory",
   "settings.memory.description": "Persistent cross-conversation memory storage managed by a background memory sub-agent.",

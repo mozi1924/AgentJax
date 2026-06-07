@@ -174,12 +174,19 @@ export function useChatSessions({
         );
       } catch (error: unknown) {
         markConversationThinking(currentConversationId, false);
-        const errorText =
-          typeof error === 'string'
-            ? error
-            : t('chat.error.request_failed');
+        // AgentJaxError serializes as { kind, message, retryable, providerKey }.
+        // Extract the message if available; fall back to the generic i18n key.
+        let errorText = t('chat.error.request_failed');
+        if (typeof error === 'string') {
+          errorText = error;
+        } else if (error && typeof error === 'object') {
+          const err = error as Record<string, unknown>;
+          if (typeof err.message === 'string' && err.message.trim()) {
+            errorText = err.message;
+          }
+        }
         setConversations((prevConversations) =>
-          applySendFailure(prevConversations, currentConversationId, requestId, errorText || text)
+          applySendFailure(prevConversations, currentConversationId, requestId, errorText)
         );
       } finally {
         finishConversationRequest(currentConversationId, requestId);

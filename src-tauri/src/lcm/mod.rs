@@ -211,12 +211,17 @@ pub fn conversation_line_to_stored_message_parts(
             if let Some(ref phase) = a.phase {
                 meta.insert(
                     "phase".to_string(),
-                    serde_json::Value::String(format!("{:?}", phase).to_lowercase()),
+                    serde_json::Value::String(match phase {
+                        crate::message_phase::AssistantPhase::Commentary => "commentary".to_string(),
+                        crate::message_phase::AssistantPhase::FinalAnswer => "final_answer".to_string(),
+                    }),
                 );
             }
             (a.id.clone(), MessageRole::Assistant, a.text.clone(), a.ts, meta)
         }
-        ConversationLine::Tool(t) => (
+        ConversationLine::Tool(t) => {
+            let args_str = serde_json::to_string(&t.args).unwrap_or_else(|_| "{}".to_string());
+            (
             t.id.clone(),
             MessageRole::Tool,
             t.output.as_ref().map(|o| o.to_string()).unwrap_or_default(),
@@ -235,6 +240,10 @@ pub fn conversation_line_to_stored_message_parts(
                     serde_json::Value::String(t.name.clone()),
                 ),
                 (
+                    "args".to_string(),
+                    serde_json::Value::String(args_str),
+                ),
+                (
                     "message_type".to_string(),
                     serde_json::Value::String(match t.status {
                         ToolStatus::Pending => "function_call".to_string(),
@@ -242,7 +251,8 @@ pub fn conversation_line_to_stored_message_parts(
                     }),
                 ),
             ]),
-        ),
+        )
+        }
     }
 }
 
@@ -436,7 +446,14 @@ pub fn stored_messages_to_conversation_lines(
 
                     match message_type {
                         "function_call" => {
-                            let args: serde_json::Value = serde_json::from_str(&msg.content)
+                            // Prefer args from metadata; fall back to parsing content
+                            // for records written before the args metadata key was added.
+                            let args: serde_json::Value = msg
+                                .metadata
+                                .get("args")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| serde_json::from_str(s).ok())
+                                .or_else(|| serde_json::from_str(&msg.content).ok())
                                 .unwrap_or(serde_json::Value::Null);
                             Some(ConversationLine::Tool(ToolLine {
                                 id: format!("tool-{request_id}-{call_id}"),
@@ -457,6 +474,14 @@ pub fn stored_messages_to_conversation_lines(
                         "function_call_output" => {
                             let output: serde_json::Value = serde_json::from_str(&msg.content)
                                 .unwrap_or(serde_json::Value::Null);
+                            // Prefer args from metadata; fall back to Null for
+                            // records written before the args metadata key was added.
+                            let args: serde_json::Value = msg
+                                .metadata
+                                .get("args")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| serde_json::from_str(s).ok())
+                                .unwrap_or(serde_json::Value::Null);
                             let is_error = output.get("ok").and_then(|v| v.as_bool())
                                 == Some(false)
                                 || output.get("error").is_some();
@@ -471,7 +496,7 @@ pub fn stored_messages_to_conversation_lines(
                                 display_name: None,
                                 description: None,
                                 icon: None,
-                                args: serde_json::Value::Null,
+                                args,
                                 output: Some(output),
                                 status: if is_error {
                                     ToolStatus::Failed

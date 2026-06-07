@@ -55,6 +55,8 @@ export interface Conversation {
   messageCount: number;
   contextTokenCount: number;
   isLoaded: boolean;
+  /** Last error that interrupted the agent turn, if any. */
+  lastError?: string | null;
 }
 
 // ── Backend DTOs ──────────────────────────────────────────────────────────
@@ -138,5 +140,7 @@ export interface ChatStreamEventPayload {
   phase?: AssistantPhase | null;
   /** Sub-agent identifier — present for sub-agent lifecycle events. */
   agentId?: string;
+  /** Error message for error events from the backend. */
+  error?: string | null;
 }
 

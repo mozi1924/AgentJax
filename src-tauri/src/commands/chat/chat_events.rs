@@ -214,6 +214,20 @@ pub fn emit_mapped_stream_event(
         ProviderStreamEvent::ResponseCompleted => {
             return Ok(());
         }
+        ProviderStreamEvent::Error {
+            kind,
+            message,
+            retryable,
+            provider_key,
+        } => {
+            chat_event.kind = "error".to_string();
+            chat_event.error = Some(message);
+            chat_event.tool_name = Some(kind);
+            chat_event.tool_status = Some(format!("retryable:{}", retryable));
+            if let Some(pk) = provider_key {
+                chat_event.tool_display_name = Some(pk);
+            }
+        }
     };
 
     if let Some(count) = context_token_count {

@@ -186,6 +186,12 @@ export default function App() {
                 isThinking={activeConversationIsThinking}
                 activeChatTitle={activeChatTitle}
                 contextTokenCount={activeConversation?.contextTokenCount || 0}
+                lastError={activeConversation?.lastError}
+                onContinue={
+                  activeConversation?.lastError && !activeConversationIsGenerating
+                    ? () => sendMessage('', { appendUserMessage: false })
+                    : undefined
+                }
               />
             </div>
           </div>

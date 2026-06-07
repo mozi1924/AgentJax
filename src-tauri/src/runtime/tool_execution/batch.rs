@@ -1,11 +1,9 @@
 use super::types::{ExecutedToolBatch, ExecutedToolRecord};
 use serde_json::{Value, json};
-use std::collections::HashMap;
 
 pub(super) fn finalize_executed_records(
     provider_kind: &str,
     mut executed_records: Vec<ExecutedToolRecord>,
-    repeated_failed_tool_signatures: &mut HashMap<String, usize>,
 ) -> crate::error::AgentJaxResult<ExecutedToolBatch> {
     let mut tool_results_items = Vec::new();
     let mut executed_tool_call_items = Vec::new();
@@ -19,7 +17,6 @@ pub(super) fn finalize_executed_records(
             call_id,
             name,
             args,
-            signature,
             output_str,
             is_success,
             started_at_unix_ms,
@@ -42,14 +39,6 @@ pub(super) fn finalize_executed_records(
             "completedAtUnixMs": completed_at_unix_ms,
             "durationMs": duration_ms
         }));
-        if is_success {
-            repeated_failed_tool_signatures.remove(&signature);
-        } else {
-            repeated_failed_tool_signatures
-                .entry(signature)
-                .and_modify(|count| *count += 1)
-                .or_insert(1);
-        }
 
         let tool_input_item = crate::provider_api::build_tool_result_input_item(
             provider_kind,

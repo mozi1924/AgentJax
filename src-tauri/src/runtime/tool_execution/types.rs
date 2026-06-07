@@ -14,7 +14,6 @@ pub(super) struct ExecutedToolRecord {
     pub(super) call_id: String,
     pub(super) name: String,
     pub(super) args: Value,
-    pub(super) signature: String,
     pub(super) output_str: String,
     pub(super) is_success: bool,
     pub(super) started_at_unix_ms: i64,
@@ -28,9 +27,6 @@ pub(super) struct PreparedToolExecution {
     pub(super) call_id: String,
     pub(super) name: String,
     pub(super) args: Value,
-    pub(super) signature: String,
-    pub(super) repeated_fail_count: usize,
-    pub(super) is_repeated_failure_guarded: bool,
 }
 
 pub(super) struct ActiveToolExecution {

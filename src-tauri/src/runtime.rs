@@ -10,6 +10,3 @@ mod tool_parsing;
 mod tests;
 
 pub struct AgentRuntime;
-
-const MAX_TOOL_EXEC_RETRIES: usize = 2;
-const MAX_REPEATED_FAILED_SIGNATURES: usize = 3;

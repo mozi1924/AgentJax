@@ -8,6 +8,7 @@ import {
   applyAssistantMessage,
   applyCompletedRequest,
   applyConversationTitleUpdate,
+  applyStreamError,
   applyThinkingDelta,
   applyToolDelta,
   applyToolExecution,
@@ -377,6 +378,17 @@ export function useConversationStreaming({ setConversations }: UseConversationSt
                 )
               );
             }
+            return;
+          }
+
+          if (payload.kind === 'error') {
+            markConversationGenerating(mapping.conversationId, false);
+            markConversationStopping(mapping.conversationId, false);
+            markConversationThinking(mapping.conversationId, false);
+            const errorMsg = payload.error || 'An error occurred';
+            setConversations((prev) =>
+              applyStreamError(prev, mapping.conversationId, errorMsg)
+            );
             return;
           }
 

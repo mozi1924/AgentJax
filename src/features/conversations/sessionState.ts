@@ -667,14 +667,14 @@ export const applySendFailure = (
   conversations: Conversation[],
   conversationId: string,
   requestId: string,
-  fallbackPreview: string
+  errorMessage: string
 ): Conversation[] =>
   updateConversation(conversations, conversationId, (conversation) => {
     const lines = conversation.lines.map((line) => {
       if (line.kind === 'assistant' && line.requestId === requestId) {
         return {
           ...line,
-          text: '',
+          text: errorMessage,
           phase: (line as AssistantLine).phase,
           status: 'done' as const,
         } satisfies AssistantLine;
@@ -684,10 +684,22 @@ export const applySendFailure = (
     return {
       ...conversation,
       lines,
-      lastMessagePreview: fallbackPreview || conversation.lastMessagePreview,
+      lastMessagePreview: errorMessage || conversation.lastMessagePreview,
+      lastError: errorMessage,
       messageCount: countVisibleMessages(lines),
     };
   });
+
+/** Store a stream-level error so the UI can display it. */
+export const applyStreamError = (
+  conversations: Conversation[],
+  conversationId: string,
+  errorMessage: string
+): Conversation[] =>
+  updateConversation(conversations, conversationId, (conversation) => ({
+    ...conversation,
+    lastError: errorMessage,
+  }));
 
 export const applyManualConversationRename = (
   conversations: Conversation[],

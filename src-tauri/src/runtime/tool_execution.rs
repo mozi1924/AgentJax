@@ -73,14 +73,13 @@ impl ToolExecutionScheduler {
     pub(super) fn schedule_pending_tool(
         &mut self,
         pending: ProviderPendingToolCall,
-        repeated_failed_tool_signatures: &HashMap<String, usize>,
     ) -> bool {
         if self.scheduled_call_ids.contains(&pending.call_id) {
             return false;
         }
 
         let prepared =
-            prepare_tool_execution(self.next_index, pending, repeated_failed_tool_signatures);
+            prepare_tool_execution(self.next_index, pending);
         self.next_index += 1;
         self.scheduled_call_ids.insert(prepared.call_id.clone());
         self.active_tools.insert(
@@ -120,10 +119,9 @@ impl ToolExecutionScheduler {
     pub(super) fn schedule_pending_tools(
         &mut self,
         pending_tools: Vec<ProviderPendingToolCall>,
-        repeated_failed_tool_signatures: &HashMap<String, usize>,
     ) {
         for pending in pending_tools {
-            self.schedule_pending_tool(pending, repeated_failed_tool_signatures);
+            self.schedule_pending_tool(pending);
         }
     }
 
@@ -159,7 +157,6 @@ impl ToolExecutionScheduler {
     pub(super) async fn finish<F>(
         mut self,
         provider_kind: &str,
-        repeated_failed_tool_signatures: &mut HashMap<String, usize>,
         on_event: &mut F,
     ) -> AgentJaxResult<ExecutedToolBatch>
     where
@@ -218,7 +215,6 @@ impl ToolExecutionScheduler {
         finalize_executed_records(
             provider_kind,
             executed_records,
-            repeated_failed_tool_signatures,
         )
     }
 
@@ -265,7 +261,6 @@ mod tests {
     use crate::provider_api::types::{ProviderPendingToolCall, ProviderStreamEvent};
     use crate::tools::{ToolCatalog, ToolExecutionContext, background_jobs};
     use serde_json::json;
-    use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
     use tokio::sync::watch;
@@ -289,7 +284,6 @@ mod tests {
                 name: "calculator".to_string(),
                 arguments: json!({ "expression": "6 * 7" }),
             },
-            &HashMap::new(),
         ));
 
         // The foreground collector calls this while provider streaming is still
@@ -318,9 +312,8 @@ mod tests {
             .count();
         assert_eq!(executed_events, 1);
 
-        let mut repeated_failures = HashMap::new();
         let batch = scheduler
-            .finish("openai", &mut repeated_failures, &mut |event| {
+            .finish("openai", &mut |event| {
                 events.push(event);
                 Ok(())
             })
@@ -366,7 +359,6 @@ mod tests {
                 name: "background_task".to_string(),
                 arguments: json!({ "action": "wait", "jobId": job_id, "timeoutMs": 600 }),
             },
-            &HashMap::new(),
         ));
         assert!(scheduler.schedule_pending_tool(
             ProviderPendingToolCall {
@@ -374,7 +366,6 @@ mod tests {
                 name: "calculator".to_string(),
                 arguments: json!({ "expression": "21 * 2" }),
             },
-            &HashMap::new(),
         ));
 
         // In serial mode with a shared semaphore, the background_task wait
@@ -400,9 +391,8 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
-        let mut repeated_failures = HashMap::new();
         let batch = scheduler
-            .finish("openai", &mut repeated_failures, &mut |event| {
+            .finish("openai", &mut |event| {
                 events.push(event);
                 Ok(())
             })

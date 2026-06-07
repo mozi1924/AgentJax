@@ -130,7 +130,6 @@ impl AgentRuntime {
 
         let mut accumulator = TurnAccumulator::new();
         let mut accumulated_context: Vec<Value> = Vec::new();
-        let mut repeated_failed_tool_signatures = std::collections::HashMap::new();
         let mut final_output_text = String::new();
         let mut commentary_history: Vec<String> = Vec::new();
         // MCP server mounts are conversation-scoped and persisted in
@@ -365,9 +364,14 @@ impl AgentRuntime {
                 cancel_rx,
                 &mut |event| on_event(enrich_tool_stream_event(event, &tool_snapshot)),
                 Some(&mut tool_scheduler),
-                &repeated_failed_tool_signatures,
             )
-            .await?;
+            .await
+            .inspect_err(|e| {
+                log::error!(
+                    "Provider turn failed: conv={} hop={} kind={:?} message={}",
+                    conversation_id, turn_idx, e.kind, e.message
+                );
+            })?;
 
             accumulator.record_hop(&collected.response_result);
             if let (Some(hop_usage), Some(aggregate_usage)) = (
@@ -577,11 +581,10 @@ impl AgentRuntime {
 
             // ── Await tools that were scheduled as soon as their arguments completed ──
             tool_scheduler
-                .schedule_pending_tools(collected.pending_tools, &repeated_failed_tool_signatures);
+                .schedule_pending_tools(collected.pending_tools);
             let executed_batch = tool_scheduler
                 .finish(
                     provider_kind,
-                    &mut repeated_failed_tool_signatures,
                     &mut on_event,
                 )
                 .await?;
@@ -711,16 +714,19 @@ impl AgentRuntime {
                 .timeline_events
                 .extend(executed_batch.timeline_events);
             apply_tool_state_changes(&mut mounted_mcp_servers, executed_batch.state_changes);
-            if let Err(err) = tools_catalog.persist_mounted_servers(
-                crate::config::constants::DEFAULT_AGENT_ID,
-                conversation_id,
-                &mounted_mcp_servers,
-            ) {
-                log::warn!(
-                    "Failed to persist mounted MCP servers for conversation '{}': {}",
+            // ── Persist mounted MCP servers (skip for sub-agents — in-memory only) ──
+            if !is_sub_agent {
+                if let Err(err) = tools_catalog.persist_mounted_servers(
+                    crate::config::constants::DEFAULT_AGENT_ID,
                     conversation_id,
-                    err
-                );
+                    &mounted_mcp_servers,
+                ) {
+                    log::warn!(
+                        "Failed to persist mounted MCP servers for conversation '{}': {}",
+                        conversation_id,
+                        err
+                    );
+                }
             }
 
             // ── Build this hop's delta items ──────────────────────────────

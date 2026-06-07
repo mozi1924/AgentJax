@@ -27,7 +27,6 @@ pub(super) async fn collect_provider_turn<F>(
     cancel_rx: &mut watch::Receiver<bool>,
     on_event: &mut F,
     tool_scheduler: Option<&mut ToolExecutionScheduler>,
-    repeated_failed_tool_signatures: &HashMap<String, usize>,
 ) -> AgentJaxResult<CollectedProviderTurn>
 where
     F: FnMut(ProviderStreamEvent) -> Result<(), AgentJaxError> + Send,
@@ -79,7 +78,6 @@ where
                             &mut tool_args_delta_by_call,
                             &mut pending_tools_from_events,
                             &mut tool_scheduler,
-                            repeated_failed_tool_signatures,
                             on_event,
                         )?;
                         drain_tool_scheduler_events(&mut tool_scheduler, on_event)?;
@@ -158,7 +156,6 @@ fn handle_provider_stream_event<F>(
     tool_args_delta_by_call: &mut HashMap<String, String>,
     pending_tools_from_events: &mut Vec<ProviderPendingToolCall>,
     tool_scheduler: &mut Option<&mut ToolExecutionScheduler>,
-    repeated_failed_tool_signatures: &HashMap<String, usize>,
     on_event: &mut F,
 ) -> Result<(), AgentJaxError>
 where
@@ -197,7 +194,7 @@ where
             if is_valid_pending_tool_call(&pending_tool)
                 && let Some(scheduler) = tool_scheduler.as_deref_mut()
             {
-                scheduler.schedule_pending_tool(pending_tool, repeated_failed_tool_signatures);
+                scheduler.schedule_pending_tool(pending_tool);
             }
         }
         _ => {}

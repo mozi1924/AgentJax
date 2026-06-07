@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, Copy, Loader2, MessageSquare } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Copy, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
 import WorkLogPanel from './chat/WorkLogPanel';
 import { renderMarkdown } from './chat/markdownRenderer';
 import {
@@ -23,6 +23,8 @@ interface ChatAreaProps {
   isThinking: boolean;
   activeChatTitle: string;
   contextTokenCount: number;
+  lastError?: string | null;
+  onContinue?: () => void;
 }
 
 const createAssistantTextClassName = (isCommentary: boolean) =>
@@ -46,6 +48,8 @@ export default function ChatArea({
   isThinking,
   activeChatTitle,
   contextTokenCount,
+  lastError,
+  onContinue,
 }: ChatAreaProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -141,6 +145,25 @@ export default function ChatArea({
             </span>
           )}
         </div>
+
+        {lastError && (
+          <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-red-300">{t('chat.error.agent_failed')}</p>
+              <p className="mt-1 text-xs text-red-400/80 break-words">{lastError}</p>
+            </div>
+            {onContinue && (
+              <button
+                onClick={onContinue}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-500/20"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {t('chat.continue')}
+              </button>
+            )}
+          </div>
+        )}
 
         {turns.map((turn, index) => {
           const joinedFinalText = joinAssistantTexts(turn.finalLines);

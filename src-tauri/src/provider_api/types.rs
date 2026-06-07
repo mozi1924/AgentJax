@@ -179,6 +179,14 @@ pub enum ProviderStreamEvent {
         aggregate_usage: ProviderUsage,
     },
     ResponseCompleted,
+    /// Runtime error that interrupted the agent turn. Emitted before the
+    /// IPC command returns an error so the frontend can display details.
+    Error {
+        kind: String,
+        message: String,
+        retryable: bool,
+        provider_key: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

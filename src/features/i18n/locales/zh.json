@@ -356,7 +356,9 @@
   "settings.validation.min": "最小值为 {count}",
   "settings.validation.max": "最大值为 {count}",
   "chat.stopped": "已停止",
+  "chat.continue": "继续",
   "chat.error.request_failed": "请求失败，请检查配置文件中的 credential / api_endpoint 和网络连接。",
+  "chat.error.agent_failed": "Agent 执行失败",
 
   "settings.memory.title": "记忆",
   "settings.memory.description": "由后台记忆子代理管理的跨对话持久记忆存储。",

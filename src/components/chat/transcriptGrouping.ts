@@ -104,12 +104,20 @@ export function buildConversationTurns(
       turn.hasDraft = true;
     }
 
-    if (line.phase === 'commentary') {
-      turn.workItems.push({ kind: 'assistant', line });
+    // ── Phase routing ───────────────────────────────────────────────
+    // Only explicit final_answer lines go to the main chat area.
+    // Everything else — commentary, drafts with unknown phase, and
+    // streaming deltas — stays in the work log. This prevents the
+    // visual jump that occurs when a null-phase streaming block is
+    // rendered in the final area and then reclassified as commentary
+    // after the hop completes.
+    if (line.phase === 'final_answer' && line.status !== 'draft') {
+      turn.finalLines.push(line);
       continue;
     }
 
-    turn.finalLines.push(line);
+    // Commentary and undetermined-phase drafts go to work log.
+    turn.workItems.push({ kind: 'assistant', line });
   }
 
   return orderedRequestIds
