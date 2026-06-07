@@ -234,6 +234,11 @@ fn chunk_with_break_points(
         let next_pos = end_pos.saturating_sub(overlap_chars);
         // Ensure forward progress
         char_pos = if next_pos > char_pos { next_pos } else { end_pos };
+        // Ensure char_pos is on a valid UTF-8 boundary — the overlap
+        // subtraction may have landed in the middle of a multi-byte char.
+        while char_pos > 0 && !content.is_char_boundary(char_pos) {
+            char_pos -= 1;
+        }
     }
 
     chunks

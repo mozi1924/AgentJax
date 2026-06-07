@@ -146,6 +146,7 @@ pub async fn run_sub_agent(
     let result = crate::runtime::AgentRuntime::run_turn(
         &app_config,
         &agent_config,
+        &agent_id,
         &sub_req,
         &sub_conv_id,
         crate::conversation_store_utils::now_unix_ms(),

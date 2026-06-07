@@ -117,6 +117,7 @@ async fn run_real_gateway_turn_with_config(
         AgentRuntime::run_turn(
             &config,
             &agent,
+            "test-agent",
             &req,
             &conversation_id,
             crate::conversation_store_utils::now_unix_ms(),
@@ -594,6 +595,7 @@ async fn run_real_gateway_turn_with_full_catalog(
         AgentRuntime::run_turn(
             &config,
             &agent,
+            "test-agent",
             &req,
             &conversation_id,
             crate::conversation_store_utils::now_unix_ms(),

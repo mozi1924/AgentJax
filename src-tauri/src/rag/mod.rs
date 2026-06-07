@@ -21,6 +21,7 @@
 //! ```
 
 pub(crate) mod chunking;
+pub(crate) mod file_watcher;
 pub(crate) mod fts_store;
 pub(crate) mod knowledge_base;
 pub(crate) mod types;

@@ -10,6 +10,22 @@ use crate::rag::KnowledgeBaseManager;
 use serde::Deserialize;
 use serde_json::Value;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tauri::Emitter;
+
+/// A progress event emitted during knowledge base indexing.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeIndexingProgress {
+    pub kb_id: String,
+    pub processed: usize,
+    pub total: usize,
+    pub current_file: String,
+    pub chunks_created: usize,
+    pub done: bool,
+    pub error: Option<String>,
+}
 
 /// A scan result describing a single markdown file found at a path.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -194,16 +210,18 @@ fn scan_markdown_files(dir: &Path, files: &mut Vec<ScannedFile>) -> AgentJaxResu
 /// Refresh / re-index a knowledge base.
 ///
 /// Scans the configured path for markdown files and re-indexes all documents.
+/// Emits `kb_indexing_progress` events to the frontend for real-time progress.
 /// This is a long-running operation for large KBs.
 #[tauri::command]
 pub async fn refresh_knowledge_base(
+    app_handle: tauri::AppHandle,
     kb_id: String,
 ) -> Result<Value, AgentJaxError> {
     let full_config = load_active_config()?;
-    let app_config = &full_config.shared;
-    let agent_config = &full_config.agent;
+    let app_config = Arc::new(full_config.shared.clone());
+    let agent_config = Arc::new(full_config.agent.clone());
 
-    let kb_manager = KnowledgeBaseManager::from_config(app_config, agent_config)?;
+    let kb_manager = KnowledgeBaseManager::from_config(&app_config, &agent_config)?;
 
     let entry = app_config
         .rag
@@ -229,64 +247,193 @@ pub async fn refresh_knowledge_base(
         )));
     }
 
+    let emit_progress = |processed: usize,
+                         total: usize,
+                         current_file: &str,
+                         chunks_created: usize,
+                         done: bool,
+                         error: Option<String>| {
+        let _ = app_handle.emit(
+            "kb_indexing_progress",
+            KnowledgeIndexingProgress {
+                kb_id: kb_id.clone(),
+                processed,
+                total,
+                current_file: current_file.to_string(),
+                chunks_created,
+                done,
+                error,
+            },
+        );
+    };
+
     // Index all markdown files
     let mut total_docs = 0;
     let mut total_chunks = 0;
 
     match entry.path_type {
         KbPathType::File => {
-            let content = tokio::fs::read_to_string(&resolved_path).await.map_err(|e| {
-                AgentJaxError::config(format!("Failed to read file '{}': {e}", resolved_path.display()))
-            })?;
-
-            let doc_id = resolved_path
+            let file_name = resolved_path
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| "doc".to_string());
 
+            emit_progress(0, 1, &file_name, 0, false, None);
+
+            let content = tokio::fs::read_to_string(&resolved_path).await.map_err(|e| {
+                AgentJaxError::config(format!("Failed to read file '{}': {e}", resolved_path.display()))
+            })?;
+
             let document = crate::rag::types::Document {
-                id: doc_id,
+                id: file_name,
                 content,
                 metadata: std::collections::BTreeMap::new(),
             };
 
-            let progress = kb_manager
-                .index_document(&kb_id, document, &app_config)
-                .await?;
-
-            total_docs += 1;
-            total_chunks += progress.chunks_created;
+            match kb_manager.index_document(&kb_id, document, &app_config).await {
+                Ok(progress) => {
+                    total_docs += 1;
+                    total_chunks += progress.chunks_created;
+                    emit_progress(1, 1, "", total_chunks, true, None);
+                }
+                Err(e) => {
+                    emit_progress(0, 1, "", 0, true, Some(e.to_string()));
+                    return Err(e);
+                }
+            }
         }
         KbPathType::Folder => {
             let mut md_files = Vec::new();
             scan_markdown_files_for_indexing(&resolved_path, &mut md_files)?;
+            let total = md_files.len();
+
+            if total == 0 {
+                emit_progress(0, 0, "", 0, true, None);
+                return Ok(serde_json::json!({
+                    "kbId": kb_id,
+                    "totalDocuments": 0,
+                    "totalChunks": 0,
+                }));
+            }
+
+            // ── Concurrent indexing with bounded parallelism ──────────
+            // Process up to 8 documents in parallel to keep the embedding
+            // API saturated without overwhelming network/disk resources.
+            const MAX_CONCURRENT: usize = 8;
+            let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT));
+            let kb_manager = Arc::new(kb_manager);
+            let processed = Arc::new(AtomicUsize::new(0));
+            let total_chunks_atomic = Arc::new(AtomicUsize::new(0));
+            let mut handles = futures_util::stream::FuturesUnordered::new();
 
             for file_path in md_files {
-                let content = tokio::fs::read_to_string(&file_path).await.map_err(|e| {
-                    AgentJaxError::config(format!("Failed to read file '{}': {e}", file_path.display()))
-                })?;
+                let kb_id = kb_id.clone();
+                let kb_manager = Arc::clone(&kb_manager);
+                let app_handle = app_handle.clone();
+                let app_config = Arc::clone(&app_config);
+                let sem = Arc::clone(&semaphore);
+                let processed = Arc::clone(&processed);
+                let total_chunks = Arc::clone(&total_chunks_atomic);
 
-                let doc_id = file_path
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "doc".to_string());
+                handles.push(tokio::spawn(async move {
+                    let _permit = sem.acquire().await;
+                    let file_name = file_path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "doc".to_string());
 
-                let document = crate::rag::types::Document {
-                    id: doc_id,
-                    content,
-                    metadata: std::collections::BTreeMap::new(),
-                };
+                    let content = match tokio::fs::read_to_string(&file_path).await {
+                        Ok(c) => c,
+                        Err(e) => {
+                            let p = processed.fetch_add(1, Ordering::SeqCst);
+                            let tc = total_chunks.load(Ordering::SeqCst);
+                            let _ = app_handle.emit(
+                                "kb_indexing_progress",
+                                KnowledgeIndexingProgress {
+                                    kb_id: kb_id.clone(),
+                                    processed: p + 1,
+                                    total,
+                                    current_file: file_name,
+                                    chunks_created: tc,
+                                    done: false,
+                                    error: Some(format!(
+                                        "Failed to read '{}': {e}",
+                                        file_path.display()
+                                    )),
+                                },
+                            );
+                            return (0, 0);
+                        }
+                    };
 
-                match kb_manager.index_document(&kb_id, document, &app_config).await {
-                    Ok(progress) => {
-                        total_docs += 1;
-                        total_chunks += progress.chunks_created;
+                    let document = crate::rag::types::Document {
+                        id: file_name.clone(),
+                        content,
+                        metadata: std::collections::BTreeMap::new(),
+                    };
+
+                    match kb_manager
+                        .index_document(&kb_id, document, &app_config)
+                        .await
+                    {
+                        Ok(progress) => {
+                            let p = processed.fetch_add(1, Ordering::SeqCst);
+                            let tc = total_chunks.fetch_add(
+                                progress.chunks_created,
+                                Ordering::SeqCst,
+                            );
+                            let _ = app_handle.emit(
+                                "kb_indexing_progress",
+                                KnowledgeIndexingProgress {
+                                    kb_id: kb_id.clone(),
+                                    processed: p + 1,
+                                    total,
+                                    current_file: file_name,
+                                    chunks_created: tc + progress.chunks_created,
+                                    done: false,
+                                    error: None,
+                                },
+                            );
+                            (1, progress.chunks_created)
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "Failed to index '{}': {e}",
+                                file_path.display()
+                            );
+                            let p = processed.fetch_add(1, Ordering::SeqCst);
+                            let tc = total_chunks.load(Ordering::SeqCst);
+                            let _ = app_handle.emit(
+                                "kb_indexing_progress",
+                                KnowledgeIndexingProgress {
+                                    kb_id: kb_id.clone(),
+                                    processed: p + 1,
+                                    total,
+                                    current_file: file_name,
+                                    chunks_created: tc,
+                                    done: false,
+                                    error: Some(format!(
+                                        "Failed to index '{}': {e}",
+                                        file_path.display()
+                                    )),
+                                },
+                            );
+                            (0, 0)
+                        }
                     }
-                    Err(e) => {
-                        log::warn!("Failed to index '{}': {e}", file_path.display());
-                    }
+                }));
+            }
+
+            // Collect results
+            use futures_util::StreamExt;
+            while let Some(result) = handles.next().await {
+                if let Ok((docs, chunks)) = result {
+                    total_docs += docs;
+                    total_chunks += chunks;
                 }
             }
+
+            emit_progress(total, total, "", total_chunks, true, None);
         }
     }
 

@@ -497,6 +497,7 @@ pub async fn chat_stream(
         let run_result = crate::runtime::AgentRuntime::run_turn(
             &config,
             &agent_config,
+            &agent_id,
             &runtime_req,
             &conversation_id,
             user_message_ts,

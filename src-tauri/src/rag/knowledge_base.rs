@@ -15,7 +15,7 @@
 //! - **Background indexing**: Long-running index operations report progress.
 
 use crate::agentjax_home;
-use crate::config::{AppConfig, AgentConfig};
+use crate::config::{AppConfig, AgentConfig, KnowledgeBaseEntry};
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::provider_api::{self, EmbeddingRequest};
 use std::collections::{BTreeMap, HashMap};
@@ -46,12 +46,17 @@ pub struct KnowledgeBaseManager {
     provider_key: String,
     /// Embedding model identifier.
     embedding_model: String,
+    /// Whether embedding is available (model reference could not be resolved).
+    embedding_disabled: bool,
     /// Chunker shared across all KBs.
     #[allow(dead_code)]
     chunker: Chunker,
     /// Default top-K for searches.
     #[allow(dead_code)]
     top_k: usize,
+    /// Configured knowledge base entries from the global config.
+    /// Used for per-agent disabled_agents gating at runtime.
+    knowledge_base_entries: BTreeMap<String, KnowledgeBaseEntry>,
 }
 
 impl KnowledgeBaseManager {
@@ -75,18 +80,31 @@ impl KnowledgeBaseManager {
                 .unwrap_or(super::chunking::DEFAULT_WINDOW_CHARS),
         )?;
 
-        // Resolve the embedding model reference using the same config-driven path
-        // as LLM model resolution — replaces the old ad-hoc `split_once` parsing.
-        let (provider_key, _provider, embedding_model) =
-            app_config.resolve_embedding_profile(&rag.embedding.model)?;
+        // Resolve the embedding model reference. If no embedding model is
+        // configured or resolution fails, we disable embedding and fall back
+        // to FTS5-only search.
+        let (provider_key, embedding_model, embedding_disabled) =
+            match app_config.resolve_embedding_profile(&rag.embedding.model) {
+                Ok((pk, _provider, model_id)) => (pk, model_id, false),
+                Err(e) => {
+                    log::warn!(
+                        "Embedding model not configured or resolution failed: {}. \
+                         KB search will use FTS5-only (keyword) fallback.",
+                        e
+                    );
+                    (String::new(), String::new(), true)
+                }
+            };
 
         Ok(Self {
             bases: RwLock::new(HashMap::new()),
             root_dir,
             provider_key,
             embedding_model,
+            embedding_disabled,
             chunker,
             top_k: rag.top_k,
+            knowledge_base_entries: rag.knowledge_bases.clone(),
         })
     }
 
@@ -157,6 +175,27 @@ impl KnowledgeBaseManager {
         }
 
         Ok(infos)
+    }
+
+    /// List knowledge bases, filtering out disabled_agents.
+    pub async fn list_kbs_filtered(
+        &self,
+        app_config: &AppConfig,
+        agent_id: &str,
+    ) -> AgentJaxResult<Vec<KnowledgeBaseInfo>> {
+        let kbs = self.list_kbs(app_config).await?;
+        Ok(kbs
+            .into_iter()
+            .filter(|kb| self.is_kb_accessible(&kb.id, agent_id))
+            .collect())
+    }
+
+    /// Check whether an agent is allowed to access a KB by disabled_agents config.
+    pub fn is_kb_accessible(&self, kb_id: &str, agent_id: &str) -> bool {
+        match self.knowledge_base_entries.get(kb_id) {
+            Some(entry) => !entry.disabled_agents.iter().any(|a| a == agent_id),
+            None => true,
+        }
     }
 
     /// Open or create a knowledge base by ID.
@@ -286,6 +325,26 @@ impl KnowledgeBaseManager {
         })
     }
 
+    /// Re-index a document: delete old chunks then re-index.
+    ///
+    /// Used by the file watcher for incremental updates when a .md file
+    /// changes on disk. First deletes the existing document (if any),
+    /// then indexes the new content.
+    pub async fn reindex_document(
+        &self,
+        kb_id: &str,
+        document: Document,
+        app_config: &AppConfig,
+    ) -> AgentJaxResult<IndexingProgress> {
+        // Delete old chunks if the document exists.
+        if let Ok(kb) = self.open_kb(kb_id).await {
+            let _ = kb.vector_store.delete_document(&document.id).await;
+            let _ = kb.fts_store.delete_document(&document.id);
+        }
+        // Index the new content.
+        self.index_document(kb_id, document, app_config).await
+    }
+
     // ── Search ─────────────────────────────────────────────────────────
 
     /// Hybrid search: combine vector similarity with keyword search.
@@ -301,84 +360,142 @@ impl KnowledgeBaseManager {
     ) -> AgentJaxResult<Vec<HybridSearchResult>> {
         let kb = self.open_kb(kb_id).await?;
 
-        // Get the embedding for the query
-        let response = provider_api::embed_text(
-            app_config,
-            &self.provider_key,
-            &self.embedding_model,
-            &EmbeddingRequest::single(query),
-        )
-        .await?;
-
-        let query_vector = response.embeddings.into_iter().next().ok_or_else(|| {
-            AgentJaxError::embedding("Empty embedding response")
-        })?;
-
-        // Run both searches in parallel
-        let vec_config = SearchConfig {
-            top_k: top_k * 2, // Over-fetch for fusion
-            ..Default::default()
+        // Try to get a query embedding. If embedding is disabled or fails,
+        // fall back to FTS5-only search.
+        let maybe_query_vector = if self.embedding_disabled {
+            log::debug!("Embedding disabled — using FTS5-only search");
+            None
+        } else {
+            match provider_api::embed_text(
+                app_config,
+                &self.provider_key,
+                &self.embedding_model,
+                &EmbeddingRequest::single(query),
+            )
+            .await
+            {
+                Ok(response) => Some(response.embeddings.into_iter().next().ok_or_else(
+                    || AgentJaxError::embedding("Empty embedding response"),
+                )?),
+                Err(e) => {
+                    log::warn!(
+                        "Embedding failed for KB search, falling back to FTS5-only: {}",
+                        e
+                    );
+                    None
+                }
+            }
         };
 
-        let (vec_results, fts_results) = tokio::join!(
-            kb.vector_store.search(&query_vector, &vec_config),
-            async { kb.fts_store.search_fts(query, top_k * 2) },
-        );
+        match maybe_query_vector {
+            Some(query_vector) => {
+                // ── Hybrid: vector + FTS5 with RRF fusion ──
+                let vec_config = SearchConfig {
+                    top_k: top_k * 2,
+                    ..Default::default()
+                };
 
-        let vec_results = vec_results.unwrap_or_default();
-        let fts_results = fts_results.unwrap_or_default();
+                let (vec_results, fts_results) = tokio::join!(
+                    kb.vector_store.search(&query_vector, &vec_config),
+                    async { kb.fts_store.search_fts(query, top_k * 2) },
+                );
 
-        // Reciprocal Rank Fusion
-        let k: f32 = 60.0;
-        let mut score_map: HashMap<String, (f32, f32, &str, &str, &str, &str, &BTreeMap<String, String>)> =
-            HashMap::new();
+                let vec_results = vec_results.unwrap_or_default();
+                let fts_results = fts_results.unwrap_or_default();
 
-        // Vector results
-        for (rank, r) in vec_results.iter().enumerate() {
-            let rrf = 1.0 / (k + (rank + 1) as f32);
-            score_map.insert(
-                r.chunk_id.clone(),
-                (rrf, r.score, &r.document_id, &r.content, "", "", &r.metadata),
-            );
-        }
+                // Reciprocal Rank Fusion
+                let k: f32 = 60.0;
+                let mut score_map: HashMap<
+                    String,
+                    (f32, f32, &str, &str, &str, &str, &BTreeMap<String, String>),
+                > = HashMap::new();
 
-        // FTS results
-        for (rank, r) in fts_results.iter().enumerate() {
-            let rrf = 1.0 / (k + (rank + 1) as f32);
-            let entry = score_map
-                .entry(r.chunk_id.clone())
-                .or_insert_with(|| (0.0, 0.0, &r.document_id, &r.content, &r.title, "", &EMPTY_META));
-            entry.0 += rrf; // Accumulate RRF score
-            entry.1 = entry.1.max(normalize_bm25(r.bm25_score));
-            if !r.title.is_empty() {
-                entry.4 = &r.title;
+                for (rank, r) in vec_results.iter().enumerate() {
+                    let rrf = 1.0 / (k + (rank + 1) as f32);
+                    score_map.insert(
+                        r.chunk_id.clone(),
+                        (rrf, r.score, &r.document_id, &r.content, "", "", &r.metadata),
+                    );
+                }
+
+                for (rank, r) in fts_results.iter().enumerate() {
+                    let rrf = 1.0 / (k + (rank + 1) as f32);
+                    let entry = score_map.entry(r.chunk_id.clone()).or_insert_with(|| {
+                        (0.0, 0.0, &r.document_id, &r.content, &r.title, "", &EMPTY_META)
+                    });
+                    entry.0 += rrf;
+                    entry.1 = entry.1.max(normalize_bm25(r.bm25_score));
+                    if !r.title.is_empty() {
+                        entry.4 = &r.title;
+                    }
+                }
+
+                let mut fused: Vec<(
+                    &String,
+                    &(f32, f32, &str, &str, &str, &str, &BTreeMap<String, String>),
+                )> = score_map.iter().collect();
+                fused.sort_by(|a, b| {
+                    b.1 .0
+                        .partial_cmp(&a.1 .0)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                fused.truncate(top_k);
+
+                let results: Vec<HybridSearchResult> = fused
+                    .into_iter()
+                    .map(
+                        |(
+                            chunk_id,
+                            (rrf_score, keyword_score, doc_id, content, title, _fts_title, meta),
+                        )| {
+                            let vector_score = (rrf_score - keyword_score).max(0.0);
+                            HybridSearchResult {
+                                chunk_id: chunk_id.clone(),
+                                document_id: doc_id.to_string(),
+                                title: if title.is_empty() {
+                                    "Untitled".to_string()
+                                } else {
+                                    title.to_string()
+                                },
+                                content: content.to_string(),
+                                score: *rrf_score,
+                                vector_score,
+                                keyword_score: *keyword_score,
+                                metadata: (*meta).clone(),
+                            }
+                        },
+                    )
+                    .collect();
+
+                Ok(results)
+            }
+            None => {
+                // ── FTS5-only fallback ──
+                let fts_results = kb.fts_store.search_fts(query, top_k)?;
+                let results: Vec<HybridSearchResult> = fts_results
+                    .into_iter()
+                    .map(|r| {
+                        let kw = normalize_bm25(r.bm25_score);
+                        HybridSearchResult {
+                            chunk_id: r.chunk_id,
+                            document_id: r.document_id,
+                            title: if r.title.is_empty() {
+                                "Untitled".to_string()
+                            } else {
+                                r.title
+                            },
+                            content: r.content,
+                            score: kw,
+                            vector_score: 0.0,
+                            keyword_score: kw,
+                            metadata: BTreeMap::new(),
+                        }
+                    })
+                    .collect();
+
+                Ok(results)
             }
         }
-
-        // Sort by fused score
-        let mut fused: Vec<(&String, &(f32, f32, &str, &str, &str, &str, &BTreeMap<String, String>))> =
-            score_map.iter().collect();
-        fused.sort_by(|a, b| b.1 .0.partial_cmp(&a.1 .0).unwrap_or(std::cmp::Ordering::Equal));
-        fused.truncate(top_k);
-
-        let results: Vec<HybridSearchResult> = fused
-            .into_iter()
-            .map(|(chunk_id, (rrf_score, keyword_score, doc_id, content, title, _fts_title, meta))| {
-                let vector_score = (rrf_score - keyword_score).max(0.0);
-                HybridSearchResult {
-                    chunk_id: chunk_id.clone(),
-                    document_id: doc_id.to_string(),
-                    title: if title.is_empty() { "Untitled".to_string() } else { title.to_string() },
-                    content: content.to_string(),
-                    score: *rrf_score,
-                    vector_score,
-                    keyword_score: *keyword_score,
-                    metadata: (*meta).clone(),
-                }
-            })
-            .collect();
-
-        Ok(results)
     }
 
     /// Delete a document from a knowledge base.

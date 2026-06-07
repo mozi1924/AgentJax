@@ -103,8 +103,12 @@ impl Tool for KbListTool {
             .app_config
             .as_ref()
             .ok_or_else(|| AgentJaxError::tool("No app config"))?;
+        let agent_id = context
+            .agent_id
+            .as_deref()
+            .unwrap_or("unknown");
 
-        let mut kbs = manager.list_kbs(app_config).await?;
+        let mut kbs = manager.list_kbs_filtered(app_config, agent_id).await?;
 
         // Filter by query if provided
         if let Some(ref q) = args.query {
@@ -197,6 +201,17 @@ impl Tool for KbSearchTool {
             .app_config
             .as_ref()
             .ok_or_else(|| AgentJaxError::tool("No app config"))?;
+        let agent_id = context
+            .agent_id
+            .as_deref()
+            .unwrap_or("unknown");
+
+        if !manager.is_kb_accessible(&args.kb_id, agent_id) {
+            return Err(AgentJaxError::tool(format!(
+                "Knowledge base '{}' is not accessible by this agent profile",
+                args.kb_id
+            )));
+        }
 
         let results = manager.search(&args.kb_id, &args.query, top_k, app_config).await?;
 
@@ -266,6 +281,17 @@ impl Tool for KbGetTool {
         let manager = guard
             .as_ref()
             .ok_or_else(|| AgentJaxError::tool("KB manager not initialized"))?;
+        let agent_id = context
+            .agent_id
+            .as_deref()
+            .unwrap_or("unknown");
+
+        if !manager.is_kb_accessible(&args.kb_id, agent_id) {
+            return Err(AgentJaxError::tool(format!(
+                "Knowledge base '{}' is not accessible by this agent profile",
+                args.kb_id
+            )));
+        }
 
         let chunks = manager.get_document(&args.kb_id, &args.document_id).await?;
 
@@ -370,6 +396,17 @@ impl Tool for KbIndexTool {
             .app_config
             .as_ref()
             .ok_or_else(|| AgentJaxError::tool("No app config"))?;
+        let agent_id = context
+            .agent_id
+            .as_deref()
+            .unwrap_or("unknown");
+
+        if !manager.is_kb_accessible(&args.kb_id, agent_id) {
+            return Err(AgentJaxError::tool(format!(
+                "Knowledge base '{}' is not accessible by this agent profile",
+                args.kb_id
+            )));
+        }
 
         let document = Document {
             id: args.document_id,

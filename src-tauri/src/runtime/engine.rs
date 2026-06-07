@@ -17,6 +17,7 @@ use crate::message_phase::AssistantPhase;
 use crate::provider_api::types::{ProviderStreamEvent, ResponseStreamResult};
 use crate::time_context::{build_temporal_context_system_item, render_timed_message};
 use crate::tools::{ToolCatalog, ToolExecutionContext};
+use crate::rag::KnowledgeBaseManager;
 use output::{
     extract_assistant_messages_from_items, resolve_hop_phase, select_final_output_text,
     strip_commentary_prefixes,
@@ -34,6 +35,7 @@ impl AgentRuntime {
     pub async fn run_turn<F>(
         config: &AppConfig,
         agent: &AgentConfig,
+        agent_id: &str,
         req: &ChatRequest,
         conversation_id: &str,
         user_message_ts: i64,
@@ -97,6 +99,7 @@ impl AgentRuntime {
         let is_memory_sub_agent = sub_agent_type.as_deref() == Some("memory");
         let tool_context = ToolExecutionContext {
             conversation_id: Some(conversation_id.to_string()),
+            agent_id: Some(agent_id.to_string()),
             model_id: Some(resolved_model.model_id.clone()),
             app_config: Some(Arc::new(config.clone())),
             agent_config: Some(Arc::new(agent.clone())),
@@ -157,6 +160,88 @@ impl AgentRuntime {
             );
             if let Err(e) = context.persist_message(&user_msg).await {
                 log::warn!("Failed to persist user message for turn: {e}");
+            }
+        }
+
+        // ── Pre-retrieval: auto-search KBs and inject context ────────────
+        // Before building the hop prefix, automatically search the agent's
+        // accessible knowledge bases and inject the top results as a system
+        // item. This ensures the model is aware of relevant KB content
+        // without having to explicitly invoke kb_search.
+        if config.rag.enabled && !config.rag.knowledge_bases.is_empty() {
+            match KnowledgeBaseManager::from_config(config, agent) {
+                Ok(kb_manager) => {
+                    let user_query = req.input.trim();
+                    if !user_query.is_empty() {
+                        match kb_manager
+                            .list_kbs_filtered(config, agent_id)
+                            .await
+                        {
+                            Ok(accessible_kbs) => {
+                                let max_total_chunks: usize = 5;
+                                let per_kb = 3usize;
+                                let mut all_chunks: Vec<String> = Vec::new();
+
+                                for kb_info in accessible_kbs.iter() {
+                                    if all_chunks.len() >= max_total_chunks {
+                                        break;
+                                    }
+                                    let remaining = max_total_chunks - all_chunks.len();
+                                    let k = per_kb.min(remaining);
+                                    match kb_manager
+                                        .search(&kb_info.id, user_query, k, config)
+                                        .await
+                                    {
+                                        Ok(results) => {
+                                            for r in results {
+                                                all_chunks.push(format!(
+                                                    "[Knowledge Base] \"{}\" — \"{}\" (score: {:.2}):\n---\n{}\n---",
+                                                    kb_info.name,
+                                                    r.title,
+                                                    r.score,
+                                                    r.content.trim()
+                                                ));
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::warn!(
+                                                "Pre-retrieval search failed for KB '{}': {}",
+                                                kb_info.id,
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+
+                                if !all_chunks.is_empty() {
+                                    let kbc = all_chunks.join("\n\n");
+                                    system_items.push(serde_json::json!({
+                                        "role": "system",
+                                        "content": [
+                                            {
+                                                "type": "input_text",
+                                                "text": format!(
+                                                    "[Knowledge Base Context — automatically retrieved]\n\
+                                                     The following excerpts are from your knowledge bases \
+                                                     and may be relevant to the user's query. Use them to \
+                                                     inform your answer, but prioritize the user's actual \
+                                                     question over the retrieved context.\n\n{}",
+                                                    kbc
+                                                )
+                                            }
+                                        ]
+                                    }));
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("Pre-retrieval KB listing failed: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Pre-retrieval KB manager init failed: {}", e);
+                }
             }
         }
 
