@@ -130,7 +130,7 @@ export function useToolManagerDataProvider({
     return () => {
       disposed = true;
     };
-  }, [enabled]);
+  }, [enabled, agentId]);
 
   useEffect(() => {
     if (search !== undefined) {
