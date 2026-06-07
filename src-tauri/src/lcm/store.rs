@@ -91,6 +91,7 @@ impl LcmStore {
     /// The store exists only for the lifetime of the `LcmStore` object.
     /// No data is persisted to disk. Useful for ephemeral sub-agents,
     /// tests, and short-lived contexts where disk I/O is wasteful.
+    #[allow(dead_code)]
     pub fn open_in_memory(config: LcmConfig) -> Result<Self, LcmError> {
         let conn = Connection::open_in_memory()
             .map_err(|e| LcmError::Store(format!("Failed to open in-memory LCM store: {e}")))?;

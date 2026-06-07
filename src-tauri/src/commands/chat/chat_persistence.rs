@@ -184,6 +184,7 @@ pub fn persist_tool_progress_event(
 }
 
 /// Persist a completed assistant message item in provider order.
+#[allow(clippy::too_many_arguments)]
 pub fn persist_assistant_line(
     agent_id: &str,
     conversation_id: &str,

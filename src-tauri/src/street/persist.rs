@@ -158,7 +158,7 @@ mod tests {
         assert_eq!(load_items(&conv).unwrap().len(), 2);
 
         // Save only one (simulating a removal/prune).
-        save_items(&conv, &[item1.clone()]).unwrap();
+        save_items(&conv, std::slice::from_ref(&item1)).unwrap();
         let loaded = load_items(&conv).unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].lock().unwrap().title, "First");
@@ -196,7 +196,7 @@ mod tests {
             "Original",
             json!({}),
         );
-        let same_id = item.id.clone();
+        let _same_id = item.id.clone();
         append_item(&item).unwrap();
 
         // Now mark as delivered by rewriting with updated status.

@@ -121,6 +121,7 @@ pub struct ToolSchemaSummary {
 
 impl ToolManagerToolSnapshot {
     /// Construct a tool snapshot entry with automatic `schema_summary` computation.
+    #[allow(clippy::too_many_arguments)]
     fn new(
         id: String,
         friendly_name: String,
@@ -154,6 +155,7 @@ impl ToolManagerToolSnapshot {
 
 impl ToolManagerSourceSnapshot {
     /// Construct a source snapshot entry with `error: None`.
+    #[allow(clippy::too_many_arguments)]
     fn new(
         source_type: ToolManagerSourceType,
         source_id: String,

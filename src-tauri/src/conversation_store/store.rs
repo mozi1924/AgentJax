@@ -9,6 +9,10 @@
 //! High-level CRUD operations (append_line, load_conversation, etc.) remain
 //! as free functions in `mutations.rs` / `queries.rs`. This struct provides
 //! the foundational path, lock, and cache primitives they build upon.
+//!
+//! NOTE: ConversationStore is reserved for a future API unification pass
+//! and is currently unused. Remove `#![allow(dead_code)]` once adopted.
+#![allow(dead_code)]
 
 use super::locks;
 use super::paths;
@@ -21,6 +25,9 @@ use std::path::PathBuf;
 ///
 /// Created once per agent and shared via `Arc<ConversationStore>`.
 /// Provides path resolution, lock management, and index cache access.
+///
+/// Currently unused — the codebase still uses the module-level free functions.
+/// This struct is reserved for a future API unification pass.
 #[derive(Debug, Clone)]
 pub struct ConversationStore {
     agent_id: String,
@@ -126,7 +133,7 @@ impl ConversationStore {
     }
 
     pub fn invalidate_cached_index(&self, conversation_id: &str) {
-        locks::invalidate_cached_conversation_index(conversation_id);
+        let _ = locks::invalidate_cached_conversation_index(conversation_id);
     }
 }
 

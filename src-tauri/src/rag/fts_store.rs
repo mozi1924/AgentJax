@@ -477,11 +477,11 @@ pub struct FtsSearchResult {
 fn extract_title(content: &str) -> String {
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("# ") {
-            return trimmed[2..].trim().to_string();
+        if let Some(stripped) = trimmed.strip_prefix("# ") {
+            return stripped.trim().to_string();
         }
-        if trimmed.starts_with("## ") {
-            return trimmed[3..].trim().to_string();
+        if let Some(stripped) = trimmed.strip_prefix("## ") {
+            return stripped.trim().to_string();
         }
     }
     "Untitled".to_string()

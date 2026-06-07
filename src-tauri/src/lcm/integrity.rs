@@ -77,13 +77,13 @@ impl IntegrityChecker {
 
     /// Run all integrity checks for a conversation.
     pub fn scan(&self, conversation_id: &str) -> Result<IntegrityReport, LcmError> {
-        let mut checks = Vec::with_capacity(5);
-
-        checks.push(self.check_conversation_exists(conversation_id)?);
-        checks.push(self.check_summaries_have_lineage(conversation_id)?);
-        checks.push(self.check_no_orphan_summaries(conversation_id)?);
-        checks.push(self.check_message_seq_contiguous(conversation_id)?);
-        checks.push(self.check_context_token_count(conversation_id)?);
+        let checks = vec![
+            self.check_conversation_exists(conversation_id)?,
+            self.check_summaries_have_lineage(conversation_id)?,
+            self.check_no_orphan_summaries(conversation_id)?,
+            self.check_message_seq_contiguous(conversation_id)?,
+            self.check_context_token_count(conversation_id)?,
+        ];
 
         let pass_count = checks
             .iter()

@@ -114,6 +114,7 @@ pub async fn setup_http_request(
 /// Handles cancellation via `cancel_rx`, byte buffer accumulation, and SSE
 /// event boundary splitting. Returns when the stream ends naturally, is
 /// cancelled, or when `process_event` returns `true`.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_sse_stream<S: StreamStateMachine + Send>(
     response: reqwest::Response,
     mut state: S,

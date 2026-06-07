@@ -498,7 +498,7 @@ fn is_content_effectively_empty(msg: &StoredMessage) -> bool {
             .and_then(|v| v.as_array())
             .map(|a| a.is_empty())
             .unwrap_or(true)
-        && msg.metadata.get("tool_call_id").is_none()
+        && !msg.metadata.contains_key("tool_call_id")
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────

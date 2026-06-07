@@ -347,7 +347,7 @@ fn lookup_builtin_model<'a>(
         .iter()
         .filter(|m| normalized.contains(&m.id) || m.id.contains(&normalized))
         .collect();
-    candidates.sort_by(|a, b| b.id.len().cmp(&a.id.len()));
+    candidates.sort_by_key(|b| std::cmp::Reverse(b.id.len()));
     candidates.into_iter().next()
 }
 

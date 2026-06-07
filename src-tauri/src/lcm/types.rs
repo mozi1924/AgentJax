@@ -142,6 +142,7 @@ pub struct StoredMessage {
 
 impl StoredMessage {
     /// Create a new message to be persisted.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: MessageId,
         conversation_id: impl Into<String>,

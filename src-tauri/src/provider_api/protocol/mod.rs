@@ -255,6 +255,7 @@ pub trait Protocol: Send + Sync {
     fn name(&self) -> &str;
 
     /// Stream a chat completion response from a model via this protocol.
+    #[allow(clippy::too_many_arguments)]
     async fn stream_response(
         &self,
         config: &AppConfig,

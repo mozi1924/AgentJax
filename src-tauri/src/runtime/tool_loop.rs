@@ -37,6 +37,7 @@ use tokio::sync::watch;
 ///
 /// # Returns
 /// The model's final output text.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_tool_loop(
     system_prompt: &str,
     context_items: Vec<Value>,

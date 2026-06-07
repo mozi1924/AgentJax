@@ -704,10 +704,10 @@ impl ProviderConfig {
             return url.clone();
         }
         let base = self.api_endpoint.trim_end_matches('/');
-        if base.starts_with("https://") {
-            format!("wss://{}", &base["https://".len()..])
-        } else if base.starts_with("http://") {
-            format!("ws://{}", &base["http://".len()..])
+        if let Some(stripped) = base.strip_prefix("https://") {
+            format!("wss://{}", stripped)
+        } else if let Some(stripped) = base.strip_prefix("http://") {
+            format!("ws://{}", stripped)
         } else {
             format!("wss://{}", base)
         }

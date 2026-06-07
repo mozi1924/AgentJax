@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 
 /// Persist assistant messages for a single hop, including thinking content
 /// and embedded tool calls.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn persist_hop_assistant_messages(
     context: &dyn AgentContext,
     conversation_id: &str,

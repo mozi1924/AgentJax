@@ -47,12 +47,6 @@ pub struct KnowledgeBaseManager {
     root_dir: PathBuf,
     /// RAG engine — handles embedding and hybrid search.
     engine: RagEngine,
-    /// Chunker shared across all KBs.
-    #[allow(dead_code)]
-    chunker: Chunker,
-    /// Default top-K for searches.
-    #[allow(dead_code)]
-    top_k: usize,
     /// Configured knowledge base entries from the global config.
     /// Used for per-agent disabled_agents gating at runtime.
     knowledge_base_entries: BTreeMap<String, KnowledgeBaseEntry>,
@@ -88,14 +82,7 @@ impl KnowledgeBaseManager {
     pub fn from_config(app_config: &AppConfig) -> AgentJaxResult<Self> {
         let home = agentjax_home::agentjax_home_dir()?;
         let root_dir = home.join("knowledge_bases");
-        let rag = &app_config.rag;
-        let kb_settings = KnowledgeBaseSettings::from(rag);
-        let chunker = Chunker::new(
-            rag.chunk_size,
-            rag.chunk_overlap,
-            rag.chunk_window
-                .unwrap_or(crate::rag::chunking::DEFAULT_WINDOW_CHARS),
-        )?;
+        let kb_settings = KnowledgeBaseSettings::from(&app_config.rag);
 
         let engine = RagEngine::from_config(app_config)?;
 
@@ -103,8 +90,6 @@ impl KnowledgeBaseManager {
             bases: RwLock::new(HashMap::new()),
             root_dir,
             engine,
-            chunker,
-            top_k: kb_settings.top_k,
             knowledge_base_entries: kb_settings.knowledge_bases,
         })
     }
@@ -237,7 +222,6 @@ impl KnowledgeBaseManager {
         let fts_store = FtsStore::open(kb_dir.join("fts.db"))?;
 
         let kb = Arc::new(KnowledgeBase {
-            id: kb_id.to_string(),
             vector_store,
             fts_store,
             chunker: MarkdownChunker::with_defaults(),
@@ -797,10 +781,12 @@ impl KnowledgeBaseManager {
 
                 // Reciprocal Rank Fusion
                 let k: f32 = 60.0;
-                let mut score_map: HashMap<
-                    String,
-                    (f32, f32, &str, &str, &str, &str, &BTreeMap<String, String>),
-                > = HashMap::new();
+
+                // Type aliases to keep clippy happy with the 7-tuple fusion map.
+                type RrfEntry<'a> = (f32, f32, &'a str, &'a str, &'a str, &'a str, &'a BTreeMap<String, String>);
+                type RrfMap<'a> = HashMap<String, RrfEntry<'a>>;
+
+                let mut score_map: RrfMap = HashMap::new();
 
                 for (rank, r) in vec_results.iter().enumerate() {
                     let rrf = 1.0 / (k + (rank + 1) as f32);
@@ -822,10 +808,7 @@ impl KnowledgeBaseManager {
                     }
                 }
 
-                let mut fused: Vec<(
-                    &String,
-                    &(f32, f32, &str, &str, &str, &str, &BTreeMap<String, String>),
-                )> = score_map.iter().collect();
+                let mut fused: Vec<(&String, &RrfEntry)> = score_map.iter().collect();
                 fused.sort_by(|a, b| {
                     b.1 .0
                         .partial_cmp(&a.1 .0)
@@ -890,15 +873,6 @@ impl KnowledgeBaseManager {
         }
     }
 
-    /// Delete a document from a knowledge base.
-    #[allow(dead_code)]
-    pub async fn delete_document(&self, kb_id: &str, document_id: &str) -> AgentJaxResult<()> {
-        let kb = self.open_kb(kb_id).await?;
-        kb.vector_store.delete_document(document_id).await?;
-        kb.fts_store.delete_document(document_id)?;
-        Ok(())
-    }
-
     /// Get a document's chunks from a knowledge base.
     pub async fn get_document(&self, kb_id: &str, document_id: &str) -> AgentJaxResult<Vec<String>> {
         let kb = self.open_kb(kb_id).await?;
@@ -912,8 +886,6 @@ impl KnowledgeBaseManager {
 ///
 /// Owns both the vector store (LanceDB) and the FTS store (SQLite).
 pub struct KnowledgeBase {
-    #[allow(dead_code)]
-    pub id: String,
     pub vector_store: VectorStore,
     pub fts_store: FtsStore,
     pub chunker: Chunker,

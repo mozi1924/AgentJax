@@ -454,10 +454,12 @@ mod tests {
     #[test]
     fn test_agent_config_merge_defaults() {
         let base = AgentConfig::default();
-        let mut partial = AgentConfig::default();
-        partial.active_provider = "".to_string();
-        partial.default_model = "".to_string();
-        partial.utility_small_model = "my/model".to_string();
+        let partial = AgentConfig {
+            active_provider: String::new(),
+            default_model: String::new(),
+            utility_small_model: "my/model".to_string(),
+            ..AgentConfig::default()
+        };
 
         let merged = partial.merge_defaults(&base);
         // Empty fields should be filled from defaults

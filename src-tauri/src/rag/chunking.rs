@@ -266,6 +266,7 @@ impl MarkdownChunker {
     /// Create a new markdown chunker.
     ///
     /// Constraints: `chunk_size_chars > 0`, `overlap_chars < chunk_size_chars`.
+    #[allow(dead_code)]
     pub fn new(
         chunk_size_chars: usize,
         overlap_chars: usize,
