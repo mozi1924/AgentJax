@@ -65,6 +65,11 @@ impl KnowledgeBaseManager {
         &self.root_dir
     }
 
+    /// Whether embedding is disabled (no model configured or resolution failed).
+    pub fn is_embedding_disabled(&self) -> bool {
+        self.embedding_disabled
+    }
+
     /// Create a new KB manager from app + agent config.
     ///
     /// KBs are stored under `$AGENTJAX_HOME/knowledge_bases/` and use the
@@ -343,6 +348,152 @@ impl KnowledgeBaseManager {
         }
         // Index the new content.
         self.index_document(kb_id, document, app_config).await
+    }
+
+    // ── Phased Indexing ────────────────────────────────────────────────
+
+    /// Phase 1+2: Prepare — chunk all documents and store in FTS.
+    ///
+    /// This is a fast, local-only operation. Documents are chunked and
+    /// their text is stored in the SQLite FTS store with an empty
+    /// `embeddings_model` flag. The FTS5 index is rebuilt afterwards.
+    ///
+    /// Returns the total number of chunks prepared.
+    pub async fn prepare_kb(
+        &self,
+        kb_id: &str,
+        documents: &[(String, String)], // (doc_id, content)
+    ) -> AgentJaxResult<usize> {
+        let kb = self.open_kb(kb_id).await?;
+        let mut total_chunks = 0usize;
+
+        for (doc_id, content) in documents {
+            let hash = content_hash(content);
+
+            // Skip duplicates
+            let existing = kb.fts_store.list_documents().unwrap_or_default();
+            if existing.iter().any(|d| d.content_hash == hash) {
+                continue;
+            }
+
+            let doc = Document {
+                id: doc_id.clone(),
+                content: content.clone(),
+                metadata: std::collections::BTreeMap::new(),
+            };
+
+            // Chunk
+            let chunks = kb.chunker.chunk(&doc);
+            if chunks.is_empty() {
+                continue;
+            }
+
+            total_chunks += chunks.len();
+
+            // Store document metadata
+            kb.fts_store.upsert_document(&doc, &hash)?;
+
+            // Store chunk text (without embeddings yet — embeddings_model='')
+            kb.fts_store.prepare_chunks(&chunks)?;
+        }
+
+        // Rebuild FTS index to include all prepared chunks
+        kb.fts_store.rebuild_fts()?;
+
+        log::info!(
+            "Prepared KB '{}': {} chunks ready for embedding",
+            kb_id,
+            total_chunks
+        );
+
+        Ok(total_chunks)
+    }
+
+    /// Phase 3: Embed — continuously embed all unembedded chunks.
+    ///
+    /// Streams through chunks in batches, calls the embedding API, writes
+    /// vectors to LanceDB, and marks chunks as embedded in SQLite. The
+    /// `on_progress` callback receives `(processed, total)` after each
+    /// batch completes.
+    pub async fn embed_prepared_chunks<F>(
+        &self,
+        kb_id: &str,
+        app_config: &AppConfig,
+        batch_size: usize,
+        mut on_progress: F,
+    ) -> AgentJaxResult<usize>
+    where
+        F: FnMut(usize, usize),
+    {
+        let kb = self.open_kb(kb_id).await?;
+        let total = kb.fts_store.unembedded_chunk_count()?;
+
+        if total == 0 {
+            return Ok(0);
+        }
+
+        let mut embedded = 0usize;
+        let mut offset = 0usize;
+
+        while embedded < total {
+            let batch: Vec<(String, String, usize, String)> =
+                kb.fts_store.get_unembedded_chunks(batch_size, offset)?;
+            if batch.is_empty() {
+                break;
+            }
+
+            let texts: Vec<String> = batch.iter().map(|(_, _, _, content)| content.clone()).collect();
+            let chunk_ids: Vec<String> = batch.iter().map(|(id, _, _, _)| id.clone()).collect();
+            let batch_count = texts.len();
+
+            // Embed all texts in one API call
+            let response = provider_api::embed_text(
+                app_config,
+                &self.provider_key,
+                &self.embedding_model,
+                &EmbeddingRequest::batch(texts),
+            )
+            .await?;
+
+            if response.embeddings.len() != batch_count {
+                return Err(AgentJaxError::embedding(format!(
+                    "Expected {} embeddings, got {}",
+                    batch_count,
+                    response.embeddings.len()
+                )));
+            }
+
+            // Build Chunk structs with embeddings for LanceDB
+            let embedded_chunks: Vec<Chunk> = batch
+                .iter()
+                .zip(response.embeddings.iter())
+                .map(|((id, doc_id, idx, content), embedding)| Chunk {
+                    id: id.clone(),
+                    document_id: doc_id.clone(),
+                    chunk_index: *idx,
+                    content: content.clone(),
+                    embedding: Some(embedding.clone()),
+                })
+                .collect();
+
+            // Write to vector store
+            kb.vector_store.insert_chunks(&embedded_chunks).await?;
+
+            // Mark as embedded in FTS store
+            kb.fts_store.mark_chunks_embedded(&chunk_ids, &self.embedding_model)?;
+
+            embedded += batch_count;
+            offset += batch_count;
+            on_progress(embedded, total);
+        }
+
+        log::info!(
+            "Embedded {} chunks in KB '{}'",
+            embedded,
+            kb_id
+        );
+
+        Ok(embedded)
     }
 
     // ── Search ─────────────────────────────────────────────────────────

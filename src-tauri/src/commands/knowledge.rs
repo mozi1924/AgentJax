@@ -11,7 +11,6 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::Emitter;
 
 /// A progress event emitted during knowledge base indexing.
@@ -19,6 +18,8 @@ use tauri::Emitter;
 #[serde(rename_all = "camelCase")]
 pub struct KnowledgeIndexingProgress {
     pub kb_id: String,
+    /// Current phase: "chunking" | "fts" | "embedding" | "done"
+    pub phase: String,
     pub processed: usize,
     pub total: usize,
     pub current_file: String,
@@ -247,20 +248,22 @@ pub async fn refresh_knowledge_base(
         )));
     }
 
-    let emit_progress = |processed: usize,
+    let emit_progress = |phase: &str,
+                         processed: usize,
                          total: usize,
                          current_file: &str,
-                         chunks_created: usize,
+                         chunks: usize,
                          done: bool,
                          error: Option<String>| {
         let _ = app_handle.emit(
             "kb_indexing_progress",
             KnowledgeIndexingProgress {
                 kb_id: kb_id.clone(),
+                phase: phase.to_string(),
                 processed,
                 total,
                 current_file: current_file.to_string(),
-                chunks_created,
+                chunks_created: chunks,
                 done,
                 error,
             },
@@ -278,7 +281,7 @@ pub async fn refresh_knowledge_base(
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| "doc".to_string());
 
-            emit_progress(0, 1, &file_name, 0, false, None);
+            emit_progress("embedding", 0, 1, &file_name, 0, false, None);
 
             let content = tokio::fs::read_to_string(&resolved_path).await.map_err(|e| {
                 AgentJaxError::config(format!("Failed to read file '{}': {e}", resolved_path.display()))
@@ -294,21 +297,21 @@ pub async fn refresh_knowledge_base(
                 Ok(progress) => {
                     total_docs += 1;
                     total_chunks += progress.chunks_created;
-                    emit_progress(1, 1, "", total_chunks, true, None);
+                    emit_progress("done", 1, 1, "", total_chunks, true, None);
                 }
                 Err(e) => {
-                    emit_progress(0, 1, "", 0, true, Some(e.to_string()));
+                    emit_progress("done", 0, 1, "", 0, true, Some(e.to_string()));
                     return Err(e);
                 }
             }
         }
         KbPathType::Folder => {
-            let mut md_files = Vec::new();
+            let mut md_files: Vec<std::path::PathBuf> = Vec::new();
             scan_markdown_files_for_indexing(&resolved_path, &mut md_files)?;
-            let total = md_files.len();
+            let total_files = md_files.len();
 
-            if total == 0 {
-                emit_progress(0, 0, "", 0, true, None);
+            if total_files == 0 {
+                emit_progress("done", 0, 0, "", 0, true, None);
                 return Ok(serde_json::json!({
                     "kbId": kb_id,
                     "totalDocuments": 0,
@@ -316,126 +319,101 @@ pub async fn refresh_knowledge_base(
                 }));
             }
 
-            // ── Concurrent indexing with bounded parallelism ──────────
-            // Process up to 8 documents in parallel to keep the embedding
-            // API saturated without overwhelming network/disk resources.
-            const MAX_CONCURRENT: usize = 8;
-            let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT));
-            let kb_manager = Arc::new(kb_manager);
-            let processed = Arc::new(AtomicUsize::new(0));
-            let total_chunks_atomic = Arc::new(AtomicUsize::new(0));
-            let mut handles = futures_util::stream::FuturesUnordered::new();
+            // ═══════════════════════════════════════════════════════════
+            // Phase 1: Chunking (local-only, fast)
+            // ═══════════════════════════════════════════════════════════
+            emit_progress("chunking", 0, total_files, "", 0, false, None);
 
-            for file_path in md_files {
-                let kb_id = kb_id.clone();
-                let kb_manager = Arc::clone(&kb_manager);
-                let app_handle = app_handle.clone();
-                let app_config = Arc::clone(&app_config);
-                let sem = Arc::clone(&semaphore);
-                let processed = Arc::clone(&processed);
-                let total_chunks = Arc::clone(&total_chunks_atomic);
+            let mut documents: Vec<(String, String)> = Vec::with_capacity(total_files);
+            for (idx, file_path) in md_files.iter().enumerate() {
+                let file_name = file_path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "doc".to_string());
 
-                handles.push(tokio::spawn(async move {
-                    let _permit = sem.acquire().await;
-                    let file_name = file_path
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "doc".to_string());
+                emit_progress("chunking", idx, total_files, &file_name, 0, false, None);
 
-                    let content = match tokio::fs::read_to_string(&file_path).await {
-                        Ok(c) => c,
-                        Err(e) => {
-                            let p = processed.fetch_add(1, Ordering::SeqCst);
-                            let tc = total_chunks.load(Ordering::SeqCst);
-                            let _ = app_handle.emit(
+                match tokio::fs::read_to_string(file_path).await {
+                    Ok(content) => {
+                        documents.push((file_name, content));
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to read '{}': {e}", file_path.display());
+                        emit_progress(
+                            "chunking",
+                            idx + 1,
+                            total_files,
+                            "",
+                            0,
+                            false,
+                            Some(format!("Failed to read '{}': {e}", file_path.display())),
+                        );
+                    }
+                }
+            }
+
+            total_docs = documents.len();
+            let prepared_chunks = kb_manager.prepare_kb(&kb_id, &documents).await?;
+            emit_progress("chunking", total_files, total_files, "", prepared_chunks, false, None);
+
+            log::info!(
+                "KB '{}' chunking complete: {} docs → {} chunks",
+                kb_id, total_docs, prepared_chunks
+            );
+
+            // ═══════════════════════════════════════════════════════════
+            // Phase 2: FTS Indexing (local-only, instant)
+            // ═══════════════════════════════════════════════════════════
+            emit_progress("fts", 0, 1, "", prepared_chunks, false, None);
+            // FTS is already rebuilt by prepare_kb; this is a no-op signal
+            emit_progress("fts", 1, 1, "", prepared_chunks, false, None);
+
+            // ═══════════════════════════════════════════════════════════
+            // Phase 3: Embedding (API-heavy, continuous streaming)
+            // ═══════════════════════════════════════════════════════════
+            if prepared_chunks > 0 && !kb_manager.is_embedding_disabled() {
+                let app_handle2 = app_handle.clone();
+                let kb_id2 = kb_id.clone();
+                let total_chunks_embed = prepared_chunks;
+                let total_docs_embed = total_docs;
+
+                kb_manager
+                    .embed_prepared_chunks(
+                        &kb_id,
+                        &app_config,
+                        100, // batch size: 100 texts per embedding API call
+                        move |processed, total| {
+                            let _ = app_handle2.emit(
                                 "kb_indexing_progress",
                                 KnowledgeIndexingProgress {
-                                    kb_id: kb_id.clone(),
-                                    processed: p + 1,
+                                    kb_id: kb_id2.clone(),
+                                    phase: "embedding".to_string(),
+                                    processed,
                                     total,
-                                    current_file: file_name,
-                                    chunks_created: tc,
-                                    done: false,
-                                    error: Some(format!(
-                                        "Failed to read '{}': {e}",
-                                        file_path.display()
-                                    )),
-                                },
-                            );
-                            return (0, 0);
-                        }
-                    };
-
-                    let document = crate::rag::types::Document {
-                        id: file_name.clone(),
-                        content,
-                        metadata: std::collections::BTreeMap::new(),
-                    };
-
-                    match kb_manager
-                        .index_document(&kb_id, document, &app_config)
-                        .await
-                    {
-                        Ok(progress) => {
-                            let p = processed.fetch_add(1, Ordering::SeqCst);
-                            let tc = total_chunks.fetch_add(
-                                progress.chunks_created,
-                                Ordering::SeqCst,
-                            );
-                            let _ = app_handle.emit(
-                                "kb_indexing_progress",
-                                KnowledgeIndexingProgress {
-                                    kb_id: kb_id.clone(),
-                                    processed: p + 1,
-                                    total,
-                                    current_file: file_name,
-                                    chunks_created: tc + progress.chunks_created,
+                                    current_file: String::new(),
+                                    chunks_created: total_docs_embed,
                                     done: false,
                                     error: None,
                                 },
                             );
-                            (1, progress.chunks_created)
-                        }
-                        Err(e) => {
-                            log::warn!(
-                                "Failed to index '{}': {e}",
-                                file_path.display()
-                            );
-                            let p = processed.fetch_add(1, Ordering::SeqCst);
-                            let tc = total_chunks.load(Ordering::SeqCst);
-                            let _ = app_handle.emit(
-                                "kb_indexing_progress",
-                                KnowledgeIndexingProgress {
-                                    kb_id: kb_id.clone(),
-                                    processed: p + 1,
-                                    total,
-                                    current_file: file_name,
-                                    chunks_created: tc,
-                                    done: false,
-                                    error: Some(format!(
-                                        "Failed to index '{}': {e}",
-                                        file_path.display()
-                                    )),
-                                },
-                            );
-                            (0, 0)
-                        }
-                    }
-                }));
+                        },
+                    )
+                    .await?;
+                total_chunks = total_chunks_embed;
+            } else if prepared_chunks == 0 {
+                total_chunks = 0;
+            } else {
+                // Embedding disabled — FTS5-only mode, skip vector store
+                total_chunks = prepared_chunks;
+                log::info!(
+                    "KB '{}': embedding disabled, skipping vector indexing ({} chunks in FTS only)",
+                    kb_id, prepared_chunks
+                );
             }
-
-            // Collect results
-            use futures_util::StreamExt;
-            while let Some(result) = handles.next().await {
-                if let Ok((docs, chunks)) = result {
-                    total_docs += docs;
-                    total_chunks += chunks;
-                }
-            }
-
-            emit_progress(total, total, "", total_chunks, true, None);
         }
     }
+
+    emit_progress("done", total_docs, total_docs, "", total_chunks, true, None);
 
     Ok(serde_json::json!({
         "kbId": kb_id,

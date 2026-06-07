@@ -211,6 +211,114 @@ impl FtsStore {
         Ok(count as usize)
     }
 
+    /// Count unembedded chunks (those with empty embeddings_model).
+    pub fn unembedded_chunk_count(&self) -> AgentJaxResult<usize> {
+        let conn = self.lock_conn()?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM chunks WHERE embeddings_model = ''",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| AgentJaxError::embedding(format!("Unembedded count failed: {e}")))?;
+        Ok(count as usize)
+    }
+
+    // ── Phased Indexing Operations ─────────────────────────────────────
+
+    /// Insert chunks during the prepare phase (before embedding).
+    ///
+    /// Chunks are stored with an empty `embeddings_model` to signal they
+    /// are ready for embedding. The FTS index is rebuilt after insertion.
+    pub fn prepare_chunks(&self, chunks: &[Chunk]) -> AgentJaxResult<()> {
+        let conn = self.lock_conn()?;
+        for chunk in chunks {
+            conn.execute(
+                "INSERT OR REPLACE INTO chunks (id, document_id, chunk_index, content, embeddings_model)
+                 VALUES (?1, ?2, ?3, ?4, '')",
+                params![
+                    chunk.id,
+                    chunk.document_id,
+                    chunk.chunk_index as i64,
+                    chunk.content,
+                ],
+            )
+            .map_err(|e| {
+                AgentJaxError::embedding(format!("Failed to prepare chunk {}: {e}", chunk.id))
+            })?;
+        }
+        conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')", [])
+            .map_err(|e| AgentJaxError::embedding(format!("Failed to rebuild FTS: {e}")))?;
+        Ok(())
+    }
+
+    /// Fetch a batch of unembedded chunks for the embedding phase.
+    ///
+    /// Returns chunks whose `embeddings_model` is empty, ordered by
+    /// document_id and chunk_index for deterministic processing.
+    pub fn get_unembedded_chunks(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> AgentJaxResult<Vec<(String, String, usize, String)>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, document_id, chunk_index, content
+                 FROM chunks
+                 WHERE embeddings_model = ''
+                 ORDER BY document_id, chunk_index
+                 LIMIT ?1 OFFSET ?2",
+            )
+            .map_err(|e| AgentJaxError::embedding(format!("Query prep failed: {e}")))?;
+
+        let rows = stmt
+            .query_map(params![limit as i64, offset as i64], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)? as usize,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(|e| AgentJaxError::embedding(format!("Query failed: {e}")))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(
+                row.map_err(|e| AgentJaxError::embedding(format!("Row error: {e}")))?,
+            );
+        }
+        Ok(results)
+    }
+
+    /// Mark chunks as embedded by setting their embeddings_model.
+    pub fn mark_chunks_embedded(
+        &self,
+        chunk_ids: &[String],
+        model: &str,
+    ) -> AgentJaxResult<()> {
+        let conn = self.lock_conn()?;
+        for id in chunk_ids {
+            conn.execute(
+                "UPDATE chunks SET embeddings_model = ?1 WHERE id = ?2",
+                params![model, id],
+            )
+            .map_err(|e| {
+                AgentJaxError::embedding(format!("Failed to mark chunk {id}: {e}"))
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Rebuild the FTS5 index (typically called after chunk prepare phase).
+    pub fn rebuild_fts(&self) -> AgentJaxResult<()> {
+        let conn = self.lock_conn()?;
+        conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')", [])
+            .map_err(|e| AgentJaxError::embedding(format!("Failed to rebuild FTS: {e}")))?;
+        Ok(())
+    }
+
     // ── Full-Text Search ───────────────────────────────────────────────
 
     /// Search chunks using SQLite FTS5 with BM25 scoring.
