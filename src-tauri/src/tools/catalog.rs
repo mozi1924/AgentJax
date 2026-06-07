@@ -17,6 +17,7 @@ use crate::plugin_runtime::{
     PluginManifest, PluginPackage, discover_all_plugin_packages, prefixed_plugin_tool_name,
     registered_tools_for_manifest,
 };
+use crate::tools::archived_tool::ArchivedTool;
 use crate::tools::knowledge_base_tools::{
     KbGetTool, KbIndexTool, KbListTool, KbSearchTool,
 };
@@ -120,6 +121,11 @@ impl ToolCatalog {
                 ToolEntry::kb(Arc::new(KbSearchTool)),
                 ToolEntry::kb(Arc::new(KbGetTool)),
                 ToolEntry::kb(Arc::new(KbIndexTool)),
+                // ── Archived tool (dummy carrier) ──────────────────────
+                // Always enabled — carries archived context so the
+                // archiver can emit valid function_call / output pairs
+                // that preserve Chat Completions interleaving.
+                ToolEntry::context_always(Arc::new(ArchivedTool)),
             ],
             mcp_manager,
             mcp_runtime: config.mcp.runtime(),
@@ -577,6 +583,12 @@ impl ToolCatalog {
     /// respects any explicit config so that the archiver can handle
     /// disabled tools uniformly.
     pub(crate) fn entry_enabled(&self, entry: &ToolEntry) -> bool {
+        // _archived_tool is the dummy carrier for archived context —
+        // it must always be enabled so the archiver never tries to
+        // archive the archiver's own output.
+        if entry.name() == crate::tools::archived_tool::ARCHIVED_TOOL_NAME {
+            return true;
+        }
         let enabled = match entry.category {
             ToolCategory::Native => self.native_tool_enabled(entry.name()),
             ToolCategory::KnowledgeBase | ToolCategory::Context => {

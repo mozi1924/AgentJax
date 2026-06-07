@@ -1,3 +1,4 @@
+pub(crate) mod archived_tool;
 pub(crate) mod background_jobs;
 mod calculator;
 pub(crate) mod catalog;

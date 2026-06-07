@@ -901,9 +901,9 @@ mod tests {
         let snapshot = catalog.snapshot(&ctx).await;
 
         // Native: 8 tools + background_task = 9
-        // Context: llm_map + memory (search, recall; write gated) + 4 knowledge base + 3 LCM = 10
-        // Total: 9 + 10 = 19
-        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT + 11);
+        // Context: llm_map + memory (search, recall; write gated) + 4 knowledge base + 3 LCM + _archived_tool = 11
+        // Total: 9 + 11 = 20
+        assert_eq!(snapshot.schemas().len(), DEFAULT_CATALOG_TOOL_COUNT + 12);
         // Verify sub_agent is a native tool (not context).
         assert!(snapshot.active_tool_names().contains("sub_agent"));
         // Verify memory tools: search and recall are available, write is gated.

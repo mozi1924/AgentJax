@@ -308,7 +308,11 @@ impl ToolCatalog {
         let tools = self
             .collect_registered_tools(&ctx)
             .into_iter()
-            .filter(|info| info.category == ToolCategory::Context)
+            .filter(|info| {
+                info.category == ToolCategory::Context
+                    // _archived_tool is an internal carrier — never shown in the UI.
+                    && info.name != crate::tools::archived_tool::ARCHIVED_TOOL_NAME
+            })
             .map(|info| {
                 let name = info.name.clone();
                 ToolManagerToolSnapshot::new(

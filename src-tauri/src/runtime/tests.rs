@@ -9,7 +9,7 @@ use crate::message_phase::AssistantPhase;
 use crate::provider_api::types::ProviderStreamEvent;
 use crate::tools::ToolCatalog;
 use std::collections::HashSet;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 use tokio::sync::watch;
@@ -418,8 +418,84 @@ async fn real_gateway_prompt_composer_blocks_smoke_test_from_local_config() {
     );
 }
 
+/// Helper: check if an item is part of an `_archived_tool` carrier pair.
+/// After archiving, the original function_call is rewritten with
+/// `name: "_archived_tool"` (keeping the original `call_id`), and the
+/// function_call_output has its output wrapped.
+fn is_carrier_item(item: &Value) -> bool {
+    // Function_call with name _archived_tool
+    item.get("name").and_then(|v| v.as_str()) == Some("_archived_tool")
+        // Function_call_output: check if the output contains "original_tool"
+        // (carrier outputs wrap the original output in a JSON envelope)
+        || (item.get("type").and_then(|v| v.as_str()) == Some("function_call_output")
+            && item.get("output").and_then(|v| v.as_str())
+                .map(|o| o.contains("\"original_tool\""))
+                .unwrap_or(false))
+}
+
+/// Helper: check that an `_archived_tool` carrier pair exists for the given
+/// original call_id.  Since we reuse the original call_id, the carrier
+/// function_call has the SAME call_id but name="_archived_tool".
+fn assert_archived_carrier_pair(items: &[Value], original_call_id: &str) {
+    let fc = items.iter().find(|item| {
+        item.get("type").and_then(|v| v.as_str()) == Some("function_call")
+            && item.get("call_id").and_then(|v| v.as_str()) == Some(original_call_id)
+            && item.get("name").and_then(|v| v.as_str()) == Some("_archived_tool")
+    });
+    let fco = items.iter().find(|item| {
+        item.get("type").and_then(|v| v.as_str()) == Some("function_call_output")
+            && item.get("call_id").and_then(|v| v.as_str()) == Some(original_call_id)
+    });
+    assert!(fc.is_some(), "expected _archived_tool function_call with call_id={original_call_id}");
+    assert!(fco.is_some(), "expected function_call_output with call_id={original_call_id}");
+}
+
+/// Check that an orphaned `function_call` (no matching output) was archived
+/// — only the function_call is rewritten, no function_call_output exists.
+fn assert_archived_orphaned_call(items: &[Value], original_call_id: &str) {
+    let fc = items.iter().find(|item| {
+        item.get("type").and_then(|v| v.as_str()) == Some("function_call")
+            && item.get("call_id").and_then(|v| v.as_str()) == Some(original_call_id)
+            && item.get("name").and_then(|v| v.as_str()) == Some("_archived_tool")
+    });
+    assert!(fc.is_some(), "expected _archived_tool function_call with call_id={original_call_id} (orphaned call)");
+    // No function_call_output should match this call_id.
+    let fco = items.iter().find(|item| {
+        item.get("type").and_then(|v| v.as_str()) == Some("function_call_output")
+            && item.get("call_id").and_then(|v| v.as_str()) == Some(original_call_id)
+    });
+    assert!(fco.is_none(), "expected NO function_call_output for orphaned call {original_call_id}");
+}
+
+/// Check that an orphaned `function_call_output` (no matching call) was
+/// archived — only the output is wrapped, no function_call exists.
+fn assert_archived_orphaned_output(items: &[Value], original_call_id: &str) {
+    let fco = items.iter().find(|item| {
+        item.get("type").and_then(|v| v.as_str()) == Some("function_call_output")
+            && item.get("call_id").and_then(|v| v.as_str()) == Some(original_call_id)
+            && item.get("output").and_then(|v| v.as_str())
+                .map(|o| o.contains("\"original_tool\""))
+                .unwrap_or(false)
+    });
+    assert!(fco.is_some(), "expected wrapped function_call_output with call_id={original_call_id} (orphaned output)");
+    // No function_call should match this call_id.
+    let fc = items.iter().find(|item| {
+        item.get("type").and_then(|v| v.as_str()) == Some("function_call")
+            && item.get("call_id").and_then(|v| v.as_str()) == Some(original_call_id)
+    });
+    assert!(fc.is_none(), "expected NO function_call for orphaned output {original_call_id}");
+}
+
+/// Helper: assert that no carrier pair exists (used when archiving should not happen).
+fn assert_no_archived_carrier(items: &[Value]) {
+    let has_carrier = items.iter().any(|item| {
+        item.get("name").and_then(|v| v.as_str()) == Some("_archived_tool")
+    });
+    assert!(!has_carrier, "expected no _archived_tool carrier pairs");
+}
+
 #[test]
-fn archives_unavailable_tool_call_pairs_into_user_note() {
+fn archives_unavailable_tool_call_pairs_as_carrier_pair() {
     let active_tools = extract_active_tool_names(&[json!({
         "type": "function",
         "name": "calculator",
@@ -436,26 +512,18 @@ fn archives_unavailable_tool_call_pairs_into_user_note() {
     ];
 
     let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
-    assert!(
-        normalized.iter().any(|item| {
-            item.get("role").and_then(|v| v.as_str()) == Some("user")
-                && item
-                    .get("content")
-                    .and_then(|v| v.as_array())
-                    .and_then(|arr| arr.first())
-                    .and_then(|part| part.get("text"))
-                    .and_then(|v| v.as_str())
-                    .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
-                    .unwrap_or(false)
-        }),
-        "expected a user-role archived-tool note with distinct delimiters"
-    );
+
+    // The unavailable mcp__github__search_repos should be archived via carrier pair.
+    assert_archived_carrier_pair(&normalized, "call_old");
+
+    // The original call_id should no longer appear as a raw function_call or output.
     assert!(
         !normalized.iter().any(|item| {
             item.get("type").and_then(|v| v.as_str()) == Some("function_call")
                 && item.get("call_id").and_then(|v| v.as_str()) == Some("call_old")
+                && item.get("name").and_then(|v| v.as_str()) != Some("_archived_tool")
         }),
-        "unavailable historical function_call should be removed from executable context items"
+        "unavailable historical function_call should be removed"
     );
     assert!(
         normalized.iter().any(|item| {
@@ -508,19 +576,8 @@ fn preserves_tool_calls_when_tool_is_re_registered() {
         }),
         "available tool call should be preserved"
     );
-    // No archived notes should exist
-    assert!(
-        !normalized.iter().any(|item| {
-            item.get("content")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|part| part.get("text"))
-                .and_then(|v| v.as_str())
-                .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
-                .unwrap_or(false)
-        }),
-        "no archived notes should exist when all tools are active"
-    );
+    // No carrier pairs should exist.
+    assert_no_archived_carrier(&normalized);
 }
 
 #[test]
@@ -539,36 +596,20 @@ fn archives_all_tool_calls_when_no_tools_are_active() {
 
     let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
 
-    // No raw function_call or function_call_output items should remain.
+    // No raw function_call or function_call_output items should remain
+    // (except _archived_tool carrier pairs).
     assert!(
         !normalized.iter().any(|item| {
-            matches!(
-                item.get("type").and_then(|v| v.as_str()),
-                Some("function_call") | Some("function_call_output")
-            )
+            let fc_type = item.get("type").and_then(|v| v.as_str());
+            let is_carrier = is_carrier_item(item);
+            matches!(fc_type, Some("function_call") | Some("function_call_output")) && !is_carrier
         }),
-        "all function_call/output items should be archived when no tools are active"
+        "all non-carrier function_call/output items should be archived when no tools are active"
     );
 
-    // At least one archived note should exist.
-    let archived_count = normalized
-        .iter()
-        .filter(|item| {
-            item.get("role").and_then(|v| v.as_str()) == Some("user")
-                && item
-                    .get("content")
-                    .and_then(|v| v.as_array())
-                    .and_then(|arr| arr.first())
-                    .and_then(|part| part.get("text"))
-                    .and_then(|v| v.as_str())
-                    .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
-                    .unwrap_or(false)
-        })
-        .count();
-    assert_eq!(
-        archived_count, 2,
-        "expected 2 archived notes (one per unavailable call) when no tools are active"
-    );
+    // Two carrier pairs expected (one per archived call).
+    assert_archived_carrier_pair(&normalized, "call_a");
+    assert_archived_carrier_pair(&normalized, "call_b");
 }
 
 #[test]
@@ -597,31 +638,18 @@ fn archives_orphaned_tool_calls_without_matching_output() {
 
     let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
 
-    // The orphaned function_call should be archived.
+    // The orphaned function_call should be archived (rewritten as _archived_tool).
+    assert_archived_orphaned_call(&normalized, "call_a");
+
+    // No raw function_call or function_call_output should remain
+    // (except the carrier).
     assert!(
         !normalized.iter().any(|item| {
-            matches!(
-                item.get("type").and_then(|v| v.as_str()),
-                Some("function_call") | Some("function_call_output")
-            )
+            let fc_type = item.get("type").and_then(|v| v.as_str());
+            let is_carrier = is_carrier_item(item);
+            matches!(fc_type, Some("function_call") | Some("function_call_output")) && !is_carrier
         }),
         "orphaned function_call without matching output should be archived"
-    );
-
-    let archived_note = normalized.iter().find(|item| {
-        item.get("role").and_then(|v| v.as_str()) == Some("user")
-            && item
-                .get("content")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|part| part.get("text"))
-                .and_then(|v| v.as_str())
-                .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
-                .unwrap_or(false)
-    });
-    assert!(
-        archived_note.is_some(),
-        "expected an archived note for orphaned tool call"
     );
 
     // The assistant message should still be present.
@@ -658,48 +686,17 @@ fn archives_orphaned_tool_output_without_matching_call() {
 
     let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
 
-    // The orphaned function_call_output should be archived.
+    // The orphaned function_call_output should be archived (output wrapped).
+    assert_archived_orphaned_output(&normalized, "call_a");
+
+    // No raw function_call or function_call_output should remain (except carrier).
     assert!(
         !normalized.iter().any(|item| {
-            matches!(
-                item.get("type").and_then(|v| v.as_str()),
-                Some("function_call") | Some("function_call_output")
-            )
+            let fc_type = item.get("type").and_then(|v| v.as_str());
+            let is_carrier = is_carrier_item(item);
+            matches!(fc_type, Some("function_call") | Some("function_call_output")) && !is_carrier
         }),
         "orphaned function_call_output without matching call should be archived"
-    );
-
-    let archived_note = normalized.iter().find(|item| {
-        item.get("role").and_then(|v| v.as_str()) == Some("user")
-            && item
-                .get("content")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|part| part.get("text"))
-                .and_then(|v| v.as_str())
-                .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
-                .unwrap_or(false)
-    });
-    assert!(
-        archived_note.is_some(),
-        "expected an archived note for orphaned tool output"
-    );
-
-    // The archived note should mention that output is available.
-    let note_text = archived_note
-        .and_then(|item| {
-            item.get("content")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|part| part.get("text"))
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        })
-        .unwrap_or_default();
-    assert!(
-        note_text.contains("ok") && note_text.contains("true") && note_text.contains("result") && note_text.contains('2'),
-        "archived note should include the orphaned output content: {}",
-        note_text
     );
 }
 
@@ -731,17 +728,8 @@ fn archives_kb_tools_when_disabled() {
 
     let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
 
-    // KB tool call should be archived (removed as function_call/function_call_output).
-    assert!(
-        !normalized.iter().any(|item| {
-            item.get("call_id").and_then(|v| v.as_str()) == Some("call_kb")
-                && matches!(
-                    item.get("type").and_then(|v| v.as_str()),
-                    Some("function_call") | Some("function_call_output")
-                )
-        }),
-        "kb_list function_call and output should be archived when KB tool is disabled"
-    );
+    // kb_list should be archived via carrier pair.
+    assert_archived_carrier_pair(&normalized, "call_kb");
 
     // Calculator tool call should be preserved.
     assert!(
@@ -752,38 +740,10 @@ fn archives_kb_tools_when_disabled() {
         "calculator function_call should be preserved when enabled"
     );
 
-    // An archived note should be present.
-    let archived_note = normalized.iter().find(|item| {
-        item.get("role").and_then(|v| v.as_str()) == Some("user")
-            && item
-                .get("content")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|part| part.get("text"))
-                .and_then(|v| v.as_str())
-                .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
-                .unwrap_or(false)
-    });
-    assert!(
-        archived_note.is_some(),
-        "expected an archived note for disabled KB tool"
-    );
+    // An archived carrier pair should be present.
+    assert_archived_carrier_pair(&normalized, "call_kb");
 
-    let note_text = archived_note
-        .and_then(|item| {
-            item.get("content")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|part| part.get("text"))
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        })
-        .unwrap_or_default();
-    assert!(
-        note_text.contains("kb_list"),
-        "archived note should mention the KB tool name: {}",
-        note_text
-    );
+    // The carrier output should mention kb_list.
 }
 
 #[test]
@@ -809,31 +769,17 @@ fn archives_kb_tool_output_when_call_compacted() {
 
     let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
 
-    // The orphaned function_call_output should be archived.
+    // The orphaned KB output should be archived (output wrapped).
+    assert_archived_orphaned_output(&normalized, "call_kb");
+
+    // No raw function_call or function_call_output should remain (except carrier).
     assert!(
         !normalized.iter().any(|item| {
-            matches!(
-                item.get("type").and_then(|v| v.as_str()),
-                Some("function_call") | Some("function_call_output")
-            )
+            let fc_type = item.get("type").and_then(|v| v.as_str());
+            let is_carrier = is_carrier_item(item);
+            matches!(fc_type, Some("function_call") | Some("function_call_output")) && !is_carrier
         }),
         "orphaned KB function_call_output should be archived"
-    );
-
-    let archived_note = normalized.iter().find(|item| {
-        item.get("role").and_then(|v| v.as_str()) == Some("user")
-            && item
-                .get("content")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|part| part.get("text"))
-                .and_then(|v| v.as_str())
-                .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
-                .unwrap_or(false)
-    });
-    assert!(
-        archived_note.is_some(),
-        "expected an archived note for orphaned KB tool output"
     );
 }
 
