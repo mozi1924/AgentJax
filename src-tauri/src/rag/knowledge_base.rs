@@ -208,18 +208,37 @@ impl KnowledgeBaseManager {
     }
 
     /// Check whether an agent is allowed to access a KB by disabled_agents config.
+    ///
+    /// Returns `false` for unknown KB IDs — if the KB is not in the config
+    /// it does not exist and should not be accessible.
     pub fn is_kb_accessible(&self, kb_id: &str, agent_id: &str) -> bool {
         match self.knowledge_base_entries.get(kb_id) {
             Some(entry) => !entry.disabled_agents.iter().any(|a| a == agent_id),
-            None => true,
+            None => false,
         }
+    }
+
+    /// Check whether a KB ID is known (exists in the config).
+    pub fn kb_exists(&self, kb_id: &str) -> bool {
+        self.knowledge_base_entries.contains_key(kb_id)
     }
 
     /// Open or create a knowledge base by ID.
     ///
     /// Lazily opens the vector and FTS stores. Subsequent calls return the
     /// cached instance.
+    ///
+    /// Returns an error if `kb_id` is not a configured knowledge base —
+    /// this prevents accidentally creating empty KB directories on disk
+    /// when searching/getting documents from a non-existent KB.
     pub async fn open_kb(&self, kb_id: &str) -> AgentJaxResult<Arc<KnowledgeBase>> {
+        // Guard: reject unknown KB IDs before touching the filesystem.
+        if !self.kb_exists(kb_id) {
+            return Err(AgentJaxError::not_found(format!(
+                "Knowledge base '{}' is not configured. Add it in Settings → Knowledge Bases first.",
+                kb_id
+            )));
+        }
         // Fast path: already cached
         {
             let bases = self.bases.read().await;
