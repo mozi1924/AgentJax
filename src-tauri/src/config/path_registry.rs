@@ -68,13 +68,22 @@ static COLLECTION_KEY_PATTERNS: &[KeyPattern] = &[
         pattern: r"^[A-Za-z0-9_-]+$",
         label: "MCP server key (tool)",
     },
+    KeyPattern {
+        prefix: "rag.knowledge_bases",
+        pattern: r"^[A-Za-z0-9_.:-]+$",
+        label: "knowledge base key",
+    },
 ];
 
-// The key pattern for model profiles inside providers is slightly different
-// (allows dots for model IDs like "gpt-4.1-mini").
+// The key pattern for model profiles inside providers — allows dots, colons,
+// and forward slashes for model IDs like "gpt-4.1-mini", "neteas_curie/curie-1.0",
+// or "huggingface:model-name".
+// Forward slash is safe because `parse_model_ref()` uses `split_once('/')` which
+// splits at the FIRST '/' only, so `"provider/model/with/slash"` correctly yields
+// provider="provider", model_key="model/with/slash".
 static MODEL_KEY_PATTERN: KeyPattern = KeyPattern {
     prefix: "providers.{key}.models",
-    pattern: r"^[A-Za-z0-9_.-]+$",
+    pattern: r"^[A-Za-z0-9_.:/:-]+$",
     label: "model profile key",
 };
 
@@ -231,12 +240,14 @@ fn validate_key_format(key: &str, _pattern: &str, label: &str) -> AgentJaxResult
     }
 
     // Simple regex-free check: alphanumeric + allowed special chars
-    let allowed = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.';
+    let allowed: Box<dyn Fn(char) -> bool> = Box::new(|c: char| {
+        c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == ':' || c == '/'
+    });
 
     if !trimmed.chars().all(allowed) {
         return Err(agentjax_err!(
             format!(
-                "{label} '{trimmed}' contains unsupported characters. Use letters, digits, '-', '_' or '.' only."
+                "{label} '{trimmed}' contains unsupported characters. Use letters, digits, '-', '_', '.' , ':' or '/' only."
             ),
             Config
         ));

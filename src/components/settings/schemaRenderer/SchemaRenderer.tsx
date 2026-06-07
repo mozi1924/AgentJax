@@ -145,6 +145,7 @@ export function SchemaRenderer(props: SchemaRendererProps) {
                   props.actions.addCollectionItem || (() => Promise.resolve()),
               }}
               renderNodeList={renderNodeList}
+              dataContext={props.dataContext}
             />
           );
           return <SafeNodeRenderer key={key} node={validated} contextLabel={contextLabel}>{content}</SafeNodeRenderer>;

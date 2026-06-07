@@ -476,7 +476,7 @@ fn openai_compatible_provider_definition() -> DynamicProviderDefinition {
         capabilities: super::capabilities::ProviderCapabilities::chat_completions(),
         tool_schema_format: crate::tools::ToolSchemaFormat::ChatCompletions,
         default_config,
-        supports_protocols: vec!["chat_completions".to_string()],
+        supports_protocols: vec!["chat_completions".to_string(), "embeddings".to_string()],
         builtin_models: Vec::new(),
         reasoning_schema: None,
         model_routing: Vec::new(),

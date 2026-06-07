@@ -84,7 +84,7 @@
           "addLabel": "settings.model_profiles.profiles.add_label",
           "keyLabel": "settings.model_profiles.profiles.key_label",
           "itemLabel": "settings.model_profiles.profiles.item_label",
-          "keyPattern": "^[A-Za-z0-9_.-]+$",
+          "keyPattern": "^[A-Za-z0-9_.:/:-]+$",
           "children": [
             {
               "kind": "field",

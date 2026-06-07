@@ -29,6 +29,8 @@ use tauri::Manager;
 #[cfg(test)]
 mod providers_tests;
 #[cfg(test)]
+mod rag_tests;
+#[cfg(test)]
 mod tools_tests;
 
 fn parse_rust_log_level() -> log::LevelFilter {

@@ -96,7 +96,14 @@
       "addLabel": "settings.knowledge.collection.add_label",
       "keyLabel": "settings.knowledge.collection.key_label",
       "itemLabel": "settings.knowledge.collection.item_label",
-      "keyPattern": "^[A-Za-z0-9_-]+$",
+      "keyPattern": "^[A-Za-z0-9_.:-]+$",
+      "dataSource": "knowledgeManager",
+      "defaultItem": {
+        "name": "",
+        "path": "",
+        "path_type": "folder",
+        "disabled_agents": []
+      },
       "children": [
         {
           "kind": "field",

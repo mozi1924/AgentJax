@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { useI18n } from '../../../features/i18n';
 import type { SettingsGroupSchema, SettingsSchemaNode, SettingsUiSchemaNode } from '../../../features/settings/types';
+import type { SchemaRendererDataContext } from './types';
 import { CollectionEditor } from '../renderer/CollectionEditor';
 import type { NodeListProps } from '../renderer/types';
 import { ActionRenderer } from './ActionRenderer';
@@ -191,10 +192,12 @@ export function CollectionLayoutRenderer({
   node,
   props,
   renderNodeList,
+  dataContext,
 }: {
   node: Extract<SettingsSchemaNode, { kind: 'collection' }>;
   props: Omit<NodeListProps, 'nodes'>;
   renderNodeList: (props: NodeListProps) => ReactElement;
+  dataContext?: SchemaRendererDataContext;
 }) {
   return (
     <section className="pt-2">
@@ -208,6 +211,7 @@ export function CollectionLayoutRenderer({
         onDeletePath={props.onDeletePath}
         onAddCollectionItem={props.onAddCollectionItem}
         renderNodeList={renderNodeList}
+        dataContext={dataContext}
       />
     </section>
   );

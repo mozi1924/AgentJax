@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, RefreshCcw, Trash2 } from 'lucide-react';
 import type { SettingsCollectionSchema, SettingsSnapshot } from '../../../features/settings/types';
 import { useI18n } from '../../../features/i18n';
 import { appendPathSegment, asRecord, getCollectionItems, resolvePath } from '../../../features/settings/utils';
 import type { NodeListProps } from './types';
 import { createDefaultItem } from './utils';
+import type { SchemaRendererDataContext } from '../schemaRenderer/types';
 
 export function CollectionEditor({
   collection,
@@ -17,6 +18,7 @@ export function CollectionEditor({
   onDeletePath,
   onAddCollectionItem,
   renderNodeList,
+  dataContext,
 }: {
   collection: SettingsCollectionSchema;
   snapshot: SettingsSnapshot;
@@ -27,6 +29,7 @@ export function CollectionEditor({
   onDeletePath: (path: string) => Promise<void>;
   onAddCollectionItem: (path: string, key: string, value: Record<string, unknown>) => Promise<void>;
   renderNodeList: (props: NodeListProps) => ReactNode;
+  dataContext?: SchemaRendererDataContext;
 }) {
   const { t } = useI18n();
   const resolvedPath = resolvePath(collection.path, contextPath);
@@ -124,6 +127,15 @@ export function CollectionEditor({
                   : '';
           const isExpanded = !!expandedKeys[itemKey];
 
+          // Collect status info from dataContext if available.
+          // If dataSource is set, buttons/badges show even when the KB
+          // hasn't been indexed yet (kbStatus will be undefined → "not indexed").
+          const hasDataSource = !!(collection.dataSource && dataContext);
+          const kbStatuses = dataContext?.getDataSource?.(`${collection.dataSource}.kbs`) as
+            | Array<{ id: string; documentCount: number; chunkCount: number; indexed: boolean }>
+            | undefined;
+          const kbStatus = kbStatuses?.find((s) => s.id === itemKey);
+
           return (
             <div
               key={itemPath}
@@ -144,8 +156,23 @@ export function CollectionEditor({
                     )}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-semibold text-neutral-200">
-                      {itemKey}
+                    <span className="flex items-center gap-2">
+                      <span className="block truncate text-xs font-semibold text-neutral-200">
+                        {itemKey}
+                      </span>
+                      {hasDataSource && (
+                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium leading-none ${
+                          kbStatus?.indexed
+                            ? 'bg-emerald-500/10 text-emerald-400'
+                            : 'bg-neutral-500/10 text-neutral-400'
+                        }`}>
+                          {kbStatus
+                            ? kbStatus.indexed
+                              ? `${kbStatus.documentCount} docs`
+                              : 'not indexed'
+                            : 'checking...'}
+                        </span>
+                      )}
                     </span>
                     {subtitle && (
                       <span className="mt-0.5 block truncate text-[10px] text-neutral-500">
@@ -154,15 +181,31 @@ export function CollectionEditor({
                     )}
                   </span>
                 </button>
-                <button
-                  onClick={() => {
-                    void onDeletePath(itemPath);
-                  }}
-                  className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-rose-500/10 hover:text-rose-300"
-                  title={`${t('sidebar.action.delete')} ${t(collection.itemLabel)}`}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                <div className="flex items-center gap-1">
+                  {hasDataSource && (
+                    <button
+                      onClick={() => {
+                        void dataContext?.dispatch?.('refreshKb', {
+                          value: itemKey,
+                          dataSource: collection.dataSource,
+                        });
+                      }}
+                      className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-sky-500/10 hover:text-sky-300"
+                      title={`Refresh ${itemKey}`}
+                    >
+                      <RefreshCcw className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      void onDeletePath(itemPath);
+                    }}
+                    className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-rose-500/10 hover:text-rose-300"
+                    title={`${t('sidebar.action.delete')} ${t(collection.itemLabel)}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
 
               {isExpanded && (

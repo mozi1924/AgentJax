@@ -175,9 +175,27 @@ pub async fn embed_text(
     input: &EmbeddingRequest,
 ) -> AgentJaxResult<EmbeddingResponse> {
     let provider = config.resolved_provider(provider_key)?;
-    let protocol = resolve_protocol(&provider.kind, model_id, None);
+
+    // Determine the protocol to use, with increasing precedence:
+    // 1. Model `kind == "embedding"` → auto-route to embeddings protocol
+    // 2. Per-model `api_protocol` override → explicit user choice
+    let model_config = provider.models.get(model_id);
+    let is_embedding_kind = model_config
+        .and_then(|m| m.kind.as_deref())
+        .map(|k| k == "embedding")
+        .unwrap_or(false);
+
+    // Check api_protocol override, or force "embeddings" if kind is "embedding"
+    let protocol = match model_config.and_then(|m| m.api_protocol.as_deref()) {
+        Some(proto) => resolve_protocol(&provider.kind, model_id, Some(proto)),
+        None if is_embedding_kind => {
+            resolve_protocol(&provider.kind, model_id, Some("embeddings"))
+        }
+        _ => resolve_protocol(&provider.kind, model_id, None),
+    };
+
     match protocol.as_deref() {
-        Some("embeddings") => protocol::embed("embeddings", &provider, model_id, input).await, /* protocol already known to be "embeddings" */
+        Some("embeddings") => protocol::embed("embeddings", &provider, model_id, input).await,
         Some(other) => Err(AgentJaxError::config(format!(
             "Provider '{}' uses protocol '{other}' which does not support embedding",
             provider_key
@@ -434,7 +452,22 @@ fn resolve_protocol(
     }
 
     // Multiple protocols — use model ID heuristics.
-    if normalized_id.contains("embedding") || normalized_id.starts_with("text-embedding-") {
+    // Matches known embedding model naming patterns:
+    //   "text-embedding-*" (OpenAI), "*embed*" (nomic-embed-text, mxbai-embed-large),
+    //   "bge-*", "e5-*", "acge*", "gte-*", "jina-embeddings-*", "sentence-*"
+    // Also catches model IDs containing "/" like "BAAI/bge-m3"
+    let is_embedding_model = normalized_id.contains("embed")
+        || normalized_id.starts_with("text-embedding-")
+        || normalized_id.starts_with("bge-")
+        || normalized_id.starts_with("e5-")
+        || normalized_id.starts_with("acge")
+        || normalized_id.starts_with("gte-")
+        || normalized_id.starts_with("jina-")
+        || normalized_id.starts_with("sentence-")
+        || normalized_id.ends_with("-embed")
+        || normalized_id.ends_with("-embedding");
+
+    if is_embedding_model {
         return protocols
             .iter()
             .find(|p| *p == "embeddings")
