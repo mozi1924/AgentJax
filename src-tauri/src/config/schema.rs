@@ -254,6 +254,23 @@ pub struct RagConfig {
     /// Knowledge base definitions, keyed by KB ID.
     #[serde(default)]
     pub knowledge_bases: BTreeMap<String, KnowledgeBaseEntry>,
+    /// Maximum number of texts per embedding API call.
+    /// Lower values reduce server load at the cost of more round-trips.
+    /// Default: 30.
+    #[serde(default = "default_embedding_batch_size")]
+    pub embedding_batch_size: usize,
+    /// Cooldown in milliseconds between successful embedding batches.
+    /// Gives the embedding server time to breathe. Default: 2000 (2s).
+    #[serde(default = "default_embedding_batch_throttle_ms")]
+    pub embedding_batch_throttle_ms: u64,
+}
+
+fn default_embedding_batch_size() -> usize {
+    30
+}
+
+fn default_embedding_batch_throttle_ms() -> u64 {
+    2000
 }
 
 impl Default for RagConfig {
@@ -266,6 +283,8 @@ impl Default for RagConfig {
             top_k: 5,
             embedding: EmbeddingProviderConfig::default(),
             knowledge_bases: BTreeMap::new(),
+            embedding_batch_size: default_embedding_batch_size(),
+            embedding_batch_throttle_ms: default_embedding_batch_throttle_ms(),
         }
     }
 }

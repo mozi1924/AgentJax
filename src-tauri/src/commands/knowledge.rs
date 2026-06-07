@@ -393,7 +393,6 @@ pub async fn refresh_knowledge_base(
                     .embed_prepared_chunks(
                         &kb_id,
                         &app_config,
-                        100, // batch size: 100 texts per embedding API call
                         move |processed, total| {
                             let _ = app_handle2.emit(
                                 "kb_indexing_progress",

@@ -84,6 +84,8 @@ fn test_rag_config(embedding_model: &str) -> RagConfig {
             dimensions,
         },
         knowledge_bases: BTreeMap::new(),
+        embedding_batch_size: 10,
+        embedding_batch_throttle_ms: 500,
     }
 }
 
