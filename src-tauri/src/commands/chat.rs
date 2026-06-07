@@ -52,6 +52,12 @@ pub async fn chat_stream(
     let full_config = config::load_full_config(&agent_id)?;
     let config = full_config.shared.clone();
     let agent_config = full_config.agent.clone();
+
+    // Initialize sub-agent semaphore with the agent's configured concurrency limit.
+    // OnceLock semantics mean only the first call takes effect.
+    crate::sub_agents::manager::init_sub_agent_semaphore(
+        agent_config.sub_agent.max_concurrent,
+    );
     let jsonl_backup_enabled = agent_config.context_management.jsonl_backup_enabled;
     let (sanitized_client_metadata, local_dynamic_tools) =
         split_local_client_metadata(req.client_metadata.clone())?;

@@ -390,6 +390,12 @@ async fn execute_spawn(
             task_state.status = crate::sub_agents::types::SubAgentStatus::Running;
         }
 
+        // Ensure sub-agent semaphore is initialised with the agent's configured
+        // concurrency limit (OnceLock: first call wins).
+        crate::sub_agents::manager::init_sub_agent_semaphore(
+            agent_config.sub_agent.max_concurrent,
+        );
+
         let sem_perm = crate::sub_agents::manager::sub_agent_semaphore();
         let _handle = tokio::spawn(async move {
             let _permit = sem_perm.acquire().await;

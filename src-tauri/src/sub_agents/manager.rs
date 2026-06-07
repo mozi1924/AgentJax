@@ -33,9 +33,21 @@ pub(crate) const MAX_CONCURRENT_SUB_AGENTS: usize = 16;
 
 static SUB_AGENT_SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
 
-/// Initialize the global sub-agent concurrency semaphore from config.
+/// Initialize the global sub-agent concurrency semaphore with a specific limit.
 ///
-/// Returns the global sub-agent concurrency semaphore.
+/// Should be called during startup (or whenever an agent config is loaded) with
+/// the configured `sub_agent.max_concurrent` value.  Once initialized, the
+/// semaphore capacity is fixed for the lifetime of the process — subsequent
+/// calls are silently ignored (the first call wins).
+///
+/// If never called explicitly, `sub_agent_semaphore()` falls back to
+/// [`MAX_CONCURRENT_SUB_AGENTS`] so there is always a safe default.
+pub(crate) fn init_sub_agent_semaphore(max_concurrent: usize) {
+    SUB_AGENT_SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(max_concurrent));
+}
+
+/// Return the global sub-agent concurrency semaphore.
+///
 /// Each spawned sub-agent acquires a permit from this semaphore before starting
 /// to execute, limiting the total number of concurrently running sub-agents.
 pub(crate) fn sub_agent_semaphore() -> &'static tokio::sync::Semaphore {

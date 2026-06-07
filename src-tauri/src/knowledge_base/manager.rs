@@ -50,6 +50,12 @@ pub struct KnowledgeBaseManager {
     /// Configured knowledge base entries from the global config.
     /// Used for per-agent disabled_agents gating at runtime.
     knowledge_base_entries: BTreeMap<String, KnowledgeBaseEntry>,
+    /// Chunk size in characters (from `rag.chunk_size`).
+    chunk_size: usize,
+    /// Chunk overlap in characters (from `rag.chunk_overlap`).
+    chunk_overlap: usize,
+    /// Search window for markdown-aware break-point detection (from `rag.chunk_window`).
+    chunk_window: usize,
 }
 
 impl KnowledgeBaseManager {
@@ -91,6 +97,10 @@ impl KnowledgeBaseManager {
             root_dir,
             engine,
             knowledge_base_entries: kb_settings.knowledge_bases,
+            chunk_size: app_config.rag.chunk_size,
+            chunk_overlap: app_config.rag.chunk_overlap,
+            chunk_window: app_config.rag.chunk_window
+                .unwrap_or(crate::rag::chunking::DEFAULT_WINDOW_CHARS),
         })
     }
 
@@ -221,10 +231,18 @@ impl KnowledgeBaseManager {
         let vector_store = VectorStore::open(kb_dir.join("vectors")).await?;
         let fts_store = FtsStore::open(kb_dir.join("fts.db"))?;
 
+        let chunker = MarkdownChunker::new(self.chunk_size, self.chunk_overlap, self.chunk_window)
+            .unwrap_or_else(|e| {
+                log::warn!(
+                    "Invalid KB chunker config (size={}, overlap={}, window={}): {e}. Falling back to defaults.",
+                    self.chunk_size, self.chunk_overlap, self.chunk_window
+                );
+                MarkdownChunker::with_defaults()
+            });
         let kb = Arc::new(KnowledgeBase {
             vector_store,
             fts_store,
-            chunker: MarkdownChunker::with_defaults(),
+            chunker,
         });
 
         let mut bases = self.bases.write().await;

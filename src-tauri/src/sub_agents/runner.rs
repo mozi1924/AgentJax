@@ -12,7 +12,7 @@ use crate::config::{AgentConfig, AppConfig};
 use crate::provider_api::types::ProviderStreamEvent;
 use crate::runtime::agent_context::InMemoryContext;
 use crate::sub_agents::events::SubAgentEvent;
-use crate::sub_agents::manager::{HARD_MAX_TURNS, SubAgentManager, SubAgentTask};
+use crate::sub_agents::manager::{SubAgentManager, SubAgentTask};
 use crate::sub_agents::types::SubAgentSpec;
 use crate::sub_agents::worktree::Worktree;
 use crate::tools::ToolCatalog;
@@ -40,7 +40,8 @@ pub async fn run_sub_agent(
     event_tx: mpsc::UnboundedSender<SubAgentEvent>,
 ) {
     let agent_id = spec.agent_id.clone();
-    let max_turns = spec.max_turns.min(HARD_MAX_TURNS);
+    let hard_max = agent_config.sub_agent.hard_max_turns;
+    let max_turns = spec.max_turns.min(hard_max);
 
     // Emit spawned event.
     let _ = event_tx.send(SubAgentEvent::Spawned {
@@ -66,7 +67,7 @@ pub async fn run_sub_agent(
     });
 
     // ── Optionally create worktree ────────────────────────────────────────
-    let _worktree: Option<Worktree> = if spec.use_worktree {
+    let _worktree: Option<Worktree> = if spec.use_worktree && agent_config.sub_agent.worktree_enabled {
         match Worktree::create(&agent_id, &spec.parent_conversation_id) {
             Ok(wt) => {
                 log::info!(
