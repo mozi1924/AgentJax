@@ -1254,6 +1254,471 @@ async fn real_gateway_sub_agent_with_lcm_grep_in_context() {
 
 // ── End-to-End: Memory persistence across conversations ──────────────────────
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// LCM Compaction Smoke Tests (real gateway)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Create an LCM engine with aggressively low thresholds so compaction
+/// is triggered after just a few turns of a tool-calling conversation.
+///
+/// Uses `NoopSummarizer` which forces Level 3 (deterministic truncation)
+/// — this exercises the full compaction pipeline (block selection, tool-call
+/// pairing, replacement in active context, context-to-provider-items
+/// reconstruction) without requiring an extra summarization model API key.
+///
+/// To test with real LLM summarization (Level 1 & 2), swap to
+/// `open_lcm_engine_with_summarizer` and pass the app/agent configs.
+fn lcm_engine_with_low_thresholds(conversation_id: &str) -> Arc<crate::lcm::LcmEngine> {
+    let config = crate::lcm::LcmConfig {
+        dynamic_thresholds: false,
+        soft_token_threshold: 600,  // Trigger async compaction quickly
+        hard_token_threshold: 1200, // Blocking compaction after ~2-3 tool turns
+        max_compact_block_size: 10,
+        compaction_timeout_secs: 30,
+        ..crate::lcm::LcmConfig::default()
+    };
+    crate::lcm::open_lcm_engine(
+        crate::config::constants::DEFAULT_AGENT_ID,
+        conversation_id,
+        &config,
+    )
+    .expect("Failed to open LCM engine with low thresholds")
+}
+
+/// Run a single turn against a real provider, reusing an existing conversation
+/// and LCM engine (multi-turn scenario).
+async fn run_multi_turn(
+    config: &AppConfig,
+    agent: &crate::config::AgentConfig,
+    conversation_id: &str,
+    tools_catalog: &Arc<ToolCatalog>,
+    lcm_engine: &Arc<crate::lcm::LcmEngine>,
+    input: &str,
+    turn_label: &str,
+) -> (
+    crate::provider_api::types::ResponseStreamResult,
+    Vec<serde_json::Value>,
+) {
+    let req = ChatRequest {
+        input: input.to_string(),
+        conversation_id: Some(conversation_id.to_string()),
+        model: Some(agent.default_model.clone()),
+        reasoning: None,
+        text: None,
+        include: None,
+        service_tier: None,
+        prompt_cache_key: None,
+        client_metadata: None,
+        generate: None,
+        agent_id: Some(crate::config::constants::DEFAULT_AGENT_ID.to_string()),
+        request_id: Some(format!("req-lcm-{}-{}", turn_label, Uuid::new_v4())),
+        temperature: None,
+        top_p: None,
+        presence_penalty: None,
+        frequency_penalty: None,
+        max_tokens: None,
+        max_completion_tokens: None,
+    };
+
+    let (_cancel_tx, mut cancel_rx) = watch::channel(false);
+
+    let run_result = tokio::time::timeout(
+        Duration::from_secs(180),
+        AgentRuntime::run_turn(
+            config,
+            agent,
+            "test-agent",
+            &req,
+            conversation_id,
+            crate::conversation_store_utils::now_unix_ms(),
+            Vec::new(),
+            None,
+            tools_catalog,
+            &LcmAgentContext::new(lcm_engine.clone()),
+            &mut cancel_rx,
+            None,
+            Vec::new(),
+            false,
+            |_event| Ok(()),
+        ),
+    )
+    .await
+    .expect(&format!("Turn '{turn_label}' timed out"))
+    .expect(&format!("Turn '{turn_label}' failed"));
+
+    run_result
+}
+
+/// Helper: count how many `SummaryPointer` entries are in the active context.
+fn count_summary_pointers(engine: &crate::lcm::LcmEngine) -> usize {
+    let snapshot = engine.active_context_snapshot().unwrap();
+    snapshot
+        .iter()
+        .filter(|e| matches!(e, crate::lcm::types::ContextEntry::SummaryPointer { .. }))
+        .count()
+}
+
+/// Helper: verify that `context_to_provider_items` produces a valid interleaving
+/// with no orphaned tool calls (function_call without matching output, or vice
+/// versa).
+fn verify_no_orphaned_tool_pairs(
+    engine: &crate::lcm::LcmEngine,
+    label: &str,
+) -> (usize, usize) {
+    let snapshot = engine.active_context_snapshot().unwrap();
+    let items = engine.context_to_provider_items(&snapshot);
+
+    let mut pending_call_ids: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    let mut seen_output_ids: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    let mut call_count = 0usize;
+    let mut output_count = 0usize;
+
+    for item in &items {
+        match item.get("type").and_then(|v| v.as_str()) {
+            Some("function_call") => {
+                if let Some(cid) = item.get("call_id").and_then(|v| v.as_str()) {
+                    pending_call_ids.insert(cid.to_string());
+                    call_count += 1;
+                }
+            }
+            Some("function_call_output") => {
+                if let Some(cid) = item.get("call_id").and_then(|v| v.as_str()) {
+                    seen_output_ids.insert(cid.to_string());
+                    output_count += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Find orphaned calls: in pending but no output
+    let orphaned_calls: Vec<_> = pending_call_ids
+        .difference(&seen_output_ids)
+        .collect();
+    // Find orphaned outputs: seen output but no preceding call
+    let orphaned_outputs: Vec<_> = seen_output_ids
+        .difference(&pending_call_ids)
+        .collect();
+
+    if !orphaned_calls.is_empty() || !orphaned_outputs.is_empty() {
+        eprintln!(
+            "[{label}] ORPHANED TOOL PAIRS: calls_without_output={:?}, outputs_without_call={:?}",
+            orphaned_calls, orphaned_outputs
+        );
+    }
+
+    assert!(
+        orphaned_calls.is_empty(),
+        "[{label}] Found {n} function_call(s) with no matching output: {ids:?}",
+        n = orphaned_calls.len(),
+        ids = orphaned_calls,
+    );
+    assert!(
+        orphaned_outputs.is_empty(),
+        "[{label}] Found {n} function_call_output(s) with no matching call: {ids:?}",
+        n = orphaned_outputs.len(),
+        ids = orphaned_outputs,
+    );
+
+    (call_count, output_count)
+}
+
+// ── Core smoke test: LCM compaction with tool-call pairing ────────────────────
+
+#[tokio::test]
+#[ignore = "requires a real provider credential and network access"]
+async fn real_gateway_lcm_compaction_with_tool_calls() {
+    if !real_gateway_test_enabled() {
+        return;
+    }
+    ensure_rustls_crypto_provider();
+
+    let config = crate::config::load_config().expect("load local config");
+    let agent = crate::config::load_agent_config(crate::config::constants::DEFAULT_AGENT_ID)
+        .unwrap_or_default()
+        .normalize();
+
+    // Verify provider credential.
+    let resolved_model = config
+        .resolve_model_profile_with_agent(None, &agent)
+        .expect("resolve default model profile");
+    assert!(
+        resolved_model.provider.resolved_credential().is_some(),
+        "Active provider has no resolved credential"
+    );
+
+    let conversation_id = format!("test-lcm-compaction-{}", Uuid::new_v4());
+    crate::conversation_store::ensure_conversation(
+        crate::config::constants::DEFAULT_AGENT_ID,
+        &conversation_id,
+    )
+    .expect("ensure conversation workspace");
+
+    let tools_catalog = Arc::new(ToolCatalog::new(
+        Arc::new(crate::mcp::McpManager::new()),
+        &config,
+        &agent,
+    ));
+
+    // ═══ Phase 1: Build context with tool-calling turns ═══
+    // Each turn asks the model to use a calculator or system-time tool.
+    // We use different tool-calling prompts to fill the context quickly.
+
+    let lcm_engine = lcm_engine_with_low_thresholds(&conversation_id);
+
+    let turns: &[(&str, &str)] = &[
+        (
+            "turn1",
+            "请调用 calculator 工具计算 12345 * 67890 的结果。得到结果后用中文说'第1轮计算完成：结果是...'。只调用一次工具。",
+        ),
+        (
+            "turn2",
+            "请先调用 get_system_time 工具获取系统时间，然后调用 calculator 工具计算 999 * 888。最后用中文说'第2轮完成：时间是..., 计算结果是...'。注意：必须依次调用两个工具。",
+        ),
+        (
+            "turn3",
+            "请调用 list_files 工具列出当前目录 / 下的文件。最后用中文说'第3轮完成：列出了 N 个文件'。",
+        ),
+        (
+            "turn4",
+            "请先调用 write 工具在 /tmp/lcm-test.txt 写入内容 'LCM compaction smoke test data'，然后调用 read 工具读取该文件确认写入成功。最后用中文说'第4轮完成：文件读写验证通过'。",
+        ),
+    ];
+
+    let mut _total_summary_pointers_before = 0usize;
+
+    for (label, prompt) in turns {
+        eprintln!("─── [{label}] Sending turn... ───");
+
+        let (response, _timeline) = run_multi_turn(
+            &config, &agent, &conversation_id, &tools_catalog, &lcm_engine, prompt, label,
+        )
+        .await;
+
+        assert!(
+            !response.output_text.trim().is_empty(),
+            "[{label}] Assistant output should not be empty"
+        );
+
+        let token_count = lcm_engine.token_count().unwrap();
+        let summary_count = count_summary_pointers(&lcm_engine);
+        let (calls, outputs) = verify_no_orphaned_tool_pairs(&lcm_engine, label);
+
+        eprintln!(
+            "[{label}] token_count={token_count}, summary_pointers={summary_count}, \
+             tool_calls={calls}, tool_outputs={outputs}, \
+             model_output_len={}",
+            response.output_text.len(),
+        );
+
+        // After each turn, verify tool calls had matching outputs.
+        assert!(
+            calls > 0 || label == &"turn1", // turn1 may not use two tools
+            "[{label}] Expected at least one function_call"
+        );
+
+        _total_summary_pointers_before = summary_count;
+    }
+
+    // ═══ Phase 2: Verify compaction occurred ═══
+    let snapshot = lcm_engine.active_context_snapshot().unwrap();
+    let summary_pointers: Vec<_> = snapshot
+        .iter()
+        .filter(|e| matches!(e, crate::lcm::types::ContextEntry::SummaryPointer { .. }))
+        .collect();
+    let raw_messages: Vec<_> = snapshot
+        .iter()
+        .filter(|e| matches!(e, crate::lcm::types::ContextEntry::RawMessage { .. }))
+        .collect();
+
+    eprintln!(
+        "─── Post-fill: total_entries={}, summary_pointers={}, raw_messages={} ───",
+        snapshot.len(),
+        summary_pointers.len(),
+        raw_messages.len(),
+    );
+
+    // We expect at least one summary pointer (compaction happened).
+    assert!(
+        !summary_pointers.is_empty(),
+        "Expected at least one SummaryPointer after {n} turns — compaction should have triggered. \
+         token_count={tc}, snapshot_len={sl}",
+        n = turns.len(),
+        tc = lcm_engine.token_count().unwrap(),
+        sl = snapshot.len(),
+    );
+
+    // Print summary texts for manual inspection.
+    for sp in &summary_pointers {
+        if let crate::lcm::types::ContextEntry::SummaryPointer {
+            text, child_ids, ..
+        } = sp
+        {
+            eprintln!(
+                "  Summary covers {} children: {}",
+                child_ids.len(),
+                &text[..text.len().min(200)]
+            );
+        }
+    }
+
+    // Final pairing check after all compaction.
+    let (final_calls, final_outputs) = verify_no_orphaned_tool_pairs(&lcm_engine, "post-compaction");
+    assert!(
+        final_calls == final_outputs,
+        "After compaction, function_call count ({final_calls}) must match \
+         function_call_output count ({final_outputs})"
+    );
+
+    // ═══ Phase 3: Post-compaction turn — verify conversation still works ═══
+    eprintln!("─── Post-compaction turn... ───");
+
+    let (post_response, _post_timeline) = run_multi_turn(
+        &config,
+        &agent,
+        &conversation_id,
+        &tools_catalog,
+        &lcm_engine,
+        "请用中文总结一下我们之前对话中做过的所有计算操作。不要调用任何工具，直接根据上下文回答。",
+        "post-compaction",
+    )
+    .await;
+
+    assert!(
+        !post_response.output_text.trim().is_empty(),
+        "Post-compaction turn should produce non-empty output"
+    );
+
+    // The model should be able to reference prior turns even after compaction.
+    eprintln!(
+        "Post-compaction response ({} chars): {}",
+        post_response.output_text.len(),
+        &post_response.output_text[..post_response.output_text.len().min(300)],
+    );
+
+    // Verify no orphaned pairs after the post-compaction turn.
+    verify_no_orphaned_tool_pairs(&lcm_engine, "final");
+
+    eprintln!("═══ LCM compaction smoke test PASSED ═══");
+}
+
+// ── Consecutive tool calls within a single turn ──────────────────────────────
+
+#[tokio::test]
+#[ignore = "requires a real provider credential and network access"]
+async fn real_gateway_lcm_consecutive_tool_calls_in_one_turn() {
+    if !real_gateway_test_enabled() {
+        return;
+    }
+    ensure_rustls_crypto_provider();
+
+    let config = crate::config::load_config().expect("load local config");
+    let agent = crate::config::load_agent_config(crate::config::constants::DEFAULT_AGENT_ID)
+        .unwrap_or_default()
+        .normalize();
+
+    let resolved_model = config
+        .resolve_model_profile_with_agent(None, &agent)
+        .expect("resolve default model profile");
+    assert!(
+        resolved_model.provider.resolved_credential().is_some(),
+        "Active provider has no resolved credential"
+    );
+
+    let conversation_id = format!("test-lcm-consecutive-{}", Uuid::new_v4());
+    crate::conversation_store::ensure_conversation(
+        crate::config::constants::DEFAULT_AGENT_ID,
+        &conversation_id,
+    )
+    .expect("ensure conversation workspace");
+
+    let tools_catalog = Arc::new(ToolCatalog::new(
+        Arc::new(crate::mcp::McpManager::new()),
+        &config,
+        &agent,
+    ));
+
+    // Low thresholds to trigger compaction.
+    let lcm_engine = lcm_engine_with_low_thresholds(&conversation_id);
+
+    // ── Fill context with tool-heavy turns ──
+    let fill_turns: &[(&str, &str)] = &[
+        (
+            "fill1",
+            "请先调用 calculator 计算 11111*22222，然后调用 get_system_time 获取时间，最后用中文说出两个结果。",
+        ),
+        (
+            "fill2",
+            "请依次调用 calculator 计算 33333/3，然后调用 write 写入 /tmp/lcm-consec-test.txt 内容为结果，再调用 read 读取确认。最后用中文总结。",
+        ),
+    ];
+
+    for (label, prompt) in fill_turns {
+        eprintln!("─── [{label}] Filling context... ───");
+        let (response, _) = run_multi_turn(
+            &config, &agent, &conversation_id, &tools_catalog, &lcm_engine, prompt, label,
+        )
+        .await;
+        assert!(!response.output_text.trim().is_empty());
+        verify_no_orphaned_tool_pairs(&lcm_engine, label);
+        eprintln!(
+            "[{label}] token_count={}, summary_pointers={}",
+            lcm_engine.token_count().unwrap(),
+            count_summary_pointers(&lcm_engine),
+        );
+    }
+
+    // ── The real test: a turn that requires 3+ consecutive tool calls ──
+    eprintln!("─── [consecutive] Multi-tool turn... ───");
+
+    let (response, _) = run_multi_turn(
+        &config,
+        &agent,
+        &conversation_id,
+        &tools_catalog,
+        &lcm_engine,
+        concat!(
+            "请严格按顺序完成以下三个步骤，每步都必须调用工具：\n",
+            "第1步：调用 get_system_time 获取当前时间。\n",
+            "第2步：调用 calculator 计算 777*666 得到结果。\n",
+            "第3步：调用 write 将结果写入 /tmp/lcm-multi-step.txt。\n",
+            "最后用中文说'连续多工具调用验证通过：时间=..., 计算=..., 文件已写入'。"
+        ),
+        "consecutive",
+    )
+    .await;
+
+    assert!(
+        !response.output_text.trim().is_empty(),
+        "Consecutive tool call turn should produce output"
+    );
+    assert!(
+        response.output_text.contains("连续多工具调用验证通过"),
+        "Should confirm all 3 tools executed. Output: {}",
+        &response.output_text[..response.output_text.len().min(200)],
+    );
+
+    // Verify no orphaned pairs after the complex turn.
+    let snapshot = lcm_engine.active_context_snapshot().unwrap();
+    let summary_count = snapshot
+        .iter()
+        .filter(|e| matches!(e, crate::lcm::types::ContextEntry::SummaryPointer { .. }))
+        .count();
+
+    let (calls, outputs) = verify_no_orphaned_tool_pairs(&lcm_engine, "consecutive-final");
+    assert_eq!(
+        calls, outputs,
+        "After consecutive tool calls, function_call count ({calls}) must match output count ({outputs}). \
+         summary_pointers={summary_count}"
+    );
+
+    eprintln!("═══ Consecutive tool calls smoke test PASSED (summary_pointers={summary_count}) ═══");
+}
+
+// ── End-to-End: Memory persistence across conversations ──────────────────────
+
 #[tokio::test]
 #[ignore = "requires a real provider credential and network access"]
 async fn real_gateway_memory_persists_across_turns() {
