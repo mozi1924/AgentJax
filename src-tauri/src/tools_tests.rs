@@ -2019,4 +2019,166 @@ rl.on('line', (line) => {
             "llm_map should fail without conversation context"
         );
     }
+
+    // ── Knowledge Base Tool Smoke Tests ──────────────────────────────────────
+
+    /// Verify that `kb_list` works end-to-end: AppConfig → ToolExecutionContext →
+    /// snapshot → execute_with_effects → kb_manager_from_ctx → KB manager.
+    #[tokio::test]
+    async fn test_kb_list_smoke_with_app_config_in_context() {
+        let _guard = crate::config::test_env_lock().lock().await;
+        let _home = setup_test_home();
+
+        // Build an AppConfig with RAG enabled and a KB entry.
+        let mut app_config = AppConfig::default();
+        app_config.rag.enabled = true;
+        app_config.rag.knowledge_bases.insert(
+            "smoke-test-kb".to_string(),
+            crate::config::KnowledgeBaseEntry {
+                name: "Smoke Test KB".to_string(),
+                path: "/tmp/smoke-test-kb".to_string(),
+                path_type: crate::config::KbPathType::Folder,
+                disabled_agents: vec![],
+            },
+        );
+
+        let app_config_arc = Arc::new(app_config);
+
+        // Build the tool catalog (KB tools are registered by default).
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &app_config_arc,
+            &crate::config::AgentConfig::default(),
+        );
+
+        // Simulate the exact context the engine builds: with app_config, agent_id.
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(format!("kb-smoke-{}", uuid::Uuid::new_v4())),
+            agent_id: Some("default".to_string()),
+            app_config: Some(Arc::clone(&app_config_arc)),
+            agent_config: Some(Arc::new(crate::config::AgentConfig::default())),
+            ..Default::default()
+        };
+
+        let snapshot = catalog.snapshot(&ctx).await;
+
+        // Verify kb_list is in the snapshot
+        assert!(
+            snapshot.active_tool_names().contains("kb_list"),
+            "kb_list must be in tool snapshot"
+        );
+
+        // Execute kb_list through the exact same path as the engine:
+        // execute_with_effects → execute_entry_output → tool.execute(context)
+        let result = snapshot
+            .execute_with_effects("kb_list", &serde_json::json!({}), &ctx)
+            .await;
+
+        match &result {
+            Ok(exec) => {
+                let output: serde_json::Value =
+                    serde_json::from_str(&serde_json::to_string(&exec.output).unwrap()).unwrap();
+                assert!(
+                    output.is_array(),
+                    "kb_list should return an array, got: {output:?}"
+                );
+            }
+            Err(e) => {
+                panic!("kb_list smoke test failed: {e}");
+            }
+        }
+    }
+
+    /// Verify `kb_list` fails with a clear error when app_config is missing.
+    #[tokio::test]
+    async fn test_kb_list_errors_without_app_config() {
+        let _guard = crate::config::test_env_lock().lock().await;
+        let _home = setup_test_home();
+
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &AppConfig::default(),
+            &crate::config::AgentConfig::default(),
+        );
+
+        // Context WITHOUT app_config — should fail gracefully.
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(format!("kb-no-config-{}", uuid::Uuid::new_v4())),
+            agent_id: Some("default".to_string()),
+            app_config: None, // <-- intentional
+            ..Default::default()
+        };
+
+        let snapshot = catalog.snapshot(&ctx).await;
+
+        let result = snapshot
+            .execute_with_effects("kb_list", &serde_json::json!({}), &ctx)
+            .await;
+
+        assert!(
+            result.is_err(),
+            "kb_list must fail when app_config is missing"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("No app config"),
+            "Error should mention missing app_config, got: {err_msg}"
+        );
+    }
+
+    /// Verify `kb_search` rejects access when agent is in disabled_agents.
+    #[tokio::test]
+    async fn test_kb_search_rejects_disabled_agent() {
+        let _guard = crate::config::test_env_lock().lock().await;
+        let _home = setup_test_home();
+
+        let mut app_config = AppConfig::default();
+        app_config.rag.enabled = true;
+        app_config.rag.knowledge_bases.insert(
+            "restricted-kb".to_string(),
+            crate::config::KnowledgeBaseEntry {
+                name: "Restricted KB".to_string(),
+                path: "/tmp/restricted-kb".to_string(),
+                path_type: crate::config::KbPathType::Folder,
+                disabled_agents: vec!["default".to_string()],
+            },
+        );
+
+        let app_config_arc = Arc::new(app_config);
+
+        let catalog = ToolCatalog::new(
+            Arc::new(crate::mcp::McpManager::new()),
+            &app_config_arc,
+            &crate::config::AgentConfig::default(),
+        );
+
+        // Agent "default" is in disabled_agents
+        let ctx = ToolExecutionContext {
+            conversation_id: Some(format!("kb-restricted-{}", uuid::Uuid::new_v4())),
+            agent_id: Some("default".to_string()),
+            app_config: Some(Arc::clone(&app_config_arc)),
+            agent_config: Some(Arc::new(crate::config::AgentConfig::default())),
+            ..Default::default()
+        };
+
+        let snapshot = catalog.snapshot(&ctx).await;
+
+        let result = snapshot
+            .execute_with_effects(
+                "kb_search",
+                &serde_json::json!({"kbId": "restricted-kb", "query": "test"}),
+                &ctx,
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "kb_search should reject agent in disabled_agents"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("not accessible"),
+            "Error should mention not accessible, got: {err_msg}"
+        );
+    }
 }

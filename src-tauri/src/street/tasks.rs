@@ -186,10 +186,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn unique_conv() -> String {
-        format!("tasks-test-{}", uuid::Uuid::new_v4().simple())
-    }
-
     #[test]
     fn test_sub_agent_summary_completed() {
         let s = sub_agent_summary(

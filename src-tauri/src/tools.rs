@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-pub(crate) use catalog::ToolCatalogExecution;
 pub use catalog::{
     MountedToolSourceSessions, PluginManagerSnapshot, ToolCatalog, ToolCatalogSnapshot,
     ToolCatalogStateChange, ToolManagerSnapshot, ToolManagerSnapshotRequest,
@@ -185,6 +184,7 @@ impl std::fmt::Debug for ToolExecutionContext {
 
 impl ToolExecutionContext {
     /// Create a new context with just a conversation ID (all other fields default).
+    #[allow(dead_code)]
     pub fn with_conversation_id(conversation_id: impl Into<String>) -> Self {
         Self {
             conversation_id: Some(conversation_id.into()),

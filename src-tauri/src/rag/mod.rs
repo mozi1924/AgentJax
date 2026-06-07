@@ -16,7 +16,7 @@
 //! ```ignore
 //! use rag::knowledge_base::KnowledgeBaseManager;
 //!
-//! let kb_manager = KnowledgeBaseManager::from_config(&app_config, &agent_config)?;
+//! let kb_manager = KnowledgeBaseManager::from_config(&app_config)?;
 //! let results = kb_manager.search("my_kb", "query text", 10, &app_config).await?;
 //! ```
 

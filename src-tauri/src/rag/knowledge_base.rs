@@ -15,7 +15,7 @@
 //! - **Background indexing**: Long-running index operations report progress.
 
 use crate::agentjax_home;
-use crate::config::{AppConfig, AgentConfig, KnowledgeBaseEntry};
+use crate::config::{AppConfig, KnowledgeBaseEntry};
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::provider_api::{self, EmbeddingRequest};
 use std::collections::{BTreeMap, HashMap};
@@ -70,11 +70,11 @@ impl KnowledgeBaseManager {
         self.embedding_disabled
     }
 
-    /// Create a new KB manager from app + agent config.
+    /// Create a new KB manager from the global app config.
     ///
     /// KBs are stored under `$AGENTJAX_HOME/knowledge_bases/` and use the
-    /// agent's embedding provider configuration.
-    pub fn from_config(app_config: &AppConfig, _agent_config: &AgentConfig) -> AgentJaxResult<Self> {
+    /// global embedding provider configuration from `AppConfig`.
+    pub fn from_config(app_config: &AppConfig) -> AgentJaxResult<Self> {
         let home = agentjax_home::agentjax_home_dir()?;
         let root_dir = home.join("knowledge_bases");
         let rag = &app_config.rag;

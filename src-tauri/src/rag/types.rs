@@ -33,24 +33,7 @@ pub struct Chunk {
     pub embedding: Option<Vec<f32>>,
 }
 
-impl Chunk {
-    /// Create a new chunk.
-    pub fn new(
-        document_id: impl Into<String>,
-        chunk_index: usize,
-        content: impl Into<String>,
-    ) -> Self {
-        let content: String = content.into();
-        let id = format!("{}_{}", document_id.into(), chunk_index);
-        Self {
-            id,
-            document_id: String::new(),
-            content,
-            chunk_index,
-            embedding: None,
-        }
-    }
-}
+impl Chunk {}
 
 /// A search result returned by the vector store.
 #[derive(Debug, Clone, Serialize, Deserialize)]

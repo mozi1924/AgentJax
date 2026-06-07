@@ -66,9 +66,8 @@ pub struct KnowledgeBaseStatus {
 pub async fn list_knowledge_bases() -> Result<Vec<KnowledgeBaseStatus>, AgentJaxError> {
     let full_config = load_active_config()?;
     let app_config = &full_config.shared;
-    let _agent_config = &full_config.agent;
 
-    let kb_manager = KnowledgeBaseManager::from_config(app_config, _agent_config)?;
+    let kb_manager = KnowledgeBaseManager::from_config(app_config)?;
     let mut statuses = Vec::new();
 
     for (kb_id, entry) in &app_config.rag.knowledge_bases {
@@ -220,9 +219,8 @@ pub async fn refresh_knowledge_base(
 ) -> Result<Value, AgentJaxError> {
     let full_config = load_active_config()?;
     let app_config = Arc::new(full_config.shared.clone());
-    let agent_config = Arc::new(full_config.agent.clone());
 
-    let kb_manager = KnowledgeBaseManager::from_config(&app_config, &agent_config)?;
+    let kb_manager = KnowledgeBaseManager::from_config(&app_config)?;
 
     let entry = app_config
         .rag

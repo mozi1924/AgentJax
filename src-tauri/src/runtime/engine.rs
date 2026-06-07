@@ -168,7 +168,7 @@ impl AgentRuntime {
         // item. This ensures the model is aware of relevant KB content
         // without having to explicitly invoke kb_search.
         if config.rag.enabled && !config.rag.knowledge_bases.is_empty() {
-            match KnowledgeBaseManager::from_config(config, agent) {
+            match KnowledgeBaseManager::from_config(config) {
                 Ok(kb_manager) => {
                     let user_query = req.input.trim();
                     if !user_query.is_empty() {
@@ -350,7 +350,7 @@ impl AgentRuntime {
             let stream_request =
                 build_request(req, input_items.clone(), tool_snapshot.schemas().to_vec());
             let mut tool_scheduler = ToolExecutionScheduler::new(
-                conversation_id,
+                tool_context.clone(),
                 tool_snapshot.clone(),
                 provider_capabilities.supports_parallel_tool_calls,
                 cancel_rx,

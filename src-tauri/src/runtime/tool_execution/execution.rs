@@ -36,20 +36,20 @@ pub(super) fn prepare_tool_execution(
 
 pub(super) async fn run_prepared_tool(
     tool_snapshot: ToolCatalogSnapshot,
-    conversation_id: String,
+    tool_context: ToolExecutionContext,
     cancel_rx: watch::Receiver<bool>,
     semaphore: Arc<Semaphore>,
     pending: PreparedToolExecution,
 ) -> Option<ExecutedToolRecord> {
     let permit = semaphore.acquire_owned().await.ok()?;
-    let record = execute_prepared_tool(tool_snapshot, conversation_id, cancel_rx, pending).await;
+    let record = execute_prepared_tool(tool_snapshot, tool_context, cancel_rx, pending).await;
     drop(permit);
     record
 }
 
 async fn execute_prepared_tool(
     tool_snapshot: ToolCatalogSnapshot,
-    conversation_id: String,
+    tool_context: ToolExecutionContext,
     cancel_rx: watch::Receiver<bool>,
     pending: PreparedToolExecution,
 ) -> Option<ExecutedToolRecord> {
@@ -64,7 +64,7 @@ async fn execute_prepared_tool(
         args,
     } = pending;
 
-    let context = ToolExecutionContext::with_conversation_id(conversation_id);
+    let context = tool_context;
     let start_time = Instant::now();
     let started_at_unix_ms = now_unix_ms();
 

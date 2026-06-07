@@ -16,16 +16,14 @@ use tokio::sync::Mutex;
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Create a knowledge base manager from the execution context.
+/// Only the global `AppConfig` is needed — per-agent config is not used
+/// by the KB manager since knowledge bases are globally shared.
 fn kb_manager_from_ctx(ctx: &ToolExecutionContext) -> AgentJaxResult<KnowledgeBaseManager> {
     let app_config = ctx
         .app_config
         .as_ref()
         .ok_or_else(|| AgentJaxError::tool("No app config available"))?;
-    let agent_config = ctx
-        .agent_config
-        .as_ref()
-        .ok_or_else(|| AgentJaxError::tool("No agent config available"))?;
-    KnowledgeBaseManager::from_config(app_config, agent_config)
+    KnowledgeBaseManager::from_config(app_config)
 }
 
 // Lazy-initialized KB manager shared across KB tool calls.

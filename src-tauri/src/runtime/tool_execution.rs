@@ -1,6 +1,6 @@
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::provider_api::types::{ProviderPendingToolCall, ProviderStreamEvent};
-use crate::tools::ToolCatalogSnapshot;
+use crate::tools::{ToolCatalogSnapshot, ToolExecutionContext};
 use futures_util::FutureExt;
 use std::collections::{HashMap, HashSet};
 use std::panic::AssertUnwindSafe;
@@ -27,7 +27,7 @@ type ToolCompletionMessage = (String, Option<ExecutedToolRecord>);
 type ToolExecutionJoinHandle = JoinHandle<()>;
 
 pub(super) struct ToolExecutionScheduler {
-    conversation_id: String,
+    tool_context: ToolExecutionContext,
     tool_snapshot: ToolCatalogSnapshot,
     cancel_rx: watch::Receiver<bool>,
     semaphore: Arc<Semaphore>,
@@ -42,7 +42,7 @@ pub(super) struct ToolExecutionScheduler {
 
 impl ToolExecutionScheduler {
     pub(super) fn new(
-        conversation_id: impl Into<String>,
+        tool_context: ToolExecutionContext,
         tool_snapshot: ToolCatalogSnapshot,
         supports_parallel_tool_calls: bool,
         cancel_rx: &watch::Receiver<bool>,
@@ -56,7 +56,7 @@ impl ToolExecutionScheduler {
         let (completed_tx, completed_rx) = mpsc::unbounded_channel();
 
         Self {
-            conversation_id: conversation_id.into(),
+            tool_context,
             tool_snapshot,
             cancel_rx: cancel_rx.clone(),
             semaphore: Arc::new(Semaphore::new(parallelism)),
@@ -91,7 +91,7 @@ impl ToolExecutionScheduler {
         );
 
         let call_id = prepared.call_id.clone();
-        let conversation_id = self.conversation_id.clone();
+        let tool_context = self.tool_context.clone();
         let tool_snapshot = self.tool_snapshot.clone();
         let cancel_rx = self.cancel_rx.clone();
         let semaphore = self.semaphore.clone();
@@ -99,7 +99,7 @@ impl ToolExecutionScheduler {
         self.handles.push(tokio::spawn(async move {
             let record = AssertUnwindSafe(run_prepared_tool(
                 tool_snapshot,
-                conversation_id,
+                tool_context,
                 cancel_rx,
                 semaphore,
                 prepared,
@@ -275,8 +275,12 @@ mod tests {
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let (_cancel_tx, cancel_rx) = watch::channel(false);
+        let tool_ctx = ToolExecutionContext {
+            conversation_id: Some("conv-runtime-test".to_string()),
+            ..Default::default()
+        };
         let mut scheduler =
-            ToolExecutionScheduler::new("conv-runtime-test", snapshot, true, &cancel_rx);
+            ToolExecutionScheduler::new(tool_ctx, snapshot, true, &cancel_rx);
 
         assert!(scheduler.schedule_pending_tool(
             ProviderPendingToolCall {
@@ -345,8 +349,12 @@ mod tests {
         // Serial mode (parallelism=1): background_task now shares the same
         // semaphore as other tools since it's a single native tool, not a
         // separate control-plane partition.
+        let tool_ctx = ToolExecutionContext {
+            conversation_id: Some(conversation_id.to_string()),
+            ..Default::default()
+        };
         let mut scheduler =
-            ToolExecutionScheduler::new(conversation_id, snapshot, false, &cancel_rx);
+            ToolExecutionScheduler::new(tool_ctx, snapshot, false, &cancel_rx);
         let job = background_jobs::start_job_for_conversation(
             "slow-test-tool",
             Some(conversation_id.to_string()),

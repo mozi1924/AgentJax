@@ -189,7 +189,7 @@ async fn rag_smoke_test() {
 
     // Initialize KnowledgeBaseManager
     let kb_manager =
-        KnowledgeBaseManager::from_config(&full_config.shared, &full_config.agent)
+        KnowledgeBaseManager::from_config(&full_config.shared)
             .expect("create KB manager");
 
     // Create a test knowledge base
