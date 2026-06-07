@@ -259,6 +259,11 @@ pub struct RagConfig {
     /// Default: 30.
     #[serde(default = "default_embedding_batch_size")]
     pub embedding_batch_size: usize,
+    /// Maximum concurrent embedding API calls.
+    /// Higher values pipeline more requests at once, reducing total wall-clock
+    /// time.  Set to 1 to disable pipelining.  Default: 2.
+    #[serde(default = "default_embedding_concurrency")]
+    pub embedding_concurrency: usize,
     /// Cooldown in milliseconds between successful embedding batches.
     /// Gives the embedding server time to breathe. Default: 2000 (2s).
     #[serde(default = "default_embedding_batch_throttle_ms")]
@@ -267,6 +272,10 @@ pub struct RagConfig {
 
 fn default_embedding_batch_size() -> usize {
     30
+}
+
+fn default_embedding_concurrency() -> usize {
+    2
 }
 
 fn default_embedding_batch_throttle_ms() -> u64 {
@@ -284,6 +293,7 @@ impl Default for RagConfig {
             embedding: EmbeddingProviderConfig::default(),
             knowledge_bases: BTreeMap::new(),
             embedding_batch_size: default_embedding_batch_size(),
+            embedding_concurrency: default_embedding_concurrency(),
             embedding_batch_throttle_ms: default_embedding_batch_throttle_ms(),
         }
     }

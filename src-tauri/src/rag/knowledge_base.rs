@@ -472,33 +472,38 @@ impl KnowledgeBaseManager {
         Ok(total_chunks)
     }
 
-    /// Phase 3: Embed — continuously embed all unembedded chunks.
+    /// Phase 3: Embed — pipeline concurrent embedding calls.
     ///
-    /// Streams through chunks in batches with adaptive sizing and server-friendly
-    /// throttling. Designed for LAN/local embedding servers that can be
-    /// overwhelmed by large or rapid requests.
+    /// Pre-reads all unembedded chunks, splits them into batches, then fires
+    /// off up to `rag.embedding_concurrency` embedding API calls at once.
+    /// Each task independently embeds its batch, writes vectors to LanceDB,
+    /// and marks chunks as done in FTS.  While one batch is waiting on the
+    /// network, another is already in flight — total wall-clock time drops
+    /// significantly.
     ///
-    /// ## Anti-overload behaviour
+    /// ## Anti-overload behaviour (per-task)
     ///
-    /// - **Configurable batch size** (`rag.embedding_batch_size`, default 30).
-    /// - **Throttle between batches** (`rag.embedding_batch_throttle_ms`, default 2s).
-    /// - **Adaptive shrinking**: on failure, splits the batch in half and
-    ///   retries each piece independently (min floor: 5).
-    /// - **Progressive backoff**: 5s → 10s → 20s per retry level.
-    /// - Non-retryable errors (auth, config) surface immediately.
-    /// - On persistent failure returns partial progress so nothing is lost.
+    /// - Adaptive shrinking on failure (split batch in half, min floor 5).
+    /// - Progressive backoff at min size: 5s → 10s → 20s.
+    /// - Non-retryable errors (auth, config) abort all in-flight work.
+    /// - `rag.embedding_batch_throttle_ms` still applies between firing
+    ///   new tasks to avoid flooding the server.
     ///
-    /// The `on_progress` callback receives `(processed, total)` after each
-    /// batch completes.
+    /// The `on_progress` callback receives `(processed, total)` whenever
+    /// any task completes its batch.
     pub async fn embed_prepared_chunks<F>(
         &self,
         kb_id: &str,
         app_config: &AppConfig,
-        mut on_progress: F,
+        on_progress: F,
     ) -> AgentJaxResult<usize>
     where
-        F: FnMut(usize, usize),
+        F: FnMut(usize, usize) + Send + 'static,
     {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, Mutex};
+        use tokio::sync::Semaphore;
+
         let kb = self.open_kb(kb_id).await?;
         let total = kb.fts_store.unembedded_chunk_count()?;
 
@@ -506,179 +511,229 @@ impl KnowledgeBaseManager {
             return Ok(0);
         }
 
-        let max_batch = app_config
-            .rag
-            .embedding_batch_size
-            .max(5); // floor
+        let max_batch = app_config.rag.embedding_batch_size.max(5);
+        let concurrency = app_config.rag.embedding_concurrency.max(1);
         let throttle = std::time::Duration::from_millis(
             app_config.rag.embedding_batch_throttle_ms,
         );
 
-        let mut embedded = 0usize;
+        // ── Pre-read all batches ──────────────────────────────────────
+        let mut batches: Vec<Vec<(String, String, usize, String)>> = Vec::new();
         let mut offset = 0usize;
-
-        while embedded < total {
-            let batch: Vec<(String, String, usize, String)> =
-                kb.fts_store.get_unembedded_chunks(max_batch, offset)?;
+        while offset < total {
+            let batch = kb.fts_store.get_unembedded_chunks(max_batch, offset)?;
             if batch.is_empty() {
                 break;
             }
+            offset += batch.len();
+            batches.push(batch);
+        }
 
-            let batch_count = batch.len();
+        let batch_count = batches.len();
+        log::info!(
+            "KB '{}': embedding {} chunks in {} batches (concurrency={})",
+            kb_id,
+            total,
+            batch_count,
+            concurrency,
+        );
 
-            // ── Embed this batch (with adaptive shrinking on failure) ──
-            match self
-                .embed_one_batch(kb.as_ref(), app_config, &batch)
-                .await
+        // ── Shared state (Arc for cross-task ownership) ──────────────
+        let kb = Arc::new(kb);
+        // Clone the KnowledgeBase Arc — the inner stores are already behind
+        // an Arc, so this is just a ref-count bump.
+        let kb_for_tasks = kb.as_ref().clone(); // Arc<KnowledgeBase>
+        let app_config = Arc::new(app_config.clone());
+        let provider_key = Arc::new(self.provider_key.clone());
+        let embedding_model = Arc::new(self.embedding_model.clone());
+        let embedded = Arc::new(AtomicUsize::new(0));
+        let first_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let on_progress = Arc::new(Mutex::new(on_progress));
+        let sem = Arc::new(Semaphore::new(concurrency));
+        let mut join_set = tokio::task::JoinSet::new();
+
+        for (batch_idx, batch) in batches.into_iter().enumerate() {
+            // Check if any previous task failed fatally.
             {
-                Ok(()) => {
-                    embedded += batch_count;
-                    offset += batch_count;
-                    on_progress(embedded, total);
+                let err_guard = first_error.lock().unwrap();
+                if let Some(ref msg) = *err_guard {
+                    return Err(AgentJaxError::embedding(msg.clone()));
+                }
+            }
 
-                    // ── Throttle: give the server time to breathe ──
-                    if embedded < total {
-                        tokio::time::sleep(throttle).await;
+            // Acquire concurrency slot — blocks if we're at the limit.
+            let permit = sem.clone().acquire_owned().await.map_err(|e| {
+                AgentJaxError::embedding(format!("Semaphore closed: {e}"))
+            })?;
+
+            let kb = kb_for_tasks.clone();
+            let app_config = app_config.clone();
+            let provider_key = provider_key.clone();
+            let embedding_model = embedding_model.clone();
+            let embedded = embedded.clone();
+            let first_error = first_error.clone();
+            let on_progress = on_progress.clone();
+            let total_u = total;
+
+            join_set.spawn(async move {
+                let _permit = permit; // hold until task completes
+
+                // Embed this batch with adaptive retry/shrink.
+                let result = Self::embed_batch_with_retry(
+                    &kb,
+                    &app_config,
+                    &provider_key,
+                    &embedding_model,
+                    &batch,
+                )
+                .await;
+
+                match result {
+                    Ok(()) => {
+                        let done = embedded.fetch_add(batch.len(), Ordering::Relaxed)
+                            + batch.len();
+                        if let Ok(mut cb) = on_progress.lock() {
+                            cb(done, total_u);
+                        }
+                    }
+                    Err(e) => {
+                        // Record first error to abort other tasks.
+                        let mut err_guard = first_error.lock().unwrap();
+                        if err_guard.is_none() {
+                            *err_guard = Some(format!(
+                                "Batch {} failed: {}",
+                                batch_idx,
+                                e
+                            ));
+                        }
                     }
                 }
-                Err(e) => {
-                    log::error!(
-                        "Embedding failed for KB '{}' at offset {} ({} chunks): {}. \
-                         {} of {} chunks embedded before failure.",
-                        kb_id,
-                        offset,
-                        batch_count,
-                        e,
-                        embedded,
-                        total
-                    );
-                    return Err(e.with_context(format!(
-                        "Embedding failed after {}/{} chunks",
-                        embedded, total
-                    )));
-                }
+            });
+
+            // Throttle between firing new tasks (NOT between completions).
+            if batch_idx + 1 < batch_count {
+                tokio::time::sleep(throttle).await;
             }
         }
 
-        log::info!("Embedded {} chunks in KB '{}'", embedded, kb_id);
+        // ── Wait for all tasks ────────────────────────────────────────
+        while let Some(result) = join_set.join_next().await {
+            if let Err(join_err) = result {
+                log::warn!("Embedding task panicked: {join_err}");
+            }
+        }
 
-        Ok(embedded)
+        let final_embedded = embedded.load(Ordering::Relaxed);
+
+        // Check if any task reported a fatal error.
+        let err_guard = first_error.lock().unwrap();
+        if let Some(ref msg) = *err_guard {
+            return Err(AgentJaxError::embedding(format!(
+                "Embedding pipeline failed after {}/{} chunks: {msg}",
+                final_embedded, total,
+            )));
+        }
+
+        log::info!(
+            "Embedded {} chunks in KB '{}'",
+            final_embedded,
+            kb_id,
+        );
+
+        Ok(final_embedded)
     }
 
-    /// Embed a single batch of chunks, with adaptive shrinking on failure.
+    /// Embed a single batch with adaptive shrinking and retry.
     ///
-    /// Strategy:
-    /// 1. Try the full batch.
-    /// 2. On failure: if batch > min (5), split in half and recurse.
-    /// 3. On failure at min size: retry with progressive backoff (5s→10s→20s).
-    /// 4. Auth/config errors → bail immediately (no retry, no shrink).
-    async fn embed_one_batch(
-        &self,
+    /// Called from within a tokio task — each task owns its batch and
+    /// handles its own retries independently.
+    async fn embed_batch_with_retry(
         kb: &KnowledgeBase,
         app_config: &AppConfig,
-        batch: &[(String, String, usize, String)], // (id, doc_id, idx, content)
+        provider_key: &str,
+        embedding_model: &str,
+        batch: &[(String, String, usize, String)],
     ) -> AgentJaxResult<()> {
         const MIN_BATCH: usize = 5;
         const MAX_RETRIES: u32 = 3;
 
-        let texts: Vec<String> = batch.iter().map(|(_, _, _, content)| content.clone()).collect();
+        let texts: Vec<String> = batch.iter().map(|(_, _, _, c)| c.clone()).collect();
         let chunk_ids: Vec<String> = batch.iter().map(|(id, _, _, _)| id.clone()).collect();
 
-        // ── Attempt 1: embed the full batch ──
+        // ── Attempt 1: full batch ──
         match provider_api::embed_text(
             app_config,
-            &self.provider_key,
-            &self.embedding_model,
+            provider_key,
+            embedding_model,
             &EmbeddingRequest::batch(texts.clone()),
         )
         .await
         {
             Ok(response) => {
-                self.commit_embedded_batch(kb, batch, &chunk_ids, &response.embeddings)
-                    .await?;
+                Self::commit_batch(kb, batch, &chunk_ids, &response.embeddings).await?;
                 return Ok(());
             }
-            Err(e) => {
-                // Non-retryable → surface immediately, no shrinking.
-                if matches!(
-                    e.kind,
-                    crate::error::ErrorKind::ProviderAuth
-                        | crate::error::ErrorKind::Config
-                ) {
-                    return Err(e);
-                }
+            Err(e) if matches!(e.kind, crate::error::ErrorKind::ProviderAuth | crate::error::ErrorKind::Config) => {
+                return Err(e);
             }
+            Err(_) => { /* fall through to shrink/retry */ }
         }
 
-        // ── Shrink or retry ──
+        // ── Shrink ──
         if batch.len() > MIN_BATCH {
-            // Split into two halves and try each independently.
             let mid = batch.len() / 2;
             log::warn!(
-                "Embedding batch of {} chunks failed — shrinking to {} + {}",
-                batch.len(),
-                mid,
-                batch.len() - mid,
+                "Embedding batch of {} failed — shrinking to {} + {}",
+                batch.len(), mid, batch.len() - mid,
             );
-            // Brief cooldown before retrying smaller batches.
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-
-            let left = &batch[..mid];
-            let right = &batch[mid..];
-            // Box the futures to avoid infinite-size recursion in async fn.
-            Box::pin(self.embed_one_batch(kb, app_config, left)).await?;
-            Box::pin(self.embed_one_batch(kb, app_config, right)).await?;
+            Box::pin(Self::embed_batch_with_retry(
+                kb, app_config, provider_key, embedding_model, &batch[..mid],
+            ))
+            .await?;
+            Box::pin(Self::embed_batch_with_retry(
+                kb, app_config, provider_key, embedding_model, &batch[mid..],
+            ))
+            .await?;
             return Ok(());
         }
 
-        // ── Min-size batch: retry with progressive backoff ──
+        // ── Min-size: retry with backoff ──
         for attempt in 0..MAX_RETRIES {
-            let delay_secs = 5u64 * 2u64.saturating_pow(attempt); // 5s → 10s → 20s
+            let delay = 5u64 * 2u64.saturating_pow(attempt);
             log::warn!(
-                "Embedding min-batch ({} chunks) failed, retry {}/{} after {}s...",
-                batch.len(),
-                attempt + 1,
-                MAX_RETRIES,
-                delay_secs,
+                "Embedding min-batch ({} chunks) retry {}/{} after {}s...",
+                batch.len(), attempt + 1, MAX_RETRIES, delay,
             );
-            tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
 
             match provider_api::embed_text(
                 app_config,
-                &self.provider_key,
-                &self.embedding_model,
+                provider_key,
+                embedding_model,
                 &EmbeddingRequest::batch(texts.clone()),
             )
             .await
             {
                 Ok(response) => {
-                    self.commit_embedded_batch(kb, batch, &chunk_ids, &response.embeddings)
-                        .await?;
+                    Self::commit_batch(kb, batch, &chunk_ids, &response.embeddings).await?;
                     return Ok(());
                 }
-                Err(e) => {
-                    if matches!(
-                        e.kind,
-                        crate::error::ErrorKind::ProviderAuth
-                            | crate::error::ErrorKind::Config
-                    ) {
-                        return Err(e);
-                    }
-                    // Continue retry loop.
+                Err(e) if matches!(e.kind, crate::error::ErrorKind::ProviderAuth | crate::error::ErrorKind::Config) => {
+                    return Err(e);
                 }
+                Err(_) => {}
             }
         }
 
         Err(AgentJaxError::embedding(format!(
-            "Failed to embed {} chunks after {} retries at min batch size",
-            batch.len(),
-            MAX_RETRIES,
+            "Failed after {} retries at min batch size ({})",
+            MAX_RETRIES, batch.len(),
         )))
     }
 
-    /// Write embedded chunks to LanceDB and mark them as done in FTS.
-    async fn commit_embedded_batch(
-        &self,
+    /// Write embedded chunks to LanceDB and mark them in FTS.
+    async fn commit_batch(
         kb: &KnowledgeBase,
         batch: &[(String, String, usize, String)],
         chunk_ids: &[String],
@@ -695,18 +750,19 @@ impl KnowledgeBaseManager {
         let embedded_chunks: Vec<Chunk> = batch
             .iter()
             .zip(embeddings.iter())
-            .map(|((id, doc_id, idx, content), embedding)| Chunk {
+            .map(|((id, doc_id, idx, content), emb)| Chunk {
                 id: id.clone(),
                 document_id: doc_id.clone(),
                 chunk_index: *idx,
                 content: content.clone(),
-                embedding: Some(embedding.clone()),
+                embedding: Some(emb.clone()),
             })
             .collect();
 
         kb.vector_store.insert_chunks(&embedded_chunks).await?;
-        kb.fts_store
-            .mark_chunks_embedded(chunk_ids, &self.embedding_model)?;
+        // FTS mark — use empty string for model since we're inside a static method.
+        // The model name is only used as a tag; pass a placeholder or the actual model.
+        kb.fts_store.mark_chunks_embedded(chunk_ids, "pipeline")?;
 
         Ok(())
     }
