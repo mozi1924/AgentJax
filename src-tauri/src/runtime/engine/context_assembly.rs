@@ -60,12 +60,11 @@ pub(crate) async fn build_hop1_input(
         .into_iter()
         .rev()
         .filter(|item| {
-            if matches!(item.get("role").and_then(|v| v.as_str()), Some("user")) {
-                if !seen_current_user {
+            if matches!(item.get("role").and_then(|v| v.as_str()), Some("user"))
+                && !seen_current_user {
                     seen_current_user = true;
                     return false; // skip the most recent user message
                 }
-            }
             true
         })
         .collect::<Vec<_>>()

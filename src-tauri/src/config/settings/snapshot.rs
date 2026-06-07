@@ -79,8 +79,8 @@ pub(super) fn snapshot_from_config_with_agent(
 
     // Merge agent config fields into the values object so the frontend
     // sees a unified view of both shared and agent-specific settings.
-    if let Ok(agent_values) = serde_json::to_value(agent_config) {
-        if let (Some(root_obj), Some(agent_obj)) =
+    if let Ok(agent_values) = serde_json::to_value(agent_config)
+        && let (Some(root_obj), Some(agent_obj)) =
             (values.as_object_mut(), agent_values.as_object())
         {
             for (key, val) in agent_obj {
@@ -88,7 +88,6 @@ pub(super) fn snapshot_from_config_with_agent(
                 root_obj.insert(key.clone(), val.clone());
             }
         }
-    }
 
     let mut secret_statuses = BTreeMap::new();
     redact_secret_values(config, &mut values, &mut secret_statuses)?;
@@ -147,8 +146,8 @@ fn redact_secret_values(
         }
     }
 
-    if let Some(mcp_value) = root.get_mut("mcp") {
-        if let Some(servers_map) = mcp_value.get_mut("servers").and_then(|s| s.as_object_mut()) {
+    if let Some(mcp_value) = root.get_mut("mcp")
+        && let Some(servers_map) = mcp_value.get_mut("servers").and_then(|s| s.as_object_mut()) {
             for (server_key, server_value) in servers_map.iter_mut() {
                 if let Value::Object(server_object) = server_value {
                     let configured = server_object
@@ -168,7 +167,6 @@ fn redact_secret_values(
                 }
             }
         }
-    }
 
     Ok(())
 }

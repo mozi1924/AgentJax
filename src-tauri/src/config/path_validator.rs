@@ -80,8 +80,8 @@ fn build_merged_config_schema() -> Value {
 /// The `base` schema's values are kept when there's a conflict in `properties`
 /// or `$defs`; the `overlay` fills in any keys not already present.
 fn merge_properties(mut base: Value, overlay: Value) -> Value {
-    if let Some(base_obj) = base.as_object_mut() {
-        if let Some(overlay_obj) = overlay.as_object() {
+    if let Some(base_obj) = base.as_object_mut()
+        && let Some(overlay_obj) = overlay.as_object() {
             // Merge the `properties` maps
             merge_object_maps(base_obj, overlay_obj, "properties");
 
@@ -89,17 +89,15 @@ fn merge_properties(mut base: Value, overlay: Value) -> Value {
             merge_object_maps(base_obj, overlay_obj, "$defs");
 
             // Merge `required` arrays
-            if let Some(base_req) = base_obj.get_mut("required").and_then(|r| r.as_array_mut()) {
-                if let Some(overlay_req) = overlay_obj.get("required").and_then(|r| r.as_array()) {
+            if let Some(base_req) = base_obj.get_mut("required").and_then(|r| r.as_array_mut())
+                && let Some(overlay_req) = overlay_obj.get("required").and_then(|r| r.as_array()) {
                     for val in overlay_req {
                         if !base_req.contains(val) {
                             base_req.push(val.clone());
                         }
                     }
                 }
-            }
         }
-    }
     base
 }
 
@@ -218,11 +216,10 @@ fn validate_node(
     }
 
     // Recurse into itemTemplate
-    if let Some(template) = node.get("itemTemplate") {
-        if let Err(template_errors) = validate_node(template, root_schema, ctx_schema, ctx_desc) {
+    if let Some(template) = node.get("itemTemplate")
+        && let Err(template_errors) = validate_node(template, root_schema, ctx_schema, ctx_desc) {
             errors.extend(template_errors);
         }
-    }
 
     if errors.is_empty() {
         Ok(())
@@ -316,26 +313,22 @@ fn resolve_collection_item_schema(
             // The property's schema might be a $ref or have additionalProperties
             let resolved = follow_ref(resolved, root_schema);
 
-            if let Some(additional) = resolved.get("additionalProperties") {
-                if !matches!(additional, Value::Bool(false)) {
+            if let Some(additional) = resolved.get("additionalProperties")
+                && !matches!(additional, Value::Bool(false)) {
                     return Ok(follow_ref(additional, root_schema).clone());
                 }
-            }
 
             // Some BTreeMap types have `type: object` + `additionalProperties`
             // without being wrapped in a `$ref` — check the resolved schema itself
-            if resolved.get("type").and_then(Value::as_str) == Some("object") {
-                if let Some(properties) = resolved.get("properties") {
-                    if let Some(prop_val) = properties.get(*segment) {
+            if resolved.get("type").and_then(Value::as_str) == Some("object")
+                && let Some(properties) = resolved.get("properties")
+                    && let Some(prop_val) = properties.get(*segment) {
                         let prop_resolved = follow_ref(prop_val, root_schema);
-                        if let Some(additional) = prop_resolved.get("additionalProperties") {
-                            if !matches!(additional, Value::Bool(false)) {
+                        if let Some(additional) = prop_resolved.get("additionalProperties")
+                            && !matches!(additional, Value::Bool(false)) {
                                 return Ok(follow_ref(additional, root_schema).clone());
                             }
-                        }
                     }
-                }
-            }
 
             return Err(format!(
                 "\"{segment}\" is not a map type (no additionalProperties)"
@@ -350,22 +343,19 @@ fn resolve_collection_item_schema(
 
 pub(crate) fn follow_ref<'a>(schema: &'a Value, root_schema: &'a Value) -> &'a Value {
     // Direct $ref: resolve to the definition.
-    if let Some(ref_str) = schema.get("$ref").and_then(Value::as_str) {
-        if let Some(def_path) = ref_str.strip_prefix("#/$defs/") {
-            if let Some(defs) = root_schema.get("$defs").and_then(|d| d.as_object()) {
-                if let Some(def_schema) = defs.get(def_path) {
+    if let Some(ref_str) = schema.get("$ref").and_then(Value::as_str)
+        && let Some(def_path) = ref_str.strip_prefix("#/$defs/")
+            && let Some(defs) = root_schema.get("$defs").and_then(|d| d.as_object())
+                && let Some(def_schema) = defs.get(def_path) {
                     return follow_ref(def_schema, root_schema);
                 }
-            }
-        }
-    }
     // anyOf with a single $ref branch (e.g. nullable Option<T> schemas):
     // {"anyOf": [{"$ref": "#/$defs/T"}, {"type": "null"}]}
     if let Some(any_of) = schema.get("anyOf").and_then(|a| a.as_array()) {
         for variant in any_of {
             if variant.get("$ref").is_some() {
                 let result = follow_ref(variant, root_schema);
-                if !result.get("$ref").is_some() {
+                if result.get("$ref").is_none() {
                     return result;
                 }
             }
@@ -388,17 +378,15 @@ pub(crate) fn resolve_schema_property<'a>(
         resolved
     };
 
-    if let Some(properties) = effective.get("properties").and_then(|p| p.as_object()) {
-        if let Some(prop_schema) = properties.get(segment) {
+    if let Some(properties) = effective.get("properties").and_then(|p| p.as_object())
+        && let Some(prop_schema) = properties.get(segment) {
             return Ok(prop_schema);
         }
-    }
 
-    if let Some(additional) = effective.get("additionalProperties") {
-        if !matches!(additional, Value::Bool(false)) {
+    if let Some(additional) = effective.get("additionalProperties")
+        && !matches!(additional, Value::Bool(false)) {
             return Ok(additional);
         }
-    }
 
     Err(format!("no property \"{segment}\" found"))
 }

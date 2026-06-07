@@ -25,8 +25,8 @@ use std::path::Path;
 ///
 /// `label` is used in error messages (e.g. `"notification"`, `"tasks"`).
 pub fn ensure_parent_dir(path: &Path, label: &str) -> AgentJaxResult<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
+    if let Some(parent) = path.parent()
+        && !parent.exists() {
             fs::create_dir_all(parent).map_err(|e| {
                 AgentJaxError::internal(format!(
                     "Failed to create {label} directory {}: {e}",
@@ -34,7 +34,6 @@ pub fn ensure_parent_dir(path: &Path, label: &str) -> AgentJaxResult<()> {
                 ))
             })?;
         }
-    }
     Ok(())
 }
 

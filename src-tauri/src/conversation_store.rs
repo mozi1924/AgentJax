@@ -32,7 +32,6 @@ pub use queries::{
     load_title_generation_candidate,
 };
 pub use recovery::build_recovery_developer_note;
-pub use store::ConversationStore;
 pub use types::{
     AppendLineInput, AssistantLine, AssistantStatus, ConversationDetail, ConversationDynamicTool,
     ConversationDynamicToolBinding, ConversationLine, ConversationMountedToolDefinition,

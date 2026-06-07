@@ -382,8 +382,8 @@ impl super::AgentRuntime {
                 .timeline_events
                 .extend(executed_batch.timeline_events);
             apply_tool_state_changes(&mut mounted_mcp_servers, executed_batch.state_changes);
-            if !tctx.is_sub_agent {
-                if let Err(err) = tctx.tools_catalog.persist_mounted_servers(
+            if !tctx.is_sub_agent
+                && let Err(err) = tctx.tools_catalog.persist_mounted_servers(
                     crate::config::constants::DEFAULT_AGENT_ID,
                     tctx.conversation_id,
                     &mounted_mcp_servers,
@@ -394,7 +394,6 @@ impl super::AgentRuntime {
                         err
                     );
                 }
-            }
 
             // ── Build hop delta & accumulate ─────────────────────────────
             let hop_delta = crate::provider_api::compose_tool_continuation_input(

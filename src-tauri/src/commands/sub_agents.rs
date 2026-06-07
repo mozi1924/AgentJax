@@ -21,7 +21,7 @@ pub struct ListSubAgentsRequest {
 /// Cancel a running sub-agent.
 #[tauri::command]
 pub fn cancel_sub_agent(req: CancelSubAgentRequest) -> Result<serde_json::Value, AgentJaxError> {
-    SubAgentManager::cancel(&req.agent_id, req.conversation_id.as_deref()).map_err(|e| AgentJaxError::internal(e))
+    SubAgentManager::cancel(&req.agent_id, req.conversation_id.as_deref()).map_err(AgentJaxError::internal)
 }
 
 /// List all sub-agents for a conversation.

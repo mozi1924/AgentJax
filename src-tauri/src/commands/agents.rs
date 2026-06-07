@@ -36,8 +36,7 @@ impl From<&str> for AgentSummary {
     fn from(id: &str) -> Self {
         // Use a human-friendly label derived from the agent ID.
         let label = id
-            .replace('-', " ")
-            .replace('_', " ")
+            .replace(['-', '_'], " ")
             .split(' ')
             .map(|word| {
                 let mut c = word.chars();
@@ -103,8 +102,8 @@ pub fn create_agent(
 
     let config = if let Some(template) = &req.template_id {
         // Clone from an existing agent's config
-        let template_config = state.registry.load_agent_config(template)?;
-        template_config
+        
+        state.registry.load_agent_config(template)?
     } else {
         AgentConfig::default()
     };

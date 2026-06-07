@@ -48,8 +48,8 @@ impl ChatStreamObserver {
     /// Track thinking content from ReasoningDelta events so it can be
     /// persisted alongside assistant text in the JSONL fallback path.
     fn accumulate_thinking(&self, delta: &str) {
-        if !delta.is_empty() {
-            if let Ok(mut guard) = self.accumulated_thinking.lock() {
+        if !delta.is_empty()
+            && let Ok(mut guard) = self.accumulated_thinking.lock() {
                 let new_val = match guard.take() {
                     Some(mut existing) => {
                         existing.push_str(delta);
@@ -59,7 +59,6 @@ impl ChatStreamObserver {
                 };
                 *guard = Some(new_val);
             }
-        }
     }
 
     fn take_thinking(&self) -> Option<String> {

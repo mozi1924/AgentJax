@@ -308,7 +308,7 @@ impl KnowledgeBaseManager {
         kb.vector_store.insert_chunks(&embedded_chunks).await?;
 
         // Store: FTS metadata
-        kb.fts_store.upsert_document(&document, &hash)?;
+        kb.fts_store.upsert_document(&document, &hash, 0)?;
 
         // Store: FTS chunk text
         kb.fts_store.insert_chunks(&embedded_chunks, &self.embedding_model)?;
@@ -358,22 +358,49 @@ impl KnowledgeBaseManager {
     /// their text is stored in the SQLite FTS store with an empty
     /// `embeddings_model` flag. The FTS5 index is rebuilt afterwards.
     ///
+    /// ## Incremental logic
+    ///
+    /// Each entry is `(doc_id, content, modified_at)`. The method:
+    ///
+    /// 1. Compares `(content_hash, modified_at)` with stored values.
+    ///    If both match → skip (unchanged). If either differs → delete
+    ///    old chunks and re-chunk.
+    /// 2. After processing, deletes any documents from the store whose
+    ///    IDs are no longer in the incoming list (file was deleted).
+    ///
     /// Returns the total number of chunks prepared.
     pub async fn prepare_kb(
         &self,
         kb_id: &str,
-        documents: &[(String, String)], // (doc_id, content)
+        documents: &[(String, String, i64)], // (doc_id, content, modified_at)
     ) -> AgentJaxResult<usize> {
+        use std::collections::HashSet;
+
         let kb = self.open_kb(kb_id).await?;
         let mut total_chunks = 0usize;
 
-        for (doc_id, content) in documents {
+        // Build lookup of existing documents: id → (content_hash, modified_at)
+        let existing: Vec<(String, String, i64)> =
+            kb.fts_store.list_document_ids_with_hashes()?;
+        let existing_map: std::collections::HashMap<&str, (&str, i64)> = existing
+            .iter()
+            .map(|(id, hash, mtime)| (id.as_str(), (hash.as_str(), *mtime)))
+            .collect();
+
+        // Track which incoming document IDs are actually processed
+        let incoming_ids: HashSet<&str> = documents.iter().map(|(id, _, _)| id.as_str()).collect();
+
+        for (doc_id, content, modified_at) in documents {
             let hash = content_hash(content);
 
-            // Skip duplicates
-            let existing = kb.fts_store.list_documents().unwrap_or_default();
-            if existing.iter().any(|d| d.content_hash == hash) {
-                continue;
+            // Check if this document has already been indexed with the same
+            // content AND the same modification time — skip if unchanged.
+            if let Some((existing_hash, existing_mtime)) = existing_map.get(doc_id.as_str()) {
+                if *existing_hash == hash && *existing_mtime == *modified_at {
+                    continue;
+                }
+                // Content or mtime changed — delete old chunks before re-indexing.
+                let _ = kb.fts_store.delete_chunks_for_document(doc_id);
             }
 
             let doc = Document {
@@ -390,11 +417,24 @@ impl KnowledgeBaseManager {
 
             total_chunks += chunks.len();
 
-            // Store document metadata
-            kb.fts_store.upsert_document(&doc, &hash)?;
+            // Store document metadata (with modification timestamp)
+            kb.fts_store.upsert_document(&doc, &hash, *modified_at)?;
 
             // Store chunk text (without embeddings yet — embeddings_model='')
             kb.fts_store.prepare_chunks(&chunks)?;
+        }
+
+        // Remove documents that are no longer present on disk.
+        for (existing_id, _, _) in &existing {
+            if !incoming_ids.contains(existing_id.as_str()) {
+                log::info!(
+                    "KB '{}': removing deleted document '{}'",
+                    kb_id,
+                    existing_id
+                );
+                let _ = kb.fts_store.delete_document(existing_id);
+                let _ = kb.vector_store.delete_document(existing_id).await;
+            }
         }
 
         // Rebuild FTS index to include all prepared chunks
@@ -411,10 +451,18 @@ impl KnowledgeBaseManager {
 
     /// Phase 3: Embed — continuously embed all unembedded chunks.
     ///
-    /// Streams through chunks in batches, calls the embedding API, writes
-    /// vectors to LanceDB, and marks chunks as embedded in SQLite. The
-    /// `on_progress` callback receives `(processed, total)` after each
-    /// batch completes.
+    /// Streams through chunks in batches, calls the embedding API with
+    /// exponential backoff retry, writes vectors to LanceDB, and marks
+    /// chunks as embedded in SQLite. The `on_progress` callback receives
+    /// `(processed, total)` after each batch completes.
+    ///
+    /// ## Retry behaviour
+    ///
+    /// Each batch is retried up to 3 times with exponential backoff
+    /// (1s → 2s → 4s) on transient failures. Non-retryable errors
+    /// (auth, config) surface immediately. On persistent failure the
+    /// function returns the number of chunks successfully embedded
+    /// *before* the failing batch, so progress is not lost.
     pub async fn embed_prepared_chunks<F>(
         &self,
         kb_id: &str,
@@ -425,6 +473,8 @@ impl KnowledgeBaseManager {
     where
         F: FnMut(usize, usize),
     {
+        use crate::provider_api::retry::{retry_with_backoff, RetryStrategy};
+
         let kb = self.open_kb(kb_id).await?;
         let total = kb.fts_store.unembedded_chunk_count()?;
 
@@ -434,6 +484,8 @@ impl KnowledgeBaseManager {
 
         let mut embedded = 0usize;
         let mut offset = 0usize;
+        /// Max retries per batch.
+        const MAX_RETRIES: u32 = 3;
 
         while embedded < total {
             let batch: Vec<(String, String, usize, String)> =
@@ -446,14 +498,48 @@ impl KnowledgeBaseManager {
             let chunk_ids: Vec<String> = batch.iter().map(|(id, _, _, _)| id.clone()).collect();
             let batch_count = texts.len();
 
-            // Embed all texts in one API call
-            let response = provider_api::embed_text(
-                app_config,
-                &self.provider_key,
-                &self.embedding_model,
-                &EmbeddingRequest::batch(texts),
-            )
-            .await?;
+            // ── Embed with retry ──────────────────────────────────────
+            let strategy = RetryStrategy {
+                max_attempts: MAX_RETRIES,
+                base_delay_ms: 1_000,
+                max_delay_ms: 16_000,
+                jitter: true,
+                non_retryable_kinds: vec![
+                    crate::error::ErrorKind::ProviderAuth,
+                    crate::error::ErrorKind::Config,
+                ],
+            };
+
+            let retry_result = retry_with_backoff(strategy, || {
+                let texts = texts.clone();
+                async {
+                    provider_api::embed_text(
+                        app_config,
+                        &self.provider_key,
+                        &self.embedding_model,
+                        &EmbeddingRequest::batch(texts),
+                    )
+                    .await
+                }
+            })
+            .await;
+
+            let response = match retry_result {
+                crate::provider_api::retry::RetryResult::Success(resp) => resp,
+                crate::provider_api::retry::RetryResult::Failed(err)
+                | crate::provider_api::retry::RetryResult::NonRetryable(err) => {
+                    log::error!(
+                        "Embedding failed for KB '{}' at batch offset {} ({} chunks): {}. \
+                         {} of {} chunks embedded before failure.",
+                        kb_id, offset, batch_count, err, embedded, total
+                    );
+                    // Return partial progress — chunks already embedded are preserved.
+                    return Err(err.with_context(format!(
+                        "Embedding failed after {}/{} chunks",
+                        embedded, total
+                    )));
+                }
+            };
 
             if response.embeddings.len() != batch_count {
                 return Err(AgentJaxError::embedding(format!(

@@ -231,6 +231,7 @@ fn default_input_schema() -> Value {
 /// here. This schema only covers **additional** provider-specific fields.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct ReasoningSchema {
     /// Extra body fields to merge into the request payload when reasoning is
     /// enabled. The framework deep-merges these into `extra_body` before the
@@ -244,13 +245,6 @@ pub struct ReasoningSchema {
     pub enabled_extra_body: BTreeMap<String, Value>,
 }
 
-impl Default for ReasoningSchema {
-    fn default() -> Self {
-        Self {
-            enabled_extra_body: BTreeMap::new(),
-        }
-    }
-}
 
 fn default_api_version() -> u32 {
     PLUGIN_API_VERSION

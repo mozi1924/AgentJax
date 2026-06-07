@@ -237,7 +237,7 @@ impl CompactionEngine {
         for marker in Self::ROLE_MARKERS {
             if let Some(pos) = window.find(marker) {
                 let abs_pos = cut_pos + pos;
-                if best.map_or(true, |best| abs_pos < best) {
+                if best.is_none_or(|best| abs_pos < best) {
                     best = Some(abs_pos);
                 }
             }
@@ -363,7 +363,7 @@ impl CompactionEngine {
 
         // Split into sentence-like units for pattern matching.
         let units: Vec<&str> = text
-            .split_inclusive(|c: char| c == '.' || c == '!' || c == '?' || c == '\n')
+            .split_inclusive(['.', '!', '?', '\n'])
             .collect();
 
         let mut output = Vec::new();
@@ -455,7 +455,7 @@ impl CompactionEngine {
         } else {
             let mut end = max_chars;
             // Try to break at a sentence boundary.
-            if let Some(pos) = sanitized_text[..end].rfind(|c| c == '.' || c == '!' || c == '?') {
+            if let Some(pos) = sanitized_text[..end].rfind(['.', '!', '?']) {
                 end = pos + 1;
             }
             sanitized_text[..end].to_string()

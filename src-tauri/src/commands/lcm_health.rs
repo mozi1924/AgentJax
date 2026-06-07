@@ -110,7 +110,7 @@ pub fn get_lcm_health(
                 let met = checker.collect_metrics(&conversation_id).ok();
                 let suggestions = report
                     .as_ref()
-                    .map(|r| crate::lcm::integrity::repair_plan(r))
+                    .map(crate::lcm::integrity::repair_plan)
                     .unwrap_or_default();
 
                 (report, met, suggestions)

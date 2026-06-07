@@ -284,8 +284,8 @@ fn validate_root_keys(root: &Value) -> AgentJaxResult<()> {
         }
     }
 
-    if let Some(mcp_value) = root.get("mcp") {
-        if let Some(servers_map) = mcp_value.get("servers").and_then(|s| s.as_object()) {
+    if let Some(mcp_value) = root.get("mcp")
+        && let Some(servers_map) = mcp_value.get("servers").and_then(|s| s.as_object()) {
             for server_key in servers_map.keys() {
                 crate::config::path_registry::validate_patch_path(
                     &[
@@ -298,7 +298,6 @@ fn validate_root_keys(root: &Value) -> AgentJaxResult<()> {
                 )?;
             }
         }
-    }
 
     if let Some(Value::Object(tool_manager)) = root.get("tool_manager") {
         validate_tool_manager_keys(tool_manager)?;

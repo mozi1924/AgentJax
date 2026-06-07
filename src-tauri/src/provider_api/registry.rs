@@ -293,65 +293,58 @@ fn build_default_config(
             // This keeps the two paths in sync.
             match key.as_str() {
                 "credential" | "credentialEnv" => {
-                    if config.credential_env.is_none() {
-                        if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                    if config.credential_env.is_none()
+                        && let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
                             config.credential_env = Some(s.to_string());
                         }
-                    }
                 }
                 "apiEndpoint" => {
-                    if config.api_endpoint.is_empty() {
-                        if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                    if config.api_endpoint.is_empty()
+                        && let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
                             config.api_endpoint = s.trim_end_matches('/').to_string();
                         }
-                    }
                 }
                 "httpHeaders" => {
-                    if config.http_headers.is_empty() {
-                        if let Some(obj) = default_val.as_object() {
+                    if config.http_headers.is_empty()
+                        && let Some(obj) = default_val.as_object() {
                             config.http_headers = obj
                                 .iter()
                                 .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                                 .collect();
                         }
-                    }
                 }
                 "envHttpHeaders" => {
-                    if config.env_http_headers.is_empty() {
-                        if let Some(obj) = default_val.as_object() {
+                    if config.env_http_headers.is_empty()
+                        && let Some(obj) = default_val.as_object() {
                             config.env_http_headers = obj
                                 .iter()
                                 .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                                 .collect();
                         }
-                    }
                 }
                 "queryParams" => {
-                    if config.query_params.is_empty() {
-                        if let Some(obj) = default_val.as_object() {
+                    if config.query_params.is_empty()
+                        && let Some(obj) = default_val.as_object() {
                             config.query_params = obj
                                 .iter()
                                 .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                                 .collect();
                         }
-                    }
                 }
                 "modelsEndpointCandidates" => {
-                    if config.models_endpoint_candidates.is_empty() {
-                        if let Some(arr) = default_val.as_array() {
+                    if config.models_endpoint_candidates.is_empty()
+                        && let Some(arr) = default_val.as_array() {
                             config.models_endpoint_candidates = arr
                                 .iter()
                                 .filter_map(|v| v.as_str().map(String::from))
                                 .collect();
                         }
-                    }
                 }
                 "realtimeEndpoint" => {
-                    if config.realtime_endpoint.is_none() {
-                        if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                    if config.realtime_endpoint.is_none()
+                        && let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
                             config.realtime_endpoint = Some(s.trim_end_matches('/').to_string());
                         }
-                    }
                 }
                 "supportsWebsockets" => {
                     if let Some(b) = default_val.as_bool() {
@@ -359,11 +352,10 @@ fn build_default_config(
                     }
                 }
                 "streamTransport" => {
-                    if config.stream_transport == "sse" {
-                        if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                    if config.stream_transport == "sse"
+                        && let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
                             config.stream_transport = s.to_string();
                         }
-                    }
                 }
                 "requestTimeoutSeconds" => {
                     if config.request_timeout_seconds.is_none() {

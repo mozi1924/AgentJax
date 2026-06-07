@@ -230,14 +230,13 @@ impl StreetManager {
 
         if changed {
             // Persist updated statuses.
-            if let Some(items) = guard.get(conversation_id) {
-                if let Err(e) = crate::street::persist::save_items(conversation_id, items) {
+            if let Some(items) = guard.get(conversation_id)
+                && let Err(e) = crate::street::persist::save_items(conversation_id, items) {
                     log::warn!(
                         "Failed to persist delivered Street items for conv={}: {e}",
                         conversation_id
                     );
                 }
-            }
             drop(guard);
             Self::send_event(
                 conversation_id,
@@ -275,14 +274,13 @@ impl StreetManager {
 
         if found {
             // Persist updated status.
-            if let Some(items) = guard.get(conversation_id) {
-                if let Err(e) = crate::street::persist::save_items(conversation_id, items) {
+            if let Some(items) = guard.get(conversation_id)
+                && let Err(e) = crate::street::persist::save_items(conversation_id, items) {
                     log::warn!(
                         "Failed to persist dismissed Street item for conv={}: {e}",
                         conversation_id
                     );
                 }
-            }
         }
 
         found

@@ -94,7 +94,7 @@ pub(super) async fn execute_entry_output(
         ToolSnapshotEntry::Plugin { .. } => Err(crate::error::AgentJaxError::tool(
             "Plugin tools must be executed through the plugin execution path",
         )),
-        ToolSnapshotEntry::BackgroundTask { .. } => Err(crate::error::AgentJaxError::tool(
+        ToolSnapshotEntry::BackgroundTask => Err(crate::error::AgentJaxError::tool(
             "Background task control tools cannot be executed as regular tools",
         )),
         ToolSnapshotEntry::ManageMcpServer { .. } => Err(crate::error::AgentJaxError::tool(

@@ -112,13 +112,11 @@ fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
         "model": model_id, "messages": messages, "stream": true,
         "stream_options": {"include_usage": true},
     });
-    if let Some(ref config) = req.reasoning {
-        if config.enabled {
-            if let Some(ref effort) = config.effort {
+    if let Some(ref config) = req.reasoning
+        && config.enabled
+            && let Some(ref effort) = config.effort {
                 payload["reasoning_effort"] = json!(effort.as_str());
             }
-        }
-    }
     if let Some(ref tools) = req.tools
         && !tools.is_empty()
     {
@@ -178,13 +176,11 @@ fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
     if let Some(max_completion_tokens) = req.max_completion_tokens {
         payload["max_completion_tokens"] = json!(max_completion_tokens);
     }
-    if let Some(ref config) = req.reasoning {
-        if config.enabled {
-            if let Some(budget) = config.budget_tokens {
+    if let Some(ref config) = req.reasoning
+        && config.enabled
+            && let Some(budget) = config.budget_tokens {
                 payload["reasoning_budget_tokens"] = json!(budget);
             }
-        }
-    }
 
     // ── Extra body fields (provider-specific passthrough) ──
     for (key, value) in &req.extra_body {

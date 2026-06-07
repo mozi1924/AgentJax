@@ -27,9 +27,9 @@ fn default_max_results() -> usize {
 
 fn open_memory_store() -> Result<MemoryStore, AgentJaxError> {
     let base_dir = agentjax_home::agentjax_home_dir()
-        .map_err(|e| AgentJaxError::memory(e))?
+        .map_err(AgentJaxError::memory)?
         .join("memory");
-    MemoryStore::open(base_dir).map_err(|e| AgentJaxError::memory(e))
+    MemoryStore::open(base_dir).map_err(AgentJaxError::memory)
 }
 
 /// List all memory index entries.
@@ -96,7 +96,7 @@ pub struct OpenMemoryFileRequest {
 #[tauri::command]
 pub fn open_memory_file(req: OpenMemoryFileRequest) -> Result<serde_json::Value, AgentJaxError> {
     let base_dir = crate::agentjax_home::agentjax_home_dir()
-        .map_err(|e| AgentJaxError::memory(e))?
+        .map_err(AgentJaxError::memory)?
         .join("memory");
     let file_path = base_dir.join(format!("{}.md", req.name));
     if !file_path.exists() {

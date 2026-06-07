@@ -171,18 +171,15 @@ impl ContextManagementConfig {
 /// The type of path a knowledge base points to.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub enum KbPathType {
     /// A single markdown file.
     File,
     /// A folder containing markdown files (scanned recursively).
+    #[default]
     Folder,
 }
 
-impl Default for KbPathType {
-    fn default() -> Self {
-        Self::Folder
-    }
-}
 
 /// A single knowledge base entry in the global config.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

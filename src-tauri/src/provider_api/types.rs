@@ -191,6 +191,7 @@ pub enum ProviderStreamEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct ProviderTurnRequest {
     pub input_items: Vec<Value>,
     pub model: Option<String>,
@@ -233,32 +234,6 @@ pub struct ProviderTurnRequest {
     pub skip_model_extra_body: bool,
 }
 
-impl Default for ProviderTurnRequest {
-    fn default() -> Self {
-        Self {
-            input_items: Vec::new(),
-            model: None,
-            reasoning: None,
-            instructions_override: None,
-            text: None,
-            include: None,
-            service_tier: None,
-            prompt_cache_key: None,
-            client_metadata: None,
-            generate: None,
-            tools: None,
-            tool_choice: None,
-            temperature: None,
-            top_p: None,
-            presence_penalty: None,
-            frequency_penalty: None,
-            max_tokens: None,
-            max_completion_tokens: None,
-            extra_body: BTreeMap::new(),
-            skip_model_extra_body: false,
-        }
-    }
-}
 
 pub type ResponseStreamRequest = ProviderTurnRequest;
 pub type ProviderEventSink<'a> =

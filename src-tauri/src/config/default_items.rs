@@ -67,17 +67,13 @@ pub fn inject_default_items(section: &mut Value) {
     };
 
     // If this node is a collection with a path but no defaultItem, try to inject.
-    if let Some(kind) = object.get("kind").and_then(Value::as_str) {
-        if kind == "collection" {
-            if let Some(path) = object.get("path").and_then(Value::as_str) {
-                if !object.contains_key("defaultItem") {
-                    if let Some(default_item) = lookup_default_item(path) {
+    if let Some(kind) = object.get("kind").and_then(Value::as_str)
+        && kind == "collection"
+            && let Some(path) = object.get("path").and_then(Value::as_str)
+                && !object.contains_key("defaultItem")
+                    && let Some(default_item) = lookup_default_item(path) {
                         object.insert("defaultItem".to_string(), default_item);
                     }
-                }
-            }
-        }
-    }
 
     // Recurse into children.
     if let Some(children) = object.get_mut("children").and_then(Value::as_array_mut) {

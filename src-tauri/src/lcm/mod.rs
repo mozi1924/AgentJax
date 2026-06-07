@@ -583,13 +583,11 @@ pub fn backfill_lcm_from_jsonl(
 
     if db_path.exists() {
         // DB exists — check if it has messages.
-        if let Ok(store) = crate::lcm::LcmStore::open(&db_path, crate::lcm::LcmConfig::default()) {
-            if let Ok(messages) = store.get_conversation_messages(conversation_id) {
-                if !messages.is_empty() {
+        if let Ok(store) = crate::lcm::LcmStore::open(&db_path, crate::lcm::LcmConfig::default())
+            && let Ok(messages) = store.get_conversation_messages(conversation_id)
+                && !messages.is_empty() {
                     return Ok(false); // Already populated.
                 }
-            }
-        }
     }
 
     // ── Step 2: Read JSONL session file ──

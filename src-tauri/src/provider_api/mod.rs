@@ -125,8 +125,8 @@ where
     // when reasoning mode is enabled. This replaces the old hardcoded DeepSeek
     // check with a fully declarative approach — any provider can declare what
     // extra fields are needed for reasoning mode.
-    if !req.skip_model_extra_body && req.reasoning.as_ref().is_some_and(|r| r.enabled) {
-        if let Some(reasoning_schema) = registry::provider_definition(&resolved.provider.kind)
+    if !req.skip_model_extra_body && req.reasoning.as_ref().is_some_and(|r| r.enabled)
+        && let Some(reasoning_schema) = registry::provider_definition(&resolved.provider.kind)
             .and_then(|def| def.reasoning_schema)
         {
             for (key, value) in &reasoning_schema.enabled_extra_body {
@@ -135,7 +135,6 @@ where
                     .or_insert_with(|| value.clone());
             }
         }
-    }
 
     // Determine which protocol to use
     let protocol = resolve_protocol(
@@ -288,14 +287,13 @@ pub fn get_reasoning_capability(
 ) -> AgentJaxResult<ModelReasoningCapability> {
     // Phase 2: check builtin_models first — no JS needed.
     if let Some(def) = registry::provider_definition(provider_kind) {
-        if let Some(model) = lookup_builtin_model(&def.builtin_models, model_id) {
-            if let Some(levels) = &model.supported_reasoning_levels {
+        if let Some(model) = lookup_builtin_model(&def.builtin_models, model_id)
+            && let Some(levels) = &model.supported_reasoning_levels {
                 return Ok(ModelReasoningCapability {
                     supports_reasoning: !levels.is_empty(),
                     supported_reasoning_levels: levels.clone(),
                 });
             }
-        }
         // If provider has builtin_models but this specific model wasn't found,
         // return a sensible default rather than falling through to JS.
         if !def.builtin_models.is_empty() {

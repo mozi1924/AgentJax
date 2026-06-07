@@ -53,7 +53,6 @@ pub use snapshot::ToolCatalogSnapshot;
 use snapshot::{ToolSnapshotEntry, insert_snapshot_tool};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
-pub(crate) use types::ToolCatalogExecution;
 #[allow(unused_imports)]
 pub use types::{
     MountedToolDefinition, MountedToolSourceSession, MountedToolSourceSessions,

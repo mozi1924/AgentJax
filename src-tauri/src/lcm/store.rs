@@ -294,8 +294,7 @@ impl LcmStore {
 
         // Build the base query. We search the messages_fts table and join
         // back to messages for full data.
-        let mut sql = format!(
-            "SELECT m.id, m.conversation_id, m.role, m.content, m.token_count,
+        let mut sql = "SELECT m.id, m.conversation_id, m.role, m.content, m.token_count,
                     m.timestamp_unix_ms, m.covered_by,
                     -- seq and hop_index for context reconstruction
                     m.seq, m.hop_index,
@@ -305,8 +304,7 @@ impl LcmStore {
              FROM messages_fts
              JOIN messages m ON messages_fts.rowid = m.rowid
              WHERE m.conversation_id = ?1
-               AND messages_fts MATCH ?2",
-        );
+               AND messages_fts MATCH ?2".to_string();
 
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
             Box::new(conversation_id.to_string()),

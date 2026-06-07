@@ -117,15 +117,14 @@ fn is_map_type(schema: &Value) -> bool {
         return !matches!(additional, Value::Bool(false));
     }
     // Nested structs (object with named properties)
-    if schema.get("type").and_then(Value::as_str) == Some("object") {
-        if schema
+    if schema.get("type").and_then(Value::as_str) == Some("object")
+        && schema
             .get("properties")
             .and_then(Value::as_object)
             .is_some_and(|p| !p.is_empty())
         {
             return true;
         }
-    }
     // Non-string arrays
     if schema.get("type").and_then(Value::as_str) == Some("array") {
         let items = schema.get("items");
@@ -150,8 +149,8 @@ fn build_field_node(field_name: &str, full_path: &str, schema: &Value) -> Option
     });
 
     // Add helpText from schema description
-    if let Some(description) = schema.get("description").and_then(Value::as_str) {
-        if !description.is_empty() {
+    if let Some(description) = schema.get("description").and_then(Value::as_str)
+        && !description.is_empty() {
             node.as_object_mut().and_then(|o| {
                 o.insert(
                     "helpText".to_string(),
@@ -159,7 +158,6 @@ fn build_field_node(field_name: &str, full_path: &str, schema: &Value) -> Option
                 )
             });
         }
-    }
 
     // Add min/max for number types
     if let Some(obj) = schema.as_object() {
@@ -198,18 +196,16 @@ fn infer_control_type(schema: &Value) -> Option<(&'static str, &'static str)> {
     // Check for enum (string enums)
     if resolved.get("enum").is_some() || resolved.get("oneOf").is_some() {
         // Check if it's a string enum
-        if let Some(enum_vals) = resolved.get("enum").and_then(Value::as_array) {
-            if enum_vals.iter().all(|v| v.is_string()) {
+        if let Some(enum_vals) = resolved.get("enum").and_then(Value::as_array)
+            && enum_vals.iter().all(|v| v.is_string()) {
                 return Some(("enum", "select"));
             }
-        }
-        if let Some(one_of) = resolved.get("oneOf").and_then(Value::as_array) {
-            if one_of.iter().all(|v| {
+        if let Some(one_of) = resolved.get("oneOf").and_then(Value::as_array)
+            && one_of.iter().all(|v| {
                 v.get("type").and_then(Value::as_str) == Some("string") && v.get("enum").is_some()
             }) {
                 return Some(("enum", "select"));
             }
-        }
         // Non-string enum — skip (can't render)
         return None;
     }
@@ -254,15 +250,12 @@ fn infer_control_type(schema: &Value) -> Option<(&'static str, &'static str)> {
 
 /// Follow a `$ref` to its definition in the root schema.
 fn follow_ref<'a>(schema: &'a Value, root_schema: &'a Value) -> &'a Value {
-    if let Some(ref_str) = schema.get("$ref").and_then(Value::as_str) {
-        if let Some(def_path) = ref_str.strip_prefix("#/$defs/") {
-            if let Some(defs) = root_schema.get("$defs").and_then(|d| d.as_object()) {
-                if let Some(def_schema) = defs.get(def_path) {
+    if let Some(ref_str) = schema.get("$ref").and_then(Value::as_str)
+        && let Some(def_path) = ref_str.strip_prefix("#/$defs/")
+            && let Some(defs) = root_schema.get("$defs").and_then(|d| d.as_object())
+                && let Some(def_schema) = defs.get(def_path) {
                     return follow_ref(def_schema, root_schema);
                 }
-            }
-        }
-    }
     schema
 }
 

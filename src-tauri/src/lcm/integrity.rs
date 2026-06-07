@@ -269,13 +269,10 @@ impl IntegrityChecker {
         for s in &summaries {
             if let Ok(children) = self.store.get_summary_children(&s.id) {
                 for c in &children {
-                    match c {
-                        crate::lcm::types::SummaryChild::Summaries { ids } => {
-                            for id in ids {
-                                child_ids.insert(id.to_string());
-                            }
+                    if let crate::lcm::types::SummaryChild::Summaries { ids } = c {
+                        for id in ids {
+                            child_ids.insert(id.to_string());
                         }
-                        _ => {}
                     }
                 }
             }
@@ -289,14 +286,13 @@ impl IntegrityChecker {
                 let id_str = s.id.to_string();
                 !parent_ids.contains(&id_str) && !child_ids.contains(&id_str) && summaries.len() > 1 // ignore single-summary case
             })
-            .map(|s| {
+            .filter_map(|s| {
                 if s.parents.is_empty() {
                     Some(s.id.to_string())
                 } else {
                     None
                 }
             })
-            .flatten()
             .collect();
 
         if orphans.is_empty() {
@@ -416,7 +412,7 @@ pub fn repair_plan(report: &IntegrityReport) -> Vec<String> {
                 )
             }
             "context_token_count" => {
-                format!("Token count is consistent (information only)")
+                "Token count is consistent (information only)".to_string()
             }
             _ => {
                 format!("Review check '{}': {}", check.name, check.message)

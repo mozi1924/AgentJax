@@ -115,9 +115,9 @@ fn load_context_from_lcm(
     } else {
         // No LCM DB yet — create it and try backfill.
         let lcm_config = crate::lcm::LcmConfig::default();
-        let store = crate::lcm::LcmStore::open(&db_path, lcm_config)
-            .map_err(|e| format!("Failed to create LCM store for context: {e}"))?;
-        store
+        
+        crate::lcm::LcmStore::open(&db_path, lcm_config)
+            .map_err(|e| format!("Failed to create LCM store for context: {e}"))?
     };
 
     // Attempt one-time backfill from JSONL session file.

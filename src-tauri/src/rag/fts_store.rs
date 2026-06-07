@@ -81,6 +81,8 @@ impl FtsStore {
             .map_err(|e| AgentJaxError::embedding(format!("Lock error: {e}")))?;
         conn.execute_batch(CREATE_SCHEMA_SQL)
             .map_err(|e| AgentJaxError::embedding(format!("Schema init failed: {e}")))?;
+        // Migrate: add modified_at column if it doesn't exist (for pre-existing DBs).
+        let _ = conn.execute_batch(MIGRATE_ADD_MODIFIED_AT);
         Ok(())
     }
 
@@ -93,7 +95,12 @@ impl FtsStore {
     // ── Document Operations ────────────────────────────────────────────
 
     /// Insert or update a document record.
-    pub fn upsert_document(&self, doc: &Document, content_hash: &str) -> AgentJaxResult<()> {
+    pub fn upsert_document(
+        &self,
+        doc: &Document,
+        content_hash: &str,
+        modified_at: i64,
+    ) -> AgentJaxResult<()> {
         let conn = self.lock_conn()?;
         // Extract title from metadata or first heading in content.
         let title = doc
@@ -102,16 +109,30 @@ impl FtsStore {
             .cloned()
             .unwrap_or_else(|| extract_title(&doc.content));
         conn.execute(
-            "INSERT OR REPLACE INTO documents (id, content_hash, title, byte_count)
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT OR REPLACE INTO documents (id, content_hash, title, byte_count, modified_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 doc.id,
                 content_hash,
                 title,
                 doc.content.len() as i64,
+                modified_at,
             ],
         )
         .map_err(|e| AgentJaxError::embedding(format!("Failed to upsert document: {e}")))?;
+        Ok(())
+    }
+
+    /// Delete chunks for a specific document (used before re-indexing a changed doc).
+    pub fn delete_chunks_for_document(&self, document_id: &str) -> AgentJaxResult<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "DELETE FROM chunks WHERE document_id = ?1",
+            params![document_id],
+        )
+        .map_err(|e| AgentJaxError::embedding(format!("Failed to delete chunks for doc: {e}")))?;
+        conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')", [])
+            .map_err(|e| AgentJaxError::embedding(format!("Failed to rebuild FTS: {e}")))?;
         Ok(())
     }
 
@@ -136,11 +157,11 @@ impl FtsStore {
         Ok(())
     }
 
-    /// List all document IDs in the store.
+    /// List all documents in the store.
     pub fn list_documents(&self) -> AgentJaxResult<Vec<DocumentMeta>> {
         let conn = self.lock_conn()?;
         let mut stmt = conn
-            .prepare("SELECT id, content_hash, title, byte_count FROM documents")
+            .prepare("SELECT id, content_hash, title, byte_count, modified_at FROM documents")
             .map_err(|e| AgentJaxError::embedding(format!("Query failed: {e}")))?;
         let rows = stmt
             .query_map([], |row| {
@@ -149,6 +170,7 @@ impl FtsStore {
                     content_hash: row.get(1)?,
                     title: row.get(2)?,
                     byte_count: row.get::<_, i64>(3)? as u64,
+                    modified_at: row.get::<_, i64>(4)?,
                 })
             })
             .map_err(|e| AgentJaxError::embedding(format!("Query failed: {e}")))?;
@@ -158,6 +180,32 @@ impl FtsStore {
             docs.push(row.map_err(|e| AgentJaxError::embedding(format!("Row error: {e}")))?);
         }
         Ok(docs)
+    }
+
+    /// List all document IDs with their content hash and modified_at for
+    /// incremental indexing comparison.
+    pub fn list_document_ids_with_hashes(
+        &self,
+    ) -> AgentJaxResult<Vec<(String, String, i64)>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn
+            .prepare("SELECT id, content_hash, modified_at FROM documents")
+            .map_err(|e| AgentJaxError::embedding(format!("Query failed: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(|e| AgentJaxError::embedding(format!("Query failed: {e}")))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| AgentJaxError::embedding(format!("Row error: {e}")))?);
+        }
+        Ok(result)
     }
 
     // ── Chunk Operations ───────────────────────────────────────────────
@@ -401,6 +449,9 @@ pub struct DocumentMeta {
     #[allow(dead_code)]
     pub title: String,
     pub byte_count: u64,
+    /// File modification timestamp (Unix epoch seconds).
+    #[allow(dead_code)]
+    pub modified_at: i64,
 }
 
 /// A result from FTS keyword search.
@@ -480,7 +531,8 @@ CREATE TABLE IF NOT EXISTS documents (
     id TEXT PRIMARY KEY NOT NULL,
     content_hash TEXT NOT NULL,
     title TEXT NOT NULL DEFAULT 'Untitled',
-    byte_count INTEGER NOT NULL DEFAULT 0
+    byte_count INTEGER NOT NULL DEFAULT 0,
+    modified_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS chunks (
@@ -512,6 +564,11 @@ CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
     INSERT INTO chunks_fts(chunks_fts, rowid, content) VALUES('delete', old.rowid, old.content);
     INSERT INTO chunks_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
+";
+
+/// Migration: add `modified_at` column for databases created before this field existed.
+const MIGRATE_ADD_MODIFIED_AT: &str = "
+ALTER TABLE documents ADD COLUMN modified_at INTEGER NOT NULL DEFAULT 0;
 ";
 
 // ── Tests ───────────────────────────────────────────────────────────────────

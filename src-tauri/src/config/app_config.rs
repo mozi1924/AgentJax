@@ -103,8 +103,8 @@ impl ProviderConfig {
 
         // Auto-populate models from the provider definition's builtin_models
         // when none are configured yet.
-        if self.models.is_empty() {
-            if let Some(definition) = registry::provider_definition(&self.kind) {
+        if self.models.is_empty()
+            && let Some(definition) = registry::provider_definition(&self.kind) {
                 for model in &definition.builtin_models {
                     if !self.models.contains_key(&model.id) {
                         self.models.insert(
@@ -120,7 +120,6 @@ impl ProviderConfig {
                     }
                 }
             }
-        }
 
         self
     }
@@ -134,75 +133,67 @@ impl ProviderConfig {
                 // The schema has default: null for credential and default: "DEEPSEEK_API_KEY"
                 // for credentialEnv, but we should only set credentialEnv when it's empty
                 // and the schema has a non-empty default.
-                if self.credential_env.is_none() {
-                    if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                if self.credential_env.is_none()
+                    && let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
                         self.credential_env = Some(s.to_string());
                     }
-                }
             }
             "apiEndpoint" => {
-                if self.api_endpoint.is_empty() {
-                    if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                if self.api_endpoint.is_empty()
+                    && let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
                         self.api_endpoint = s.trim_end_matches('/').to_string();
                     }
-                }
             }
             "httpHeaders" => {
-                if self.http_headers.is_empty() {
-                    if let Some(obj) = default_val.as_object() {
+                if self.http_headers.is_empty()
+                    && let Some(obj) = default_val.as_object() {
                         self.http_headers = obj
                             .iter()
                             .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                             .collect();
                     }
-                }
             }
             "envHttpHeaders" => {
-                if self.env_http_headers.is_empty() {
-                    if let Some(obj) = default_val.as_object() {
+                if self.env_http_headers.is_empty()
+                    && let Some(obj) = default_val.as_object() {
                         self.env_http_headers = obj
                             .iter()
                             .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                             .collect();
                     }
-                }
             }
             "queryParams" => {
-                if self.query_params.is_empty() {
-                    if let Some(obj) = default_val.as_object() {
+                if self.query_params.is_empty()
+                    && let Some(obj) = default_val.as_object() {
                         self.query_params = obj
                             .iter()
                             .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                             .collect();
                     }
-                }
             }
             "modelsEndpointCandidates" => {
-                if self.models_endpoint_candidates.is_empty() {
-                    if let Some(arr) = default_val.as_array() {
+                if self.models_endpoint_candidates.is_empty()
+                    && let Some(arr) = default_val.as_array() {
                         self.models_endpoint_candidates = arr
                             .iter()
                             .filter_map(|v| v.as_str().map(String::from))
                             .collect();
                     }
-                }
             }
             "realtimeEndpoint" => {
-                if self.realtime_endpoint.is_none() {
-                    if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                if self.realtime_endpoint.is_none()
+                    && let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
                         self.realtime_endpoint = Some(s.trim_end_matches('/').to_string());
                     }
-                }
             }
             "supportsWebsockets" => {
                 // Keep the default true — only override if explicitly set.
             }
             "streamTransport" => {
-                if self.stream_transport == "sse" {
-                    if let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
+                if self.stream_transport == "sse"
+                    && let Some(s) = default_val.as_str().filter(|s| !s.is_empty()) {
                         self.stream_transport = s.to_string();
                     }
-                }
             }
             "requestTimeoutSeconds" => {
                 if self.request_timeout_seconds.is_none() {

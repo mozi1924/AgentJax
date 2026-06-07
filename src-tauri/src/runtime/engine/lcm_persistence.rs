@@ -72,14 +72,13 @@ pub(crate) async fn persist_hop_assistant_messages(
     };
 
     // Attach thinking to the first assistant message.
-    if let Some(ref thinking_text) = hop_thinking_text {
-        if let Some(msg) = batch_messages
+    if let Some(ref thinking_text) = hop_thinking_text
+        && let Some(msg) = batch_messages
             .iter_mut()
             .find(|m| m.role == lcm::MessageRole::Assistant)
         {
             msg.thinking = Some(thinking_text.clone());
         }
-    }
 
     // ── Embed tool calls in the first assistant message ──────────────────
     {
@@ -88,8 +87,8 @@ pub(crate) async fn persist_hop_assistant_messages(
             .filter(|item| item.get("type").and_then(Value::as_str) == Some("function_call"))
             .cloned()
             .collect();
-        if !tool_calls.is_empty() {
-            if let Some(msg) = batch_messages
+        if !tool_calls.is_empty()
+            && let Some(msg) = batch_messages
                 .iter_mut()
                 .find(|m| m.role == lcm::MessageRole::Assistant)
             {
@@ -98,7 +97,6 @@ pub(crate) async fn persist_hop_assistant_messages(
                     Value::String(serde_json::to_string(&tool_calls).unwrap_or_default()),
                 );
             }
-        }
     }
 
     // ── Lossless invariant guard: fallback message ───────────────────────
@@ -149,15 +147,14 @@ pub(crate) async fn persist_hop_assistant_messages(
         batch_messages.push(msg);
     }
 
-    if !batch_messages.is_empty() {
-        if let Err(e) = context.persist_messages(&batch_messages).await {
+    if !batch_messages.is_empty()
+        && let Err(e) = context.persist_messages(&batch_messages).await {
             log::warn!(
                 "Failed to persist {} assistant messages: {}",
                 batch_messages.len(),
                 e
             );
         }
-    }
 }
 
 /// Persist tool execution results to LCM.
@@ -229,15 +226,14 @@ pub(crate) async fn persist_tool_results(
         }
     }
 
-    if !batch_messages.is_empty() {
-        if let Err(e) = context.persist_messages(&batch_messages).await {
+    if !batch_messages.is_empty()
+        && let Err(e) = context.persist_messages(&batch_messages).await {
             log::warn!(
                 "Failed to persist {} tool result messages: {}",
                 batch_messages.len(),
                 e
             );
         }
-    }
 }
 
 /// Compute a fallback text when no structured assistant messages were

@@ -446,16 +446,14 @@ fn extract_tool_call_id_from_content(content: &str) -> Option<String> {
 
 /// Check if a message has a terminal stop reason (error/aborted).
 fn is_terminal_stop_reason(msg: &StoredMessage) -> bool {
-    if let Some(stop_reason) = msg.metadata.get("stop_reason").and_then(|v| v.as_str()) {
-        if stop_reason == "error" || stop_reason == "aborted" {
+    if let Some(stop_reason) = msg.metadata.get("stop_reason").and_then(|v| v.as_str())
+        && (stop_reason == "error" || stop_reason == "aborted") {
             return true;
         }
-    }
-    if let Some(stop_reason) = msg.metadata.get("stopReason").and_then(|v| v.as_str()) {
-        if stop_reason == "error" || stop_reason == "aborted" {
+    if let Some(stop_reason) = msg.metadata.get("stopReason").and_then(|v| v.as_str())
+        && (stop_reason == "error" || stop_reason == "aborted") {
             return true;
         }
-    }
     false
 }
 

@@ -108,11 +108,10 @@ impl<'a> CompactionRunGuard<'a> {
 
 impl<'a> Drop for CompactionRunGuard<'a> {
     fn drop(&mut self) {
-        if !self.cleared {
-            if let Ok(mut ctx) = self.active_context.lock() {
+        if !self.cleared
+            && let Ok(mut ctx) = self.active_context.lock() {
                 ctx.compaction_running = false;
             }
-        }
     }
 }
 
@@ -993,8 +992,8 @@ impl LcmEngine {
                     // ── Tool messages (function_call_output) ─────────────
                     // Tool results are stored as role=Tool with message_type
                     // metadata. These always produce a standalone item.
-                    if *role == crate::lcm::types::MessageRole::Tool {
-                        if let Some(msg_type) =
+                    if *role == crate::lcm::types::MessageRole::Tool
+                        && let Some(msg_type) =
                             metadata.get("message_type").and_then(|v| v.as_str())
                         {
                             match msg_type {
@@ -1039,7 +1038,6 @@ impl LcmEngine {
                         }
                         // Tool messages without recognized message_type
                         // fall through to role-based fallback below.
-                    }
 
                     // ── Assistant: inject thinking content ───────────────
                     // Must come BEFORE output text / tool calls so the model

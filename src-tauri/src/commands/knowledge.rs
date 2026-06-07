@@ -182,8 +182,8 @@ fn scan_markdown_files(dir: &Path, files: &mut Vec<ScannedFile>) -> AgentJaxResu
                 continue;
             }
             scan_markdown_files(&entry_path, files)?;
-        } else if entry_path.is_file() {
-            if entry_path
+        } else if entry_path.is_file()
+            && entry_path
                 .extension()
                 .map(|ext| ext == "md")
                 .unwrap_or(false)
@@ -201,7 +201,6 @@ fn scan_markdown_files(dir: &Path, files: &mut Vec<ScannedFile>) -> AgentJaxResu
                     size,
                 });
             }
-        }
     }
 
     Ok(())
@@ -285,6 +284,14 @@ pub async fn refresh_knowledge_base(
                 AgentJaxError::config(format!("Failed to read file '{}': {e}", resolved_path.display()))
             })?;
 
+            // Get file modification time for incremental detection.
+            let _modified_at = std::fs::metadata(&resolved_path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+
             let document = crate::rag::types::Document {
                 id: file_name,
                 content,
@@ -298,6 +305,7 @@ pub async fn refresh_knowledge_base(
                     emit_progress("done", 1, 1, "", total_chunks, true, None);
                 }
                 Err(e) => {
+                    log::error!("Failed to index single-file KB '{}': {e}", kb_id);
                     emit_progress("done", 0, 1, "", 0, true, Some(e.to_string()));
                     return Err(e);
                 }
@@ -322,7 +330,7 @@ pub async fn refresh_knowledge_base(
             // ═══════════════════════════════════════════════════════════
             emit_progress("chunking", 0, total_files, "", 0, false, None);
 
-            let mut documents: Vec<(String, String)> = Vec::with_capacity(total_files);
+            let mut documents: Vec<(String, String, i64)> = Vec::with_capacity(total_files);
             for (idx, file_path) in md_files.iter().enumerate() {
                 let file_name = file_path
                     .file_stem()
@@ -333,7 +341,14 @@ pub async fn refresh_knowledge_base(
 
                 match tokio::fs::read_to_string(file_path).await {
                     Ok(content) => {
-                        documents.push((file_name, content));
+                        // Capture file modification time for incremental detection.
+                        let modified_at = std::fs::metadata(file_path)
+                            .ok()
+                            .and_then(|m| m.modified().ok())
+                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs() as i64)
+                            .unwrap_or(0);
+                        documents.push((file_name, content, modified_at));
                     }
                     Err(e) => {
                         log::warn!("Failed to read '{}': {e}", file_path.display());
@@ -372,10 +387,9 @@ pub async fn refresh_knowledge_base(
             if prepared_chunks > 0 && !kb_manager.is_embedding_disabled() {
                 let app_handle2 = app_handle.clone();
                 let kb_id2 = kb_id.clone();
-                let total_chunks_embed = prepared_chunks;
                 let total_docs_embed = total_docs;
 
-                kb_manager
+                match kb_manager
                     .embed_prepared_chunks(
                         &kb_id,
                         &app_config,
@@ -396,8 +410,36 @@ pub async fn refresh_knowledge_base(
                             );
                         },
                     )
-                    .await?;
-                total_chunks = total_chunks_embed;
+                    .await
+                {
+                    Ok(embedded_count) => {
+                        total_chunks = embedded_count;
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "KB '{}' embedding phase failed: {}. FTS index is available, vector index may be incomplete.",
+                            kb_id, e
+                        );
+                        emit_progress(
+                            "done",
+                            total_docs,
+                            total_docs,
+                            "",
+                            prepared_chunks,
+                            true,
+                            Some(format!(
+                                "Embedding partially failed: {}. FTS-only search is available.",
+                                e
+                            )),
+                        );
+                        return Ok(serde_json::json!({
+                            "kbId": kb_id,
+                            "totalDocuments": total_docs,
+                            "totalChunks": prepared_chunks,
+                            "warning": format!("Embedding phase failed: {}", e),
+                        }));
+                    }
+                }
             } else if prepared_chunks == 0 {
                 total_chunks = 0;
             } else {
@@ -445,15 +487,14 @@ fn scan_markdown_files_for_indexing(dir: &Path, files: &mut Vec<std::path::PathB
                 continue;
             }
             scan_markdown_files_for_indexing(&entry_path, files)?;
-        } else if entry_path.is_file() {
-            if entry_path
+        } else if entry_path.is_file()
+            && entry_path
                 .extension()
                 .map(|ext| ext == "md")
                 .unwrap_or(false)
             {
                 files.push(entry_path);
             }
-        }
     }
 
     Ok(())

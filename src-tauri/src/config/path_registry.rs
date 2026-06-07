@@ -265,11 +265,10 @@ fn is_referencing_additional_properties<'a>(
 ) -> bool {
     let resolved = follow_ref(parent, root_schema);
     // First check if the segment is a named property
-    if let Some(props) = resolved.get("properties").and_then(|p| p.as_object()) {
-        if props.contains_key(segment) {
+    if let Some(props) = resolved.get("properties").and_then(|p| p.as_object())
+        && props.contains_key(segment) {
             return false; // Was resolved via properties → not a dynamic key
         }
-    }
     // Segment wasn't in properties → it must be from additionalProperties
     resolved
         .get("additionalProperties")
@@ -287,11 +286,10 @@ fn resolve_collection_item_schema_fast<'a>(
     let resolved = follow_ref(parent_schema, root_schema);
 
     // The parent is a BTreeMap → additionalProperties points to the item type
-    if let Some(additional) = resolved.get("additionalProperties") {
-        if !matches!(additional, Value::Bool(false)) {
+    if let Some(additional) = resolved.get("additionalProperties")
+        && !matches!(additional, Value::Bool(false)) {
             return Some(follow_ref(additional, root_schema));
         }
-    }
 
     None
 }
