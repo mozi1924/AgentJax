@@ -166,15 +166,50 @@ pub(crate) fn archive_unavailable_historical_tool_calls(
     }
 
     if archived_calls.is_empty() {
+        log::debug!(
+            "Archive: no items to archive (active_tool_names=[{}], input items={})",
+            active_tool_names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+            input_items.len(),
+        );
         return input_items;
     }
 
-    log::debug!(
-        "Archiving {} historical tool call(s): call_ids={:?}",
+    log::info!(
+        "Archive: archiving {} historical tool call(s) — names=[{}], call_ids=[{}], reasons=[{}]",
         archived_calls.len(),
-        archived_calls.keys().map(|s| s.as_str()).collect::<Vec<_>>()
+        archived_calls.values().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", "),
+        archived_calls.keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+        archived_calls.keys().map(|cid| {
+            let (name, _) = &archived_calls[cid];
+            let unavailable = active_tool_names.is_empty() || !active_tool_names.contains(name.as_str());
+            let orphaned_call = !call_ids_with_output.contains(cid);
+            let orphaned_output = !call_ids_with_call.contains(cid);
+            if unavailable && orphaned_call { format!("{name}: unavailable+orphaned-call") }
+            else if unavailable { format!("{name}: unavailable") }
+            else if orphaned_call { format!("{name}: orphaned-call") }
+            else if orphaned_output { format!("{name}: orphaned-output") }
+            else { format!("{name}: unknown") }
+        }).collect::<Vec<_>>().join("; "),
     );
 
+    // ── Third pass: emit output ───────────────────────────────────────
+    //
+    //    KEY: Archived notes are appended at the END rather than inserted
+    //    inline.  When a single assistant message has multiple tool calls
+    //    (e.g. kb_index + get_system_time) and only *some* are disabled,
+    //    inserting an archived note between function_call items would
+    //    cause `input_items_to_messages` (Chat Completions conversion)
+    //    to flush the pending assistant prematurely, breaking the
+    //    function_call / function_call_output pairing and producing a
+    //    400 "insufficient tool messages" error.
+    //
+    //    By collecting archived notes and appending them at the end,
+    //    the remaining function_call → function_call_output pairs stay
+    //    contiguous and the Chat Completions conversion keeps them
+    //    together in a single assistant message with matching tool
+    //    messages.
+
+    let mut archived_notes: Vec<Value> = Vec::new();
     let mut emitted_call_ids = HashSet::new();
     let mut output = Vec::with_capacity(input_items.len());
 
@@ -198,29 +233,28 @@ pub(crate) fn archive_unavailable_historical_tool_calls(
         }
 
         if let Some((tool_name, arguments)) = archived_calls.get(call_id) {
-            // Emit archived note once per call_id. For function_call items
-            // (categories 1 & 2) we have the tool name and arguments.
-            // For orphaned function_call_output (category 3) we only have
-            // the output — still emit a note so the model sees the
-            // historical context.
-            let is_call_item =
-                matches!(item_type, "function_call" | "custom_tool_call");
+            // Build the archived note once per call_id.
             if !emitted_call_ids.contains(call_id) {
                 let raw_outputs = outputs_by_call_id.get(call_id).cloned().unwrap_or_default();
-                // Extract just the output content from each function_call_output item.
                 let outputs: Vec<Value> = raw_outputs
                     .iter()
                     .filter_map(|item| item.get("output").cloned())
                     .collect();
+
+                // Determine extra note.
+                let is_orphaned_call = !call_ids_with_output.contains(call_id);
+                let is_orphaned_output = !call_ids_with_call.contains(call_id);
                 let extra = if tool_name.is_empty() {
                     " (tool call was compacted by LCM — use lcm_expand to recover)"
-                } else if !call_ids_with_output.contains(call_id) {
+                } else if is_orphaned_call {
                     " (output was compacted by LCM — use lcm_expand to recover)"
+                } else if is_orphaned_output {
+                    " (call was compacted by LCM — use lcm_expand to recover)"
                 } else {
                     ""
                 };
                 let display_name: &str = if tool_name.is_empty() { "(unknown)" } else { tool_name };
-                output.push(build_archived_tool_note(
+                archived_notes.push(build_archived_tool_note(
                     call_id,
                     display_name,
                     arguments,
@@ -229,11 +263,17 @@ pub(crate) fn archive_unavailable_historical_tool_calls(
                 ));
                 emitted_call_ids.insert(call_id.to_string());
             }
+            // Always skip the original item — it's been archived.
             continue;
         }
 
+        // Not in archived_calls — preserve as-is.
         output.push(item);
     }
+
+    // Append all archived notes at the end so they don't break
+    // function_call / function_call_output pairing.
+    output.append(&mut archived_notes);
 
     output
 }

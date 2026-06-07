@@ -271,6 +271,7 @@ impl ToolCatalog {
             })
             .collect();
 
+        let bg_enabled = self.native_tool_enabled(BACKGROUND_TASK_NAME);
         let bg_schema = build_background_task_schema(ToolSchemaFormat::Responses);
         let bg_input_schema = schema_parameters(&bg_schema).clone();
         tools.push(ToolManagerToolSnapshot::new(
@@ -279,8 +280,8 @@ impl ToolCatalog {
             BACKGROUND_TASK_NAME.to_string(),
             "Manages background tool jobs — start, wait, cancel, or list.".to_string(),
             Some("Rocket".to_string()),
-            true,
-            "available".to_string(),
+            bg_enabled,
+            if bg_enabled { "available" } else { "disabled" }.to_string(),
             bg_input_schema,
             ToolManagerSchemaFormat::JsonSchema,
             vec!["policy:tool_enabled".to_string()],
@@ -313,17 +314,17 @@ impl ToolCatalog {
                 ToolManagerToolSnapshot::new(
                     info.name,
                     info.display_name,
-                    name,
+                    name.clone(),
                     info.description,
                     info.icon,
-                    // Context tools are always shown as enabled in the UI
-                    // (they are forced on — the agent depends on them).
-                    true,
-                    "available".to_string(),
+                    info.enabled,
+                    if info.enabled { "available" } else { "disabled" }.to_string(),
                     info.schema,
                     ToolManagerSchemaFormat::JsonSchema,
-                    vec![],
-                    ToolManagerToolPolicyPaths::default(),
+                    vec!["policy:tool_enabled".to_string()],
+                    ToolManagerToolPolicyPaths {
+                        tool_enabled_path: Some(context_tool_enabled_path(&name)),
+                    },
                 )
             })
             .collect();

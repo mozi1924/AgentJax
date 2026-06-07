@@ -421,6 +421,37 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
     // Finalize any remaining pending assistant at end of items.
     flush_pending!();
 
+    // Debug: log summary of messages being sent to Chat Completions API.
+    let message_shapes: Vec<String> = messages
+        .iter()
+        .map(|m| {
+            let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("?");
+            let has_tool_calls = m.get("tool_calls").is_some();
+            let has_reasoning = m.get("reasoning_content").is_some();
+            let content_len = m
+                .get("content")
+                .and_then(|v| v.as_str())
+                .map(|s| s.len())
+                .unwrap_or(0usize);
+            if has_tool_calls {
+                let tc_count = m
+                    .get("tool_calls")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.len())
+                    .unwrap_or(0);
+                format!("{role}(tc={tc_count},txt={content_len})")
+            } else if has_reasoning {
+                format!("{role}(reason,txt={content_len})")
+            } else {
+                format!("{role}(txt={content_len})")
+            }
+        })
+        .collect();
+    log::info!(
+        "Chat Completions messages: [{}]",
+        message_shapes.join(", ")
+    );
+
     messages
 }
 

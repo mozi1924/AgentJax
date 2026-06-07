@@ -703,6 +703,140 @@ fn archives_orphaned_tool_output_without_matching_call() {
     );
 }
 
+#[test]
+fn archives_kb_tools_when_disabled() {
+    // KB tools (kb_list, kb_search, kb_get, kb_index) use the same
+    // archiver as native tools — the only difference is that they're
+    // gated via tool_manager.context_tools.* instead of native_tools.*.
+    // This test verifies that the archiver handles KB tool names
+    // identically to native tool names.
+    let active_tools = extract_active_tool_names(&[json!({
+        "type": "function",
+        "name": "calculator",
+        "description": "",
+        "parameters": {"type":"object"}
+    })]);
+
+    // Simulate a conversation with mixed native + KB tool calls where
+    // KB tools are now disabled (not in active_tool_names).
+    let context = vec![
+        json!({"role":"user","content":[{"type":"input_text","text":"search kb and calculate"}]}),
+        // kb_list is NOT in active_tool_names → should be archived
+        json!({"type":"function_call","call_id":"call_kb","name":"kb_list","arguments":"{}"}),
+        json!({"type":"function_call_output","call_id":"call_kb","output":"{\"kbs\":[\"test\"]}"}),
+        // calculator IS in active_tool_names → should be preserved
+        json!({"type":"function_call","call_id":"call_calc","name":"calculator","arguments":"{\"expression\":\"1+1\"}"}),
+        json!({"type":"function_call_output","call_id":"call_calc","output":"{\"ok\":true,\"result\":2}"}),
+    ];
+
+    let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
+
+    // KB tool call should be archived (removed as function_call/function_call_output).
+    assert!(
+        !normalized.iter().any(|item| {
+            item.get("call_id").and_then(|v| v.as_str()) == Some("call_kb")
+                && matches!(
+                    item.get("type").and_then(|v| v.as_str()),
+                    Some("function_call") | Some("function_call_output")
+                )
+        }),
+        "kb_list function_call and output should be archived when KB tool is disabled"
+    );
+
+    // Calculator tool call should be preserved.
+    assert!(
+        normalized.iter().any(|item| {
+            item.get("type").and_then(|v| v.as_str()) == Some("function_call")
+                && item.get("call_id").and_then(|v| v.as_str()) == Some("call_calc")
+        }),
+        "calculator function_call should be preserved when enabled"
+    );
+
+    // An archived note should be present.
+    let archived_note = normalized.iter().find(|item| {
+        item.get("role").and_then(|v| v.as_str()) == Some("user")
+            && item
+                .get("content")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|part| part.get("text"))
+                .and_then(|v| v.as_str())
+                .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
+                .unwrap_or(false)
+    });
+    assert!(
+        archived_note.is_some(),
+        "expected an archived note for disabled KB tool"
+    );
+
+    let note_text = archived_note
+        .and_then(|item| {
+            item.get("content")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|part| part.get("text"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .unwrap_or_default();
+    assert!(
+        note_text.contains("kb_list"),
+        "archived note should mention the KB tool name: {}",
+        note_text
+    );
+}
+
+#[test]
+fn archives_kb_tool_output_when_call_compacted() {
+    // When LCM compaction removes the assistant message (with tool_calls_json)
+    // but leaves the KB tool result message, the function_call_output has no
+    // matching function_call. The archiver must handle KB tools the same as
+    // native tools for this orphaned output scenario.
+    let active_tools = extract_active_tool_names(&[json!({
+        "type": "function",
+        "name": "calculator",
+        "description": "",
+        "parameters": {"type":"object"}
+    })]);
+
+    // function_call_output for kb_search is present, but the function_call
+    // is MISSING (simulating LCM compaction removing the assistant message).
+    let context = vec![
+        json!({"role":"user","content":[{"type":"input_text","text":"search kb"}]}),
+        json!({"type":"function_call_output","call_id":"call_kb","output":"{\"ok\":true,\"results\":[{\"content\":\"found\"}]}"}),
+        json!({"role":"assistant","content":[{"type":"output_text","text":"Here are results."}]}),
+    ];
+
+    let normalized = archive_unavailable_historical_tool_calls(context, &active_tools);
+
+    // The orphaned function_call_output should be archived.
+    assert!(
+        !normalized.iter().any(|item| {
+            matches!(
+                item.get("type").and_then(|v| v.as_str()),
+                Some("function_call") | Some("function_call_output")
+            )
+        }),
+        "orphaned KB function_call_output should be archived"
+    );
+
+    let archived_note = normalized.iter().find(|item| {
+        item.get("role").and_then(|v| v.as_str()) == Some("user")
+            && item
+                .get("content")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|part| part.get("text"))
+                .and_then(|v| v.as_str())
+                .map(|text| text.contains("━━━ Archived Tool Call ━━━"))
+                .unwrap_or(false)
+    });
+    assert!(
+        archived_note.is_some(),
+        "expected an archived note for orphaned KB tool output"
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Sub-Agent & LCM Real-Gateway Smoke Tests
 // ═══════════════════════════════════════════════════════════════════════════════
