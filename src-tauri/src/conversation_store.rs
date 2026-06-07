@@ -5,6 +5,7 @@ mod mutations;
 pub(crate) mod paths;
 mod queries;
 mod recovery;
+pub(crate) mod store;
 mod types;
 
 #[cfg(test)]
@@ -31,6 +32,7 @@ pub use queries::{
     load_title_generation_candidate,
 };
 pub use recovery::build_recovery_developer_note;
+pub use store::ConversationStore;
 pub use types::{
     AppendLineInput, AssistantLine, AssistantStatus, ConversationDetail, ConversationDynamicTool,
     ConversationDynamicToolBinding, ConversationLine, ConversationMountedToolDefinition,

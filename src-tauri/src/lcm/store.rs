@@ -994,20 +994,6 @@ impl LcmStore {
 
         Ok(())
     }
-
-    /// Run VACUUM to reclaim disk space and optimize the database.
-    #[allow(dead_code)]
-    pub fn vacuum(&self) -> Result<(), LcmError> {
-        let conn = self.lock_conn()?;
-
-        conn.execute_batch(
-            "INSERT INTO messages_fts(messages_fts) VALUES('rebuild');
-             VACUUM;",
-        )
-        .map_err(|e| LcmError::Store(format!("Failed to vacuum: {e}")))?;
-
-        Ok(())
-    }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

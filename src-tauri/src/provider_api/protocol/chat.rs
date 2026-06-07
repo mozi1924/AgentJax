@@ -50,11 +50,29 @@ where
     state.flush_remaining_reasoning(&mut output_items, &mut on_delta)?;
 
     let final_output_items = if !output_text.trim().is_empty() {
-        let mut items = vec![json!({
+        let message_item = json!({
             "type": "message", "role": "assistant",
             "content": [{"type": "output_text", "text": &output_text}]
-        })];
-        items.extend(output_items);
+        });
+        // Insert assistant message AFTER reasoning items but BEFORE
+        // function_call items, preserving the logical order:
+        //   reasoning → assistant text → function_calls
+        // This matters for think models (DeepSeek R1, o-series) where
+        // the model's chain-of-thought must precede output text, which
+        // in turn precedes tool calls in the context stream.
+        let split_idx = output_items
+            .iter()
+            .position(|item| {
+                !matches!(
+                    item.get("type").and_then(Value::as_str),
+                    Some("reasoning")
+                )
+            })
+            .unwrap_or(output_items.len());
+        let mut items = Vec::with_capacity(output_items.len() + 1);
+        items.extend_from_slice(&output_items[..split_idx]);
+        items.push(message_item);
+        items.extend_from_slice(&output_items[split_idx..]);
         items
     } else {
         output_items

@@ -63,7 +63,13 @@ pub async fn evaluate_and_write_memories(
         log::warn!("Memory evaluation: failed to load LCM context: {e}");
         return;
     }
-    let context_items = mem_ctx.context_items();
+    let context_items = match mem_ctx.context_items().await {
+        Ok(items) => items,
+        Err(e) => {
+            log::warn!("Memory evaluation: failed to get context items: {e}");
+            return;
+        }
+    };
     if context_items.is_empty() {
         log::info!("Memory evaluation: no context items, skipping");
         return;

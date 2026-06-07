@@ -34,7 +34,10 @@ pub trait AgentContext: Send + Sync {
     /// Return the active context as provider-ready API items.
     ///
     /// These items are sent as the conversation history to the LLM provider.
-    fn context_items(&self) -> Vec<Value>;
+    /// This is async to allow implementations that need to acquire locks
+    /// (e.g., `InMemoryContext` with `tokio::sync::Mutex`) without resorting
+    /// to unreliable `try_lock` fallbacks.
+    async fn context_items(&self) -> AgentJaxResult<Vec<Value>>;
 
     /// Persist a single message.
     async fn persist_message(&self, msg: &StoredMessage) -> AgentJaxResult<()>;
@@ -70,12 +73,9 @@ impl AgentContext for LcmAgentContext {
         Ok(())
     }
 
-    fn context_items(&self) -> Vec<Value> {
-        self.engine
-            .active_context_snapshot()
-            .ok()
-            .map(|entries| self.engine.context_to_provider_items(&entries))
-            .unwrap_or_default()
+    async fn context_items(&self) -> AgentJaxResult<Vec<Value>> {
+        let entries = self.engine.active_context_snapshot()?;
+        Ok(self.engine.context_to_provider_items(&entries))
     }
 
     async fn persist_message(&self, msg: &StoredMessage) -> AgentJaxResult<()> {
@@ -121,20 +121,13 @@ impl AgentContext for InMemoryContext {
         Ok(())
     }
 
-    fn context_items(&self) -> Vec<Value> {
-        // Cannot access async Mutex from sync context. Use a best-effort
-        // try_lock — if the lock is contended we return empty (rare in practice
-        // since context_items is called from the single-threaded agent loop).
-        let messages = match self.messages.try_lock() {
-            Ok(guard) => guard.clone(),
-            Err(_) => return Vec::new(),
-        };
-
+    async fn context_items(&self) -> AgentJaxResult<Vec<Value>> {
+        let messages = self.messages.lock().await;
         let mut items = Vec::with_capacity(messages.len());
-        for msg in &messages {
+        for msg in messages.iter() {
             items.extend(crate::lcm::stored_message_to_provider_items(msg));
         }
-        items
+        Ok(items)
     }
 
     async fn persist_message(&self, msg: &StoredMessage) -> AgentJaxResult<()> {
@@ -227,11 +220,8 @@ impl AgentContext for MemoryAgentContext {
         Ok(())
     }
 
-    fn context_items(&self) -> Vec<Value> {
-        self.items
-            .try_lock()
-            .map(|guard| guard.clone())
-            .unwrap_or_default()
+    async fn context_items(&self) -> AgentJaxResult<Vec<Value>> {
+        Ok(self.items.lock().await.clone())
     }
 
     async fn persist_message(&self, _msg: &StoredMessage) -> AgentJaxResult<()> {

@@ -123,17 +123,34 @@ fn build_response_payload(model_id: &str, req: &ResponseStreamRequest) -> Value 
 fn normalize_input_items(items: &[Value]) -> Value {
     let normalized: Vec<Value> = items
         .iter()
-        .filter(|item| {
-            // Filter out reasoning items — the OpenAI Responses API does not
-            // accept them as input. Reasoning context from previous hops is
-            // implicitly available through the API's internal continuation
-            // mechanism; sending them explicitly would cause an error.
-            item.get("type").and_then(Value::as_str) != Some("reasoning")
-        })
-        .map(|item| {
+        .filter_map(|item| {
+            let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+            // Convert reasoning items to user-role text notes.
+            // The OpenAI Responses API does not accept reasoning items
+            // as input. Rather than silently dropping the model's
+            // previous chain-of-thought (which would cause context
+            // ordering issues in multi-hop tool-calling scenarios),
+            // we convert reasoning content into a user-role note so
+            // the model can still see what it thought before.
+            if item_type == "reasoning" {
+                let text = item
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if text.trim().is_empty() {
+                    return None;
+                }
+                return Some(json!({
+                    "role": "user",
+                    "content": [{
+                        "type": "input_text",
+                        "text": format!("[Previous reasoning]\n{text}")
+                    }]
+                }));
+            }
+
             let mut cloned = item.clone();
             if let Some(obj) = cloned.as_object_mut() {
-                let item_type = obj.get("type").and_then(Value::as_str).unwrap_or("");
                 if item_type != "function_call" && item_type != "function_call_output" {
                     obj.remove("id");
                 }
@@ -159,7 +176,7 @@ fn normalize_input_items(items: &[Value]) -> Value {
                     }
                 }
             }
-            cloned
+            Some(cloned)
         })
         .collect();
     Value::Array(normalized)
@@ -322,25 +339,41 @@ impl StreamStateMachine for ResponsesStreamState {
             "response.function_call_arguments.done" => {
                 if let Some(call_id) = value.get("call_id").and_then(Value::as_str) {
                     self.completed_tool_calls.push(call_id.to_string());
+                    let item_id = value
+                        .get("item_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let name = value
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let arguments = value
+                        .get("arguments")
+                        .and_then(Value::as_str)
+                        .unwrap_or("{}")
+                        .to_string();
                     on_delta(ProviderStreamEvent::ToolCallCompleted {
-                        item_id: value
-                            .get("item_id")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_string(),
+                        item_id: item_id.clone(),
                         call_id: call_id.to_string(),
-                        name: value
-                            .get("name")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_string(),
-                        arguments: value
-                            .get("arguments")
-                            .and_then(Value::as_str)
-                            .unwrap_or("{}")
-                            .to_string(),
+                        name: name.clone(),
+                        arguments: arguments.clone(),
                         presentation: None,
                     })?;
+                    // Push function_call to output_items so the tool
+                    // continuation delta preserves the logical order:
+                    //   reasoning → function_call → function_call_output
+                    // Without this, compose_tool_continuation_input would
+                    // only see reasoning + tool_results, losing the
+                    // function_call context between them.
+                    output_items.push(json!({
+                        "type": "function_call",
+                        "id": item_id,
+                        "call_id": call_id,
+                        "name": name,
+                        "arguments": arguments,
+                    }));
                 }
             }
             "response.output_item.done" => {

@@ -119,12 +119,19 @@ pub fn compose_tool_continuation_input(
     output_items: &[Value],
     mut tool_results_items: Vec<Value>,
 ) -> Vec<Value> {
+    // Preserve the full logical order of the model's response:
+    //   reasoning → assistant text → function_calls → tool_results
+    // Previously, assistant-text ("message" type) items were dropped,
+    // losing any output text the model produced between reasoning and
+    // tool calls. This matters for think models where the model may
+    // emit partial text (e.g. "Let me search for...") before invoking
+    // tools — that text provides valuable context for the next hop.
     let mut items: Vec<Value> = output_items
         .iter()
         .filter(|item| {
             matches!(
                 item.get("type").and_then(Value::as_str),
-                Some("reasoning") | Some("function_call") | Some("custom_tool_call")
+                Some("reasoning") | Some("function_call") | Some("custom_tool_call") | Some("message")
             )
         })
         .cloned()

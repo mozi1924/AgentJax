@@ -428,7 +428,7 @@ pub async fn chat_stream(
             if let Err(e) = agent_ctx.rebuild(&conversation_id).await {
                 log::warn!("Failed to rebuild LCM context for auto-resume: {e}");
             }
-            current_input_items = agent_ctx.context_items();
+            current_input_items = agent_ctx.context_items().await?;
         }
 
         // ── Collect Street notifications ────────────────────────────────────
