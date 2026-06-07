@@ -183,10 +183,121 @@ fn build_chat_payload(model_id: &str, req: &ResponseStreamRequest) -> Value {
     payload
 }
 
+/// Accumulates fields for a single Chat Completions assistant message.
+///
+/// Reasoning, function_call, and assistant-text items from the Responses-API
+/// item stream all map to `role: "assistant"` in Chat Completions. Consecutive
+/// assistant-typed items must be merged into ONE message — the Chat Completions
+/// API rejects consecutive assistant messages, and DeepSeek's thinking mode
+/// requires `reasoning_content` to appear on the same message as `content`
+/// and/or `tool_calls`.
+struct AssistantBuilder {
+    reasoning_content: Option<String>,
+    content: Option<String>,
+    tool_calls: Vec<Value>,
+}
+
+impl AssistantBuilder {
+    fn new() -> Self {
+        Self {
+            reasoning_content: None,
+            content: None,
+            tool_calls: Vec::new(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.reasoning_content.is_none() && self.content.is_none() && self.tool_calls.is_empty()
+    }
+
+    fn into_message(self) -> Value {
+        let mut msg = serde_json::Map::new();
+        msg.insert("role".to_string(), json!("assistant"));
+
+        let content = self.content.unwrap_or_default();
+        msg.insert("content".to_string(), json!(content));
+
+        if let Some(rc) = self.reasoning_content {
+            msg.insert("reasoning_content".to_string(), json!(rc));
+        }
+        if !self.tool_calls.is_empty() {
+            msg.insert("tool_calls".to_string(), Value::Array(self.tool_calls));
+        }
+
+        Value::Object(msg)
+    }
+}
+
+/// Extract a flat text string from a content value that may be a JSON array of
+/// `{"type":"text"/"input_text"/"output_text","text":"..."}` parts, or a plain
+/// string. Returns `None` when the content carries non-text parts (images,
+/// files, etc.) — those are handled separately by the caller.
+fn extract_flat_text(content_value: &Value) -> Option<String> {
+    if let Some(arr) = content_value.as_array() {
+        let has_non_text = arr.iter().any(|part| {
+            let ptype = part.get("type").and_then(Value::as_str);
+            !matches!(ptype, Some("text") | Some("input_text") | Some("output_text") | None)
+        });
+        if has_non_text {
+            return None;
+        }
+        let text = arr
+            .iter()
+            .filter_map(|part| part.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("");
+        if text.trim().is_empty() {
+            return None;
+        }
+        Some(text)
+    } else if let Some(text) = content_value.as_str() {
+        if text.trim().is_empty() {
+            return None;
+        }
+        Some(text.to_string())
+    } else {
+        None
+    }
+}
+
+/// Normalize a content array in-place: rewrites `input_text` / `output_text`
+/// part types to `text` so Chat Completions providers understand them.
+fn normalize_content_parts(arr: &[Value]) -> Vec<Value> {
+    arr.iter()
+        .map(|part| {
+            let mut p = part.clone();
+            match p.get("type").and_then(Value::as_str) {
+                Some("input_text") | Some("output_text") => {
+                    p["type"] = json!("text");
+                }
+                _ => {}
+            }
+            p
+        })
+        .collect()
+}
+
 fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
-    let mut messages = Vec::new();
+    let mut messages: Vec<Value> = Vec::new();
+    // Consecutive assistant-typed items (reasoning, function_call,
+    // assistant-text) are merged into a single assistant message so the
+    // Chat Completions API never sees two assistant messages in a row.
+    let mut pending: Option<AssistantBuilder> = None;
+
+    /// Finalize and push the pending assistant message (if any).
+    macro_rules! flush_pending {
+        () => {
+            if let Some(p) = pending.take() {
+                if !p.is_empty() {
+                    messages.push(p.into_message());
+                }
+            }
+        };
+    }
+
     for item in items {
-        match item.get("type").and_then(Value::as_str).unwrap_or("") {
+        let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+        match item_type {
             "function_call" => {
                 let call_id = item.get("call_id").and_then(Value::as_str).unwrap_or("");
                 let name = item.get("name").and_then(Value::as_str).unwrap_or("");
@@ -200,12 +311,17 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
                         }
                     })
                     .unwrap_or_else(|| "{}".to_string());
-                messages.push(json!({
-                    "role": "assistant",
-                    "tool_calls": [{"id": call_id, "type": "function", "function": {"name": name, "arguments": arguments}}]
+                let p = pending.get_or_insert_with(AssistantBuilder::new);
+                p.tool_calls.push(json!({
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": arguments}
                 }));
             }
             "function_call_output" => {
+                // Tool outputs always end the assistant block — flush any
+                // pending assistant before pushing the tool-role message.
+                flush_pending!();
                 messages.push(json!({
                     "role": "tool",
                     "tool_call_id": item.get("call_id").and_then(Value::as_str).unwrap_or(""),
@@ -214,20 +330,19 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
             }
             "reasoning" => {
                 // Reasoning / thinking content from CoT models (DeepSeek R1,
-                // OpenAI o-series). Map to the standard Chat Completions
-                // `reasoning_content` field on an assistant message. The
-                // content field is set to empty string — the API requires
-                // content to be present even when only reasoning is emitted.
+                // OpenAI o-series). Must be merged into the SAME assistant
+                // message as any following `content` or `tool_calls` — the
+                // Chat Completions API rejects consecutive assistant messages
+                // and DeepSeek requires `reasoning_content` on the message
+                // that carries the tool calls / output text.
                 let text = item.get("text").and_then(Value::as_str).unwrap_or("");
                 if !text.trim().is_empty() {
-                    messages.push(json!({
-                        "role": "assistant",
-                        "content": "",
-                        "reasoning_content": text,
-                    }));
+                    let p = pending.get_or_insert_with(AssistantBuilder::new);
+                    p.reasoning_content = Some(text.to_string());
                 }
             }
             _ => {
+                // Role-based items (user, system, assistant).
                 let role = match item.get("role").and_then(Value::as_str) {
                     Some("assistant") => "assistant",
                     Some("system") | Some("developer") => {
@@ -239,54 +354,47 @@ fn input_items_to_messages(items: &[Value]) -> Vec<Value> {
                     }
                     _ => "user",
                 };
+
                 let content_value = item.get("content").cloned().unwrap_or(Value::Null);
                 if content_value.is_null() {
                     continue;
                 }
-                if let Some(arr) = content_value.as_array() {
-                    // Chat Completions uses "text" type, while Responses API uses
-                    // "input_text". Treat both equivalently so cross-protocol
-                    // input items work (e.g. DeepSeek via chat_completions).
-                    let has_non_text = arr.iter().any(|part| {
-                        let ptype = part.get("type").and_then(Value::as_str);
-                        !matches!(ptype, Some("text") | Some("input_text") | None)
-                    });
-                    if has_non_text {
-                        // For non-text parts (images, files, etc.), pass the
-                        // array as-is but normalize known Responses API types
-                        // to Chat Completions equivalents.
-                        let normalized: Vec<Value> = arr
-                            .iter()
-                            .map(|part| {
-                                let mut p = part.clone();
-                                match p.get("type").and_then(Value::as_str) {
-                                    Some("input_text") | Some("output_text") => {
-                                        p["type"] = json!("text");
-                                    }
-                                    _ => {}
-                                }
-                                p
-                            })
-                            .collect();
-                        messages.push(json!({"role": role, "content": normalized}));
-                    } else {
-                        let text = arr
-                            .iter()
-                            .filter_map(|part| part.get("text").and_then(Value::as_str))
-                            .collect::<Vec<_>>()
-                            .join("");
-                        if !text.trim().is_empty() {
-                            messages.push(json!({"role": role, "content": text}));
-                        }
+
+                if role == "assistant" {
+                    // Assistant-text items merge with any pending assistant
+                    // (e.g. a `reasoning` item that arrived just before).
+                    let p = pending.get_or_insert_with(AssistantBuilder::new);
+                    if let Some(text) = extract_flat_text(&content_value) {
+                        p.content = Some(text);
+                    } else if let Some(arr) = content_value.as_array() {
+                        // Non-text content (images, files) — rare for
+                        // assistant history. Push standalone.
+                        flush_pending!();
+                        messages.push(json!({
+                            "role": "assistant",
+                            "content": normalize_content_parts(arr),
+                        }));
                     }
-                } else if let Some(text) = content_value.as_str()
-                    && !text.trim().is_empty()
-                {
-                    messages.push(json!({"role": role, "content": text}));
+                } else {
+                    // Non-assistant role (user / system): finalize any
+                    // pending assistant before pushing.
+                    flush_pending!();
+                    if let Some(text) = extract_flat_text(&content_value) {
+                        messages.push(json!({"role": role, "content": text}));
+                    } else if let Some(arr) = content_value.as_array() {
+                        messages.push(json!({
+                            "role": role,
+                            "content": normalize_content_parts(arr),
+                        }));
+                    }
                 }
             }
         }
     }
+
+    // Finalize any remaining pending assistant at end of items.
+    flush_pending!();
+
     messages
 }
 
