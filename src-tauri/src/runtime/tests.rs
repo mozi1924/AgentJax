@@ -418,6 +418,220 @@ async fn real_gateway_prompt_composer_blocks_smoke_test_from_local_config() {
     );
 }
 
+#[tokio::test]
+#[ignore = "requires a real provider credential and network access"]
+async fn real_gateway_failed_tool_then_success_preserves_cot_order() {
+    if !real_gateway_test_enabled() {
+        return;
+    }
+
+    // This test verifies that when a tool call fails and the model
+    // continues reasoning, the CoT interleaving is preserved:
+    //   reasoning_1 → fc(fail) → error → reasoning_2 → fc(success) → text
+    // Without the output_item_order fix, reasoning_2 would appear before
+    // the failed tool's error output, confusing the model.
+    let prompt = concat!(
+        "请按顺序完成下面任务，全程使用中文：\n",
+        "第一步，先调用 calculator，expression 设为 \"1/0\"。\n",
+        "（这会导致计算失败，你看到错误后不要慌。）\n",
+        "第二步，看到错误后，调用 calculator，expression 设为 \"2+3\"。\n",
+        "第三步，最后用中文输出最终回答，必须包含\"结果=5\"和\"烟测通过\"。"
+    );
+
+    let (response, timeline_events, stream_events) =
+        run_real_gateway_turn_with_full_catalog(prompt).await;
+
+    // ── Verify final output ──────────────────────────────────────────
+    assert!(
+        response.output_text.contains("烟测通过"),
+        "Final output should contain the smoke-test phrase. Actual: {}",
+        response.output_text
+    );
+    assert!(
+        response.output_text.contains("5"),
+        "Final output should mention the successful calculation result 5. Actual: {}",
+        response.output_text
+    );
+
+    // ── Verify tool call order ──────────────────────────────────────
+    let tool_names: Vec<&str> = timeline_events
+        .iter()
+        .filter(|event| event.get("type").and_then(|v| v.as_str()) == Some("toolCall"))
+        .filter_map(|event| event.get("name").and_then(|v| v.as_str()))
+        .collect();
+    eprintln!("Tool call order: {:?}", tool_names);
+
+    // Should have at least 2 calculator calls (one fail, one success).
+    assert!(
+        tool_names.len() >= 2,
+        "Expected at least 2 tool calls (fail + success). Actual: {:?}",
+        tool_names
+    );
+    // The first two should both be calculator.
+    assert_eq!(tool_names[0], "calculator", "First tool call should be calculator");
+    assert_eq!(tool_names[1], "calculator", "Second tool call should be calculator");
+
+    // ── Verify first tool call expression was 1/0 ───────────────────
+    let first_args = timeline_events
+        .iter()
+        .filter(|event| {
+            event.get("type").and_then(|v| v.as_str()) == Some("toolCall")
+                && event.get("name").and_then(|v| v.as_str()) == Some("calculator")
+        })
+        .filter_map(|event| event.get("arguments").cloned())
+        .next();
+    eprintln!("First calculator args: {:?}", first_args);
+
+    // ── Verify stream events have correct interleaving ──────────────
+    // Collect event kinds in order to verify the tool call chain.
+    let event_order: Vec<String> = stream_events
+        .iter()
+        .filter_map(|event| match event {
+            ProviderStreamEvent::ReasoningDelta { .. } => Some("reasoning".to_string()),
+            ProviderStreamEvent::ToolCallStarted { name, .. } => {
+                Some(format!("fc_start({name})"))
+            }
+            ProviderStreamEvent::ToolCallExecuted { name, is_success, .. } => {
+                if *is_success {
+                    Some(format!("tool_ok({name})"))
+                } else {
+                    Some(format!("tool_error({name})"))
+                }
+            }
+            ProviderStreamEvent::ResponseCompleted => Some("done".to_string()),
+            _ => None,
+        })
+        .collect();
+    eprintln!("Stream event order: {:?}", event_order);
+
+    // Verify we had both a tool error and a tool success.
+    let has_error = event_order.iter().any(|e| e.starts_with("tool_error"));
+    let has_success = event_order.iter().any(|e| e.starts_with("tool_ok"));
+    assert!(has_error, "Expected a tool execution error in stream events");
+    assert!(has_success, "Expected a tool execution success in stream events");
+
+    // Verify no error events in the stream.
+    let error_events: Vec<_> = stream_events
+        .iter()
+        .filter(|e| matches!(e, ProviderStreamEvent::Error { .. }))
+        .collect();
+    assert!(
+        error_events.is_empty(),
+        "Expected no provider error events. Got: {:?}",
+        error_events
+    );
+
+    eprintln!("✅ Failed-tool-then-success CoT smoke test passed");
+}
+
+#[tokio::test]
+#[ignore = "requires a real provider credential and network access"]
+async fn real_gateway_multi_tool_mixed_results_preserves_order() {
+    if !real_gateway_test_enabled() {
+        return;
+    }
+
+    // This test verifies multiple sequential tool calls where some
+    // produce errors and others succeed, ensuring the tool call chain
+    // stays correctly ordered throughout.
+    let prompt = concat!(
+        "请按顺序完成下面任务，全程使用中文：\n",
+        "第一步，调用 get_system_time 获取当前时间。\n",
+        "第二步，调用 calculator，expression 设为 \"invalid_expr!!!\"。\n",
+        "（这会失败，没关系。）\n",
+        "第三步，调用 calculator，expression 设为 \"10*10\"。\n",
+        "第四步，调用 get_system_time 再获取一次时间。\n",
+        "第五步，最后输出中文回答，必须包含\"100\"和\"多工具烟测通过\"。"
+    );
+
+    let (response, timeline_events, stream_events) =
+        run_real_gateway_turn_with_full_catalog(prompt).await;
+
+    // ── Verify final output ──────────────────────────────────────────
+    assert!(
+        response.output_text.contains("多工具烟测通过"),
+        "Final output should contain smoke-test phrase. Actual: {}",
+        response.output_text
+    );
+
+    // ── Verify tool call sequence ──────────────────────────────────
+    let tool_names: Vec<&str> = timeline_events
+        .iter()
+        .filter(|event| event.get("type").and_then(|v| v.as_str()) == Some("toolCall"))
+        .filter_map(|event| event.get("name").and_then(|v| v.as_str()))
+        .collect();
+    eprintln!("Tool call sequence: {:?}", tool_names);
+
+    assert!(
+        tool_names.len() >= 4,
+        "Expected at least 4 tool calls. Actual: {:?}",
+        tool_names
+    );
+
+    // First and last should be get_system_time, middle ones calculator.
+    let time_positions: Vec<usize> = tool_names
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| **n == "get_system_time")
+        .map(|(i, _)| i)
+        .collect();
+    assert!(
+        time_positions.len() >= 2,
+        "Expected at least 2 get_system_time calls"
+    );
+
+    let calc_positions: Vec<usize> = tool_names
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| **n == "calculator")
+        .map(|(i, _)| i)
+        .collect();
+    assert!(
+        calc_positions.len() >= 2,
+        "Expected at least 2 calculator calls"
+    );
+
+    // get_system_time should be first and last in the sequence.
+    assert_eq!(
+        time_positions.first(),
+        Some(&0),
+        "get_system_time should be the first tool call"
+    );
+    assert_eq!(
+        time_positions.last(),
+        Some(&(tool_names.len() - 1)),
+        "get_system_time should be the last tool call"
+    );
+
+    // Calculator calls should be in the middle.
+    assert!(
+        calc_positions.iter().all(|p| *p > 0 && *p < tool_names.len() - 1),
+        "calculator calls should be between get_system_time calls"
+    );
+
+    // ── Count tool errors and successes ────────────────────────────
+    let error_count = stream_events
+        .iter()
+        .filter(|e| matches!(e, ProviderStreamEvent::ToolCallExecuted { is_success: false, .. }))
+        .count();
+    let success_count = stream_events
+        .iter()
+        .filter(|e| matches!(e, ProviderStreamEvent::ToolCallExecuted { is_success: true, .. }))
+        .count();
+    eprintln!("Tool errors: {error_count}, successes: {success_count}");
+    assert!(error_count >= 1, "Expected at least 1 tool error");
+    assert!(success_count >= 3, "Expected at least 3 successful tool calls");
+
+    // ── Verify no provider errors ──────────────────────────────────
+    let error_events: Vec<_> = stream_events
+        .iter()
+        .filter(|e| matches!(e, ProviderStreamEvent::Error { .. }))
+        .collect();
+    assert!(error_events.is_empty(), "Expected no provider errors. Got: {:?}", error_events);
+
+    eprintln!("✅ Multi-tool mixed-results smoke test passed");
+}
+
 /// Helper: check if an item is part of an `_archived_tool` carrier pair.
 /// After archiving, the original function_call is rewritten with
 /// `name: "_archived_tool"` (keeping the original `call_id`), and the
