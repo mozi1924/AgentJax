@@ -17,15 +17,13 @@
 //! AGENTJAX_HOME=/tmp/agentjax-test cargo test -- --ignored rag_smoke
 //! ```
 
-#![cfg(test)]
-
-use crate::agentjax_home::AGENTJAX_HOME_ENV;
-use crate::config::{
+use app_lib::agentjax_home::AGENTJAX_HOME_ENV;
+use app_lib::config::{
     ensure_default_agent_profile, init_config_if_missing, serialize_config_to_yaml, AppConfig,
     EmbeddingProviderConfig, ProviderConfig, RagConfig,
 };
-use crate::rag::types::Document;
-use crate::rag::KnowledgeBaseManager;
+use app_lib::rag::types::Document;
+use app_lib::rag::KnowledgeBaseManager;
 use std::collections::BTreeMap;
 use std::sync::Once;
 use std::time::Duration;
@@ -103,12 +101,12 @@ fn test_app_config(embedding_model: &str) -> AppConfig {
                 // Explicitly set api_protocol for the embedding model
                 models.insert(
                     embedding_model.to_string(),
-                    crate::config::ProviderModelConfig {
+                    app_lib::config::ProviderModelConfig {
                         enabled: true,
                         name: None,
                         api_protocol: Some("embeddings".to_string()),
                         kind: Some("embedding".to_string()),
-                        request: crate::config::ModelRequestConfig::default(),
+                        request: app_lib::config::ModelRequestConfig::default(),
                     },
                 );
                 models
@@ -188,7 +186,7 @@ async fn rag_smoke_test() {
     init_test_config(&app_config);
 
     // Reload config from disk to ensure the full config pipeline works
-    let full_config = crate::config::load_active_config().expect("load active config");
+    let full_config = app_lib::config::load_active_config().expect("load active config");
 
     // Initialize KnowledgeBaseManager
     let kb_manager =
@@ -317,7 +315,7 @@ async fn rag_embedding_connectivity() {
 
     let app_config = test_app_config(&model);
     init_test_config(&app_config);
-    let full_config = crate::config::load_active_config().expect("load active config");
+    let full_config = app_lib::config::load_active_config().expect("load active config");
 
     // Directly call the embedding API to test connectivity
     // Use the resolved provider and model ID via the embedding profile
@@ -325,11 +323,11 @@ async fn rag_embedding_connectivity() {
         .shared
         .resolve_embedding_profile(&full_config.shared.rag.embedding.model)
         .expect("resolve embedding profile");
-    let response = crate::provider_api::embed_text(
+    let response = app_lib::provider_api::embed_text(
         &full_config.shared,
         &provider_key,
         &model_id,
-        &crate::provider_api::EmbeddingRequest::single("Hello, world!"),
+        &app_lib::provider_api::EmbeddingRequest::single("Hello, world!"),
     )
     .await
     .expect("embedding should succeed");

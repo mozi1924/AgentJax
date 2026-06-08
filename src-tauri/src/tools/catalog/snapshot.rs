@@ -144,7 +144,7 @@ impl ToolCatalogSnapshot {
             .output)
     }
 
-    pub(crate) async fn execute_with_effects(
+    pub async fn execute_with_effects(
         &self,
         tool_name: &str,
         arguments: &Value,

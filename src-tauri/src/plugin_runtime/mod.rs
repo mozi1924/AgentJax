@@ -4,11 +4,11 @@
 //! plugin system, sandbox policy, and agent tool-call orchestration without
 //! wiring the concrete V8 runtime into the rest of the backend too early.
 
-pub(crate) mod api;
+pub mod api;
 mod builtin;
-pub(crate) mod discovery;
+pub mod discovery;
 mod hooks;
-pub(crate) mod manifest;
+pub mod manifest;
 mod orchestration;
 mod runtime;
 mod sandbox;

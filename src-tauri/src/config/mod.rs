@@ -1,6 +1,6 @@
 pub(crate) mod agent_config;
 mod app_config;
-pub(crate) mod constants;
+pub mod constants;
 mod default_items;
 mod dynamic_options;
 pub(crate) mod io;
@@ -43,8 +43,7 @@ pub use settings::{
 };
 pub use settings_ui::SettingsUiSnapshot;
 
-#[cfg(test)]
-pub(crate) fn test_env_lock() -> &'static tokio::sync::Mutex<()> {
+pub fn test_env_lock() -> &'static tokio::sync::Mutex<()> {
     use std::sync::OnceLock;
 
     static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();

@@ -1,38 +1,31 @@
 #![recursion_limit = "512"]
 
-mod agentjax_home;
+pub mod agentjax_home;
 pub(crate) mod atomic_io;
 mod commands;
 pub(crate) mod http_util;
 pub mod config;
-mod conversation_store;
-mod conversation_store_utils;
+pub mod conversation_store;
+pub mod conversation_store_utils;
 pub(crate) mod error;
 mod error_classifier;
 pub(crate) mod jsonl_store;
 pub(crate) mod knowledge_base;
-pub(crate) mod lcm;
-pub(crate) mod mcp;
+pub mod lcm;
+pub mod mcp;
 pub(crate) mod memory;
 mod message_phase;
 mod models;
-pub(crate) mod plugin_runtime;
-pub(crate) mod provider_api;
-pub(crate) mod rag;
+pub mod plugin_runtime;
+pub mod provider_api;
+pub mod rag;
 pub(crate) mod runtime;
 pub(crate) mod street;
 pub(crate) mod sub_agents;
 mod time_context;
-pub(crate) mod tools;
+pub mod tools;
 
 use tauri::Manager;
-
-#[cfg(test)]
-mod providers_tests;
-#[cfg(test)]
-mod rag_tests;
-#[cfg(test)]
-mod tools_tests;
 
 fn parse_rust_log_level() -> log::LevelFilter {
     let default_level = if cfg!(debug_assertions) {

@@ -1,7 +1,7 @@
 pub(crate) mod archived_tool;
-pub(crate) mod background_jobs;
+pub mod background_jobs;
 mod calculator;
-pub(crate) mod catalog;
+pub mod catalog;
 mod files;
 pub(crate) mod knowledge_base_tools;
 pub(crate) mod memory_tools;

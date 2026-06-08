@@ -1,8 +1,6 @@
-#[cfg(test)]
-mod tests {
-    use crate::provider_api;
-    use crate::provider_api::types::{ProviderStreamEvent, ResponseStreamRequest};
-    use crate::tools::ToolSchemaFormat;
+use app_lib::provider_api;
+    use app_lib::provider_api::types::{ProviderStreamEvent, ResponseStreamRequest};
+    use app_lib::tools::ToolSchemaFormat;
     use serde_json::json;
     use std::sync::Once;
     use std::time::Duration;
@@ -157,7 +155,7 @@ mod tests {
         }
 
         ensure_rustls_crypto_provider();
-        let config = crate::config::load_config().expect("load local AgentJax config");
+        let config = app_lib::config::load_config().expect("load local AgentJax config");
         let provider_kind = "openai";
 
         let model_ref = first_enabled_model_ref_for_kind(&config, provider_kind)
@@ -197,7 +195,7 @@ mod tests {
             Duration::from_secs(120),
             provider_api::stream_response(
                 &config,
-                &crate::config::AgentConfig::default(),
+                &app_lib::config::AgentConfig::default(),
                 &request,
                 &mut cancel_rx,
                 |event| {
@@ -238,7 +236,7 @@ mod tests {
         }
 
         ensure_rustls_crypto_provider();
-        let config = crate::config::load_config().expect("load local AgentJax config");
+        let config = app_lib::config::load_config().expect("load local AgentJax config");
         let provider_kind = "deepseek";
 
         let model_ref = first_enabled_model_ref_for_kind(&config, provider_kind)
@@ -284,7 +282,7 @@ mod tests {
             Duration::from_secs(120),
             provider_api::stream_response(
                 &config,
-                &crate::config::AgentConfig::default(),
+                &app_lib::config::AgentConfig::default(),
                 &request,
                 &mut cancel_rx,
                 |event| {
@@ -315,7 +313,7 @@ mod tests {
     }
 
     fn first_enabled_model_ref_for_kind(
-        config: &crate::config::AppConfig,
+        config: &app_lib::config::AppConfig,
         provider_kind: &str,
     ) -> Option<String> {
         first_enabled_provider_for_kind(config, provider_kind).and_then(
@@ -330,11 +328,10 @@ mod tests {
     }
 
     fn first_enabled_provider_for_kind<'a>(
-        config: &'a crate::config::AppConfig,
+        config: &'a app_lib::config::AppConfig,
         provider_kind: &str,
-    ) -> Option<(&'a String, &'a crate::config::ProviderConfig)> {
+    ) -> Option<(&'a String, &'a app_lib::config::ProviderConfig)> {
         config.providers.iter().find(|(_, provider)| {
             provider.kind == provider_kind && provider.models.values().any(|model| model.enabled)
         })
     }
-}

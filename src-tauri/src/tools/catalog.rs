@@ -240,7 +240,7 @@ impl ToolCatalog {
             .await
     }
 
-    pub(crate) async fn snapshot_with_format_and_mounted_servers(
+    pub async fn snapshot_with_format_and_mounted_servers(
         &self,
         format: ToolSchemaFormat,
         context: &ToolExecutionContext,

@@ -26,7 +26,7 @@ pub(crate) mod engine;
 pub(crate) mod file_watcher;
 pub(crate) mod fts_store;
 pub(crate) mod knowledge_base;
-pub(crate) mod types;
+pub mod types;
 pub(crate) mod vector_store;
 
 #[allow(unused_imports)]

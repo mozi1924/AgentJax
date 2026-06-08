@@ -7,7 +7,7 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-pub(crate) const DEFAULT_WAIT_TIMEOUT_MS: u64 = 5_000;
+pub const DEFAULT_WAIT_TIMEOUT_MS: u64 = 5_000;
 pub(crate) const MAX_WAIT_TIMEOUT_MS: u64 = 120_000;
 // Terminal job snapshots are useful for follow-up waits/lists, but they should
 // not accumulate forever in the process-wide registry.
@@ -47,7 +47,7 @@ struct BackgroundJobState {
 }
 
 #[derive(Debug)]
-pub(crate) struct BackgroundToolJob {
+pub struct BackgroundToolJob {
     job_id: String,
     tool_name: String,
     conversation_id: Option<String>,
@@ -225,15 +225,15 @@ fn serialized_status_is_terminal(snapshot: &Value) -> bool {
         .unwrap_or(false)
 }
 
-pub(crate) fn job_id(job: &Arc<BackgroundToolJob>) -> String {
+pub fn job_id(job: &Arc<BackgroundToolJob>) -> String {
     job.job_id.clone()
 }
 
-pub(crate) fn job_snapshot(job: &Arc<BackgroundToolJob>) -> Value {
+pub fn job_snapshot(job: &Arc<BackgroundToolJob>) -> Value {
     serialize_job(job)
 }
 
-pub(crate) fn start_job_for_conversation(
+pub fn start_job_for_conversation(
     tool_name: impl Into<String>,
     conversation_id: Option<String>,
 ) -> Arc<BackgroundToolJob> {
@@ -265,7 +265,7 @@ pub(crate) fn start_job_for_conversation(
     job
 }
 
-pub(crate) fn register_job_handle(job: &Arc<BackgroundToolJob>, handle: JoinHandle<()>) {
+pub fn register_job_handle(job: &Arc<BackgroundToolJob>, handle: JoinHandle<()>) {
     let mut guard = job
         .handle
         .lock()
@@ -273,7 +273,7 @@ pub(crate) fn register_job_handle(job: &Arc<BackgroundToolJob>, handle: JoinHand
     *guard = Some(handle);
 }
 
-pub(crate) fn complete_job(
+pub fn complete_job(
     job: &Arc<BackgroundToolJob>,
     result: crate::error::AgentJaxResult<Value>,
 ) {
@@ -378,7 +378,7 @@ pub(crate) fn complete_job(
     }
 }
 
-pub(crate) fn cancel_job(
+pub fn cancel_job(
     job_id: &str,
     conversation_id: Option<&str>,
 ) -> crate::error::AgentJaxResult<Value> {
@@ -393,7 +393,7 @@ pub(crate) fn cancel_job(
     }))
 }
 
-pub(crate) fn cancel_conversation_jobs(conversation_id: &str) -> usize {
+pub fn cancel_conversation_jobs(conversation_id: &str) -> usize {
     let jobs_to_cancel = {
         let guard = jobs()
             .lock()
@@ -413,7 +413,7 @@ pub(crate) fn cancel_conversation_jobs(conversation_id: &str) -> usize {
     cancelled_count
 }
 
-pub(crate) fn list_jobs(conversation_id: Option<&str>) -> Value {
+pub fn list_jobs(conversation_id: Option<&str>) -> Value {
     let mut guard = jobs()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -440,7 +440,7 @@ pub(crate) fn list_jobs(conversation_id: Option<&str>) -> Value {
     })
 }
 
-pub(crate) async fn wait_for_job(
+pub async fn wait_for_job(
     job_id: &str,
     timeout_ms: Option<u64>,
     conversation_id: Option<&str>,
@@ -527,8 +527,7 @@ pub(crate) async fn wait_for_job(
     }))
 }
 
-#[cfg(test)]
-pub(crate) fn age_completed_job_for_test(job_id: &str, completed_at_unix_ms: i64) {
+pub fn age_completed_job_for_test(job_id: &str, completed_at_unix_ms: i64) {
     if let Ok(job) = resolve_job(job_id, None) {
         let mut state = job
             .state
@@ -540,8 +539,7 @@ pub(crate) fn age_completed_job_for_test(job_id: &str, completed_at_unix_ms: i64
     }
 }
 
-#[cfg(test)]
-pub(crate) fn prune_jobs_for_test(retention_ms: i64, max_retained_terminal_jobs: usize) -> usize {
+pub fn prune_jobs_for_test(retention_ms: i64, max_retained_terminal_jobs: usize) -> usize {
     let mut guard = jobs()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());

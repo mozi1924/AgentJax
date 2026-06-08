@@ -35,7 +35,7 @@ pub enum ToolCatalogStateChange {
 
 /// A tool result plus catalog side effects that the chat command persists.
 #[derive(Debug, Clone)]
-pub(crate) struct ToolCatalogExecution {
+pub struct ToolCatalogExecution {
     pub output: Value,
     pub state_changes: Vec<ToolCatalogStateChange>,
 }

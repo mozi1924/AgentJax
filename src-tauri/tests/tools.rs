@@ -1,19 +1,17 @@
-#[cfg(test)]
-mod tests {
-    use crate::agentjax_home::AGENTJAX_HOME_ENV;
-    use crate::config::{
+use app_lib::agentjax_home::AGENTJAX_HOME_ENV;
+    use app_lib::config::{
         AppConfig, McpServerConfig, McpToolSourcePolicyConfig, ToolEnabledConfig,
         ToolManagerConfig, ToolSourcePolicyConfig,
     };
-    use crate::conversation_store;
-    use crate::plugin_runtime::api::PLUGIN_API_VERSION;
-    use crate::plugin_runtime::discovery::PLUGIN_MANIFEST_FILE;
-    use crate::plugin_runtime::manifest::PluginToolKind;
-    use crate::plugin_runtime::{PluginManifest, PluginToolDefinition, SandboxPolicy};
-    use crate::tools::catalog::{
+    use app_lib::conversation_store;
+    use app_lib::plugin_runtime::api::PLUGIN_API_VERSION;
+    use app_lib::plugin_runtime::discovery::PLUGIN_MANIFEST_FILE;
+    use app_lib::plugin_runtime::manifest::PluginToolKind;
+    use app_lib::plugin_runtime::{PluginManifest, PluginToolDefinition, SandboxPolicy};
+    use app_lib::tools::catalog::{
         MountedToolDefinition, MountedToolSourceSession, MountedToolSourceSessions,
     };
-    use crate::tools::{
+    use app_lib::tools::{
         CalculatorTool, FileReaderTool, FileWriterTool, SystemTimeTool, Tool, ToolCatalog,
         ToolExecutionContext, ToolSchemaFormat,
     };
@@ -245,7 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_tools_workspace_isolated_by_conversation() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let reader = FileReaderTool;
         let writer = FileWriterTool;
@@ -253,12 +251,12 @@ mod tests {
         let conversation_b = format!("test-workspace-b-{}", uuid::Uuid::new_v4());
 
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_a,
         )
         .unwrap();
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_b,
         )
         .unwrap();
@@ -288,12 +286,12 @@ mod tests {
         assert_eq!(read_b["content"], "from-b");
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_a,
         )
         .unwrap();
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_b,
         )
         .unwrap();
@@ -301,17 +299,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_tools_support_nested_paths_and_reject_workspace_escape() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
-            &crate::config::AppConfig::default(),
-            &crate::config::AgentConfig::default(),
+            Arc::new(app_lib::mcp::McpManager::new()),
+            &app_lib::config::AppConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-file-paths-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -342,7 +340,7 @@ mod tests {
         assert!(err.contains("escapes the conversation workspace"));
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -350,17 +348,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_directory_tools_list_stat_and_mkdir() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
-            &crate::config::AppConfig::default(),
-            &crate::config::AgentConfig::default(),
+            Arc::new(app_lib::mcp::McpManager::new()),
+            &app_lib::config::AppConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-directory-tools-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -414,7 +412,7 @@ mod tests {
         );
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -422,17 +420,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_file_truncates_large_text_preview() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
-            &crate::config::AppConfig::default(),
-            &crate::config::AgentConfig::default(),
+            Arc::new(app_lib::mcp::McpManager::new()),
+            &app_lib::config::AppConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-read-truncation-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -466,7 +464,7 @@ mod tests {
         assert_eq!(preview_content, &"0123456789abcdef".repeat(64));
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -474,17 +472,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_content_sniffing_detects_extensionless_text_files() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
-            &crate::config::AppConfig::default(),
-            &crate::config::AgentConfig::default(),
+            Arc::new(app_lib::mcp::McpManager::new()),
+            &app_lib::config::AppConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-content-sniffing-text-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -506,7 +504,7 @@ mod tests {
         assert_eq!(read["mediaType"], "text/plain");
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -514,17 +512,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_files_truncates_by_output_size() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
-            &crate::config::AppConfig::default(),
-            &crate::config::AgentConfig::default(),
+            Arc::new(app_lib::mcp::McpManager::new()),
+            &app_lib::config::AppConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-list-truncation-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -559,7 +557,7 @@ mod tests {
         assert!(listing["approxOutputChars"].as_u64().unwrap() > 0);
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -567,24 +565,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_content_sniffing_rejects_binary_files_disguised_as_text() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
-            &crate::config::AppConfig::default(),
-            &crate::config::AgentConfig::default(),
+            Arc::new(app_lib::mcp::McpManager::new()),
+            &app_lib::config::AppConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-content-sniffing-binary-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         let workspace = conversation_store::conversation_workspace_path(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -603,7 +601,7 @@ mod tests {
         assert!(read_err.contains("Portable Network Graphics"));
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -611,24 +609,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_binary_files_are_rejected_by_text_tools() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
-            &crate::config::AppConfig::default(),
-            &crate::config::AgentConfig::default(),
+            Arc::new(app_lib::mcp::McpManager::new()),
+            &app_lib::config::AppConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-binary-guards-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
         let ctx = ToolExecutionContext::with_conversation_id(conversation_id.clone());
 
         let workspace = conversation_store::conversation_workspace_path(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -672,7 +670,7 @@ mod tests {
         assert!(write_err.contains("Refusing to write"));
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -680,17 +678,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_text_edit_tools_and_structured_patch_are_deterministic() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
-            &crate::config::AppConfig::default(),
-            &crate::config::AgentConfig::default(),
+            Arc::new(app_lib::mcp::McpManager::new()),
+            &app_lib::config::AppConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-text-edits-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -813,7 +811,7 @@ mod tests {
         );
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -821,17 +819,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_apply_patch_is_atomic_when_a_later_edit_fails() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
-            &crate::config::AppConfig::default(),
-            &crate::config::AgentConfig::default(),
+            Arc::new(app_lib::mcp::McpManager::new()),
+            &app_lib::config::AppConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let conversation_id = format!("test-apply-patch-atomic-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -880,7 +878,7 @@ mod tests {
         assert_eq!(final_file["content"], "alpha\nbeta\ngamma\n");
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .unwrap();
@@ -888,11 +886,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_tool_catalog_snapshot_freezes_native_tool_view() {
-        let config = crate::config::AppConfig::default();
+        let config = app_lib::config::AppConfig::default();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let ctx = ToolExecutionContext {
             app_config: Some(std::sync::Arc::new(config.clone())),
@@ -936,7 +934,7 @@ mod tests {
         );
         assert_eq!(
             bg_schema["parameters"]["properties"]["timeoutMs"]["default"],
-            json!(crate::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
+            json!(app_lib::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
         );
 
         let result = snapshot
@@ -952,11 +950,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_background_task_start_wait_and_list() {
-        let config = crate::config::AppConfig::default();
+        let config = app_lib::config::AppConfig::default();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let ctx = ToolExecutionContext::default();
@@ -980,7 +978,7 @@ mod tests {
         let job_id = started["jobId"].as_str().expect("job id");
         assert_eq!(
             started["usage"]["wait"]["arguments"]["timeoutMs"],
-            json!(crate::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
+            json!(app_lib::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
         );
 
         let waited = snapshot
@@ -1012,11 +1010,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_background_task_is_conversation_scoped() {
-        let config = crate::config::AppConfig::default();
+        let config = app_lib::config::AppConfig::default();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let ctx_a = ToolExecutionContext::with_conversation_id(format!(
             "test-bg-a-{}",
@@ -1081,26 +1079,26 @@ mod tests {
 
     #[tokio::test]
     async fn test_background_task_cancel() {
-        let config = crate::config::AppConfig::default();
+        let config = app_lib::config::AppConfig::default();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
         let ctx = ToolExecutionContext::default();
 
-        let job = crate::tools::background_jobs::start_job_for_conversation("test_sleep", None);
-        let job_id = crate::tools::background_jobs::job_id(&job);
+        let job = app_lib::tools::background_jobs::start_job_for_conversation("test_sleep", None);
+        let job_id = app_lib::tools::background_jobs::job_id(&job);
         let job_for_task = job.clone();
         let handle = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-            crate::tools::background_jobs::complete_job(
+            app_lib::tools::background_jobs::complete_job(
                 &job_for_task,
                 Ok(json!({ "unexpected": true })),
             );
         });
-        crate::tools::background_jobs::register_job_handle(&job, handle);
+        app_lib::tools::background_jobs::register_job_handle(&job, handle);
 
         let cancelled = snapshot
             .execute(
@@ -1131,11 +1129,11 @@ mod tests {
     async fn test_background_jobs_cancel_by_conversation() {
         let conversation_id = format!("test-bg-cancel-{}", uuid::Uuid::new_v4());
         let other_conversation_id = format!("test-bg-keep-{}", uuid::Uuid::new_v4());
-        let job = crate::tools::background_jobs::start_job_for_conversation(
+        let job = app_lib::tools::background_jobs::start_job_for_conversation(
             "test_sleep",
             Some(conversation_id.clone()),
         );
-        let other_job = crate::tools::background_jobs::start_job_for_conversation(
+        let other_job = app_lib::tools::background_jobs::start_job_for_conversation(
             "test_sleep",
             Some(other_conversation_id.clone()),
         );
@@ -1143,21 +1141,21 @@ mod tests {
             let job_for_task = candidate.clone();
             let handle = tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-                crate::tools::background_jobs::complete_job(
+                app_lib::tools::background_jobs::complete_job(
                     &job_for_task,
                     Ok(json!({ "unexpected": true })),
                 );
             });
-            crate::tools::background_jobs::register_job_handle(candidate, handle);
+            app_lib::tools::background_jobs::register_job_handle(candidate, handle);
         }
 
         assert_eq!(
-            crate::tools::background_jobs::cancel_conversation_jobs(&conversation_id),
+            app_lib::tools::background_jobs::cancel_conversation_jobs(&conversation_id),
             1
         );
 
-        let cancelled = crate::tools::background_jobs::wait_for_job(
-            &crate::tools::background_jobs::job_id(&job),
+        let cancelled = app_lib::tools::background_jobs::wait_for_job(
+            &app_lib::tools::background_jobs::job_id(&job),
             Some(1_000),
             Some(&conversation_id),
         )
@@ -1165,8 +1163,8 @@ mod tests {
         .expect("wait cancelled conversation job");
         assert_eq!(cancelled["job"]["status"], "cancelled");
 
-        let still_running = crate::tools::background_jobs::wait_for_job(
-            &crate::tools::background_jobs::job_id(&other_job),
+        let still_running = app_lib::tools::background_jobs::wait_for_job(
+            &app_lib::tools::background_jobs::job_id(&other_job),
             Some(10),
             Some(&other_conversation_id),
         )
@@ -1181,39 +1179,39 @@ mod tests {
         assert_eq!(still_running["job"]["status"], "in_progress");
         assert_eq!(
             still_running["usage"]["waitAgain"]["arguments"]["timeoutMs"],
-            json!(crate::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
+            json!(app_lib::tools::background_jobs::DEFAULT_WAIT_TIMEOUT_MS)
         );
 
-        crate::tools::background_jobs::cancel_conversation_jobs(&other_conversation_id);
+        app_lib::tools::background_jobs::cancel_conversation_jobs(&other_conversation_id);
     }
 
     #[tokio::test]
     async fn test_background_jobs_prune_terminal_jobs_without_pruning_in_progress() {
         let conversation_id = format!("test-bg-prune-{}", uuid::Uuid::new_v4());
-        let old_job = crate::tools::background_jobs::start_job_for_conversation(
+        let old_job = app_lib::tools::background_jobs::start_job_for_conversation(
             "test_old",
             Some(conversation_id.clone()),
         );
-        let old_job_id = crate::tools::background_jobs::job_id(&old_job);
-        crate::tools::background_jobs::complete_job(&old_job, Ok(json!({ "old": true })));
-        crate::tools::background_jobs::age_completed_job_for_test(
+        let old_job_id = app_lib::tools::background_jobs::job_id(&old_job);
+        app_lib::tools::background_jobs::complete_job(&old_job, Ok(json!({ "old": true })));
+        app_lib::tools::background_jobs::age_completed_job_for_test(
             &old_job_id,
-            crate::conversation_store_utils::now_unix_ms() - 10_000,
+            app_lib::conversation_store_utils::now_unix_ms() - 10_000,
         );
 
-        let active_job = crate::tools::background_jobs::start_job_for_conversation(
+        let active_job = app_lib::tools::background_jobs::start_job_for_conversation(
             "test_active",
             Some(conversation_id.clone()),
         );
-        let active_job_id = crate::tools::background_jobs::job_id(&active_job);
+        let active_job_id = app_lib::tools::background_jobs::job_id(&active_job);
 
-        let removed = crate::tools::background_jobs::prune_jobs_for_test(1, 200);
+        let removed = app_lib::tools::background_jobs::prune_jobs_for_test(1, 200);
         assert!(
             removed >= 1,
             "at least the artificially aged terminal job should be pruned"
         );
 
-        let jobs = crate::tools::background_jobs::list_jobs(Some(&conversation_id));
+        let jobs = app_lib::tools::background_jobs::list_jobs(Some(&conversation_id));
         let jobs = jobs["jobs"].as_array().expect("jobs array");
         assert!(
             jobs.iter()
@@ -1225,21 +1223,21 @@ mod tests {
                 && job.get("status").and_then(|value| value.as_str()) == Some("in_progress")
         }));
 
-        crate::tools::background_jobs::cancel_conversation_jobs(&conversation_id);
+        app_lib::tools::background_jobs::cancel_conversation_jobs(&conversation_id);
     }
 
     #[tokio::test]
     async fn test_tool_catalog_includes_conversation_dynamic_tool_alias() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let conversation_id = format!("test-dynamic-tools-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .expect("ensure conversation");
         conversation_store::update_conversation_dynamic_tools(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
             vec![conversation_store::ConversationDynamicTool {
                 name: "math_alias".to_string(),
@@ -1260,11 +1258,11 @@ mod tests {
         )
         .expect("persist dynamic tools");
 
-        let config = crate::config::AppConfig::default();
+        let config = app_lib::config::AppConfig::default();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog
             .snapshot(&ToolExecutionContext::with_conversation_id(
@@ -1294,7 +1292,7 @@ mod tests {
         assert_eq!(result["result"].as_f64(), Some(19.0));
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .ok();
@@ -1302,16 +1300,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_dynamic_mcp_tool_alias_defaults_to_layout_grid_icon() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let conversation_id = format!("test-dynamic-mcp-tools-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .expect("ensure conversation");
         conversation_store::update_conversation_dynamic_tools(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
             vec![conversation_store::ConversationDynamicTool {
                 name: "docs_search".to_string(),
@@ -1339,9 +1337,9 @@ mod tests {
             .servers
             .insert("openai_docs".to_string(), McpServerConfig::default());
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog
             .snapshot(&ToolExecutionContext::with_conversation_id(
@@ -1357,7 +1355,7 @@ mod tests {
         );
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .ok();
@@ -1372,9 +1370,9 @@ mod tests {
             .insert("openai_docs".to_string(), McpServerConfig::default());
 
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
@@ -1410,9 +1408,9 @@ mod tests {
             .insert("openai_docs".to_string(), McpServerConfig::default());
 
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let mut mounted_servers = MountedToolSourceSessions::new();
         mounted_servers.insert(
@@ -1482,9 +1480,9 @@ mod tests {
         };
 
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &AppConfig::default(),
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         )
         .with_plugin_manifests(vec![plugin_manifest])
         .expect("plugin manifest should validate");
@@ -1510,7 +1508,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_home_plugin_package_is_exposed_and_executable() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let home = setup_test_home();
         let plugin_dir = home.home.join("plugins").join("home-demo");
         std::fs::create_dir_all(&plugin_dir).expect("create plugin dir");
@@ -1558,9 +1556,9 @@ globalThis.AgentJaxPlugin = {
         .expect("write plugin manifest");
 
         let catalog = ToolCatalog::new_with_home_plugins(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &AppConfig::default(),
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let context = ToolExecutionContext::with_conversation_id("conversation-1".to_string());
         let snapshot = catalog
@@ -1580,16 +1578,16 @@ globalThis.AgentJaxPlugin = {
 
     #[tokio::test]
     async fn test_snapshot_restores_persisted_mounted_mcp_server_from_conversation_metadata() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
         let conversation_id = format!("test-mounted-mcp-{}", uuid::Uuid::new_v4());
         conversation_store::ensure_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .expect("ensure conversation");
         conversation_store::update_conversation_mounted_tool_sources(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
             vec![conversation_store::ConversationMountedToolSource {
                 source_id: "openai_docs".to_string(),
@@ -1616,9 +1614,9 @@ globalThis.AgentJaxPlugin = {
             .servers
             .insert("openai_docs".to_string(), McpServerConfig::default());
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog
             .snapshot(&ToolExecutionContext::with_conversation_id(
@@ -1638,7 +1636,7 @@ globalThis.AgentJaxPlugin = {
         );
 
         conversation_store::delete_conversation(
-            crate::config::constants::DEFAULT_AGENT_ID,
+            app_lib::config::constants::DEFAULT_AGENT_ID,
             &conversation_id,
         )
         .ok();
@@ -1646,7 +1644,7 @@ globalThis.AgentJaxPlugin = {
 
     #[tokio::test]
     async fn test_unfolded_mcp_server_bypasses_control_tool_and_exposes_tools() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
 
         let mut config = AppConfig::default();
@@ -1658,10 +1656,10 @@ globalThis.AgentJaxPlugin = {
             },
         );
 
-        let mut agent_config = crate::config::AgentConfig::default();
+        let mut agent_config = app_lib::config::AgentConfig::default();
         agent_config.tool_manager.mcp_tools.insert(
             "unfolded_server".to_string(),
-            crate::config::McpToolSourcePolicyConfig {
+            app_lib::config::McpToolSourcePolicyConfig {
                 enabled: true,
                 exposure: Some("unfolded".to_string()),
                 tools: Default::default(),
@@ -1669,7 +1667,7 @@ globalThis.AgentJaxPlugin = {
         );
 
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
             &agent_config,
         );
@@ -1691,9 +1689,9 @@ globalThis.AgentJaxPlugin = {
             .insert("openai_docs".to_string(), McpServerConfig::default());
 
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.tool_manager_snapshot(Default::default()).await;
 
@@ -1715,7 +1713,7 @@ globalThis.AgentJaxPlugin = {
             .expect("calculator tool exists in manager snapshot");
         assert_eq!(
             calculator.schema_format,
-            crate::tools::catalog::ToolManagerSchemaFormat::JsonSchema
+            app_lib::tools::catalog::ToolManagerSchemaFormat::JsonSchema
         );
         assert_eq!(
             calculator.policy_paths.tool_enabled_path.as_deref(),
@@ -1739,7 +1737,7 @@ globalThis.AgentJaxPlugin = {
             .expect("configured MCP source exists");
         assert_eq!(
             mcp_source.source_type,
-            crate::tools::catalog::ToolManagerSourceType::Mcp
+            app_lib::tools::catalog::ToolManagerSourceType::Mcp
         );
         assert_eq!(mcp_source.status, "configured");
         assert_eq!(
@@ -1763,12 +1761,12 @@ globalThis.AgentJaxPlugin = {
             .insert("broken".to_string(), McpServerConfig::default());
 
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog
-            .tool_manager_snapshot(crate::tools::ToolManagerSnapshotRequest {
+            .tool_manager_snapshot(app_lib::tools::ToolManagerSnapshotRequest {
                 source_id: Some("broken".to_string()),
                 discover: true,
                 conversation_id: None,
@@ -1821,7 +1819,7 @@ globalThis.AgentJaxPlugin = {
 
         let config = AppConfig::default();
 
-        let agent_config = crate::config::AgentConfig {
+        let agent_config = app_lib::config::AgentConfig {
             tool_manager: ToolManagerConfig {
                 native_tools: [(
                     "calculator".to_string(),
@@ -1849,7 +1847,7 @@ globalThis.AgentJaxPlugin = {
             ..Default::default()
         };
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
             &agent_config,
         )
@@ -1883,7 +1881,7 @@ globalThis.AgentJaxPlugin = {
             ToolEnabledConfig { enabled: true },
         );
         let reenabled_catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
             &reenabled_agent,
         );
@@ -1899,7 +1897,7 @@ globalThis.AgentJaxPlugin = {
 
     #[tokio::test]
     async fn test_tool_manager_mcp_exposure_unfolded_replaces_control_with_server_tools() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let home = setup_test_home();
         let server_script = home.home.join("mock-mcp-server.js");
         std::fs::write(
@@ -1957,7 +1955,7 @@ rl.on('line', (line) => {
             },
         );
 
-        let mut agent_config = crate::config::AgentConfig::default();
+        let mut agent_config = app_lib::config::AgentConfig::default();
         agent_config.tool_manager.mcp_tools.insert(
             "openai_docs".to_string(),
             McpToolSourcePolicyConfig {
@@ -1967,7 +1965,7 @@ rl.on('line', (line) => {
             },
         );
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
             &agent_config,
         );
@@ -1989,11 +1987,11 @@ rl.on('line', (line) => {
 
     #[tokio::test]
     async fn test_catalog_includes_llm_map() {
-        let config = crate::config::AppConfig::default();
+        let config = app_lib::config::AppConfig::default();
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &config,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
         let snapshot = catalog.snapshot(&ToolExecutionContext::default()).await;
 
@@ -2016,7 +2014,7 @@ rl.on('line', (line) => {
 
     #[tokio::test]
     async fn test_llm_map_rejects_empty_input() {
-        let tool = crate::lcm::LlmMapTool;
+        let tool = app_lib::lcm::LlmMapTool;
         let ctx = ToolExecutionContext::default();
         let args = serde_json::json!({
             "inputPath": "/nonexistent/file.jsonl",
@@ -2037,7 +2035,7 @@ rl.on('line', (line) => {
     /// snapshot → execute_with_effects → kb_manager_from_ctx → KB manager.
     #[tokio::test]
     async fn test_kb_list_smoke_with_app_config_in_context() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
 
         // Build an AppConfig with RAG enabled and a KB entry.
@@ -2045,10 +2043,10 @@ rl.on('line', (line) => {
         app_config.rag.enabled = true;
         app_config.rag.knowledge_bases.insert(
             "smoke-test-kb".to_string(),
-            crate::config::KnowledgeBaseEntry {
+            app_lib::config::KnowledgeBaseEntry {
                 name: "Smoke Test KB".to_string(),
                 path: "/tmp/smoke-test-kb".to_string(),
-                path_type: crate::config::KbPathType::Folder,
+                path_type: app_lib::config::KbPathType::Folder,
                 disabled_agents: vec![],
             },
         );
@@ -2057,9 +2055,9 @@ rl.on('line', (line) => {
 
         // Build the tool catalog (KB tools are registered by default).
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &app_config_arc,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
 
         // Simulate the exact context the engine builds: with app_config, agent_id.
@@ -2067,7 +2065,7 @@ rl.on('line', (line) => {
             conversation_id: Some(format!("kb-smoke-{}", uuid::Uuid::new_v4())),
             agent_id: Some("default".to_string()),
             app_config: Some(Arc::clone(&app_config_arc)),
-            agent_config: Some(Arc::new(crate::config::AgentConfig::default())),
+            agent_config: Some(Arc::new(app_lib::config::AgentConfig::default())),
             ..Default::default()
         };
 
@@ -2103,13 +2101,13 @@ rl.on('line', (line) => {
     /// Verify `kb_list` fails with a clear error when app_config is missing.
     #[tokio::test]
     async fn test_kb_list_errors_without_app_config() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
 
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &AppConfig::default(),
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
 
         // Context WITHOUT app_config — should fail gracefully.
@@ -2140,17 +2138,17 @@ rl.on('line', (line) => {
     /// Verify `kb_search` rejects access when agent is in disabled_agents.
     #[tokio::test]
     async fn test_kb_search_rejects_disabled_agent() {
-        let _guard = crate::config::test_env_lock().lock().await;
+        let _guard = app_lib::config::test_env_lock().lock().await;
         let _home = setup_test_home();
 
         let mut app_config = AppConfig::default();
         app_config.rag.enabled = true;
         app_config.rag.knowledge_bases.insert(
             "restricted-kb".to_string(),
-            crate::config::KnowledgeBaseEntry {
+            app_lib::config::KnowledgeBaseEntry {
                 name: "Restricted KB".to_string(),
                 path: "/tmp/restricted-kb".to_string(),
-                path_type: crate::config::KbPathType::Folder,
+                path_type: app_lib::config::KbPathType::Folder,
                 disabled_agents: vec!["default".to_string()],
             },
         );
@@ -2158,9 +2156,9 @@ rl.on('line', (line) => {
         let app_config_arc = Arc::new(app_config);
 
         let catalog = ToolCatalog::new(
-            Arc::new(crate::mcp::McpManager::new()),
+            Arc::new(app_lib::mcp::McpManager::new()),
             &app_config_arc,
-            &crate::config::AgentConfig::default(),
+            &app_lib::config::AgentConfig::default(),
         );
 
         // Agent "default" is in disabled_agents
@@ -2168,7 +2166,7 @@ rl.on('line', (line) => {
             conversation_id: Some(format!("kb-restricted-{}", uuid::Uuid::new_v4())),
             agent_id: Some("default".to_string()),
             app_config: Some(Arc::clone(&app_config_arc)),
-            agent_config: Some(Arc::new(crate::config::AgentConfig::default())),
+            agent_config: Some(Arc::new(app_lib::config::AgentConfig::default())),
             ..Default::default()
         };
 
@@ -2192,4 +2190,4 @@ rl.on('line', (line) => {
             "Error should mention not accessible, got: {err_msg}"
         );
     }
-}
+
