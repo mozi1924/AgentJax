@@ -110,10 +110,17 @@ pub async fn run_tool_loop(
                     "output": output,
                 })
             } else {
+                let output_payload = serde_json::json!({
+                    "ok": false,
+                    "tool": tc.name,
+                    "error": {
+                        "message": format!("unknown tool '{}'", tc.name),
+                    }
+                });
                 serde_json::json!({
                     "type": "function_call_output",
                     "call_id": tc.call_id,
-                    "output": format!("Error: unknown tool '{}'", tc.name),
+                    "output": serde_json::to_string(&output_payload).unwrap_or_default(),
                 })
             };
             continuation.push(result_item);

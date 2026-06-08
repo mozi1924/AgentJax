@@ -90,8 +90,7 @@ pub fn save_items(conversation_id: &str, items: &[Arc<Mutex<StreetItem>>]) -> Ag
 
     let owned: Vec<StreetItem> = items
         .iter()
-        .filter_map(|arc| arc.lock().ok())
-        .map(|guard| guard.clone())
+        .map(|arc| arc.lock().unwrap_or_else(|p| p.into_inner()).clone())
         .collect();
 
     jsonl_store::write_lines(&path, &owned, "notification")

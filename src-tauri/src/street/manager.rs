@@ -55,20 +55,17 @@ fn notifiers() -> &'static Mutex<HashMap<String, Arc<tokio::sync::Notify>>> {
 pub struct StreetManager;
 
 impl StreetManager {
-    /// Ensure items for a conversation have been loaded from persistent storage.
-    ///
-    /// Called at the start of every read operation (`collect_pending`,
-    /// `get_pending_count`, `get_pending_snapshots`) so that persisted items
-    /// from previous sessions are available in the in-memory registry.
     fn ensure_loaded(conversation_id: &str) {
-        let mut loaded = loaded_set()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if loaded.contains(conversation_id) {
-            return;
-        }
+        {
+            let loaded = loaded_set()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if loaded.contains(conversation_id) {
+                return;
+            }
+        } // Drop loaded lock immediately!
 
-        // Load persisted items from disk.
+        // Load persisted items from disk without holding loaded lock.
         let persisted = match crate::street::persist::load_items(conversation_id) {
             Ok(items) => items,
             Err(e) => {
@@ -92,6 +89,10 @@ impl StreetManager {
             }
         }
 
+        // Re-acquire loaded lock to mark as loaded.
+        let mut loaded = loaded_set()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         loaded.insert(conversation_id.to_string());
     }
 
@@ -125,10 +126,8 @@ impl StreetManager {
         while items.len() >= MAX_ITEMS_PER_CONVERSATION {
             // Remove the oldest terminal item.
             if let Some(pos) = items.iter().position(|i| {
-                i.lock()
-                    .ok()
-                    .map(|i| i.status.is_terminal())
-                    .unwrap_or(false)
+                let guard = i.lock().unwrap_or_else(|p| p.into_inner());
+                guard.status.is_terminal()
             }) {
                 items.remove(pos);
             } else {
@@ -136,7 +135,10 @@ impl StreetManager {
                 if let Some(pos) = items
                     .iter()
                     .enumerate()
-                    .min_by_key(|(_, i)| i.lock().ok().map(|i| i.timestamp).unwrap_or(i64::MAX))
+                    .min_by_key(|(_, i)| {
+                        let guard = i.lock().unwrap_or_else(|p| p.into_inner());
+                        guard.timestamp
+                    })
                     .map(|(idx, _)| idx)
                 {
                     items.remove(pos);
@@ -183,13 +185,12 @@ impl StreetManager {
                 items
                     .iter()
                     .filter_map(|item| {
-                        item.lock().ok().and_then(|i| {
-                            if i.status == StreetItemStatus::Pending {
-                                Some(i.clone())
-                            } else {
-                                None
-                            }
-                        })
+                        let i = item.lock().unwrap_or_else(|p| p.into_inner());
+                        if i.status == StreetItemStatus::Pending {
+                            Some(i.clone())
+                        } else {
+                            None
+                        }
                     })
                     .collect()
             })
@@ -216,9 +217,8 @@ impl StreetManager {
         let mut count = 0usize;
         let changed = if let Some(items) = guard.get(conversation_id) {
             for item in items {
-                if let Ok(mut i) = item.lock()
-                    && i.status == StreetItemStatus::Pending
-                {
+                let mut i = item.lock().unwrap_or_else(|p| p.into_inner());
+                if i.status == StreetItemStatus::Pending {
                     i.status = StreetItemStatus::Delivered;
                     count += 1;
                 }
@@ -261,10 +261,8 @@ impl StreetManager {
         let mut found = false;
         if let Some(items) = guard.get(conversation_id) {
             for item in items {
-                if let Ok(mut i) = item.lock()
-                    && i.id == item_id
-                    && i.status == StreetItemStatus::Pending
-                {
+                let mut i = item.lock().unwrap_or_else(|p| p.into_inner());
+                if i.id == item_id && i.status == StreetItemStatus::Pending {
                     i.status = StreetItemStatus::Dismissed;
                     found = true;
                     break;
@@ -300,10 +298,8 @@ impl StreetManager {
                 items
                     .iter()
                     .filter(|item| {
-                        item.lock()
-                            .ok()
-                            .map(|i| i.status == StreetItemStatus::Pending)
-                            .unwrap_or(false)
+                        let i = item.lock().unwrap_or_else(|p| p.into_inner());
+                        i.status == StreetItemStatus::Pending
                     })
                     .count()
             })
@@ -345,20 +341,19 @@ impl StreetManager {
                 items
                     .iter()
                     .filter_map(|item| {
-                        item.lock().ok().and_then(|i| {
-                            if i.status == StreetItemStatus::Pending {
-                                Some(StreetSnapshot {
-                                    id: i.id.clone(),
-                                    source: i.source.as_str().to_string(),
-                                    priority: i.priority.as_str().to_string(),
-                                    title: i.title.clone(),
-                                    timestamp: i.timestamp,
-                                    status: i.status.as_str().to_string(),
-                                })
-                            } else {
-                                None
-                            }
-                        })
+                        let i = item.lock().unwrap_or_else(|p| p.into_inner());
+                        if i.status == StreetItemStatus::Pending {
+                            Some(StreetSnapshot {
+                                id: i.id.clone(),
+                                source: i.source.as_str().to_string(),
+                                priority: i.priority.as_str().to_string(),
+                                title: i.title.clone(),
+                                timestamp: i.timestamp,
+                                status: i.status.as_str().to_string(),
+                            })
+                        } else {
+                            None
+                        }
                     })
                     .collect()
             })
