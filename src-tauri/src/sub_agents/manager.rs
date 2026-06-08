@@ -37,8 +37,8 @@ pub(crate) const HARD_MAX_TURNS: usize = usize::MAX;
 
 /// Maximum concurrent sub-agent executions (across all conversations).
 /// This is the fallback used when no `SubAgentConfig` has been provided.
-/// `usize::MAX` means "effectively unlimited concurrency".
-pub(crate) const MAX_CONCURRENT_SUB_AGENTS: usize = usize::MAX;
+/// `Semaphore::MAX_PERMITS` means "effectively unlimited concurrency".
+pub(crate) const MAX_CONCURRENT_SUB_AGENTS: usize = tokio::sync::Semaphore::MAX_PERMITS;
 
 static SUB_AGENT_SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
 
@@ -46,7 +46,7 @@ static SUB_AGENT_SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
 ///
 /// Should be called during startup (or whenever an agent config is loaded) with
 /// the configured `sub_agent.max_concurrent` value.  A value of `0` means
-/// "unlimited" — the semaphore is created with [`usize::MAX`] permits.
+/// "unlimited" — the semaphore is created with [`Semaphore::MAX_PERMITS`] permits.
 ///
 /// Once initialized, the semaphore capacity is fixed for the lifetime of the
 /// process — subsequent calls are silently ignored (the first call wins).
@@ -55,7 +55,7 @@ static SUB_AGENT_SEMAPHORE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
 /// [`MAX_CONCURRENT_SUB_AGENTS`] so there is always a safe default.
 pub(crate) fn init_sub_agent_semaphore(max_concurrent: usize) {
     let permits = if max_concurrent == 0 {
-        usize::MAX
+        tokio::sync::Semaphore::MAX_PERMITS
     } else {
         max_concurrent
     };
