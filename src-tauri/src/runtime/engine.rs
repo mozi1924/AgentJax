@@ -171,10 +171,35 @@ impl super::AgentRuntime {
         {
             prefix_builder.push(kb_item);
         }
+
+        // Collect Street notifications for the hop 1 prefix.
+        // This handles single-hop turns where the safe-boundary injection
+        // inside the hop loop is never reached.
+        let mut street_prefix_items = tctx.street_items.clone();
+        if tctx.agent.context_management.street_enabled {
+            let pending = crate::street::StreetManager::collect_pending(
+                tctx.conversation_id,
+            );
+            if !pending.is_empty() {
+                let count = pending.len();
+                let formatted = crate::street::format_street_items(&pending);
+                street_prefix_items.push(crate::street::build_street_context_item(
+                    count, &formatted,
+                ));
+                crate::street::StreetManager::mark_delivered(
+                    tctx.conversation_id,
+                );
+                log::info!(
+                    "Street: injected {} notification(s) in hop 1 prefix",
+                    count,
+                );
+            }
+        }
+
         let hop_prefix = build_hop_prefix(
             prefix_builder,
             tctx.recovery_note.clone(),
-            tctx.street_items.clone(),
+            street_prefix_items,
         );
 
         // ── State accumulators ───────────────────────────────────────────
@@ -405,6 +430,35 @@ impl super::AgentRuntime {
             }
             accumulated_context.extend(hop_delta.clone());
             accumulator.absorb_continuation_batch(&hop_delta);
+
+            // ── Street injection at safe boundary ──────────────────────
+            // After tool results are accumulated and before the model
+            // starts its next reasoning hop, inject any pending Street
+            // notifications.  This is the ONLY safe insertion point:
+            //   CoT → tool_call → tool_result ✅ ← HERE → CoT → ...
+            // Inserting anywhere else would break Chat Completions
+            // function_call / function_call_output pairing.
+            if tctx.agent.context_management.street_enabled {
+                let pending = crate::street::StreetManager::collect_pending(
+                    tctx.conversation_id,
+                );
+                if !pending.is_empty() {
+                    let count = pending.len();
+                    let formatted = crate::street::format_street_items(&pending);
+                    let street_item = crate::street::build_street_context_item(
+                        count, &formatted,
+                    );
+                    crate::street::StreetManager::mark_delivered(
+                        tctx.conversation_id,
+                    );
+                    accumulated_context.push(street_item);
+                    log::info!(
+                        "Street: injected {} notification(s) at safe boundary (hop {})",
+                        count,
+                        turn_idx,
+                    );
+                }
+            }
 
             if *tctx.cancel_rx.borrow() {
                 break 'turn_loop;

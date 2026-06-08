@@ -438,21 +438,12 @@ pub async fn chat_stream(
         }
 
         // ── Collect Street notifications ────────────────────────────────────
-        let street_dev_items: Vec<Value> = if agent_config.context_management.street_enabled {
-            let pending = crate::street::StreetManager::collect_pending(&conversation_id);
-            if !pending.is_empty() {
-                let count = pending.len();
-                let formatted = crate::street::format_street_items(&pending);
-                crate::street::StreetManager::mark_delivered(&conversation_id);
-                vec![crate::street::build_street_context_item(
-                    count, &formatted,
-                )]
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
+        // Delivered at safe boundaries within the engine's hop loop
+        // (after tool results, before the model's next reasoning).
+        // Pass an empty vec here — the engine injects Street items at
+        // yield points where function_call / function_call_output
+        // pairing won't be disrupted.
+        let street_dev_items: Vec<Value> = Vec::new();
 
         let loop_window = window.clone();
         let loop_request_id = request_id.clone();
