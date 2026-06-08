@@ -143,13 +143,6 @@ export default function App() {
         onRenameConversation={renameConversation}
         onDeleteConversation={requestDeleteConversation}
         generatingConversationIds={generatingConversationIds}
-        agents={agents}
-        activeAgentId={activeAgentId}
-        activeAgent={activeAgent}
-        agentsLoading={agentsLoading}
-        onSwitchAgent={switchAgent}
-        onCreateAgent={createAgent}
-        onDeleteAgent={deleteAgent}
       />
 
       <AppHeader
@@ -164,6 +157,10 @@ export default function App() {
         onSelectReasoningMode={selectReasoningMode}
         configPath={configPath}
         cachePath={cachePath}
+        agents={agents}
+        activeAgentId={activeAgentId}
+        activeAgent={activeAgent}
+        onSwitchAgent={switchAgent}
       />
 
       <main className="flex h-full flex-1 flex-col pt-12">

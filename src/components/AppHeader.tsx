@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import { ChevronDown, ChevronRight, Menu } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, Menu } from 'lucide-react';
 import {
   DEFAULT_REASONING_MODE,
 } from '../features/models/modelCatalog';
 import type { ModelOption } from '../features/conversations/types';
+import type { AgentSummary } from '../hooks/useActiveAgent';
 import { useI18n } from '../features/i18n';
 
 const formatReasoningLabel = (value: string, t: (key: string) => string) => {
@@ -56,6 +57,11 @@ interface AppHeaderProps {
   onSelectReasoningMode: (value: string) => void;
   configPath: string;
   cachePath: string;
+  // Agent management
+  agents: AgentSummary[];
+  activeAgentId: string;
+  activeAgent: AgentSummary | null;
+  onSwitchAgent: (agentId: string) => void;
 }
 
 export default function AppHeader({
@@ -70,6 +76,10 @@ export default function AppHeader({
   onSelectReasoningMode,
   configPath,
   cachePath,
+  agents,
+  activeAgentId,
+  activeAgent,
+  onSwitchAgent,
 }: AppHeaderProps) {
   const { t } = useI18n();
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
@@ -155,7 +165,7 @@ export default function AppHeader({
             }
           >
             <span className="truncate">
-              AgentJax {formatModelDisplayName(selectedModelOption) || selectedModel}
+              {activeAgent?.label || activeAgentId} / {formatModelDisplayName(selectedModelOption) || selectedModel}
             </span>
             {selectedReasoningLabel && (
               <span className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2 py-0.5 text-[11px] text-indigo-200">
@@ -170,6 +180,44 @@ export default function AppHeader({
               onMouseLeave={handleMouseLeaveDropdown}
               className="absolute left-0 top-10 z-50 w-[320px] rounded-2xl border border-[#2d2f31] bg-[#1e1f20] p-2 shadow-2xl"
             >
+              {/* ── Agent selection ── */}
+              <div className="mb-1 border-b border-[#2d2f31]/60 px-3 py-1.5 text-[11px] font-semibold tracking-[0.2em] text-slate-500 uppercase">
+                {t('header.agent')}
+              </div>
+              <div className="grid gap-0.5 mb-1">
+                {agents.map((agent) => {
+                  const isActive = agent.id === activeAgentId;
+                  return (
+                    <button
+                      key={agent.id}
+                      onClick={() => {
+                        if (agent.id !== activeAgentId) {
+                          onSwitchAgent(agent.id);
+                        }
+                        setModelDropdownOpen(false);
+                      }}
+                      onMouseEnter={() => handleMouseEnterRow(null)}
+                      className={`flex w-full cursor-pointer items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-xs transition ${
+                        isActive
+                          ? 'bg-indigo-500/10 font-medium text-indigo-200'
+                          : 'text-slate-300 hover:bg-[#2d2f31]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Bot className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                        <span className="truncate">{agent.label || agent.id}</span>
+                      </div>
+                      {isActive && (
+                        <Check className="h-3.5 w-3.5 shrink-0 text-indigo-400" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="border-t border-[#2d2f31]/40 my-1" />
+
+              {/* ── Reasoning ── */}
               <div
                 onMouseEnter={() => {
                   if (hasReasoningSupport) {
@@ -224,7 +272,6 @@ export default function AppHeader({
                         <span className="font-sans text-[10px] text-indigo-200">✓</span>
                       )}
                     </button>
-
                     {reasoningOptions.map((level) => (
                       <button
                         key={level}
@@ -251,6 +298,7 @@ export default function AppHeader({
 
               <div className="my-1 border-t border-[#2d2f31]/40" />
 
+              {/* ── Models ── */}
               {modelOptions.map((option) => {
                 const isSelected = option.profileKey === selectedModel;
 

@@ -7,6 +7,7 @@ import {
   isConversationEmpty,
   shouldShowConversationInSidebar,
 } from '../features/conversations/conversationUtils';
+import { restoreConversationPreview } from '../features/conversations/conversationState';
 import type {
   Conversation,
   ConversationDetail,
@@ -15,7 +16,6 @@ import type {
 import {
   applyLoadedConversationDetail,
   applyManualConversationRename,
-  mergeStoredConversationsWithDrafts,
   rebuildConversationListAfterDeletion,
 } from '../features/conversations/sessionState';
 
@@ -25,12 +25,19 @@ interface UseConversationRegistryOptions {
 }
 
 export function useConversationRegistry({ selectedModelId, agentId }: UseConversationRegistryOptions) {
-  const initialConversation = useMemo(() => createLocalConversation(), []);
+  const initialConversation = useMemo(() => createLocalConversation(), [agentId]);
   const [conversations, setConversations] = useState<Conversation[]>(() => [initialConversation]);
   const [conversationToDelete, setConversationToDelete] = useState<Conversation | null>(null);
   const [activeConversationId, setActiveConversationId] = useState(
     initialConversation.conversationId
   );
+
+  // Reset conversation state when switching agents
+  useEffect(() => {
+    const fresh = createLocalConversation();
+    setConversations([fresh]);
+    setActiveConversationId(fresh.conversationId);
+  }, [agentId]);
 
   const activeConversation = useMemo(
     () =>
@@ -63,9 +70,14 @@ export function useConversationRegistry({ selectedModelId, agentId }: UseConvers
           return;
         }
 
-        setConversations((prevConversations) =>
-          mergeStoredConversationsWithDrafts(prevConversations, storedConversations)
-        );
+        setConversations((prevConversations) => {
+          // Only keep the fresh local draft (first item), replace stored conversations
+          const localDrafts = prevConversations.filter(
+            (c) => c.lines.length === 0 && !storedConversations.some((s) => s.conversationId === c.conversationId)
+          );
+          const restored = storedConversations.map(restoreConversationPreview);
+          return [...localDrafts, ...restored];
+        });
       })
       .catch(() => {
         // Keep local fallback conversation list when backend history is unavailable.
