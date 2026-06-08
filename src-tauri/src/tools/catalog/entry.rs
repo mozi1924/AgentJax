@@ -27,8 +27,10 @@ pub(crate) enum ToolCategory {
     /// Context/LCM/memory tools — forced enabled; some gated by the
     /// agent's memory configuration or sub-agent type.
     Context,
-    /// Knowledge Base tools (kb_list, kb_search, kb_get, kb_index) —
-    /// enablement controlled via `tool_manager.context_tools.*`.
+    /// Knowledge Base tools (kb_list, kb_search, kb_get) -
+    /// enablement controlled via tool_manager.context_tools config.
+    /// Note: kb_index is intentionally excluded from the agent catalog;
+    /// KB content is managed exclusively by the user via Settings UI.
     KnowledgeBase,
 }
 

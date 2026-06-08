@@ -4,5 +4,5 @@
 //! of the KB tools is now `crate::knowledge_base::tools`.
 
 pub use crate::knowledge_base::tools::{
-    KbGetTool, KbIndexTool, KbListTool, KbSearchTool,
+    KbGetTool, KbListTool, KbSearchTool,
 };

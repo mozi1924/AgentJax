@@ -1,16 +1,15 @@
 //! Knowledge base tools — `kb_list`, `kb_search`, `kb_get`, `kb_index`.
 //!
 //! These tools give the agent the ability to list available knowledge bases,
-//! perform hybrid (keyword + vector) searches, retrieve documents, and index
-//! new content into a knowledge base.
+//! perform hybrid (keyword + vector) searches, and retrieve documents.
+//! Knowledge base content is managed exclusively by the user through
+//! the Settings UI — agents have read-only access.</newString>
 
 use crate::error::{AgentJaxError, AgentJaxResult};
 use crate::knowledge_base::manager::KnowledgeBaseManager;
-use crate::rag::types::Document;
 use crate::tools::{Tool, ToolExecutionContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
 use tokio::sync::Mutex;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -313,111 +312,6 @@ impl Tool for KbGetTool {
     }
 }
 
-// ── KbIndexTool ─────────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct KbIndexArgs {
-    /// The knowledge base ID to index into.
-    kb_id: String,
-    /// The document ID (unique identifier within this KB).
-    document_id: String,
-    /// The document content to index (markdown recommended).
-    content: String,
-    /// Optional metadata (title, source, tags, etc.).
-    #[serde(default)]
-    metadata: BTreeMap<String, String>,
-}
-
-pub struct KbIndexTool;
-
-#[async_trait::async_trait]
-impl Tool for KbIndexTool {
-    fn name(&self) -> &'static str {
-        "kb_index"
-    }
-
-    fn description(&self) -> &'static str {
-        "Index a document into a knowledge base. This is a long-running \
-         operation that chunks, embeds, and stores the document. \
-         Documents are deduplicated by content hash — re-indexing \
-         identical content is a no-op. Returns progress information."
-    }
-
-    fn display_name(&self) -> &'static str {
-        "Index KB Document"
-    }
-
-    fn icon(&self) -> Option<&'static str> {
-        Some("Upload")
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "kbId": {
-                    "type": "string",
-                    "description": "The knowledge base ID to index into."
-                },
-                "documentId": {
-                    "type": "string",
-                    "description": "A unique identifier for this document within the KB (e.g., a filename or slug)."
-                },
-                "content": {
-                    "type": "string",
-                    "description": "The full document content to index. Markdown format is recommended for best chunking results."
-                },
-                "metadata": {
-                    "type": "object",
-                    "description": "Optional key-value metadata (e.g., {\"title\": \"My Doc\", \"source\": \"url\", \"tags\": \"ai,ml\"}).",
-                    "additionalProperties": { "type": "string" }
-                }
-            },
-            "required": ["kbId", "documentId", "content"]
-        })
-    }
-
-    async fn execute(
-        &self,
-        arguments: &Value,
-        context: &ToolExecutionContext,
-    ) -> AgentJaxResult<Value> {
-        let args: KbIndexArgs = serde_json::from_value(arguments.clone())
-            .map_err(|e| format!("Invalid arguments for kb_index: {e}"))?;
-
-        let guard = get_or_init_kb_manager(context).await?;
-        let manager = guard
-            .as_ref()
-            .ok_or_else(|| AgentJaxError::tool("KB manager not initialized"))?;
-        let app_config = context
-            .app_config
-            .as_ref()
-            .ok_or_else(|| AgentJaxError::tool("No app config"))?;
-        let agent_id = context
-            .agent_id
-            .as_deref()
-            .unwrap_or("unknown");
-
-        if !manager.is_kb_accessible(&args.kb_id, agent_id) {
-            return Err(AgentJaxError::tool(format!(
-                "Knowledge base '{}' is not accessible by this agent profile",
-                args.kb_id
-            )));
-        }
-
-        let document = Document {
-            id: args.document_id,
-            content: args.content,
-            metadata: args.metadata,
-        };
-
-        let progress = manager.index_document(&args.kb_id, document, app_config).await?;
-
-        Ok(serde_json::to_value(&progress).unwrap_or_default())
-    }
-}
-
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -447,15 +341,5 @@ mod tests {
         let required = schema["required"].as_array().unwrap();
         assert!(required.iter().any(|v| v.as_str() == Some("kbId")));
         assert!(required.iter().any(|v| v.as_str() == Some("documentId")));
-    }
-
-    #[test]
-    fn test_kb_index_schema() {
-        let tool = KbIndexTool;
-        let schema = tool.parameters_schema();
-        let required = schema["required"].as_array().unwrap();
-        assert!(required.iter().any(|v| v.as_str() == Some("kbId")));
-        assert!(required.iter().any(|v| v.as_str() == Some("documentId")));
-        assert!(required.iter().any(|v| v.as_str() == Some("content")));
     }
 }

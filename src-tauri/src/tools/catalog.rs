@@ -19,7 +19,7 @@ use crate::plugin_runtime::{
 };
 use crate::tools::archived_tool::ArchivedTool;
 use crate::tools::knowledge_base_tools::{
-    KbGetTool, KbIndexTool, KbListTool, KbSearchTool,
+    KbGetTool, KbListTool, KbSearchTool,
 };
 use crate::tools::memory_tools::{MemoryRecallTool, MemorySearchTool, MemoryWriteTool};
 use crate::tools::sub_agent_tools::SubAgentTool;
@@ -116,11 +116,13 @@ impl ToolCatalog {
                     Arc::new(MemoryRecallTool),
                     ContextGating::MemoryEnabled,
                 ),
-                // ── Knowledge Base tools ────────────────────────────────
+                // ── Knowledge Base tools (read-only for agents) ────────
+                // kb_index is intentionally NOT registered here —
+                // knowledge base content is managed exclusively by the
+                // user through Settings → Knowledge Bases.
                 ToolEntry::kb(Arc::new(KbListTool)),
                 ToolEntry::kb(Arc::new(KbSearchTool)),
                 ToolEntry::kb(Arc::new(KbGetTool)),
-                ToolEntry::kb(Arc::new(KbIndexTool)),
                 // ── Archived tool (dummy carrier) ──────────────────────
                 // Always enabled — carries archived context so the
                 // archiver can emit valid function_call / output pairs
