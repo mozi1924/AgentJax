@@ -210,12 +210,42 @@ fn scan_markdown_files(dir: &Path, files: &mut Vec<ScannedFile>) -> AgentJaxResu
 ///
 /// Scans the configured path for markdown files and re-indexes all documents.
 /// Emits `kb_indexing_progress` events to the frontend for real-time progress.
-/// This is a long-running operation for large KBs.
+///
+/// ## Concurrency
+///
+/// Only one indexing operation per KB is allowed at a time. Calling this
+/// while the same KB is already indexing returns an error. Different KBs
+/// can be indexed in parallel.
+///
+/// ## Cancellation
+///
+/// Use `cancel_kb_indexing` to stop an in-progress indexing operation.
+/// Cancellation is also triggered automatically when a KB is deleted.
 #[tauri::command]
 pub async fn refresh_knowledge_base(
     app_handle: tauri::AppHandle,
     kb_id: String,
 ) -> Result<Value, AgentJaxError> {
+    // ── Acquire per-KB indexing lock ──────────────────────────────────
+    let token = crate::knowledge_base::indexing::acquire(&kb_id).map_err(|msg| {
+        AgentJaxError::config(msg)
+    })?;
+
+    // Ensure the lock is released on exit (success, error, or panic).
+    let _guard = KbIndexingGuard { kb_id: kb_id.clone() };
+
+    // ── Helper: check cancellation ────────────────────────────────────
+    let check_cancel = || -> AgentJaxResult<()> {
+        if token.is_cancelled() {
+            Err(AgentJaxError::config(format!(
+                "Indexing of '{}' was cancelled",
+                kb_id
+            )))
+        } else {
+            Ok(())
+        }
+    };
+
     let full_config = load_active_config()?;
     let app_config = Arc::new(full_config.shared.clone());
 
@@ -271,7 +301,7 @@ pub async fn refresh_knowledge_base(
     let mut total_docs = 0;
     let mut total_chunks = 0;
 
-    match entry.path_type {
+    let result = match entry.path_type {
         KbPathType::File => {
             let file_name = resolved_path
                 .file_stem()
@@ -284,7 +314,8 @@ pub async fn refresh_knowledge_base(
                 AgentJaxError::config(format!("Failed to read file '{}': {e}", resolved_path.display()))
             })?;
 
-            // Get file modification time for incremental detection.
+            check_cancel()?;
+
             let _modified_at = std::fs::metadata(&resolved_path)
                 .ok()
                 .and_then(|m| m.modified().ok())
@@ -302,18 +333,17 @@ pub async fn refresh_knowledge_base(
                 Ok(progress) => {
                     total_docs += 1;
                     total_chunks += progress.chunks_created;
-                    emit_progress("done", 1, 1, "", total_chunks, true, None);
+                    Ok(())
                 }
                 Err(e) => {
                     log::error!("Failed to index single-file KB '{}': {e}", kb_id);
-                    emit_progress("done", 0, 1, "", 0, true, Some(e.to_string()));
-                    return Err(e);
+                    Err(e)
                 }
             }
         }
         KbPathType::Folder => {
             // ═══════════════════════════════════════════════════════════
-            // Phase 1: Scanning — find .md files and read their contents
+            // Phase 1: Scanning
             // ═══════════════════════════════════════════════════════════
             let mut md_files: Vec<std::path::PathBuf> = Vec::new();
             scan_markdown_files_for_indexing(&resolved_path, &mut md_files)?;
@@ -365,16 +395,23 @@ pub async fn refresh_knowledge_base(
             }
 
             total_docs = documents.len();
+            check_cancel()?;
 
             // ═══════════════════════════════════════════════════════════
-            // Phase 2: Chunking — split docs into chunks, store in FTS
+            // Phase 2: Chunking
             // ═══════════════════════════════════════════════════════════
             let app_handle3 = app_handle.clone();
             let kb_id3 = kb_id.clone();
             let total_docs_chunk = total_docs;
+            let token_chunk = token.clone();
 
             let prepared_chunks = kb_manager
                 .prepare_kb(&kb_id, &documents, move |idx, total, doc_id| {
+                    // Check cancellation during chunking (coarse-grained,
+                    // checked between documents by prepare_kb).
+                    if token_chunk.is_cancelled() {
+                        return;
+                    }
                     let _ = app_handle3.emit(
                         "kb_indexing_progress",
                         KnowledgeIndexingProgress {
@@ -390,7 +427,9 @@ pub async fn refresh_knowledge_base(
                     );
                 })
                 .await?;
-            // Signal chunking complete.
+
+            check_cancel()?;
+
             emit_progress(
                 "chunking",
                 total_docs_chunk,
@@ -407,19 +446,23 @@ pub async fn refresh_knowledge_base(
             );
 
             // ═══════════════════════════════════════════════════════════
-            // Phase 3: Embedding — generate vectors via embedding API
+            // Phase 3: Embedding
             // ═══════════════════════════════════════════════════════════
             let unembedded = kb_manager.unembedded_chunk_count(&kb_id).await.unwrap_or(0);
             if unembedded > 0 && !kb_manager.is_embedding_disabled() {
                 let app_handle2 = app_handle.clone();
                 let kb_id2 = kb_id.clone();
                 let total_docs_embed = total_docs;
+                let token_embed = token.clone();
 
                 match kb_manager
                     .embed_prepared_chunks(
                         &kb_id,
                         &app_config,
                         move |processed, total| {
+                            if token_embed.is_cancelled() {
+                                return;
+                            }
                             let _ = app_handle2.emit(
                                 "kb_indexing_progress",
                                 KnowledgeIndexingProgress {
@@ -439,52 +482,86 @@ pub async fn refresh_knowledge_base(
                 {
                     Ok(embedded_count) => {
                         total_chunks = embedded_count;
+                        Ok(())
                     }
                     Err(e) => {
                         log::error!(
                             "KB '{}' embedding phase failed: {}. FTS index is available, vector index may be incomplete.",
                             kb_id, e
                         );
-                        emit_progress(
-                            "done",
-                            total_docs,
-                            total_docs,
-                            "",
-                            unembedded,
-                            true,
-                            Some(format!(
-                                "Embedding partially failed: {}. FTS-only search is available.",
-                                e
-                            )),
-                        );
-                        return Ok(serde_json::json!({
-                            "kbId": kb_id,
-                            "totalDocuments": total_docs,
-                            "totalChunks": unembedded,
-                            "warning": format!("Embedding phase failed: {}", e),
-                        }));
+                        Err(e)
                     }
                 }
             } else {
-                // No unembedded chunks, or embedding is disabled.
                 total_chunks = prepared_chunks;
-                if kb_manager.is_embedding_disabled() && prepared_chunks > 0 {
-                    log::info!(
-                        "KB '{}': embedding disabled, FTS-only ({} chunks)",
-                        kb_id, prepared_chunks
-                    );
-                }
+                Ok(())
+            }
+        }
+    };
+
+    match result {
+        Ok(()) => {
+            emit_progress("done", total_docs, total_docs, "", total_chunks, true, None);
+            Ok(serde_json::json!({
+                "kbId": kb_id,
+                "totalDocuments": total_docs,
+                "totalChunks": total_chunks,
+            }))
+        }
+        Err(e) => {
+            let is_cancelled = token.is_cancelled();
+            emit_progress(
+                "done",
+                total_docs,
+                total_docs,
+                "",
+                total_chunks,
+                true,
+                Some(if is_cancelled {
+                    "Indexing cancelled".to_string()
+                } else {
+                    e.to_string()
+                }),
+            );
+            if is_cancelled {
+                Ok(serde_json::json!({
+                    "kbId": kb_id,
+                    "totalDocuments": total_docs,
+                    "totalChunks": total_chunks,
+                    "cancelled": true,
+                }))
+            } else {
+                Err(e)
             }
         }
     }
+}
 
-    emit_progress("done", total_docs, total_docs, "", total_chunks, true, None);
+/// RAII guard that releases the per-KB indexing lock on drop.
+struct KbIndexingGuard {
+    kb_id: String,
+}
 
-    Ok(serde_json::json!({
-        "kbId": kb_id,
-        "totalDocuments": total_docs,
-        "totalChunks": total_chunks,
-    }))
+impl Drop for KbIndexingGuard {
+    fn drop(&mut self) {
+        crate::knowledge_base::indexing::release(&self.kb_id);
+    }
+}
+
+/// Cancel an in-progress indexing operation for a knowledge base.
+///
+/// If no indexing is in progress for the given KB, this is a no-op.
+/// Called by the frontend when the user clicks "Cancel" or when a KB
+/// is deleted while indexing.
+#[tauri::command]
+pub async fn cancel_kb_indexing(kb_id: String) -> Result<bool, AgentJaxError> {
+    Ok(crate::knowledge_base::indexing::cancel(&kb_id))
+}
+
+/// List KBs currently being indexed (for UI status display).
+#[tauri::command]
+pub async fn list_active_indexing_kb_ids() -> Result<Vec<String>, AgentJaxError> {
+    Ok(crate::knowledge_base::indexing::active_indexing_kb_ids())
 }
 
 /// Helper to recursively find markdown files for indexing.

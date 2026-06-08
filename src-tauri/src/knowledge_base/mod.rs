@@ -22,6 +22,7 @@
 
 pub mod commands;
 pub mod file_watcher;
+pub mod indexing;
 pub mod manager;
 pub mod preretrieval;
 pub mod tools;

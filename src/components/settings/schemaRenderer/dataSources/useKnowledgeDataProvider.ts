@@ -35,6 +35,7 @@ interface KbProgressState {
   done: boolean;
   error: string | null;
   startedAt: number;
+  cancelled?: boolean;
 }
 
 const asRecord = (value: unknown): Record<string, unknown> =>
@@ -50,9 +51,11 @@ const asRecord = (value: unknown): Record<string, unknown> =>
  * Exposed data sources:
  *   - `knowledgeManager.kbs` — KnowledgeBaseStatus[] (list with index status)
  *   - `knowledgeManager.indexingProgress` — Map<string, KbProgressState> (per-KB progress)
+ *   - `knowledgeManager.kbProgress.<kbId>` — KbProgressState | null (single KB progress)
  *
  * Actions:
  *   - `refreshKb` — trigger re-indexing of a KB
+ *   - `cancelKb` — cancel an in-progress indexing operation
  *   - `refreshAll` — reload the status list
  */
 export function useKnowledgeDataProvider({
@@ -159,10 +162,7 @@ export function useKnowledgeDataProvider({
       if (action === 'refreshKb') {
         const kbId = String(record.value || item.id || '');
         if (!kbId) return;
-        // Mark as actively refreshing so the event listener knows to
-        // auto-reload status when the progress stream signals done.
         activeRefreshRef.current.add(kbId);
-        // Clear any stale progress for this KB.
         setIndexingProgress((prev) => {
           const next = new Map(prev);
           next.delete(kbId);
@@ -172,7 +172,6 @@ export function useKnowledgeDataProvider({
           await invoke('refresh_knowledge_base', { kbId });
         } catch (err) {
           console.error('Failed to refresh KB:', err);
-          // Mark as error in progress state
           setIndexingProgress((prev) => {
             const next = new Map(prev);
             next.set(kbId, {
@@ -189,6 +188,25 @@ export function useKnowledgeDataProvider({
             return next;
           });
           activeRefreshRef.current.delete(kbId);
+        }
+        return;
+      }
+
+      if (action === 'cancelKb') {
+        const kbId = String(record.value || item.id || '');
+        if (!kbId) return;
+        try {
+          await invoke('cancel_kb_indexing', { kbId });
+          // Mark as cancelled in progress state
+          setIndexingProgress((prev) => {
+            const existing = prev.get(kbId);
+            if (!existing) return prev;
+            const next = new Map(prev);
+            next.set(kbId, { ...existing, cancelled: true });
+            return next;
+          });
+        } catch (err) {
+          console.error('Failed to cancel KB indexing:', err);
         }
         return;
       }

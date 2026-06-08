@@ -190,6 +190,8 @@ pub fn run() {
             crate::knowledge_base::commands::list_knowledge_bases,
             crate::knowledge_base::commands::scan_knowledge_base_path,
             crate::knowledge_base::commands::refresh_knowledge_base,
+            crate::knowledge_base::commands::cancel_kb_indexing,
+            crate::knowledge_base::commands::list_active_indexing_kb_ids,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
