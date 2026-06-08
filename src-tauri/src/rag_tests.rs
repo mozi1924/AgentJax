@@ -251,7 +251,7 @@ SQLite FTS5 作为全文搜索引擎。
 
     // Search for something that should match
     let results = kb_manager
-        .search(kb_id, "LanceDB 向量数据库", 5, &full_config.shared)
+        .search(kb_id, "LanceDB 向量数据库", 5, 0, &full_config.shared)
         .await
         .expect("search KB");
 
@@ -280,7 +280,7 @@ SQLite FTS5 作为全文搜索引擎。
     // ── Verify keyword search also works ────────────────────────────────
 
     let kw_results = kb_manager
-        .search(kb_id, "SQLite FTS5 全文搜索", 3, &full_config.shared)
+        .search(kb_id, "SQLite FTS5 全文搜索", 3, 0, &full_config.shared)
         .await
         .expect("keyword search KB");
 

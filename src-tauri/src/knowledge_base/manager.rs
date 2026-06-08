@@ -752,13 +752,15 @@ impl KnowledgeBaseManager {
 
     /// Hybrid search: combine vector similarity with keyword search.
     ///
-    /// Uses reciprocal rank fusion (RRF) to merge results from both stores.
-    /// The `top_k` parameter controls the final number of results returned.
+    /// Uses weighted reciprocal rank fusion (RRF) to merge results from
+    /// both stores. The `top_k` parameter caps results; `offset` enables
+    /// pagination.
     pub async fn search(
         &self,
         kb_id: &str,
         query: &str,
         top_k: usize,
+        offset: usize,
         app_config: &AppConfig,
     ) -> AgentJaxResult<Vec<HybridSearchResult>> {
         let kb = self.open_kb(kb_id).await?;
@@ -791,7 +793,7 @@ impl KnowledgeBaseManager {
 
                 let (vec_results, fts_results) = tokio::join!(
                     kb.vector_store.search(&query_vector, &vec_config),
-                    async { kb.fts_store.search_fts(query, top_k * 2) },
+                    async { kb.fts_store.search_fts(query, top_k * 2 + offset, 0) },
                 );
 
                 let vec_results = vec_results.unwrap_or_default();
@@ -832,7 +834,9 @@ impl KnowledgeBaseManager {
                         .partial_cmp(&a.1 .0)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 });
-                fused.truncate(top_k);
+                // Apply offset then limit
+                let start = offset.min(fused.len());
+                fused = fused.into_iter().skip(start).take(top_k).collect();
 
                 let results: Vec<HybridSearchResult> = fused
                     .into_iter()
@@ -864,7 +868,7 @@ impl KnowledgeBaseManager {
             }
             None => {
                 // ── FTS5-only fallback ──
-                let fts_results = kb.fts_store.search_fts(query, top_k)?;
+                let fts_results = kb.fts_store.search_fts(query, top_k, offset)?;
                 let results: Vec<HybridSearchResult> = fts_results
                     .into_iter()
                     .map(|r| {

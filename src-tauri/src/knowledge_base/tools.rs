@@ -126,11 +126,19 @@ impl Tool for KbListTool {
 struct KbSearchArgs {
     /// The knowledge base ID to search.
     kb_id: String,
-    /// The search query text.
+    /// The search query text. Supports syntax:
+    /// - `term1 term2` — AND match (both must appear)
+    /// - `"exact phrase"` — exact phrase match
+    /// - `term1 OR term2` — OR match (either)
+    /// - `-term` — exclude term
+    /// - `term*` — prefix match
     query: String,
     /// Number of results to return (default: 10, max: 50).
     #[serde(default = "default_top_k")]
     top_k: usize,
+    /// Offset for pagination (default: 0). Use with topK to page through results.
+    #[serde(default)]
+    offset: usize,
 }
 
 fn default_top_k() -> usize {
@@ -147,8 +155,10 @@ impl Tool for KbSearchTool {
 
     fn description(&self) -> &'static str {
         "Search a knowledge base using hybrid (keyword + semantic) retrieval. \
-         Returns the most relevant document chunks ranked by combined score. \
-         Use kb_list first to discover available knowledge base IDs."
+         Returns chunks ranked by combined relevance score (BM25 + vector cosine). \
+         Supports query syntax: AND (default), OR, \"exact phrase\", -exclude, term* prefix. \
+         Use kb_list first to discover available knowledge base IDs. \
+         Use offset with topK for pagination."
     }
 
     fn display_name(&self) -> &'static str {
@@ -169,12 +179,17 @@ impl Tool for KbSearchTool {
                 },
                 "query": {
                     "type": "string",
-                    "description": "The search query — natural language or keywords."
+                    "description": "Search query. Supports AND (default), OR, \"phrase\", -exclude, term* prefix."
                 },
                 "topK": {
                     "type": "integer",
-                    "description": "Number of results (default 10, max 50).",
+                    "description": "Max results to return (default 10, max 50).",
                     "default": 10
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Skip first N results for pagination (default 0).",
+                    "default": 0
                 }
             },
             "required": ["kbId", "query"]
@@ -190,6 +205,7 @@ impl Tool for KbSearchTool {
             .map_err(|e| format!("Invalid arguments for kb_search: {e}"))?;
 
         let top_k = args.top_k.clamp(1, 50);
+        let offset = args.offset;
         let guard = get_or_init_kb_manager(context).await?;
         let manager = guard
             .as_ref()
@@ -210,7 +226,7 @@ impl Tool for KbSearchTool {
             )));
         }
 
-        let results = manager.search(&args.kb_id, &args.query, top_k, app_config).await?;
+        let results = manager.search(&args.kb_id, &args.query, top_k, offset, app_config).await?;
 
         Ok(serde_json::to_value(&results).unwrap_or_default())
     }

@@ -371,12 +371,19 @@ impl FtsStore {
 
     /// Search chunks using SQLite FTS5 with BM25 scoring.
     ///
-    /// Returns results ordered by relevance (BM25 score). The `limit`
-    /// parameter caps the number of returned results.
+    /// Supports pagination via `offset`. Results are ordered by relevance
+    /// (BM25 score, lower = better). The query supports FTS5 syntax:
+    ///
+    /// - `term1 term2` — AND (both must match)
+    /// - `"exact phrase"` — phrase match
+    /// - `term1 OR term2` — OR
+    /// - `-term` — exclude (NOT)
+    /// - `term*` — prefix match
     pub fn search_fts(
         &self,
         query: &str,
         limit: usize,
+        offset: usize,
     ) -> AgentJaxResult<Vec<FtsSearchResult>> {
         let conn = self.lock_conn()?;
         let fts_query = build_fts_query(query);
@@ -388,14 +395,14 @@ impl FtsStore {
                     JOIN documents d ON c.document_id = d.id
                     WHERE chunks_fts MATCH ?1
                     ORDER BY bm25_score
-                    LIMIT ?2";
+                    LIMIT ?2 OFFSET ?3";
 
         let mut stmt = conn
             .prepare(sql)
             .map_err(|e| AgentJaxError::embedding(format!("FTS query prep failed: {e}")))?;
 
         let rows = stmt
-            .query_map(params![fts_query, limit as i64], |row| {
+            .query_map(params![fts_query, limit as i64, offset as i64], |row| {
                 Ok(FtsSearchResult {
                     chunk_id: row.get(0)?,
                     document_id: row.get(1)?,
@@ -489,29 +496,105 @@ fn extract_title(content: &str) -> String {
 
 /// Build an FTS5-safe query string from user input.
 ///
-/// Escapes special FTS5 characters and wraps multi-word queries
-/// appropriately for substring matching.
+/// ## Supported syntax
+///
+/// | Input | FTS5 | Meaning |
+/// |-------|------|---------|
+/// | `term1 term2` | `"term1"* AND "term2"*` | both must match |
+/// | `"exact phrase"` | `"exact phrase"` | exact phrase match |
+/// | `term1 OR term2` | `"term1"* OR "term2"*` | either matches |
+/// | `-term` | `NOT "term"*` | exclude term |
+/// | `term*` | `"term"*` | prefix match (default) |
+///
+/// Special FTS5 characters (`"`, `'`) are escaped. Empty input returns
+/// a match-all wildcard.
 fn build_fts_query(pattern: &str) -> String {
-    // Escape double-quotes (used for exact phrase matching in FTS5).
-    let cleaned = pattern.replace('"', "\"\"").replace('\'', "''");
-
-    if cleaned.is_empty() {
+    if pattern.trim().is_empty() {
         return "*".to_string();
     }
 
-    // Split into words and quote each one for prefix matching
-    let words: Vec<String> = cleaned
-        .split_whitespace()
-        .map(|w| {
-            if w.starts_with('"') && w.ends_with('"') {
-                w.to_string() // Already quoted exact phrase
-            } else {
-                format!("\"{}\"*", w.replace('"', "")) // Prefix match
-            }
-        })
-        .collect();
+    // Check for explicit OR — if present, split on OR and treat each side
+    // as an independent sub-query joined with OR.
+    if pattern.contains(" OR ") {
+        return pattern
+            .split(" OR ")
+            .map(|part| build_fts_query(part.trim()))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+    }
 
-    words.join(" AND ")
+    // Tokenize, handling:
+    // - quoted phrases ("exact match")
+    // - negation (-term)
+    // - plain words
+    let mut tokens: Vec<String> = Vec::new();
+    let mut chars = pattern.chars().peekable();
+
+    while let Some(&ch) = chars.peek() {
+        if ch.is_whitespace() {
+            chars.next();
+            continue;
+        }
+        if ch == '"' {
+            // Quoted phrase — collect until closing quote
+            chars.next(); // consume opening "
+            let mut phrase = String::new();
+            while let Some(&c) = chars.peek() {
+                chars.next();
+                if c == '"' {
+                    break;
+                }
+                phrase.push(c);
+            }
+            if !phrase.is_empty() {
+                // Escape any embedded double-quotes in the phrase
+                let escaped = phrase.replace('"', "\"\"");
+                tokens.push(format!("\"{escaped}\""));
+            }
+        } else if ch == '-' {
+            // Negation
+            chars.next(); // consume -
+            let mut word = String::new();
+            while let Some(&c) = chars.peek() {
+                if c.is_whitespace() {
+                    break;
+                }
+                chars.next();
+                word.push(c);
+            }
+            if !word.is_empty() {
+                let escaped = word.replace('"', "\"\"");
+                tokens.push(format!("NOT \"{escaped}\"*"));
+            }
+        } else {
+            // Plain word
+            let mut word = String::new();
+            while let Some(&c) = chars.peek() {
+                if c.is_whitespace() || c == '"' {
+                    break;
+                }
+                chars.next();
+                word.push(c);
+            }
+            if !word.is_empty() {
+                let escaped = word.replace('"', "\"\"");
+                // If word already ends with *, it's an explicit prefix query
+                if word.ends_with('*') {
+                    let stem = word.trim_end_matches('*');
+                    tokens.push(format!("\"{stem}\"*"));
+                } else {
+                    tokens.push(format!("\"{escaped}\"*"));
+                }
+            }
+        }
+    }
+
+    if tokens.is_empty() {
+        return "*".to_string();
+    }
+
+    // Default: AND all tokens together
+    tokens.join(" AND ")
 }
 
 /// Compute a simple content hash for deduplication.
@@ -618,6 +701,35 @@ mod tests {
     fn test_build_fts_query_empty() {
         let q = build_fts_query("");
         assert_eq!(q, "*");
+    }
+
+    #[test]
+    fn test_build_fts_query_exact_phrase() {
+        let q = build_fts_query("\"machine learning\"");
+        assert!(q.contains("\"machine learning\""));
+        // Exact phrase should not have trailing *
+        assert!(!q.contains("\"machine learning\"*"));
+    }
+
+    #[test]
+    fn test_build_fts_query_or() {
+        let q = build_fts_query("rust OR python");
+        assert!(q.contains("OR"));
+        assert!(q.contains("\"rust\"*"));
+        assert!(q.contains("\"python\"*"));
+    }
+
+    #[test]
+    fn test_build_fts_query_negation() {
+        let q = build_fts_query("rust -wasm");
+        assert!(q.contains("NOT \"wasm\"*"));
+        assert!(q.contains("\"rust\"*"));
+    }
+
+    #[test]
+    fn test_build_fts_query_prefix() {
+        let q = build_fts_query("embed*");
+        assert!(q.contains("\"embed\"*"));
     }
 
     #[test]

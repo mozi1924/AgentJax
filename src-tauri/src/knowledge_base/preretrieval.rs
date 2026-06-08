@@ -49,7 +49,7 @@ pub(crate) async fn build_kb_context_item(
         }
         let remaining = max_total_chunks - all_chunks.len();
         let k = per_kb.min(remaining);
-        match kb_manager.search(&kb_info.id, user_query, k, config).await {
+        match kb_manager.search(&kb_info.id, user_query, k, 0, config).await {
             Ok(results) => {
                 for r in results {
                     all_chunks.push(format!(

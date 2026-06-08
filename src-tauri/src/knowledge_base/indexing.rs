@@ -107,54 +107,59 @@ mod tests {
 
     #[test]
     fn test_acquire_release() {
-        let kb_id = "test-kb-lock";
-        let token = acquire(kb_id).expect("first acquire should succeed");
-        assert!(is_indexing(kb_id));
+        let kb_id = format!("test-kb-{}", uuid::Uuid::new_v4());
+        let token = acquire(&kb_id).expect("first acquire should succeed");
+        assert!(is_indexing(&kb_id));
 
         // Second acquire should fail.
-        let second = acquire(kb_id);
+        let second = acquire(&kb_id);
         assert!(second.is_err());
 
-        release(kb_id);
-        assert!(!is_indexing(kb_id));
+        release(&kb_id);
+        assert!(!is_indexing(&kb_id));
 
         // After release, can acquire again.
         drop(token);
-        let third = acquire(kb_id);
+        let third = acquire(&kb_id);
         assert!(third.is_ok());
-        release(kb_id);
+        release(&kb_id);
     }
 
     #[test]
     fn test_cancel_sets_token() {
-        let kb_id = "test-kb-cancel";
-        let token = acquire(kb_id).expect("acquire should succeed");
+        let kb_id = format!("test-kb-{}", uuid::Uuid::new_v4());
+        let token = acquire(&kb_id).expect("acquire should succeed");
         assert!(!token.is_cancelled());
 
-        let did_cancel = cancel(kb_id);
+        let did_cancel = cancel(&kb_id);
         assert!(did_cancel);
         assert!(token.is_cancelled());
-        assert!(!is_indexing(kb_id));
+        assert!(!is_indexing(&kb_id));
     }
 
     #[test]
     fn test_cancel_noop_when_not_indexing() {
-        let did_cancel = cancel("nonexistent-kb");
+        let did_cancel = cancel(&format!("nonexistent-{}", uuid::Uuid::new_v4()));
         assert!(!did_cancel);
     }
 
     #[test]
     fn test_active_list() {
-        let a = acquire("kb-a").unwrap();
-        let b = acquire("kb-b").unwrap();
+        let id_a = format!("kb-a-{}", uuid::Uuid::new_v4());
+        let id_b = format!("kb-b-{}", uuid::Uuid::new_v4());
+        let a = acquire(&id_a).unwrap();
+        let b = acquire(&id_b).unwrap();
         let mut ids = active_indexing_kb_ids();
         ids.sort();
-        assert_eq!(ids, vec!["kb-a", "kb-b"]);
+        assert!(ids.contains(&id_a));
+        assert!(ids.contains(&id_b));
 
-        release("kb-a");
-        release("kb-b");
+        release(&id_a);
+        release(&id_b);
         drop(a);
         drop(b);
-        assert!(active_indexing_kb_ids().is_empty());
+        // Only our IDs should be gone; others from parallel tests may remain.
+        assert!(!is_indexing(&id_a));
+        assert!(!is_indexing(&id_b));
     }
 }
