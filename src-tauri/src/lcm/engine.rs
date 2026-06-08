@@ -1091,29 +1091,88 @@ impl LcmEngine {
                     // ── Assistant: inject thinking content ───────────────
                     // Must come BEFORE output text / tool calls so the model
                     // sees its prior chain-of-thought when continuing.
-                    let emitted_thinking = if *role == crate::lcm::types::MessageRole::Assistant
+                    //
+                    // When `output_item_order` metadata is present (set by
+                    // `persist_hop_assistant_messages`), use it to preserve
+                    // the original interleaving of reasoning and function_calls.
+                    // Without it, reasoning always precedes all function_calls.
+                    let item_order: Option<Vec<String>> = metadata
+                        .get("output_item_order")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| serde_json::from_str(s).ok());
+
+                    let has_item_order = item_order.is_some();
+
+                    // Emit items in the stored order if available.
+                    if *role == crate::lcm::types::MessageRole::Assistant
+                        && let Some(ref order) = item_order
+                        && !order.is_empty()
+                    {
+                        let tool_calls: Vec<serde_json::Value> = metadata
+                            .get("tool_calls_json")
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| serde_json::from_str(s).ok())
+                            .unwrap_or_default();
+
+                        let reasoning_text = thinking.as_deref().unwrap_or("");
+                        let reasoning_segments: Vec<&str> = reasoning_text
+                            .split('\n')
+                            .filter(|s| !s.trim().is_empty())
+                            .collect();
+
+                        let mut tc_idx = 0usize;
+                        let mut rs_idx = 0usize;
+
+                        for kind in order {
+                            match kind.as_str() {
+                                "reasoning" => {
+                                    if let Some(seg) = reasoning_segments.get(rs_idx) {
+                                        let trimmed = seg.trim();
+                                        if !trimmed.is_empty() {
+                                            items.push(serde_json::json!({
+                                                "type": "reasoning",
+                                                "text": trimmed,
+                                            }));
+                                        }
+                                        rs_idx += 1;
+                                    }
+                                }
+                                "function_call" => {
+                                    if let Some(tc) = tool_calls.get(tc_idx) {
+                                        items.push(serde_json::json!({
+                                            "type": "function_call",
+                                            "call_id": tc.get("call_id").and_then(serde_json::Value::as_str).unwrap_or(""),
+                                            "name": tc.get("name").and_then(serde_json::Value::as_str).unwrap_or(""),
+                                            "arguments": tc.get("arguments").and_then(serde_json::Value::as_str).unwrap_or("{}"),
+                                        }));
+                                        tc_idx += 1;
+                                    }
+                                }
+                                _ => {} // "message" — emitted below
+                            }
+                        }
+
+                        // Fall through to emit assistant text below.
+                        // Tool calls already emitted in order, so skip
+                        // the default tool_calls emission.
+                    } else if *role == crate::lcm::types::MessageRole::Assistant
                         && let Some(t) = thinking
                     {
+                        // Legacy path: emit all thinking first.
                         let trimmed = t.trim();
                         if !trimmed.is_empty() {
                             items.push(serde_json::json!({
                                 "type": "reasoning",
                                 "text": trimmed,
                             }));
-                            true
-                        } else {
-                            false
                         }
-                    } else {
-                        false
-                    };
+                    }
 
                     // ── Assistant: emit embedded tool calls from metadata ──
-                    // The new storage pattern embeds tool calls directly in
-                    // the assistant message's tool_calls_json metadata rather
-                    // than storing them as separate rows. This preserves the
-                    // correct interleaving (reasoning → function_call → result).
-                    let emitted_tool_calls = if *role == crate::lcm::types::MessageRole::Assistant
+                    // Only emit here if we didn't already emit them in order above.
+                    let emitted_tool_calls: bool;
+                    if *role == crate::lcm::types::MessageRole::Assistant
+                        && !has_item_order
                     {
                         if let Some(tc_json) =
                             metadata.get("tool_calls_json").and_then(|v| v.as_str())
@@ -1129,12 +1188,24 @@ impl LcmEngine {
                                         "arguments": tc.get("arguments").and_then(serde_json::Value::as_str).unwrap_or("{}"),
                                     }));
                                 }
-                                !tool_calls.is_empty()
+                                emitted_tool_calls = !tool_calls.is_empty();
                             } else {
-                                false
+                                emitted_tool_calls = false;
                             }
                         } else {
-                            false
+                            emitted_tool_calls = false;
+                        }
+                    } else {
+                        emitted_tool_calls = has_item_order;
+                    }
+
+                    // Determine if thinking was emitted (for skip logic below).
+                    let emitted_thinking = if *role == crate::lcm::types::MessageRole::Assistant {
+                        if has_item_order {
+                            // Check if any "reasoning" was in the order.
+                            item_order.as_ref().map_or(false, |o| o.iter().any(|k| k == "reasoning"))
+                        } else {
+                            thinking.as_ref().map_or(false, |t| !t.trim().is_empty())
                         }
                     } else {
                         false

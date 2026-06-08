@@ -280,34 +280,82 @@ pub fn stored_message_to_provider_items(
         types::MessageRole::Assistant => {
             let mut items = Vec::with_capacity(3);
 
-            // 1. Inject thinking content if present.
-            let emitted_thinking = if let Some(ref t) = msg.thinking {
-                let trimmed = t.trim();
-                if !trimmed.is_empty() {
-                    items.push(serde_json::json!({
-                        "type": "reasoning",
-                        "text": trimmed,
-                    }));
-                    true
-                } else {
-                    false
+            // Check for output_item_order metadata (preserves interleaving
+            // of reasoning and function_calls set by persist_hop_assistant_messages).
+            let item_order: Option<Vec<String>> = msg
+                .metadata
+                .get("output_item_order")
+                .and_then(|v| v.as_str())
+                .and_then(|s| serde_json::from_str(s).ok());
+            let has_item_order = item_order.is_some();
+
+            if let Some(ref order) = item_order
+                && !order.is_empty()
+            {
+                let tool_calls: Vec<serde_json::Value> = msg
+                    .metadata
+                    .get("tool_calls_json")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| serde_json::from_str(s).ok())
+                    .unwrap_or_default();
+
+                let reasoning_text = msg.thinking.as_deref().unwrap_or("");
+                let reasoning_segments: Vec<&str> = reasoning_text
+                    .split('\n')
+                    .filter(|s| !s.trim().is_empty())
+                    .collect();
+
+                let mut tc_idx = 0usize;
+                let mut rs_idx = 0usize;
+
+                for kind in order {
+                    match kind.as_str() {
+                        "reasoning" => {
+                            if let Some(seg) = reasoning_segments.get(rs_idx) {
+                                let trimmed = seg.trim();
+                                if !trimmed.is_empty() {
+                                    items.push(serde_json::json!({
+                                        "type": "reasoning",
+                                        "text": trimmed,
+                                    }));
+                                }
+                                rs_idx += 1;
+                            }
+                        }
+                        "function_call" => {
+                            if let Some(tc) = tool_calls.get(tc_idx) {
+                                items.push(serde_json::json!({
+                                    "type": "function_call",
+                                    "call_id": tc.get("call_id").and_then(serde_json::Value::as_str).unwrap_or(""),
+                                    "name": tc.get("name").and_then(serde_json::Value::as_str).unwrap_or(""),
+                                    "arguments": tc.get("arguments").and_then(serde_json::Value::as_str).unwrap_or("{}"),
+                                }));
+                                tc_idx += 1;
+                            }
+                        }
+                        _ => {} // "message" — emitted below
+                    }
                 }
             } else {
-                false
-            };
+                // Legacy path: emit all thinking first.
+                if let Some(ref t) = msg.thinking {
+                    let trimmed = t.trim();
+                    if !trimmed.is_empty() {
+                        items.push(serde_json::json!({
+                            "type": "reasoning",
+                            "text": trimmed,
+                        }));
+                    }
+                }
 
-            // 2. Emit embedded tool calls from metadata.
-            //    The new storage pattern embeds tool calls directly in the
-            //    assistant message's tool_calls_json metadata so that the
-            //    correct interleaving (reasoning → function_call → result)
-            //    is preserved during context reconstruction.
-            let emitted_tool_calls = if let Some(tc_json) = msg
-                .metadata
-                .get("tool_calls_json")
-                .and_then(|v| v.as_str())
-            {
-                if let Ok(tool_calls) =
-                    serde_json::from_str::<Vec<serde_json::Value>>(tc_json)
+                // Emit all function_calls in the legacy order.
+                if !has_item_order
+                    && let Some(tc_json) = msg
+                        .metadata
+                        .get("tool_calls_json")
+                        .and_then(|v| v.as_str())
+                    && let Ok(tool_calls) =
+                        serde_json::from_str::<Vec<serde_json::Value>>(tc_json)
                 {
                     for tc in &tool_calls {
                         items.push(serde_json::json!({
@@ -317,22 +365,28 @@ pub fn stored_message_to_provider_items(
                             "arguments": tc.get("arguments").and_then(serde_json::Value::as_str).unwrap_or("{}"),
                         }));
                     }
-                    !tool_calls.is_empty()
-                } else {
-                    false
                 }
+            }
+
+            // Determine if thinking/tool_calls were emitted (for skip logic).
+            let emitted_thinking = if has_item_order {
+                item_order.as_ref().map_or(false, |o| o.iter().any(|k| k == "reasoning"))
             } else {
-                false
+                msg.thinking.as_ref().map_or(false, |t| !t.trim().is_empty())
+            };
+            let emitted_tool_calls = if has_item_order {
+                item_order.as_ref().map_or(false, |o| o.iter().any(|k| k == "function_call"))
+            } else {
+                msg.metadata.get("tool_calls_json").is_some()
             };
 
-            // 3. Skip empty-content assistant messages when thinking or
-            //    tool calls were already emitted. This prevents spurious
-            //    `{"role": "assistant", "content": []}` items.
+            // Skip empty-content assistant messages when thinking or
+            // tool calls were already emitted.
             if msg.content.trim().is_empty() && (emitted_thinking || emitted_tool_calls) {
                 return items;
             }
 
-            // 4. Emit assistant content message.
+            // Emit assistant content message.
             items.push(serde_json::json!({
                 "role": "assistant",
                 "content": [{"type": "output_text", "text": &msg.content}]

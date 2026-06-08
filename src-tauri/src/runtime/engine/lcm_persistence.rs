@@ -58,28 +58,132 @@ pub(crate) async fn persist_hop_assistant_messages(
     }
 
     // ── Extract reasoning/thinking from output_items ─────────────────────
-    let hop_thinking_text: Option<String> = {
-        let parts: Vec<&str> = output_items
-            .iter()
-            .filter(|item| item.get("type").and_then(Value::as_str) == Some("reasoning"))
-            .filter_map(|item| item.get("text").and_then(Value::as_str))
-            .filter(|text| !text.trim().is_empty())
-            .collect();
-        if parts.is_empty() {
+    // Reasoning segments are stored individually (not merged) so that
+    // `context_to_provider_items` can reconstruct the original interleaving
+    // of reasoning and function_calls.  Without this, post-tool-call
+    // reasoning (e.g. after a failed tool) would appear before the tool
+    // result in the reconstructed context.
+    let reasoning_segments: Vec<String> = output_items
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("reasoning"))
+        .filter_map(|item| item.get("text").and_then(Value::as_str))
+        .filter(|text| !text.trim().is_empty())
+        .map(|t| t.to_string())
+        .collect();
+
+    // Build an item-order manifest so context reconstruction can preserve
+    // the original interleaving: reasoning → fc → reasoning → fc → text.
+    let item_order: Vec<&str> = output_items
+        .iter()
+        .filter_map(|item| item.get("type").and_then(Value::as_str))
+        .filter(|t| matches!(*t, "reasoning" | "function_call" | "message"))
+        .collect();
+
+    // Pre-tool-call reasoning goes on the first assistant message (legacy
+    // compatibility).  Additional reasoning segments after the first
+    // function_call are stored as separate thinking-only assistant messages
+    // so they appear after the tool calls in reconstruction.
+    let pre_tool_reasoning: Option<String> = {
+        if reasoning_segments.is_empty() {
             None
         } else {
-            Some(parts.join("\n"))
+            // Find the index of the first function_call in item_order.
+            let first_fc_idx = item_order
+                .iter()
+                .position(|t| *t == "function_call");
+            match first_fc_idx {
+                Some(idx) if idx > 0 => {
+                    // Reasoning segments before the first function_call.
+                    let count = item_order[..idx]
+                        .iter()
+                        .filter(|t| **t == "reasoning")
+                        .count();
+                    if count > 0 {
+                        Some(reasoning_segments[..count].join("\n"))
+                    } else {
+                        None
+                    }
+                }
+                Some(_) => None, // No reasoning before first fc
+                None => {
+                    // No function_calls at all — all reasoning goes on
+                    // the first assistant message.
+                    Some(reasoning_segments.join("\n"))
+                }
+            }
         }
     };
 
-    // Attach thinking to the first assistant message.
-    if let Some(ref thinking_text) = hop_thinking_text
+    // Attach pre-tool-call thinking to the first assistant message.
+    if let Some(ref thinking_text) = pre_tool_reasoning
         && let Some(msg) = batch_messages
             .iter_mut()
             .find(|m| m.role == lcm::MessageRole::Assistant)
         {
             msg.thinking = Some(thinking_text.clone());
         }
+
+    // ── Store item order for interleaved reconstruction ────────────────
+    // The order manifest lets `context_to_provider_items` replay reasoning
+    // and function_calls in their original sequence, preserving CoT
+    // continuity when a tool fails and the model continues thinking.
+    if !item_order.is_empty()
+        && let Some(msg) = batch_messages
+            .iter_mut()
+            .find(|m| m.role == lcm::MessageRole::Assistant)
+        {
+            let order_json = serde_json::to_string(&item_order).unwrap_or_default();
+            if !order_json.is_empty() && order_json != "[]" {
+                msg.metadata.insert(
+                    "output_item_order".to_string(),
+                    Value::String(order_json),
+                );
+            }
+        }
+
+    // ── Post-tool-call reasoning as separate messages ──────────────────
+    // Reasoning that appears after the first function_call is stored as
+    // separate thinking-only assistant messages, placed AFTER the main
+    // assistant message(s).  This preserves the natural interleaving:
+    //   reasoning_1 → fc → [tool results] → reasoning_2 → fc → ...
+    {
+        let first_fc_idx = item_order
+            .iter()
+            .position(|t| *t == "function_call");
+        if let Some(fc_idx) = first_fc_idx {
+            let pre_fc_reasoning_count = item_order[..fc_idx]
+                .iter()
+                .filter(|t| **t == "reasoning")
+                .count();
+            // Reasoning segments after the pre-tool-call ones.
+            for segment in reasoning_segments.iter().skip(pre_fc_reasoning_count) {
+                let mut msg = StoredMessage::new(
+                    lcm::MessageId::new(),
+                    conversation_id,
+                    lcm::MessageRole::Assistant,
+                    "", // empty content — thinking-only message
+                    0, // token count will be estimated by LCM
+                    now_ms,
+                    0,
+                    turn_idx as u32,
+                );
+                msg.thinking = Some(segment.clone());
+                msg.metadata.insert(
+                    "request_id".to_string(),
+                    Value::String(request_id.to_string()),
+                );
+                msg.metadata.insert(
+                    "response_id".to_string(),
+                    Value::String(response_id.to_string()),
+                );
+                msg.metadata.insert(
+                    "thinking_only".to_string(),
+                    Value::String("true".to_string()),
+                );
+                batch_messages.push(msg);
+            }
+        }
+    }
 
     // ── Embed tool calls in the first assistant message ──────────────────
     {
@@ -142,7 +246,7 @@ pub(crate) async fn persist_hop_assistant_messages(
                 }
             })),
         );
-        if let Some(ref thinking_text) = hop_thinking_text {
+        if let Some(ref thinking_text) = pre_tool_reasoning {
             msg.thinking = Some(thinking_text.clone());
         }
         batch_messages.push(msg);
